@@ -2,6 +2,10 @@
 go = "1.26.4"
 goreleaser = "2.17.0"
 golangci-lint = "2.12.2"
+lefthook = "2.1.9"
+actionlint = "1.7.12"
+zizmor = "1.26.1"
+pinact = "4.1.0"
 
 [tasks.build]
 description = "Build the airplan binary (skipped when nothing changed)"
@@ -24,3 +28,24 @@ run = "golangci-lint run"
 [tasks.fmt]
 description = "Format Go code"
 run = "golangci-lint fmt"
+
+[tasks.check]
+description = "Fast confidence gate: lint + tests"
+depends = ["lint", "test"]
+
+[tasks.lint-workflows]
+description = "Validate GitHub Actions: syntax, security, SHA pins"
+run = [
+  "actionlint",
+  "zizmor --offline .github/workflows",
+  "pinact run --check",
+]
+
+[tasks.verify]
+description = "CI-equivalent validation before handoff"
+depends = ["check", "lint-workflows", "test-integration"]
+run = "goreleaser check"
+
+[tasks.setup]
+description = "Install tools and git hooks"
+run = ["mise install", "lefthook install"]
