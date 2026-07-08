@@ -22,17 +22,17 @@ const DefaultTimeout = 20 * time.Second
 // (SPEC.md §7). Boolean fields are pointers so profile merging can
 // distinguish "unset" from "false".
 type Settings struct {
-	Endpoint        string `toml:"endpoint"`
-	Bucket          string `toml:"bucket"`
-	Region          string `toml:"region"`
-	AccessKeyID     string `toml:"access_key_id"`
-	SecretAccessKey string `toml:"secret_access_key"`
-	PublicBaseURL   string `toml:"public_base_url"`
-	KeyPrefix       string `toml:"key_prefix"`
-	Template        string `toml:"template"`
-	NoSource        *bool  `toml:"no_source"`
-	Indexable       *bool  `toml:"indexable"`
-	Timeout         string `toml:"timeout"`
+	Endpoint        string `toml:"endpoint" json:"endpoint,omitempty" jsonschema_description:"S3-compatible API endpoint URL."`
+	Bucket          string `toml:"bucket" json:"bucket,omitempty" jsonschema_description:"Bucket where rendered plans are uploaded."`
+	Region          string `toml:"region" json:"region,omitempty" jsonschema_description:"S3 signing region; R2 commonly uses auto."`
+	AccessKeyID     string `toml:"access_key_id" json:"access_key_id,omitempty" jsonschema_description:"Access key ID for the S3-compatible endpoint."`
+	SecretAccessKey string `toml:"secret_access_key" json:"secret_access_key,omitempty" jsonschema_description:"Secret access key for the S3-compatible endpoint."`
+	PublicBaseURL   string `toml:"public_base_url" json:"public_base_url,omitempty" jsonschema_description:"Public base URL used to assemble share links."`
+	KeyPrefix       string `toml:"key_prefix" json:"key_prefix,omitempty" jsonschema_description:"Prefix prepended to uploaded object keys and remote listings."`
+	Template        string `toml:"template" json:"template,omitempty" jsonschema_description:"Path to the HTML template used for rendered pages."`
+	NoSource        *bool  `toml:"no_source" json:"no_source,omitempty" jsonschema_description:"Omit uploading the original source alongside rendered output."`
+	Indexable       *bool  `toml:"indexable" json:"indexable,omitempty" jsonschema_description:"Allow search indexing by omitting the noindex robots meta tag."`
+	Timeout         string `toml:"timeout" json:"timeout,omitempty" jsonschema_description:"Whole-invocation timeout as a Go duration or seconds; 0 disables it."`
 }
 
 // FileConfig is the on-disk shape of the TOML config file: shared
@@ -40,8 +40,8 @@ type Settings struct {
 // (SPEC.md §7).
 type FileConfig struct {
 	Settings
-	DefaultProfile string              `toml:"default_profile"`
-	Profiles       map[string]Settings `toml:"profiles"`
+	DefaultProfile string              `toml:"default_profile" json:"default_profile,omitempty" jsonschema_description:"Profile selected when no explicit profile is set."`
+	Profiles       map[string]Settings `toml:"profiles" json:"profiles,omitempty" jsonschema_description:"Named profiles that inherit and override root-level settings."`
 }
 
 // Config is a fully resolved configuration: config file, environment
@@ -64,6 +64,16 @@ type Config struct {
 	// seconds, 0 means no timeout. The CLI applies it to its context;
 	// library consumers manage their own contexts and may ignore it.
 	Timeout time.Duration
+
+	// DisableManifest turns off local manifest recording (SPEC.md §9).
+	// Code-only — deliberately not a config file key: the CLI always
+	// records; the opt-out exists for library consumers that don't
+	// want writes under the user's state directory.
+	DisableManifest bool
+
+	// ManifestPath overrides the manifest location ("" = platform
+	// default). Code-only, mainly for tests and embedders.
+	ManifestPath string
 
 	// Profile is the resolved profile name, or "" when root-level
 	// values were used.
@@ -295,6 +305,22 @@ func loadFileConfig(path string) (FileConfig, toml.MetaData, bool, error) {
 		return fileConfig, toml.MetaData{}, false,
 			fmt.Errorf("airplan: parse config %s: %w", path, err)
 	}
+
+	// Unknown keys are an error, not silently ignored: a typo'd key
+	// (bucet = ...) otherwise surfaces as a baffling missing-field
+	// error later. This also keeps the parser exactly in sync with
+	// the published schema's additionalProperties: false (SPEC.md §7).
+	if unknown := meta.Undecoded(); len(unknown) > 0 {
+		names := make([]string, len(unknown))
+		for i, k := range unknown {
+			names[i] = k.String()
+		}
+		return fileConfig, toml.MetaData{}, false, fmt.Errorf(
+			"airplan: unknown config key(s) in %s: %s",
+			path, strings.Join(names, ", "),
+		)
+	}
+
 	if fileConfig.Profiles == nil {
 		fileConfig.Profiles = map[string]Settings{}
 	}

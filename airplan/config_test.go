@@ -811,3 +811,13 @@ timeout = "90s"
 		assertErrorContains(t, err, "invalid timeout \"bogus\"")
 	})
 }
+
+func TestLoadConfigRejectsUnknownKeys(t *testing.T) {
+	path := writeConfig(t, `
+endpoint = "e"
+bucet    = "typo"
+`, 0o600)
+
+	_, err := LoadConfig(ConfigOptions{Path: path, Getenv: envMap(nil)})
+	assertErrorContains(t, err, "unknown config key", "bucet")
+}

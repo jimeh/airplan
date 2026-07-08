@@ -3,7 +3,7 @@
 How *our* implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.2.0.
+may contradict it. Targets spec version 0.3.0.
 
 ---
 
@@ -171,9 +171,13 @@ JSON Schema all fall out of one struct definition.
 
 ## 7. Distribution
 
-GoReleaser: cross-platform archives, checksums, Homebrew tap; shell
-completions and `airplan.schema.json` bundled into archives and
-release assets. `go install` works as a fallback.
+GoReleaser: cross-platform archives, checksums, Homebrew tap (cask);
+`airplan.schema.json` bundled into archives and published as a
+standalone release asset (the `#:schema` URL). Shell completions are
+generated at runtime by `airplan completion` rather than shipped.
+Releases are cut by release-please from conventional commits; the
+tag triggers the GoReleaser publish workflow. `go install` works as
+a fallback.
 
 ## 8. Phased Plan
 

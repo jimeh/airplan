@@ -271,8 +271,8 @@ func TestUploadTextInput(t *testing.T) {
 	if !strings.Contains(page, `class="chroma"`) {
 		t.Error("page body not chroma-highlighted")
 	}
-	if !strings.Contains(page, ">Download source<") {
-		t.Error("page missing 'Download source' anchor label")
+	if !strings.Contains(page, `aria-label="Download source"`) {
+		t.Error("page missing 'Download source' anchor")
 	}
 	if !strings.Contains(page, "func") {
 		t.Error("page missing source content")
@@ -333,5 +333,26 @@ func TestReadInputHonorsContext(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("readInput did not return after context deadline")
+	}
+}
+
+func TestHighlightSourceLangOverride(t *testing.T) {
+	src := []byte("package main\n")
+
+	out, err := highlightSource(src, "", "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), `<span class="kn">package</span>`) {
+		t.Errorf("--lang go did not highlight: %s", out)
+	}
+
+	out, err = highlightSource(src, "main.go", "notalanguage")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), `class="kn"`) {
+		t.Error("unrecognized lang should fall back to plain text, " +
+			"not the filename lexer")
 	}
 }

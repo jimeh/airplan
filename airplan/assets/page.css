@@ -41,21 +41,139 @@ body {
   margin: 0 auto;
   padding: 0.75rem 1.25rem 0;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.85rem;
 }
 
-.toolbar a {
+.toolbar a,
+.toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+  font: inherit;
   color: var(--muted);
+  background: none;
   text-decoration: none;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 0.25rem 0.6rem;
+  padding: 0.4rem;
+  cursor: pointer;
 }
 
-.toolbar a:hover {
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.icon-check,
+.icon-x {
+  display: none;
+}
+
+.is-copied .icon-copy,
+.is-failed .icon-copy {
+  display: none;
+}
+
+.is-copied .icon-check,
+.is-failed .icon-x {
+  display: inline;
+}
+
+.toolbar a:hover,
+.toolbar button:hover {
   color: var(--fg);
   border-color: var(--muted);
+}
+
+/* Mode control, not action buttons: an inset track whose active
+   segment sits as a raised pill — no internal divider to glare. */
+.viewtoggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.viewtoggle button {
+  border: 0;
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+}
+
+.viewtoggle button:hover {
+  color: var(--fg);
+}
+
+.viewtoggle button.active {
+  color: var(--fg);
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.codewrap {
+  position: relative;
+  margin: 0 0 1em;
+}
+
+.codewrap pre {
+  margin: 0;
+}
+
+.codecopy {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.35rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.codecopy .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.codewrap:hover .codecopy,
+.codecopy:focus-visible {
+  opacity: 1;
+}
+
+.codecopy:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+
+@media (hover: none) {
+  .codecopy {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codecopy {
+    transition: none;
+  }
 }
 
 .content {
@@ -228,9 +346,27 @@ mark {
   display: none;
 }
 
+.sr-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 @media print {
-  .toolbar {
-    display: none;
+  .toolbar,
+  .codecopy,
+  .source-view {
+    display: none !important;
+  }
+
+  /* Always print the rendered view, even if the reader printed while
+     the source view was toggled on ([hidden] would otherwise blank
+     the page; the ID selector out-ranks the [hidden] rule). */
+  #rendered {
+    display: block !important;
   }
 
   body {

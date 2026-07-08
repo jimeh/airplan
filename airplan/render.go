@@ -28,6 +28,9 @@ var builtinTemplate string
 //go:embed assets/page.css
 var pageCSS string
 
+//go:embed assets/page.js
+var pageJS string
+
 // Chroma styles used for syntax highlighting in light and dark mode.
 const (
 	syntaxStyleLight = "github"
@@ -53,6 +56,16 @@ type RenderOptions struct {
 
 	// Indexable omits the robots noindex meta tag when true.
 	Indexable bool
+
+	// Lang overrides the highlight language for text input
+	// (SPEC.md §3). "" derives it from the filename.
+	Lang string
+
+	// Template is a custom page template (SPEC.md §3), executed
+	// against TemplateData. nil uses the built-in page. A custom
+	// template takes full responsibility for the page: styles,
+	// noindex meta, and any interactivity.
+	Template *template.Template
 }
 
 // pageData feeds the built-in page template. The exported field names
@@ -66,6 +79,14 @@ type pageData struct {
 	Noindex    bool
 	CSS        template.CSS
 	SyntaxCSS  template.CSS
+	JS         template.JS
+
+	// SourceHTML is the highlighted raw markdown source backing the
+	// rendered/source toggle and "copy markdown" (SPEC.md §3). Empty
+	// for text and when there is no source view. Embedded regardless
+	// of no-source: that flag governs the sibling upload, not the
+	// in-page source view.
+	SourceHTML template.HTML
 
 	// FileName is the original source filename shown as a header bar
 	// above text input's code block (SPEC.md §3). "" — for markdown
@@ -140,9 +161,18 @@ func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
 		return nil, fmt.Errorf("render markdown: %w", err)
 	}
 
-	return renderPage(
-		template.HTML(body.String()), "", "Download markdown", opts,
-	)
+	// The raw source is embedded highlighted so the rendered/source
+	// toggle and "copy markdown" work entirely offline (SPEC.md §3).
+	sourceHTML, err := highlightSource(src, "", "markdown")
+	if err != nil {
+		return nil, err
+	}
+
+	return renderPage(pageData{
+		Body:        template.HTML(body.String()),
+		SourceHTML:  sourceHTML,
+		SourceLabel: "Download markdown",
+	}, opts)
 }
 
 // RenderText renders plain-text source as a standalone page whose
@@ -151,7 +181,7 @@ func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
 // filename; stdin and unrecognized names fall back to unhighlighted
 // plain text and no filename header.
 func RenderText(src []byte, name string, opts RenderOptions) ([]byte, error) {
-	body, err := highlightSource(src, name)
+	body, err := highlightSource(src, name, opts.Lang)
 	if err != nil {
 		return nil, err
 	}
@@ -160,32 +190,45 @@ func RenderText(src []byte, name string, opts RenderOptions) ([]byte, error) {
 	if name != "" {
 		fileName = filepath.Base(name)
 	}
-	return renderPage(body, fileName, "Download source", opts)
+	return renderPage(pageData{
+		Body:        body,
+		FileName:    fileName,
+		SourceLabel: "Download source",
+	}, opts)
 }
 
-// renderPage wraps a rendered body in the standalone page template.
-func renderPage(
-	body template.HTML,
-	fileName string,
-	sourceLabel string,
-	opts RenderOptions,
-) ([]byte, error) {
+// renderPage wraps a partially-filled pageData (Body, SourceHTML,
+// FileName, SourceLabel) in the standalone page template, supplying
+// the shared fields from opts and the embedded assets.
+func renderPage(data pageData, opts RenderOptions) ([]byte, error) {
+	if opts.Template != nil {
+		var out bytes.Buffer
+		err := opts.Template.Execute(&out, TemplateData{
+			Title:      opts.Title,
+			Body:       data.Body,
+			SourceHTML: data.SourceHTML,
+			SourcePath: opts.SourcePath,
+			Slug:       opts.Slug,
+			FileName:   data.FileName,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("execute custom template: %w", err)
+		}
+		return out.Bytes(), nil
+	}
+
 	syntax, err := syntaxCSS()
 	if err != nil {
 		return nil, err
 	}
 
-	data := pageData{
-		Title:       opts.Title,
-		Body:        body,
-		SourcePath:  opts.SourcePath,
-		Slug:        opts.Slug,
-		FileName:    fileName,
-		Noindex:     !opts.Indexable,
-		CSS:         template.CSS(pageCSS),
-		SyntaxCSS:   template.CSS(syntax),
-		SourceLabel: sourceLabel,
-	}
+	data.Title = opts.Title
+	data.SourcePath = opts.SourcePath
+	data.Slug = opts.Slug
+	data.Noindex = !opts.Indexable
+	data.CSS = template.CSS(pageCSS)
+	data.SyntaxCSS = template.CSS(syntax)
+	data.JS = template.JS(pageJS)
 
 	var out bytes.Buffer
 	if err := pageTmpl.Execute(&out, data); err != nil {
@@ -195,9 +238,16 @@ func renderPage(
 }
 
 // highlightSource renders source bytes as one chroma-highlighted,
-// class-based code block, picking the lexer from the filename.
-func highlightSource(src []byte, name string) (template.HTML, error) {
-	lexer := lexers.Match(filepath.Base(name))
+// class-based code block. The lexer comes from lang when given, else
+// the filename; unrecognized values fall back to plain text
+// (SPEC.md §3).
+func highlightSource(src []byte, name, lang string) (template.HTML, error) {
+	var lexer chroma.Lexer
+	if lang != "" {
+		lexer = lexers.Get(lang)
+	} else {
+		lexer = lexers.Match(filepath.Base(name))
+	}
 	if lexer == nil {
 		lexer = lexers.Fallback
 	}

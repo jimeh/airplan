@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jimeh/airplan/releases/latest/download/airplan.schema.json",
+  "$defs": {
+    "Settings": {
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "S3-compatible API endpoint URL."
+        },
+        "bucket": {
+          "type": "string",
+          "description": "Bucket where rendered plans are uploaded."
+        },
+        "region": {
+          "type": "string",
+          "description": "S3 signing region; R2 commonly uses auto."
+        },
+        "access_key_id": {
+          "type": "string",
+          "description": "Access key ID for the S3-compatible endpoint."
+        },
+        "secret_access_key": {
+          "type": "string",
+          "description": "Secret access key for the S3-compatible endpoint."
+        },
+        "public_base_url": {
+          "type": "string",
+          "description": "Public base URL used to assemble share links."
+        },
+        "key_prefix": {
+          "type": "string",
+          "description": "Prefix prepended to uploaded object keys and remote listings."
+        },
+        "template": {
+          "type": "string",
+          "description": "Path to the HTML template used for rendered pages."
+        },
+        "no_source": {
+          "type": "boolean",
+          "description": "Omit uploading the original source alongside rendered output."
+        },
+        "indexable": {
+          "type": "boolean",
+          "description": "Allow search indexing by omitting the noindex robots meta tag."
+        },
+        "timeout": {
+          "type": "string",
+          "description": "Whole-invocation timeout as a Go duration or seconds; 0 disables it."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object"
+    }
+  },
+  "properties": {
+    "endpoint": {
+      "type": "string",
+      "description": "S3-compatible API endpoint URL."
+    },
+    "bucket": {
+      "type": "string",
+      "description": "Bucket where rendered plans are uploaded."
+    },
+    "region": {
+      "type": "string",
+      "description": "S3 signing region; R2 commonly uses auto."
+    },
+    "access_key_id": {
+      "type": "string",
+      "description": "Access key ID for the S3-compatible endpoint."
+    },
+    "secret_access_key": {
+      "type": "string",
+      "description": "Secret access key for the S3-compatible endpoint."
+    },
+    "public_base_url": {
+      "type": "string",
+      "description": "Public base URL used to assemble share links."
+    },
+    "key_prefix": {
+      "type": "string",
+      "description": "Prefix prepended to uploaded object keys and remote listings."
+    },
+    "template": {
+      "type": "string",
+      "description": "Path to the HTML template used for rendered pages."
+    },
+    "no_source": {
+      "type": "boolean",
+      "description": "Omit uploading the original source alongside rendered output."
+    },
+    "indexable": {
+      "type": "boolean",
+      "description": "Allow search indexing by omitting the noindex robots meta tag."
+    },
+    "timeout": {
+      "type": "string",
+      "description": "Whole-invocation timeout as a Go duration or seconds; 0 disables it."
+    },
+    "default_profile": {
+      "type": "string",
+      "description": "Profile selected when no explicit profile is set."
+    },
+    "profiles": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Settings"
+      },
+      "type": "object",
+      "description": "Named profiles that inherit and override root-level settings."
+    }
+  },
+  "additionalProperties": false,
+  "type": "object",
+  "title": "Airplan Config",
+  "description": "Airplan TOML config file."
+}

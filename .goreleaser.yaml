@@ -1,0 +1,70 @@
+version: 2
+
+project_name: airplan
+
+builds:
+  - id: airplan
+    binary: airplan
+    main: .
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    flags:
+      - -buildvcs=false
+    ldflags:
+      - -s -w -X github.com/jimeh/airplan/cli.version={{ .Version }}
+
+archives:
+  - id: airplan
+    ids:
+      - airplan
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - LICENSE*
+      - README*
+      - SPEC.md
+      - schema/airplan.schema.json
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  disable: true
+
+release:
+  draft: false
+  mode: keep-existing
+  extra_files:
+    - glob: schema/airplan.schema.json
+      name_template: airplan.schema.json
+
+homebrew_casks:
+  - name: airplan
+    ids:
+      - airplan
+    binaries:
+      - airplan
+    repository:
+      owner: jimeh
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    directory: Casks
+    homepage: https://github.com/jimeh/airplan
+    description: >-
+      Upload plan documents to S3-compatible storage and print a shareable
+      unguessable URL

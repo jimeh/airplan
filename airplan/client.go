@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"mime"
 	"path/filepath"
@@ -54,8 +55,13 @@ var ErrBinaryInput = errors.New(
 // detect format → render (markdown) or noindex-splice (HTML) →
 // generate key → upload page (+ markdown source) → assemble URL.
 type Client struct {
-	cfg *Config
-	st  *storage
+	cfg      *Config
+	st       *storage
+	template *template.Template
+
+	// templateErr is a deferred custom-template load failure: fatal
+	// for markdown/text uploads, a warning for HTML input.
+	templateErr error
 }
 
 // New validates cfg and returns a ready Client.
@@ -67,6 +73,16 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 		return nil, err
 	}
 
+	// The template is loaded eagerly but its failure is deferred to
+	// Upload: templates don't apply to HTML input (SPEC.md §3), so a
+	// broken template path must not block an HTML upload — while
+	// markdown/text uploads still fail before anything is uploaded.
+	var tmpl *template.Template
+	var tmplErr error
+	if cfg.Template != "" {
+		tmpl, tmplErr = LoadTemplate(cfg.Template)
+	}
+
 	st, err := newStorage(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -75,7 +91,12 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 		return nil, err
 	}
 
-	return &Client{cfg: cfg, st: st}, nil
+	return &Client{
+		cfg:         cfg,
+		st:          st,
+		template:    tmpl,
+		templateErr: tmplErr,
+	}, nil
 }
 
 // Input describes one document to upload.
@@ -100,6 +121,10 @@ type Input struct {
 	// MaxSize is the input size limit in bytes (SPEC.md §2):
 	// 0 means DefaultMaxInputSize, negative means no limit.
 	MaxSize int64
+
+	// Lang overrides the highlight language for text input
+	// (SPEC.md §3). "" derives it from the filename.
+	Lang string
 }
 
 // Result describes a completed upload. Bytes and ContentType describe
@@ -168,6 +193,10 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 
 	res := &Result{Bucket: c.cfg.Bucket}
 
+	if c.templateErr != nil && format != FormatHTML {
+		return nil, c.templateErr
+	}
+
 	var page []byte
 	var title string
 	switch format {
@@ -183,6 +212,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 			Slug:       slug,
 			SourcePath: sourcePath,
 			Indexable:  c.cfg.Indexable,
+			Template:   c.template,
 		})
 		if err != nil {
 			return nil, err
@@ -227,6 +257,8 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 			Slug:       slug,
 			SourcePath: sourcePath,
 			Indexable:  c.cfg.Indexable,
+			Lang:       in.Lang,
+			Template:   c.template,
 		})
 		if err != nil {
 			return nil, err
@@ -251,6 +283,16 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		// explicit title → filename → slug (SPEC.md §4: the document
 		// itself is never parsed).
 		title = ResolveTitle(in.Title, nil, in.Name, slug)
+
+		if c.template != nil || c.templateErr != nil {
+			w := "custom template ignored for HTML input — " +
+				"HTML is uploaded as-is"
+			if c.templateErr != nil {
+				w += " (note: the template also failed to load: " +
+					c.templateErr.Error() + ")"
+			}
+			res.Warnings = append(res.Warnings, w)
+		}
 
 		page = data
 		if !c.cfg.Indexable {
@@ -294,6 +336,8 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 	if res.SourceKey != "" {
 		res.SourceURL, _ = PublicURL(c.cfg, res.SourceKey)
 	}
+
+	c.recordUpload(res)
 
 	return res, nil
 }

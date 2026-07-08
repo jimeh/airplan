@@ -98,27 +98,65 @@ replacement by construction.
 
 ## 4. Phase 2 — Ergonomics
 
-Order below ≈ dependency order; C=Claude, X=Codex.
+Status: **implemented 2026-07-08; in review.** All packets merged
+(X1–X5, C1–C3), every surface verified against R2 end-to-end
+including the interactive page controls on the live domain.
+Phase 1 already shipped several items the original phase-2 list
+expected: full profile resolution, `--slug`/`--title`/`--format`,
+sniffing hardening, `x-amz-meta-title`.
 
-1. Profiles + `default_profile` + `--profile`/`AIRPLAN_PROFILE` (X —
-   mostly already in P1 config; finish + tests).
-2. `--json` output, `--slug`, `--title`, `--format`, `--open` (X;
-   Claude reviews `--json` schema exactness vs §6).
-3. Manifest recording on upload: JSONL append, flock, state-dir
-   helper (X — spec §9 write path only).
-4. Template interactivity: rendered/source toggle, copy-markdown,
-   per-block copy, no-JS/print fallbacks (C — vanilla JS, UX-heavy).
-5. Custom templates: `--template`/env/profile, data contract struct,
-   `airplan template` dump (X after C fixes the contract struct).
-6. Config JSON Schema: invopop struct tags, `config schema` cmd,
-   committed `schema/airplan.schema.json`, CI staleness check (X).
-7. `completion` subcommand (X — cobra built-in).
-8. Agent skill `skills/airplan/SKILL.md` (C — trigger copy is taste).
-9. GoReleaser config + Homebrew tap wiring (X; tap repo needs user).
-10. README: R2 walkthrough, schema editor setup, skill install,
-    caveats (C drafts, user reviews — public-facing copy).
+Same workflow as phase 1: branch `feat/phase-2-ergonomics`, Claude
+lays seams first, Codex packets fan out in isolated worktrees,
+Claude does the taste-critical work in parallel, merge → verify →
+`codex-review` gate → PR.
 
-Review gate per batch; checkpoint at end of phase.
+### Step 0 — Seams (Claude, sequential)
+
+- Manifest module stub (`airplan/manifest.go`): record types per
+  spec §9, state-dir helper signature, append/lock seam.
+- Template data contract struct (`.Title`, `.Body`, `.SourceHTML`,
+  `.SourcePath`, `.Slug`, `.FileName`) and `RenderOptions` growth —
+  frozen before X4 codes against it.
+- CLI seams: `--json`/`--open`/`--profile` flag stubs, subcommand
+  constructors (`template`, `config schema`, `completion`).
+
+### Codex packets (parallel worktrees)
+
+| # | Packet | Contents | Spec |
+|---|--------|----------|------|
+| X1 | manifest | state-dir helper (XDG_STATE_HOME → ~/.local/state; %LocalAppData% on Win), JSONL append via gofrs/flock, upload-record schema, wire into upload path, torn-line-tolerant reader (needed by tests now, phase 3 commands later) | §9 |
+| X2 | cli-flags | `--json` (exact §6 schema, one line), `--open` (browser launch, warn-don't-fail), `--profile`/`-p`, short forms `-s -t -j -o`, `completion` subcommand | §6 |
+| X3 | schema | invopop/jsonschema from config structs (descriptions via struct tags), `airplan config schema` cmd, committed `schema/airplan.schema.json`, CI staleness check | §7 |
+| X4 | templates | load custom template from `--template`/`AIRPLAN_TEMPLATE`/profile key, md+text only (warn on HTML input), `airplan template` dump cmd | §3 |
+| X5 | release | GoReleaser: 5-platform archives, checksums, Homebrew tap (jimeh/homebrew-tap), completions + schema in archives, version via ldflags; snapshot build in CI | — |
+
+### Claude work (parallel with packets)
+
+- C1: `.SourceHTML` embedding + template interactivity — rendered/
+  source toggle, copy-markdown, per-code-block copy buttons,
+  no-JS/print fallbacks, touch behavior (spec §3). Vanilla JS,
+  UX-heavy, browser-verified light/dark/mobile.
+- C2: agent skill `skills/airplan/SKILL.md` (trigger copy is taste).
+- C3: README — R2 setup walkthrough, `#:schema` editor setup, skill
+  install, security caveats, X-Robots-Tag transform rule note.
+- C4: integration, `--json` schema exactness review, R2 smoke of
+  every new surface, review gate.
+
+### Sequencing constraints
+
+- C1 (contract + SourceHTML) blocks X4; everything else is
+  independent after Step 0.
+- X3 wants the config structs final — they are (timeout landed).
+- X5 last to merge (version stamping touches cli).
+
+### Deferred / decisions needed (see §8b)
+
+- `--lang` flag for stdin text highlighting → spec 0.3.0?
+- Manifest writes: core library vs CLI-only.
+- Schema URL for `#:schema` directive.
+- First tagged release timing.
+
+Review gate per merge batch; checkpoint at end of phase.
 
 ## 5. Phase 3 — History & cleanup
 
@@ -166,3 +204,16 @@ per phase — confirm.
 7. Tooling: **mise** for tool management and task running — no
    Makefile. Rebuild-skipping handled by mise task
    `sources`/`outputs` change detection.
+
+## 9. Phase 2 decisions (settled 2026-07-08)
+
+1. Manifest writes live in the core library (parallel-agent safety;
+   any consumer benefits), with code-only `DisableManifest` /
+   `ManifestPath` opt-outs for embedders.
+2. `--lang` shipped in phase 2 (spec 0.3.0).
+3. Schema URL: latest-release asset, referenced by the `#:schema`
+   directive and the schema's own `$id`.
+4. Releases: release-please maintains the release PR and publishes
+   the release on merge; the tag triggers the GoReleaser publish
+   workflow. First release proposed as v0.1.0 — user pushes the
+   merge button, automation does the rest.
