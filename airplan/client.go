@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"mime"
 	"path/filepath"
@@ -54,8 +55,9 @@ var ErrBinaryInput = errors.New(
 // detect format → render (markdown) or noindex-splice (HTML) →
 // generate key → upload page (+ markdown source) → assemble URL.
 type Client struct {
-	cfg *Config
-	st  *storage
+	cfg      *Config
+	st       *storage
+	template *template.Template
 }
 
 // New validates cfg and returns a ready Client.
@@ -67,6 +69,15 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 		return nil, err
 	}
 
+	var tmpl *template.Template
+	if cfg.Template != "" {
+		var err error
+		tmpl, err = LoadTemplate(cfg.Template)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	st, err := newStorage(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -75,7 +86,7 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 		return nil, err
 	}
 
-	return &Client{cfg: cfg, st: st}, nil
+	return &Client{cfg: cfg, st: st, template: tmpl}, nil
 }
 
 // Input describes one document to upload.
@@ -187,6 +198,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 			Slug:       slug,
 			SourcePath: sourcePath,
 			Indexable:  c.cfg.Indexable,
+			Template:   c.template,
 		})
 		if err != nil {
 			return nil, err
@@ -232,6 +244,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 			SourcePath: sourcePath,
 			Indexable:  c.cfg.Indexable,
 			Lang:       in.Lang,
+			Template:   c.template,
 		})
 		if err != nil {
 			return nil, err
@@ -256,6 +269,12 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		// explicit title → filename → slug (SPEC.md §4: the document
 		// itself is never parsed).
 		title = ResolveTitle(in.Title, nil, in.Name, slug)
+
+		if c.template != nil {
+			res.Warnings = append(res.Warnings,
+				"custom template ignored for HTML input — "+
+					"HTML is uploaded as-is")
+		}
 
 		page = data
 		if !c.cfg.Indexable {
