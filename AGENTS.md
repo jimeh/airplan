@@ -30,6 +30,8 @@ this implementation is built and must not contradict the spec.
 
 Run `mise run check` before handing off; `verify` for broad or risky
 changes. Lefthook pre-commit hooks lint/format-check staged files.
+Tool versions: major-version constraints live in `mise.toml`; exact
+pins live in `mise.lock` (commit both when bumping tools).
 
 ## Conventions that bite
 
