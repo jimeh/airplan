@@ -1,6 +1,9 @@
 # airplan — Tool Specification
 
-**Spec version: 0.2.0**
+**Spec version: 0.3.0**
+
+Changes in 0.3.0: `--lang` overrides the highlight language for text
+input (§3, §6).
 
 Changes in 0.2.0: input size limit and `--max-size` (§2, §6);
 configurable invocation timeout, default 20 s (§6, §7);
@@ -143,12 +146,14 @@ standalone page template, styling, and dark/light behavior, with the
 body being the source rendered as one syntax-highlighted code block.
 A shared source file reads like a one-file gist.
 
-- The highlight language comes from the source filename (extension
-  or recognized special names like `Makefile`). When the filename
-  yields no lexer — a forced `--format txt` on stdin, or an
-  extension the highlighter doesn't know — the block renders as
-  unhighlighted plain text. (This is about the highlight language
-  only; which inputs *become* text format is decided solely by §2.)
+- The highlight language comes from `--lang` when given (a language
+  name the highlighter knows: `go`, `python`, `json`, …), else from
+  the source filename (extension or recognized special names like
+  `Makefile`). When neither yields a lexer — a forced `--format txt`
+  on stdin without `--lang`, an unknown extension, or an
+  unrecognized `--lang` value — the block renders as unhighlighted
+  plain text. (This is about the highlight language only; which
+  inputs *become* text format is decided solely by §2.)
 - Title chain: `--title`, else the original source filename
   including its extension (`keygen.go`), else slug (no
   content-derived title — the document is never interpreted).
@@ -264,6 +269,7 @@ airplan [flags] [file]
 | `--indexable`    | off            | no noindex meta (md and html, §3–4)|
 | `--max-size N`   | 10MiB          | input size limit; 0 = no limit (§2)|
 | `--timeout D`    | 20s            | invocation timeout; 0 = none       |
+| `--lang L`       | from filename  | highlight language, text only (§3) |
 | `--json`         | off            | JSON object on stdout              |
 | `--profile P`    | config default | named profile from config file     |
 | `--config PATH`  | XDG default    | alternate config file              |

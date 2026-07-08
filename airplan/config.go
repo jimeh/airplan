@@ -65,6 +65,16 @@ type Config struct {
 	// library consumers manage their own contexts and may ignore it.
 	Timeout time.Duration
 
+	// DisableManifest turns off local manifest recording (SPEC.md §9).
+	// Code-only — deliberately not a config file key: the CLI always
+	// records; the opt-out exists for library consumers that don't
+	// want writes under the user's state directory.
+	DisableManifest bool
+
+	// ManifestPath overrides the manifest location ("" = platform
+	// default). Code-only, mainly for tests and embedders.
+	ManifestPath string
+
 	// Profile is the resolved profile name, or "" when root-level
 	// values were used.
 	Profile string

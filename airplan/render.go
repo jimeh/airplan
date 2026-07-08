@@ -53,6 +53,10 @@ type RenderOptions struct {
 
 	// Indexable omits the robots noindex meta tag when true.
 	Indexable bool
+
+	// Lang overrides the highlight language for text input
+	// (SPEC.md §3). "" derives it from the filename.
+	Lang string
 }
 
 // pageData feeds the built-in page template. The exported field names
@@ -151,7 +155,7 @@ func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
 // filename; stdin and unrecognized names fall back to unhighlighted
 // plain text and no filename header.
 func RenderText(src []byte, name string, opts RenderOptions) ([]byte, error) {
-	body, err := highlightSource(src, name)
+	body, err := highlightSource(src, name, opts.Lang)
 	if err != nil {
 		return nil, err
 	}
@@ -195,9 +199,16 @@ func renderPage(
 }
 
 // highlightSource renders source bytes as one chroma-highlighted,
-// class-based code block, picking the lexer from the filename.
-func highlightSource(src []byte, name string) (template.HTML, error) {
-	lexer := lexers.Match(filepath.Base(name))
+// class-based code block. The lexer comes from lang when given, else
+// the filename; unrecognized values fall back to plain text
+// (SPEC.md §3).
+func highlightSource(src []byte, name, lang string) (template.HTML, error) {
+	var lexer chroma.Lexer
+	if lang != "" {
+		lexer = lexers.Get(lang)
+	} else {
+		lexer = lexers.Match(filepath.Base(name))
+	}
 	if lexer == nil {
 		lexer = lexers.Fallback
 	}

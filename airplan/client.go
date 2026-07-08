@@ -100,6 +100,10 @@ type Input struct {
 	// MaxSize is the input size limit in bytes (SPEC.md §2):
 	// 0 means DefaultMaxInputSize, negative means no limit.
 	MaxSize int64
+
+	// Lang overrides the highlight language for text input
+	// (SPEC.md §3). "" derives it from the filename.
+	Lang string
 }
 
 // Result describes a completed upload. Bytes and ContentType describe
@@ -227,6 +231,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 			Slug:       slug,
 			SourcePath: sourcePath,
 			Indexable:  c.cfg.Indexable,
+			Lang:       in.Lang,
 		})
 		if err != nil {
 			return nil, err
@@ -294,6 +299,8 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 	if res.SourceKey != "" {
 		res.SourceURL, _ = PublicURL(c.cfg, res.SourceKey)
 	}
+
+	c.recordUpload(res)
 
 	return res, nil
 }
