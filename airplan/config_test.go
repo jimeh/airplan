@@ -296,20 +296,36 @@ bucket = "work"
 
 	t.Run("no profiles uses root values without profile errors", func(t *testing.T) {
 		path := writeConfig(t, `
-default_profile = "missing"
 endpoint = "root-endpoint"
 `, 0o600)
 
 		cfg, err := LoadConfig(ConfigOptions{
-			Path:    path,
-			Profile: "missing",
-			Getenv:  envMap(nil),
+			Path:   path,
+			Getenv: envMap(nil),
 		})
 		if err != nil {
 			t.Fatalf("LoadConfig() error = %v", err)
 		}
 		assertEqual(t, cfg.Profile, "")
 		assertEqual(t, cfg.Endpoint, "root-endpoint")
+	})
+
+	t.Run("dangling default_profile errors with no profiles", func(t *testing.T) {
+		path := writeConfig(t, `
+default_profile = "missing"
+endpoint = "root-endpoint"
+`, 0o600)
+
+		_, err := LoadConfig(ConfigOptions{
+			Path:   path,
+			Getenv: envMap(nil),
+		})
+		assertErrorContains(
+			t,
+			err,
+			"default_profile \"missing\" does not exist",
+			"none defined",
+		)
 	})
 }
 
@@ -548,5 +564,39 @@ func assertContains(t *testing.T, text, substring string) {
 	t.Helper()
 	if !strings.Contains(text, substring) {
 		t.Fatalf("%q does not contain %q", text, substring)
+	}
+}
+
+func TestLoadConfigForcedProfileWithoutProfiles(t *testing.T) {
+	path := writeConfig(t, `
+endpoint = "https://example.com"
+bucket   = "plans"
+`, 0o600)
+
+	_, err := LoadConfig(ConfigOptions{
+		Path:    path,
+		Profile: "work",
+		Getenv:  func(string) string { return "" },
+	})
+	if err == nil {
+		t.Fatal("expected error for profile with no profiles defined")
+	}
+	if !strings.Contains(err.Error(), `profile "work" does not exist`) {
+		t.Errorf("error = %v", err)
+	}
+}
+
+func TestLoadConfigEnvProfileWithoutConfigFile(t *testing.T) {
+	env := map[string]string{"AIRPLAN_PROFILE": "work"}
+
+	_, err := LoadConfig(ConfigOptions{
+		Path:   filepath.Join(t.TempDir(), "missing.toml"),
+		Getenv: func(k string) string { return env[k] },
+	})
+	if err == nil {
+		t.Fatal("expected error for AIRPLAN_PROFILE with no config file")
+	}
+	if !strings.Contains(err.Error(), `profile "work" does not exist`) {
+		t.Errorf("error = %v", err)
 	}
 }

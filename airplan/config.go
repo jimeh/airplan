@@ -223,10 +223,9 @@ func resolveProfile(
 	meta toml.MetaData,
 ) (string, error) {
 	names := profileNames(fileConfig.Profiles)
-	if len(names) == 0 {
-		return "", nil
-	}
 
+	// An explicitly requested profile must exist even when the config
+	// file defines no profiles at all (SPEC.md §7, resolution step 1).
 	selected := option
 	if selected == "" {
 		selected = getenv("AIRPLAN_PROFILE")
@@ -235,23 +234,37 @@ func resolveProfile(
 		if _, ok := fileConfig.Profiles[selected]; ok {
 			return selected, nil
 		}
+		available := "none defined"
+		if len(names) > 0 {
+			available = strings.Join(names, ", ")
+		}
 		return "", fmt.Errorf(
 			"airplan: profile %q does not exist; available profiles: %s",
 			selected,
-			strings.Join(names, ", "),
+			available,
 		)
 	}
 
+	// A dangling default_profile is likewise an error regardless of
+	// how many profiles exist (SPEC.md §7, resolution step 2).
 	if fileConfig.DefaultProfile != "" {
 		if _, ok := fileConfig.Profiles[fileConfig.DefaultProfile]; ok {
 			return fileConfig.DefaultProfile, nil
+		}
+		available := "none defined"
+		if len(names) > 0 {
+			available = strings.Join(names, ", ")
 		}
 		return "", fmt.Errorf(
 			"airplan: default_profile %q does not exist; "+
 				"available profiles: %s",
 			fileConfig.DefaultProfile,
-			strings.Join(names, ", "),
+			available,
 		)
+	}
+
+	if len(names) == 0 {
+		return "", nil
 	}
 
 	if len(names) == 1 {

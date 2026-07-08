@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"path/filepath"
 	"strings"
 )
@@ -213,12 +214,17 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 }
 
 // titleMetadata builds the x-amz-meta-title metadata map (SPEC.md §5),
-// or nil when the title is empty.
+// or nil when the title is empty. HTTP header values must be ASCII and
+// S3 implementations vary in how they treat anything else, so
+// non-ASCII titles are RFC 2047 Q-encoded (mime.WordDecoder reverses
+// it when reading the metadata back).
 func titleMetadata(title string) map[string]string {
 	if title == "" {
 		return nil
 	}
-	return map[string]string{"title": title}
+	return map[string]string{
+		"title": mime.QEncoding.Encode("utf-8", title),
+	}
 }
 
 // filenameStem returns the base name without its extension, or "".
