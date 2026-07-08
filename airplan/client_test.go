@@ -10,32 +10,33 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestReadInput(t *testing.T) {
 	t.Run("under limit", func(t *testing.T) {
-		data, err := readInput(strings.NewReader("hello"), 10)
+		data, err := readInput(context.Background(), strings.NewReader("hello"), 10)
 		if err != nil || string(data) != "hello" {
 			t.Errorf("data = %q, err = %v", data, err)
 		}
 	})
 
 	t.Run("exactly at limit", func(t *testing.T) {
-		data, err := readInput(strings.NewReader("0123456789"), 10)
+		data, err := readInput(context.Background(), strings.NewReader("0123456789"), 10)
 		if err != nil || len(data) != 10 {
 			t.Errorf("len = %d, err = %v", len(data), err)
 		}
 	})
 
 	t.Run("over limit", func(t *testing.T) {
-		_, err := readInput(strings.NewReader("0123456789x"), 10)
+		_, err := readInput(context.Background(), strings.NewReader("0123456789x"), 10)
 		if !errors.Is(err, ErrInputTooLarge) {
 			t.Errorf("err = %v, want ErrInputTooLarge", err)
 		}
 	})
 
 	t.Run("unlimited", func(t *testing.T) {
-		data, err := readInput(strings.NewReader("0123456789x"), 0)
+		data, err := readInput(context.Background(), strings.NewReader("0123456789x"), 0)
 		if err != nil || len(data) != 11 {
 			t.Errorf("len = %d, err = %v", len(data), err)
 		}
@@ -302,5 +303,35 @@ func TestRenderTextFileNameHeader(t *testing.T) {
 	}
 	if strings.Contains(string(out), `<div class="filehead">`) {
 		t.Error("stdin input should not render a filename header")
+	}
+}
+
+// blockingReader blocks forever on Read, simulating a stalled stdin.
+type blockingReader struct{}
+
+func (blockingReader) Read([]byte) (int, error) {
+	select {} // block until the process exits
+}
+
+func TestReadInputHonorsContext(t *testing.T) {
+	ctx, cancel := context.WithTimeout(
+		context.Background(), 20*time.Millisecond,
+	)
+	defer cancel()
+
+	done := make(chan struct{})
+	var err error
+	go func() {
+		_, err = readInput(ctx, blockingReader{}, 10)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("err = %v, want DeadlineExceeded", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("readInput did not return after context deadline")
 	}
 }

@@ -84,8 +84,8 @@ func newRootCmd() *cobra.Command {
 		"don't upload the original source alongside the page")
 	f.BoolVar(&opts.indexable, "indexable", false,
 		"omit the noindex robots meta tag")
-	f.StringVar(&opts.maxSize, "max-size", "10MB",
-		"input size limit, e.g. 10MB, 512k, 1048576; 0 = no limit")
+	f.StringVar(&opts.maxSize, "max-size", "10MiB",
+		"input size limit, e.g. 10MiB, 512k, 1048576; 0 = no limit")
 	f.StringVar(&opts.timeout, "timeout", "",
 		"invocation timeout, e.g. 20s, 1m30s; 0 = none (default 20s)")
 	f.StringVar(&opts.config, "config", "",

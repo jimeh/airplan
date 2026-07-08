@@ -144,8 +144,11 @@ body being the source rendered as one syntax-highlighted code block.
 A shared source file reads like a one-file gist.
 
 - The highlight language comes from the source filename (extension
-  or recognized special names like `Makefile`); stdin and
-  unrecognized names fall back to unhighlighted plain text.
+  or recognized special names like `Makefile`). When the filename
+  yields no lexer — a forced `--format txt` on stdin, or an
+  extension the highlighter doesn't know — the block renders as
+  unhighlighted plain text. (This is about the highlight language
+  only; which inputs *become* text format is decided solely by §2.)
 - Title chain: `--title`, else the original source filename
   including its extension (`keygen.go`), else slug (no
   content-derived title — the document is never interpreted).
@@ -230,8 +233,8 @@ file.
   headers) unless `--no-source`; text input likewise uploads its
   original file as `<random>/<slug>.<ext>`
   (`text/plain; charset=utf-8`, §3). The pair shares the random
-  directory, so the page can link to it relatively (`./<slug>.md`)
-  on any domain. The source uploads first; failure of either upload
+  directory, so the page can link to it relatively (`./<slug>.md`,
+  or `./<slug>.<ext>` for text input) on any domain. The source uploads first; failure of either upload
   fails the command (an orphaned first object is harmless; it never
   reaches the manifest, so cleaning it up takes `purge --remote`).
   stdout still carries only the page URL.
@@ -259,7 +262,7 @@ airplan [flags] [file]
 | `--template P`   | built-in       | custom page template (md only)     |
 | `--no-source`    | off            | don't upload the original .md      |
 | `--indexable`    | off            | no noindex meta (md and html, §3–4)|
-| `--max-size N`   | 10MB           | input size limit; 0 = no limit (§2)|
+| `--max-size N`   | 10MiB          | input size limit; 0 = no limit (§2)|
 | `--timeout D`    | 20s            | invocation timeout; 0 = none       |
 | `--json`         | off            | JSON object on stdout              |
 | `--profile P`    | config default | named profile from config file     |

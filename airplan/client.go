@@ -137,7 +137,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 	case limit < 0:
 		limit = 0 // readInput treats <= 0 as unlimited
 	}
-	data, err := readInput(in.Reader, limit)
+	data, err := readInput(ctx, in.Reader, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -314,15 +314,36 @@ func titleMetadata(title string) map[string]string {
 
 // readInput reads r fully, enforcing limit (in bytes; <= 0 means
 // unlimited). It buffers at most one byte past the limit before
-// returning ErrInputTooLarge (SPEC.md §2).
-func readInput(r io.Reader, limit int64) ([]byte, error) {
+// returning ErrInputTooLarge (SPEC.md §2). Cancelling ctx aborts the
+// wait — so a stalled stdin can't outlive the invocation timeout —
+// though the reading goroutine itself stays blocked until the
+// underlying reader unblocks or the process exits.
+func readInput(ctx context.Context, r io.Reader, limit int64) ([]byte, error) {
 	if limit > 0 {
 		r = io.LimitReader(r, limit+1)
 	}
-	data, err := io.ReadAll(r)
-	if err != nil {
-		return nil, fmt.Errorf("airplan: read input: %w", err)
+
+	type result struct {
+		data []byte
+		err  error
 	}
+	ch := make(chan result, 1)
+	go func() {
+		data, err := io.ReadAll(r)
+		ch <- result{data, err}
+	}()
+
+	var data []byte
+	select {
+	case <-ctx.Done():
+		return nil, fmt.Errorf("airplan: read input: %w", ctx.Err())
+	case res := <-ch:
+		if res.err != nil {
+			return nil, fmt.Errorf("airplan: read input: %w", res.err)
+		}
+		data = res.data
+	}
+
 	if limit > 0 && int64(len(data)) > limit {
 		return nil, fmt.Errorf("%w of %s", ErrInputTooLarge,
 			formatSize(limit))
