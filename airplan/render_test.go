@@ -2,6 +2,7 @@ package airplan
 
 import (
 	"flag"
+	"html/template"
 	"os"
 	"path/filepath"
 	"strings"
@@ -156,5 +157,66 @@ func TestResolveTitle(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRenderMarkdownInteractivity(t *testing.T) {
+	src := []byte("# Hi\n\n```go\npackage main\n```\n")
+	out := render(t, src, RenderOptions{Title: "Hi"})
+
+	for name, frag := range map[string]string{
+		"view toggle":       `class="viewtoggle js-only" role="tablist" hidden`,
+		"copy source":       `class="copy-source js-only" hidden`,
+		"source block":      `id="source" hidden`,
+		"embedded script":   "<script>",
+		"highlighted fence": `<span class="kn">package</span>`,
+	} {
+		if !strings.Contains(out, frag) {
+			t.Errorf("page missing %s (%q)", name, frag)
+		}
+	}
+
+	// The embedded source view must preserve the raw markdown text.
+	if !strings.Contains(out, "# Hi") {
+		t.Error("source view missing raw markdown")
+	}
+}
+
+func TestRenderTextNoSourceToggle(t *testing.T) {
+	out, err := RenderText([]byte("hello\n"), "notes.txt", RenderOptions{
+		Title: "notes.txt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), `<div class="viewtoggle`) {
+		t.Error("text pages should not render a source toggle")
+	}
+	if !strings.Contains(string(out), "<script>") {
+		t.Error("text pages still need JS for code-block copy")
+	}
+}
+
+func TestRenderCustomTemplate(t *testing.T) {
+	tmpl := template.Must(template.New("t").Parse(
+		"<title>{{.Title}}</title><b>{{.Slug}}</b>{{.Body}}" +
+			"{{if .SourceHTML}}src{{end}}"))
+
+	out, err := RenderMarkdown([]byte("# X\n"), RenderOptions{
+		Title:    "Custom",
+		Slug:     "x",
+		Template: tmpl,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(out)
+	if !strings.Contains(got, "<title>Custom</title>") ||
+		!strings.Contains(got, "<b>x</b>") ||
+		!strings.Contains(got, "src") {
+		t.Errorf("custom template output wrong: %s", got)
+	}
+	if strings.Contains(got, `<div class="viewtoggle`) {
+		t.Error("custom template output contains built-in markup")
 	}
 }

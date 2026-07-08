@@ -49,6 +49,8 @@ func appendManifestRecord(path string, rec ManifestRecord) error {
 // malformed lines are skipped, each producing a warning; records with
 // an unknown type are skipped silently (forward compatibility). A
 // missing file is not an error — it returns no records.
+//
+//nolint:unused // exercised by the manifest packet tests; phase-3 commands consume it.
 func readManifest(path string) ([]ManifestRecord, []string, error) {
 	return nil, nil, errors.New("airplan: readManifest not implemented")
 }

@@ -13,16 +13,36 @@
 </style>
 </head>
 <body>
-{{- if .SourcePath}}
+{{- if or .SourcePath .SourceHTML}}
 <nav class="toolbar">
+{{- if .SourceHTML}}
+  <div class="viewtoggle js-only" role="tablist" hidden>
+    <button type="button" class="active" data-view="rendered"
+      aria-selected="true">Rendered</button>
+    <button type="button" data-view="source"
+      aria-selected="false">Source</button>
+  </div>
+  <button type="button" class="copy-source js-only" hidden>
+    Copy markdown</button>
+{{- end}}
+{{- if .SourcePath}}
   <a class="download" href="{{.SourcePath}}" download>{{.SourceLabel}}</a>
+{{- end}}
 </nav>
 {{- end}}
-<main class="content">
+<main class="content" id="rendered">
 {{- if .FileName}}
 <div class="filehead"><code>{{.FileName}}</code></div>
 {{- end}}
 {{.Body}}
 </main>
+{{- if .SourceHTML}}
+<main class="content source-view" id="source" hidden>
+{{.SourceHTML}}
+</main>
+{{- end}}
+<script>
+{{.JS}}
+</script>
 </body>
 </html>

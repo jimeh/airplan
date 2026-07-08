@@ -50,20 +50,93 @@ body {
   padding: 0.75rem 1.25rem 0;
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.85rem;
 }
 
-.toolbar a {
+.toolbar a,
+.toolbar button {
+  font: inherit;
   color: var(--muted);
+  background: none;
   text-decoration: none;
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.25rem 0.6rem;
+  cursor: pointer;
 }
 
-.toolbar a:hover {
+.toolbar a:hover,
+.toolbar button:hover {
   color: var(--fg);
   border-color: var(--muted);
+}
+
+.viewtoggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.viewtoggle button {
+  border: 0;
+  border-radius: 0;
+}
+
+.viewtoggle button + button {
+  border-left: 1px solid var(--border);
+}
+
+.viewtoggle button.active {
+  color: var(--fg);
+  background: var(--code-bg);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.codewrap {
+  position: relative;
+  margin: 0 0 1em;
+}
+
+.codewrap pre {
+  margin: 0;
+}
+
+.codecopy {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.codewrap:hover .codecopy,
+.codecopy:focus-visible {
+  opacity: 1;
+}
+
+.codecopy:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+
+@media (hover: none) {
+  .codecopy {
+    opacity: 1;
+  }
 }
 
 .content {
@@ -237,8 +310,10 @@ mark {
 }
 
 @media print {
-  .toolbar {
-    display: none;
+  .toolbar,
+  .codecopy,
+  .source-view {
+    display: none !important;
   }
 
   body {
@@ -407,9 +482,17 @@ mark {
 </head>
 <body>
 <nav class="toolbar">
+  <div class="viewtoggle js-only" role="tablist" hidden>
+    <button type="button" class="active" data-view="rendered"
+      aria-selected="true">Rendered</button>
+    <button type="button" data-view="source"
+      aria-selected="false">Source</button>
+  </div>
+  <button type="button" class="copy-source js-only" hidden>
+    Copy markdown</button>
   <a class="download" href="./refactor-auth.md" download>Download markdown</a>
 </nav>
-<main class="content">
+<main class="content" id="rendered">
 <h1 id="refactor-auth">Refactor auth</h1>
 <p>A short plan document exercising the rendering pipeline.</p>
 <h2 id="goals">Goals</h2>
@@ -461,5 +544,121 @@ mark {
 </div>
 
 </main>
+<main class="content source-view" id="source" hidden>
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="gh"># Refactor auth
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">A short plan document exercising the rendering pipeline.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Goals
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">-</span> Replace session cookies with tokens
+</span></span><span class="line"><span class="cl"><span class="k">-</span> Keep the <span class="gd">~~old~~</span> legacy login working
+</span></span><span class="line"><span class="cl"><span class="k">-</span> Ship behind a flag[^flag]
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Tasks
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">- [x]</span> Write the spec
+</span></span><span class="line"><span class="cl"><span class="k">- [ ]</span> Implement the middleware
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Code
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="s">```go
+</span></span></span><span class="line"><span class="cl"><span class="kd">func</span><span class="w"> </span><span class="nf">main</span><span class="p">()</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="nx">fmt</span><span class="p">.</span><span class="nf">Println</span><span class="p">(</span><span class="s">&#34;hello&#34;</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="s">```</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="s">```
+</span></span></span><span class="line"><span class="cl">plain block, no language
+</span></span><span class="line"><span class="cl"><span class="s">```</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Matrix
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">| Case     | Result |
+</span></span><span class="line"><span class="cl">| -------- | ------ |
+</span></span><span class="line"><span class="cl">| happy    | pass   |
+</span></span><span class="line"><span class="cl">| sad      | fail   |
+</span></span><span class="line"><span class="cl"><span class="k">
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">Note: rollback plan lives at https://example.com/rollback
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">[^flag]: <span class="sb">`auth_v2`</span> in the flags service.
+</span></span></code></pre>
+</main>
+<script>
+(function () {
+  'use strict';
+  var d = document;
+
+  // Reveal JS-dependent controls (hidden for no-JS readers).
+  d.querySelectorAll('.js-only').forEach(function (el) {
+    el.hidden = false;
+  });
+
+  function flash(btn, text) {
+    var old = btn.textContent;
+    btn.textContent = text;
+    btn.disabled = true;
+    setTimeout(function () {
+      btn.textContent = old;
+      btn.disabled = false;
+    }, 1200);
+  }
+
+  function copyText(text, btn) {
+    if (!navigator.clipboard) {
+      flash(btn, 'Copy failed');
+      return;
+    }
+    navigator.clipboard.writeText(text).then(
+      function () { flash(btn, 'Copied!'); },
+      function () { flash(btn, 'Copy failed'); }
+    );
+  }
+
+  // Rendered/source toggle.
+  var rendered = d.getElementById('rendered');
+  var source = d.getElementById('source');
+  d.querySelectorAll('.viewtoggle button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var showSource = btn.dataset.view === 'source';
+      source.hidden = !showSource;
+      rendered.hidden = showSource;
+      d.querySelectorAll('.viewtoggle button').forEach(function (b) {
+        b.classList.toggle('active', b === btn);
+        b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
+      });
+    });
+  });
+
+  // Copy the full original source. The highlighted block's text
+  // content preserves the raw source exactly.
+  var copySource = d.querySelector('.copy-source');
+  if (copySource && source) {
+    copySource.addEventListener('click', function () {
+      var pre = source.querySelector('pre');
+      copyText(pre ? pre.textContent : '', copySource);
+    });
+  }
+
+  // Per-code-block copy buttons in the rendered view.
+  rendered.querySelectorAll('pre').forEach(function (pre) {
+    var wrap = d.createElement('div');
+    wrap.className = 'codewrap';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+
+    var btn = d.createElement('button');
+    btn.className = 'codecopy';
+    btn.type = 'button';
+    btn.textContent = 'Copy';
+    btn.addEventListener('click', function () {
+      var code = pre.querySelector('code');
+      copyText((code || pre).textContent, btn);
+    });
+    wrap.appendChild(btn);
+  });
+})();
+
+</script>
 </body>
 </html>

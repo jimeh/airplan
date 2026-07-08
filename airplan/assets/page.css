@@ -42,20 +42,93 @@ body {
   padding: 0.75rem 1.25rem 0;
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
   font-size: 0.85rem;
 }
 
-.toolbar a {
+.toolbar a,
+.toolbar button {
+  font: inherit;
   color: var(--muted);
+  background: none;
   text-decoration: none;
   border: 1px solid var(--border);
   border-radius: 6px;
   padding: 0.25rem 0.6rem;
+  cursor: pointer;
 }
 
-.toolbar a:hover {
+.toolbar a:hover,
+.toolbar button:hover {
   color: var(--fg);
   border-color: var(--muted);
+}
+
+.viewtoggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.viewtoggle button {
+  border: 0;
+  border-radius: 0;
+}
+
+.viewtoggle button + button {
+  border-left: 1px solid var(--border);
+}
+
+.viewtoggle button.active {
+  color: var(--fg);
+  background: var(--code-bg);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.codewrap {
+  position: relative;
+  margin: 0 0 1em;
+}
+
+.codewrap pre {
+  margin: 0;
+}
+
+.codecopy {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  font: inherit;
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.15rem 0.5rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.codewrap:hover .codecopy,
+.codecopy:focus-visible {
+  opacity: 1;
+}
+
+.codecopy:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+
+@media (hover: none) {
+  .codecopy {
+    opacity: 1;
+  }
 }
 
 .content {
@@ -229,8 +302,10 @@ mark {
 }
 
 @media print {
-  .toolbar {
-    display: none;
+  .toolbar,
+  .codecopy,
+  .source-view {
+    display: none !important;
   }
 
   body {
