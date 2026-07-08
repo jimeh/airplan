@@ -171,9 +171,13 @@ JSON Schema all fall out of one struct definition.
 
 ## 7. Distribution
 
-GoReleaser: cross-platform archives, checksums, Homebrew tap; shell
-completions and `airplan.schema.json` bundled into archives and
-release assets. `go install` works as a fallback.
+GoReleaser: cross-platform archives, checksums, Homebrew tap (cask);
+`airplan.schema.json` bundled into archives and published as a
+standalone release asset (the `#:schema` URL). Shell completions are
+generated at runtime by `airplan completion` rather than shipped.
+Releases are cut by release-please from conventional commits; the
+tag triggers the GoReleaser publish workflow. `go install` works as
+a fallback.
 
 ## 8. Phased Plan
 
