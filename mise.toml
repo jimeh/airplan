@@ -12,6 +12,10 @@ outputs = ["bin/airplan"]
 description = "Run all tests"
 run = "go test ./..."
 
+[tasks.test-integration]
+description = "Round-trip tests against a throwaway MinIO container"
+run = "bash scripts/test-integration.sh"
+
 [tasks.lint]
 description = "Run golangci-lint"
 run = "golangci-lint run"
