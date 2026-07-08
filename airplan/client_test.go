@@ -1,9 +1,60 @@
 package airplan
 
 import (
+	"context"
+	"errors"
+	"io"
 	"mime"
+	"strings"
 	"testing"
 )
+
+func TestReadInput(t *testing.T) {
+	t.Run("under limit", func(t *testing.T) {
+		data, err := readInput(strings.NewReader("hello"), 10)
+		if err != nil || string(data) != "hello" {
+			t.Errorf("data = %q, err = %v", data, err)
+		}
+	})
+
+	t.Run("exactly at limit", func(t *testing.T) {
+		data, err := readInput(strings.NewReader("0123456789"), 10)
+		if err != nil || len(data) != 10 {
+			t.Errorf("len = %d, err = %v", len(data), err)
+		}
+	})
+
+	t.Run("over limit", func(t *testing.T) {
+		_, err := readInput(strings.NewReader("0123456789x"), 10)
+		if !errors.Is(err, ErrInputTooLarge) {
+			t.Errorf("err = %v, want ErrInputTooLarge", err)
+		}
+	})
+
+	t.Run("unlimited", func(t *testing.T) {
+		data, err := readInput(strings.NewReader("0123456789x"), 0)
+		if err != nil || len(data) != 11 {
+			t.Errorf("len = %d, err = %v", len(data), err)
+		}
+	})
+}
+
+func TestUploadRejectsOversizedInput(t *testing.T) {
+	// Oversized input must fail before any key generation or storage
+	// access, so a Client without a live storage backend suffices.
+	c := &Client{cfg: &Config{Bucket: "b"}}
+
+	huge := io.LimitReader(zeroReader{}, MaxInputSize+1)
+	_, err := c.Upload(context.Background(), Input{Reader: huge})
+	if !errors.Is(err, ErrInputTooLarge) {
+		t.Fatalf("err = %v, want ErrInputTooLarge", err)
+	}
+}
+
+// zeroReader yields zero bytes forever without allocating input data.
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) { return len(p), nil }
 
 func TestTitleMetadata(t *testing.T) {
 	if titleMetadata("") != nil {

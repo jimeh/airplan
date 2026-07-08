@@ -79,6 +79,13 @@ type ConfigOptions struct {
 	// Getenv is the environment lookup, injectable for tests.
 	// nil means os.Getenv.
 	Getenv func(string) string
+
+	// Overrides sit at the top of the precedence order (SPEC.md §7) —
+	// typically CLI flag values. Empty strings and nil bools mean
+	// "not set". They also count toward the profile-resolution
+	// completeness check, so one-off --endpoint/--bucket invocations
+	// work against a config file that defines multiple profiles.
+	Overrides Settings
 }
 
 // LoadConfig reads the config file (if present), applies AIRPLAN_* env
@@ -108,7 +115,7 @@ func LoadConfig(opts ConfigOptions) (*Config, error) {
 		return nil, err
 	}
 
-	profile, err := resolveProfile(opts.Profile, getenv, fileConfig, meta)
+	profile, err := resolveProfile(opts, getenv, fileConfig, meta)
 	if err != nil {
 		return nil, err
 	}
@@ -123,6 +130,7 @@ func LoadConfig(opts ConfigOptions) (*Config, error) {
 		)
 	}
 	applyEnv(cfg, getenv)
+	applyOverrides(cfg, opts.Overrides)
 
 	if loaded {
 		warnReadableCredentials(cfg, path, fileConfig)
@@ -217,7 +225,7 @@ func loadFileConfig(path string) (FileConfig, toml.MetaData, bool, error) {
 }
 
 func resolveProfile(
-	option string,
+	opts ConfigOptions,
 	getenv func(string) string,
 	fileConfig FileConfig,
 	meta toml.MetaData,
@@ -226,7 +234,7 @@ func resolveProfile(
 
 	// An explicitly requested profile must exist even when the config
 	// file defines no profiles at all (SPEC.md §7, resolution step 1).
-	selected := option
+	selected := opts.Profile
 	if selected == "" {
 		selected = getenv("AIRPLAN_PROFILE")
 	}
@@ -271,9 +279,13 @@ func resolveProfile(
 		return names[0], nil
 	}
 
+	// Completeness counts everything above profiles in the precedence
+	// order: root values, env vars, and flag overrides (SPEC.md §7,
+	// resolution step 4).
 	rootCfg := &Config{Region: "auto"}
 	applySettings(rootCfg, fileConfig.Settings, rootKeyDefined(meta, true))
 	applyEnv(rootCfg, getenv)
+	applyOverrides(rootCfg, opts.Overrides)
 	if rootCfg.Endpoint != "" && rootCfg.Bucket != "" {
 		return "", nil
 	}
@@ -360,6 +372,31 @@ func applyEnv(cfg *Config, getenv func(string) string) {
 func applyEnvString(field *string, getenv func(string) string, name string) {
 	if value := getenv(name); value != "" {
 		*field = value
+	}
+}
+
+// applyOverrides overlays top-of-precedence values (CLI flags): empty
+// strings and nil bools are "not set" and leave cfg untouched.
+func applyOverrides(cfg *Config, s Settings) {
+	for field, value := range map[*string]string{
+		&cfg.Endpoint:        s.Endpoint,
+		&cfg.Bucket:          s.Bucket,
+		&cfg.Region:          s.Region,
+		&cfg.AccessKeyID:     s.AccessKeyID,
+		&cfg.SecretAccessKey: s.SecretAccessKey,
+		&cfg.PublicBaseURL:   s.PublicBaseURL,
+		&cfg.KeyPrefix:       s.KeyPrefix,
+		&cfg.Template:        s.Template,
+	} {
+		if value != "" {
+			*field = value
+		}
+	}
+	if s.NoSource != nil {
+		cfg.NoSource = *s.NoSource
+	}
+	if s.Indexable != nil {
+		cfg.Indexable = *s.Indexable
 	}
 }
 

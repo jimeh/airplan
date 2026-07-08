@@ -6,6 +6,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -37,12 +38,13 @@ func Execute() int {
 
 // rootOptions holds the root command's flag values.
 type rootOptions struct {
-	format    string
-	slug      string
-	title     string
-	noSource  bool
-	indexable bool
-	config    string
+	format      string
+	slug        string
+	title       string
+	noSource    bool
+	indexable   bool
+	noSizeLimit bool
+	config      string
 
 	// Connection overrides for one-off use (SPEC.md §6).
 	endpoint      string
@@ -81,6 +83,8 @@ func newRootCmd() *cobra.Command {
 		"don't upload the original .md alongside the page")
 	f.BoolVar(&opts.indexable, "indexable", false,
 		"omit the noindex robots meta tag")
+	f.BoolVar(&opts.noSizeLimit, "no-size-limit", false,
+		"bypass the 100 MiB input size limit")
 	f.StringVar(&opts.config, "config", "",
 		"config file path (default: XDG config dir)")
 
@@ -110,12 +114,12 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	stderr := cmd.ErrOrStderr()
 
 	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
-		Path: opts.config,
+		Path:      opts.config,
+		Overrides: flagOverrides(cmd, opts),
 	})
 	if err != nil {
 		return err
 	}
-	applyFlagOverrides(cmd, cfg, opts)
 
 	for _, w := range cfg.Warnings {
 		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
@@ -127,9 +131,10 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	}
 
 	in := airplan.Input{
-		Format: opts.format,
-		Slug:   opts.slug,
-		Title:  opts.title,
+		Format:      opts.format,
+		Slug:        opts.slug,
+		Title:       opts.title,
+		NoSizeLimit: opts.noSizeLimit,
 	}
 	if len(args) == 0 || args[0] == "-" {
 		in.Reader = cmd.InOrStdin()
@@ -145,6 +150,11 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 
 	res, err := client.Upload(ctx, in)
 	if err != nil {
+		if errors.Is(err, airplan.ErrInputTooLarge) {
+			return fmt.Errorf(
+				"%w (pass --no-size-limit to upload anyway)", err,
+			)
+		}
 		return err
 	}
 
@@ -155,34 +165,25 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	return nil
 }
 
-// applyFlagOverrides overlays explicitly-passed flags onto the loaded
-// config — the top of the precedence order in SPEC.md §7. Changed()
-// guards keep unset flags from clobbering config/env values.
-func applyFlagOverrides(
-	cmd *cobra.Command,
-	cfg *airplan.Config,
-	opts *rootOptions,
-) {
+// flagOverrides packs explicitly-passed flags into a Settings overlay
+// for LoadConfig — the top of the precedence order in SPEC.md §7,
+// where it also counts toward profile-resolution completeness.
+// Changed() guards let an explicit false override a config-file true
+// for the bool flags; string flags use "" as "not set".
+func flagOverrides(cmd *cobra.Command, opts *rootOptions) airplan.Settings {
+	ov := airplan.Settings{
+		Endpoint:      opts.endpoint,
+		Bucket:        opts.bucket,
+		Region:        opts.region,
+		PublicBaseURL: opts.publicBaseURL,
+		KeyPrefix:     opts.keyPrefix,
+	}
 	f := cmd.Flags()
-	if f.Changed("endpoint") {
-		cfg.Endpoint = opts.endpoint
-	}
-	if f.Changed("bucket") {
-		cfg.Bucket = opts.bucket
-	}
-	if f.Changed("region") {
-		cfg.Region = opts.region
-	}
-	if f.Changed("public-base-url") {
-		cfg.PublicBaseURL = opts.publicBaseURL
-	}
-	if f.Changed("key-prefix") {
-		cfg.KeyPrefix = opts.keyPrefix
-	}
 	if f.Changed("no-source") {
-		cfg.NoSource = opts.noSource
+		ov.NoSource = &opts.noSource
 	}
 	if f.Changed("indexable") {
-		cfg.Indexable = opts.indexable
+		ov.Indexable = &opts.indexable
 	}
+	return ov
 }

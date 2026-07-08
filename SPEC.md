@@ -1,6 +1,10 @@
 # airplan — Tool Specification
 
-**Spec version: 0.1.0**
+**Spec version: 0.2.0**
+
+Changes in 0.2.0: input size limit and `--no-size-limit` (§2, §6);
+profile resolution counts env vars and flag overrides toward a
+complete non-profile configuration (§7).
 
 Semantic versioning, applied to the spec itself: **major** —
 breaking changes to observable behavior or on-disk/on-wire formats
@@ -60,6 +64,16 @@ Format detection:
 2. File extension: `.md`/`.markdown` → md; `.html`/`.htm` → html.
 3. stdin or unknown extension: sniff — leading `<!doctype` or `<html`
    (case-insensitive, after whitespace/BOM) → html, else md.
+
+Size limit: input larger than **100 MiB** is rejected with an error
+before any upload. The whole document is loaded into memory for
+rendering (md) or the noindex splice (html), and a plan document that
+size is invariably a mistake — the wrong file, like a database dump.
+Implementations must detect the overflow without buffering
+meaningfully past the limit. `--no-size-limit` bypasses the check;
+there is
+deliberately no config key for it, so bypassing stays a per-invocation
+decision.
 
 ---
 
@@ -201,6 +215,7 @@ airplan [flags] [file]
 | `--template P`   | built-in       | custom page template (md only)     |
 | `--no-source`    | off            | don't upload the original .md      |
 | `--indexable`    | off            | no noindex meta (md and html, §3–4)|
+| `--no-size-limit`| off            | bypass the 100 MiB input limit (§2)|
 | `--json`         | off            | JSON object on stdout              |
 | `--profile P`    | config default | named profile from config file     |
 | `--config PATH`  | XDG default    | alternate config file              |
@@ -334,8 +349,11 @@ public_base_url = "https://jimeh-plans.s3.eu-west-2.amazonaws.com"
    profile that doesn't exist).
 2. Else `default_profile`, if set (error if dangling).
 3. Else, if exactly one named profile exists, use it.
-4. Else, if the root-level values alone form a complete
-   configuration, run on those.
+4. Else, if the root-level values — merged with environment
+   variables and flag overrides, which sit above them in the
+   precedence order — form a complete configuration, run on those.
+   This keeps one-off `--endpoint`/`--bucket` invocations working
+   against a config file that happens to define multiple profiles.
 5. Else, error — listing the available profile names.
 
 In every case the selected profile is merged over the root-level

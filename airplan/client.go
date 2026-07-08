@@ -23,6 +23,18 @@ const pageContentType = "text/html; charset=utf-8"
 // source object (SPEC.md §5).
 const sourceContentType = "text/markdown; charset=utf-8"
 
+// MaxInputSize is the input size limit (SPEC.md §2). Documents are
+// loaded whole into memory for rendering or splicing; anything this
+// large is invariably the wrong file. Input.NoSizeLimit bypasses it.
+const MaxInputSize = 100 << 20 // 100 MiB
+
+// ErrInputTooLarge is returned by Upload when the input exceeds
+// MaxInputSize and Input.NoSizeLimit is false. No more than the limit
+// is buffered before the overflow is detected.
+var ErrInputTooLarge = fmt.Errorf(
+	"airplan: input exceeds the %d MiB size limit", MaxInputSize>>20,
+)
+
 // Client uploads plan documents per the pipeline in SPEC.md §1:
 // detect format → render (markdown) or noindex-splice (HTML) →
 // generate key → upload page (+ markdown source) → assemble URL.
@@ -69,6 +81,9 @@ type Input struct {
 
 	// Title overrides the page title (SPEC.md §3).
 	Title string
+
+	// NoSizeLimit disables the MaxInputSize check (SPEC.md §2).
+	NoSizeLimit bool
 }
 
 // Result describes a completed upload. Bytes and ContentType describe
@@ -99,9 +114,13 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 	if in.Reader == nil {
 		return nil, errors.New("airplan: input reader is nil")
 	}
-	data, err := io.ReadAll(in.Reader)
+	limit := int64(MaxInputSize)
+	if in.NoSizeLimit {
+		limit = 0
+	}
+	data, err := readInput(in.Reader, limit)
 	if err != nil {
-		return nil, fmt.Errorf("airplan: read input: %w", err)
+		return nil, err
 	}
 
 	var format Format
@@ -228,6 +247,23 @@ func titleMetadata(title string) map[string]string {
 	return map[string]string{
 		"title": mime.QEncoding.Encode("utf-8", title),
 	}
+}
+
+// readInput reads r fully, enforcing limit (in bytes; <= 0 means
+// unlimited). It buffers at most one byte past the limit before
+// returning ErrInputTooLarge (SPEC.md §2).
+func readInput(r io.Reader, limit int64) ([]byte, error) {
+	if limit > 0 {
+		r = io.LimitReader(r, limit+1)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("airplan: read input: %w", err)
+	}
+	if limit > 0 && int64(len(data)) > limit {
+		return nil, ErrInputTooLarge
+	}
+	return data, nil
 }
 
 // filenameStem returns the base name without its extension, or "".

@@ -600,3 +600,83 @@ func TestLoadConfigEnvProfileWithoutConfigFile(t *testing.T) {
 		t.Errorf("error = %v", err)
 	}
 }
+
+func TestLoadConfigOverrides(t *testing.T) {
+	t.Run("overrides beat env and profile", func(t *testing.T) {
+		path := writeConfig(t, `
+endpoint = "root-endpoint"
+bucket   = "root-bucket"
+`, 0o600)
+
+		on := true
+		cfg, err := LoadConfig(ConfigOptions{
+			Path: path,
+			Getenv: envMap(map[string]string{
+				"AIRPLAN_BUCKET": "env-bucket",
+			}),
+			Overrides: Settings{
+				Bucket:   "flag-bucket",
+				NoSource: &on,
+			},
+		})
+		if err != nil {
+			t.Fatalf("LoadConfig() error = %v", err)
+		}
+		assertEqual(t, cfg.Bucket, "flag-bucket")
+		assertEqual(t, cfg.Endpoint, "root-endpoint")
+		if !cfg.NoSource {
+			t.Error("NoSource override not applied")
+		}
+	})
+
+	t.Run("explicit false overrides config true", func(t *testing.T) {
+		path := writeConfig(t, `
+endpoint  = "root-endpoint"
+bucket    = "root-bucket"
+no_source = true
+`, 0o600)
+
+		off := false
+		cfg, err := LoadConfig(ConfigOptions{
+			Path:      path,
+			Getenv:    envMap(nil),
+			Overrides: Settings{NoSource: &off},
+		})
+		if err != nil {
+			t.Fatalf("LoadConfig() error = %v", err)
+		}
+		if cfg.NoSource {
+			t.Error("explicit false override lost to config true")
+		}
+	})
+
+	t.Run("overrides complete a multi-profile config", func(t *testing.T) {
+		// SPEC §7 step 4: connection flags count toward completeness,
+		// so a one-off --endpoint/--bucket run works against a config
+		// file that defines several profiles and no default.
+		path := writeConfig(t, `
+[profiles.home]
+endpoint = "home-endpoint"
+bucket   = "home-bucket"
+
+[profiles.work]
+endpoint = "work-endpoint"
+bucket   = "work-bucket"
+`, 0o600)
+
+		cfg, err := LoadConfig(ConfigOptions{
+			Path:   path,
+			Getenv: envMap(nil),
+			Overrides: Settings{
+				Endpoint: "flag-endpoint",
+				Bucket:   "flag-bucket",
+			},
+		})
+		if err != nil {
+			t.Fatalf("LoadConfig() error = %v", err)
+		}
+		assertEqual(t, cfg.Profile, "")
+		assertEqual(t, cfg.Endpoint, "flag-endpoint")
+		assertEqual(t, cfg.Bucket, "flag-bucket")
+	})
+}
