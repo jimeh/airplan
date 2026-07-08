@@ -1,6 +1,13 @@
 # airplan — Tool Specification
 
-**Spec version: 0.1.0**
+**Spec version: 0.2.0**
+
+Changes in 0.2.0: input size limit and `--max-size` (§2, §6);
+configurable invocation timeout, default 20 s (§6, §7);
+plain-text input rendered as a highlighted code page (§2, §3, §5,
+§6, §8); binary input rejection (§2); profile resolution counts env
+vars and flag overrides toward a complete non-profile configuration
+(§7).
 
 Semantic versioning, applied to the spec itself: **major** —
 breaking changes to observable behavior or on-disk/on-wire formats
@@ -54,12 +61,37 @@ Output contract (critical for agent use):
 
 `airplan [flags] [file]` — `file` omitted or `-` reads stdin.
 
+Three input formats: markdown (rendered, §3), HTML (uploaded as-is,
+§4), and plain text (rendered as a highlighted code page, §3).
+
 Format detection:
 
-1. `--format md|html` wins if given.
-2. File extension: `.md`/`.markdown` → md; `.html`/`.htm` → html.
-3. stdin or unknown extension: sniff — leading `<!doctype` or `<html`
-   (case-insensitive, after whitespace/BOM) → html, else md.
+1. `--format md|html|txt` wins if given.
+2. File extension: `.md`/`.markdown` → md; `.html`/`.htm` → html;
+   **any other extension → text** (`.go`, `.py`, `.txt`, `.json`, …).
+3. Extensionless filename recognized by the syntax highlighter's
+   filename patterns (`Makefile`, `Dockerfile`, …) → text.
+4. Otherwise — stdin, or an unrecognized extensionless name — sniff:
+   leading `<!doctype` or `<html` (case-insensitive, after
+   whitespace/BOM) → html, else md. Bare stdin defaulting to
+   markdown is load-bearing: it is the primary agent path.
+
+Binary rejection: input containing a NUL byte within its first 8 KiB
+(git's binary heuristic) is rejected with an error before any upload,
+regardless of detected or forced format. airplan uploads UTF-8 text
+documents; there is no bypass.
+
+Size limit: input larger than the configured maximum — default
+**10 MiB** — is rejected with an error before any upload. The whole
+document is loaded into memory for rendering (md/text) or the noindex
+splice (html), and a plan document over the default is invariably a
+mistake — the wrong file, like a database dump. Implementations must
+detect the overflow without buffering meaningfully past the limit.
+`--max-size` sets the limit per invocation: a plain byte count, or an
+integer with a `k`/`m`/`g` suffix (binary multiples; optional
+trailing `b`/`ib`; case-insensitive — `10MB`, `512k`, `1gib`). `0`
+removes the limit. There is deliberately no config key, so raising or
+removing the guard stays a per-invocation decision.
 
 ---
 
@@ -104,12 +136,38 @@ CSS, no external fonts/scripts/assets, system font stack.
     hidden in print styles. Clipboard API needs a secure context,
     which https links satisfy.
 
+### Plain-text input
+
+Text input (§2) shares the markdown page machinery: the same
+standalone page template, styling, and dark/light behavior, with the
+body being the source rendered as one syntax-highlighted code block.
+A shared source file reads like a one-file gist.
+
+- The highlight language comes from the source filename (extension
+  or recognized special names like `Makefile`). When the filename
+  yields no lexer — a forced `--format txt` on stdin, or an
+  extension the highlighter doesn't know — the block renders as
+  unhighlighted plain text. (This is about the highlight language
+  only; which inputs *become* text format is decided solely by §2.)
+- Title chain: `--title`, else the original source filename
+  including its extension (`keygen.go`), else slug (no
+  content-derived title — the document is never interpreted).
+- The page shows the original filename as a header bar attached to
+  the code block, so a shared file identifies itself. Omitted for
+  stdin input, where no filename exists.
+- The original file is uploaded alongside the page as
+  `<random>/<slug>.<ext>` (`text/plain; charset=utf-8`, same cache
+  headers), where `<ext>` is the source filename's extension —
+  `txt` when there is none (stdin) or when it would collide with
+  the page object (`html`/`htm`). The page's download anchor points
+  at it. `--no-source` skips it, exactly as for markdown.
+
 ### Page templates & customization
 
 Users can substitute the built-in page template with their own via
 `template` in a profile, `AIRPLAN_TEMPLATE`, or `--template PATH`.
-Applies to markdown input only — HTML input is always uploaded as-is
-(warn if combined).
+Applies to markdown and text input — HTML input is always uploaded
+as-is (warn if combined).
 
 Template data contract (the stable API custom templates code
 against):
@@ -119,8 +177,9 @@ against):
 | `.Title`      | string      | resolved title                |
 | `.Body`       | raw HTML    | rendered markdown body        |
 | `.SourceHTML` | raw HTML    | highlighted raw source        |
-| `.SourcePath` | string      | relative path to uploaded .md |
+| `.SourcePath` | string      | relative path to the uploaded source |
 | `.Slug`       | string      | resolved slug                 |
+| `.FileName`   | string      | original filename (text input; else "") |
 
 `.SourcePath` is empty when the source isn't uploaded
 (`--no-source`); templates must handle both cases.
@@ -171,9 +230,11 @@ file.
     show titles via `HeadObject`.
 - Markdown input additionally uploads the original source as
   `<random>/<slug>.md` (`text/markdown; charset=utf-8`, same cache
-  headers) unless `--no-source`. The pair shares the random
-  directory, so the page can link to it relatively (`./<slug>.md`)
-  on any domain. The source uploads first; failure of either upload
+  headers) unless `--no-source`; text input likewise uploads its
+  original file as `<random>/<slug>.<ext>`
+  (`text/plain; charset=utf-8`, §3). The pair shares the random
+  directory, so the page can link to it relatively (`./<slug>.md`,
+  or `./<slug>.<ext>` for text input) on any domain. The source uploads first; failure of either upload
   fails the command (an orphaned first object is harmless; it never
   reaches the manifest, so cleaning it up takes `purge --remote`).
   stdout still carries only the page URL.
@@ -195,12 +256,14 @@ airplan [flags] [file]
 
 | Flag             | Default        | Notes                              |
 | ---------------- | -------------- | ---------------------------------- |
-| `--format`       | auto           | `md` \| `html`; overrides sniffing |
+| `--format`       | auto           | `md`\|`html`\|`txt`; overrides §2  |
 | `--slug S`       | from filename  | filename portion of the URL        |
 | `--title T`      | from content   | page title (see §3 fallback chain) |
 | `--template P`   | built-in       | custom page template (md only)     |
 | `--no-source`    | off            | don't upload the original .md      |
 | `--indexable`    | off            | no noindex meta (md and html, §3–4)|
+| `--max-size N`   | 10MiB          | input size limit; 0 = no limit (§2)|
+| `--timeout D`    | 20s            | invocation timeout; 0 = none       |
 | `--json`         | off            | JSON object on stdout              |
 | `--profile P`    | config default | named profile from config file     |
 | `--config PATH`  | XDG default    | alternate config file              |
@@ -219,6 +282,14 @@ shell completions.
 If `--open` fails to launch a browser (common in headless/agent
 environments), a warning goes to stderr and the exit code is
 unaffected — the upload succeeded and the URL was already printed.
+
+The whole invocation is bounded by a timeout — default **20
+seconds** — so a stalled endpoint fails with a clear error instead
+of hanging the caller (often an agent harness) indefinitely.
+Configurable via `--timeout` / `AIRPLAN_TIMEOUT` / the `timeout`
+config key (root or profile level), with the usual precedence (§7).
+Values are Go-style duration strings (`20s`, `1m30s`) or a bare
+integer meaning seconds; `0` disables the timeout.
 
 Examples:
 
@@ -306,6 +377,7 @@ endpoint        = "https://<account-id>.r2.cloudflarestorage.com"
 region          = "auto"
 # template = "~/.config/airplan/my-template.html"  # optional
 # no_source = true    # behavior defaults; flags override
+# timeout = "20s"     # invocation timeout; 0 = none
 # indexable = true
 # Credentials may live here, but env vars are preferred:
 # access_key_id     = "..."
@@ -334,8 +406,11 @@ public_base_url = "https://jimeh-plans.s3.eu-west-2.amazonaws.com"
    profile that doesn't exist).
 2. Else `default_profile`, if set (error if dangling).
 3. Else, if exactly one named profile exists, use it.
-4. Else, if the root-level values alone form a complete
-   configuration, run on those.
+4. Else, if the root-level values — merged with environment
+   variables and flag overrides, which sit above them in the
+   precedence order — form a complete configuration, run on those.
+   This keeps one-off `--endpoint`/`--bucket` invocations working
+   against a config file that happens to define multiple profiles.
 5. Else, error — listing the available profile names.
 
 In every case the selected profile is merged over the root-level
@@ -354,6 +429,7 @@ AIRPLAN_SECRET_ACCESS_KEY
 AIRPLAN_PUBLIC_BASE_URL
 AIRPLAN_KEY_PREFIX
 AIRPLAN_TEMPLATE
+AIRPLAN_TIMEOUT
 AIRPLAN_CONFIG
 ```
 
@@ -365,8 +441,9 @@ out-of-the-box in environments already configured for S3.
 If the config file contains credentials and is group- or
 world-readable, a warning is printed to stderr.
 
-Behavioral defaults: `no_source` and `indexable` may be set at the
-root or profile level; their flags override the config values.
+Behavioral defaults: `no_source`, `indexable`, and `timeout` may be
+set at the root or profile level; their flags override the config
+values.
 
 `public_base_url` is strongly recommended whenever the endpoint URL
 isn't itself publicly readable (always the case for R2). If unset,
@@ -405,6 +482,9 @@ Scheme:
 [<key_prefix>/]<random>/<slug>.html
 [<key_prefix>/]<random>/<slug>.md      (markdown input, unless
                                         --no-source)
+[<key_prefix>/]<random>/<slug>.<ext>   (text input's original file,
+                                        unless --no-source; <ext>
+                                        per §3)
 ```
 
 Each upload owns one random directory; everything under it belongs

@@ -1,0 +1,25 @@
+[tools]
+go = "1.26.4"
+golangci-lint = "2.12.2"
+
+[tasks.build]
+description = "Build the airplan binary (skipped when nothing changed)"
+run = "go build -o bin/airplan ."
+sources = ["main.go", "go.mod", "go.sum", "cli/**/*.go", "airplan/**/*"]
+outputs = ["bin/airplan"]
+
+[tasks.test]
+description = "Run all tests"
+run = "go test ./..."
+
+[tasks.test-integration]
+description = "Round-trip tests against a throwaway MinIO container"
+run = "go test -tags integration -count=1 -v -run TestIntegration ./airplan/"
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run"
+
+[tasks.fmt]
+description = "Format Go code"
+run = "golangci-lint fmt"

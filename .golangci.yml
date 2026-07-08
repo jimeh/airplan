@@ -1,0 +1,17 @@
+version: "2"
+
+run:
+  build-tags:
+    - integration
+
+linters:
+  settings:
+    errcheck:
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+
+formatters:
+  enable:
+    - gofumpt
