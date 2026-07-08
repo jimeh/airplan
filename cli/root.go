@@ -6,9 +6,13 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/jimeh/airplan/airplan"
@@ -38,12 +42,16 @@ func Execute() int {
 // rootOptions holds the root command's flag values.
 type rootOptions struct {
 	format    string
+	lang      string
 	slug      string
 	title     string
 	noSource  bool
 	indexable bool
 	maxSize   string
 	timeout   string
+	json      bool
+	open      bool
+	profile   string
 	config    string
 
 	// Connection overrides for one-off use (SPEC.md §6).
@@ -76,6 +84,8 @@ func newRootCmd() *cobra.Command {
 	f := cmd.Flags()
 	f.StringVar(&opts.format, "format", "",
 		"input format: md, html, or txt (default: auto-detect)")
+	f.StringVar(&opts.lang, "lang", "",
+		"highlight language for text input (default: from filename)")
 	f.StringVarP(&opts.slug, "slug", "s", "",
 		"filename portion of the URL (default: from filename)")
 	f.StringVarP(&opts.title, "title", "t", "",
@@ -88,6 +98,12 @@ func newRootCmd() *cobra.Command {
 		"input size limit, e.g. 10MiB, 512k, 1048576; 0 = no limit")
 	f.StringVar(&opts.timeout, "timeout", "",
 		"invocation timeout, e.g. 20s, 1m30s; 0 = none (default 20s)")
+	f.BoolVarP(&opts.json, "json", "j", false,
+		"print a single JSON object instead of the URL")
+	f.BoolVarP(&opts.open, "open", "o", false,
+		"open the resulting URL in the default browser")
+	f.StringVarP(&opts.profile, "profile", "p", "",
+		"config profile name (default: config default)")
 	f.StringVar(&opts.config, "config", "",
 		"config file path (default: XDG config dir)")
 
@@ -119,6 +135,7 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 
 	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
 		Path:      opts.config,
+		Profile:   opts.profile,
 		Overrides: flagOverrides(cmd, opts),
 	})
 	if err != nil {
@@ -149,6 +166,7 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 		Slug:    opts.slug,
 		Title:   opts.title,
 		MaxSize: maxSize,
+		Lang:    opts.lang,
 	}
 	if len(args) == 0 || args[0] == "-" {
 		in.Reader = cmd.InOrStdin()
@@ -175,8 +193,65 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	for _, w := range res.Warnings {
 		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), res.URL)
+	if err := printResult(cmd.OutOrStdout(), res, opts.json); err != nil {
+		return err
+	}
+	if opts.open {
+		if err := openBrowser(res.URL); err != nil {
+			fmt.Fprintf(stderr,
+				"airplan: warning: could not open browser: %s\n", err)
+		}
+	}
 	return nil
+}
+
+type jsonResult struct {
+	URL         string `json:"url"`
+	Key         string `json:"key"`
+	SourceURL   string `json:"source_url,omitempty"`
+	Bucket      string `json:"bucket"`
+	Bytes       int64  `json:"bytes"`
+	ContentType string `json:"content_type"`
+}
+
+func printResult(w io.Writer, res *airplan.Result, jsonOutput bool) error {
+	if !jsonOutput {
+		_, err := fmt.Fprintln(w, res.URL)
+		return err
+	}
+
+	out := jsonResult{
+		URL:         res.URL,
+		Key:         res.Key,
+		SourceURL:   res.SourceURL,
+		Bucket:      res.Bucket,
+		Bytes:       res.Bytes,
+		ContentType: res.ContentType,
+	}
+	return json.NewEncoder(w).Encode(out)
+}
+
+var openBrowser = defaultOpenBrowser
+
+func defaultOpenBrowser(url string) error {
+	var name string
+	var args []string
+
+	switch runtime.GOOS {
+	case "darwin":
+		name = "open"
+		args = []string{url}
+	case "linux":
+		name = "xdg-open"
+		args = []string{url}
+	case "windows":
+		name = "rundll32"
+		args = []string{"url.dll,FileProtocolHandler", url}
+	default:
+		return fmt.Errorf("unsupported platform %s", runtime.GOOS)
+	}
+
+	return exec.Command(name, args...).Start()
 }
 
 // flagOverrides packs explicitly-passed flags into a Settings overlay
