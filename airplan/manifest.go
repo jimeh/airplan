@@ -87,7 +87,7 @@ func appendManifestRecord(path string, rec ManifestRecord) error {
 	if err := lock.Lock(); err != nil {
 		return fmt.Errorf("lock manifest: %w", err)
 	}
-	defer lock.Unlock()
+	defer func() { _ = lock.Unlock() }()
 
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -114,8 +114,6 @@ func appendManifestRecord(path string, rec ManifestRecord) error {
 // malformed lines are skipped, each producing a warning; records with
 // an unknown type are skipped silently (forward compatibility). A
 // missing file is not an error — it returns no records.
-//
-//nolint:unused // exercised by the manifest packet tests; phase-3 commands consume it.
 func readManifest(path string) ([]ManifestRecord, []string, error) {
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -124,7 +122,7 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("open manifest: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	const maxManifestLine = 10 * 1024 * 1024
 
