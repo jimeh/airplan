@@ -37,7 +37,7 @@ archives:
       - LICENSE*
       - README*
       - SPEC.md
-      - schema/airplan.schema.jso[n]
+      - schema/airplan.schema.json
 
 checksum:
   name_template: checksums.txt
@@ -49,7 +49,7 @@ release:
   draft: false
   mode: keep-existing
   extra_files:
-    - glob: schema/airplan.schema.jso[n]
+    - glob: schema/airplan.schema.json
       name_template: airplan.schema.json
 
 homebrew_casks:
