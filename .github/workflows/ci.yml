@@ -47,4 +47,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v2
-      - run: go build .
+      # -o to a scratch path: a bare "go build ." would try to write a
+      # binary named airplan over the airplan/ package directory.
+      - run: go build -o "$RUNNER_TEMP/airplan" .
