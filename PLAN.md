@@ -98,7 +98,9 @@ replacement by construction.
 
 ## 4. Phase 2 — Ergonomics
 
-Status: **breakdown proposed 2026-07-08, awaiting discussion.**
+Status: **implemented 2026-07-08; in review.** All packets merged
+(X1–X5, C1–C3), every surface verified against R2 end-to-end
+including the interactive page controls on the live domain.
 Phase 1 already shipped several items the original phase-2 list
 expected: full profile resolution, `--slug`/`--title`/`--format`,
 sniffing hardening, `x-amz-meta-title`.
