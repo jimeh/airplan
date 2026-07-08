@@ -41,6 +41,7 @@ body {
   margin: 0 auto;
   padding: 0.75rem 1.25rem 0;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
   gap: 0.5rem;
@@ -49,14 +50,39 @@ body {
 
 .toolbar a,
 .toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
   font: inherit;
   color: var(--muted);
   background: none;
   text-decoration: none;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 0.25rem 0.6rem;
+  padding: 0.4rem;
   cursor: pointer;
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.icon-check,
+.icon-x {
+  display: none;
+}
+
+.is-copied .icon-copy,
+.is-failed .icon-copy {
+  display: none;
+}
+
+.is-copied .icon-check,
+.is-failed .icon-x {
+  display: inline;
 }
 
 .toolbar a:hover,
@@ -65,25 +91,31 @@ body {
   border-color: var(--muted);
 }
 
+/* Mode control, not action buttons: an inset track whose active
+   segment sits as a raised pill — no internal divider to glare. */
 .viewtoggle {
   display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  overflow: hidden;
 }
 
 .viewtoggle button {
   border: 0;
-  border-radius: 0;
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
 }
 
-.viewtoggle button + button {
-  border-left: 1px solid var(--border);
+.viewtoggle button:hover {
+  color: var(--fg);
 }
 
 .viewtoggle button.active {
   color: var(--fg);
-  background: var(--code-bg);
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 [hidden] {
@@ -103,16 +135,23 @@ body {
   position: absolute;
   top: 0.5em;
   right: 0.5em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font: inherit;
-  font-size: 0.75rem;
   color: var(--muted);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 0.15rem 0.5rem;
+  padding: 0.35rem;
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s ease-in-out;
+}
+
+.codecopy .icon {
+  width: 14px;
+  height: 14px;
 }
 
 .codewrap:hover .codecopy,
@@ -128,6 +167,12 @@ body {
 @media (hover: none) {
   .codecopy {
     opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codecopy {
+    transition: none;
   }
 }
 

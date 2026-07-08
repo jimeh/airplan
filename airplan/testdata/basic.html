@@ -49,6 +49,7 @@ body {
   margin: 0 auto;
   padding: 0.75rem 1.25rem 0;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
   gap: 0.5rem;
@@ -57,14 +58,39 @@ body {
 
 .toolbar a,
 .toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
   font: inherit;
   color: var(--muted);
   background: none;
   text-decoration: none;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 0.25rem 0.6rem;
+  padding: 0.4rem;
   cursor: pointer;
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.icon-check,
+.icon-x {
+  display: none;
+}
+
+.is-copied .icon-copy,
+.is-failed .icon-copy {
+  display: none;
+}
+
+.is-copied .icon-check,
+.is-failed .icon-x {
+  display: inline;
 }
 
 .toolbar a:hover,
@@ -73,25 +99,31 @@ body {
   border-color: var(--muted);
 }
 
+/* Mode control, not action buttons: an inset track whose active
+   segment sits as a raised pill — no internal divider to glare. */
 .viewtoggle {
   display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  overflow: hidden;
 }
 
 .viewtoggle button {
   border: 0;
-  border-radius: 0;
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
 }
 
-.viewtoggle button + button {
-  border-left: 1px solid var(--border);
+.viewtoggle button:hover {
+  color: var(--fg);
 }
 
 .viewtoggle button.active {
   color: var(--fg);
-  background: var(--code-bg);
+  background: var(--bg);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 [hidden] {
@@ -111,16 +143,23 @@ body {
   position: absolute;
   top: 0.5em;
   right: 0.5em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font: inherit;
-  font-size: 0.75rem;
   color: var(--muted);
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 0.15rem 0.5rem;
+  padding: 0.35rem;
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s ease-in-out;
+}
+
+.codecopy .icon {
+  width: 14px;
+  height: 14px;
 }
 
 .codewrap:hover .codecopy,
@@ -136,6 +175,12 @@ body {
 @media (hover: none) {
   .codecopy {
     opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .codecopy {
+    transition: none;
   }
 }
 
@@ -500,13 +545,26 @@ mark {
 <nav class="toolbar">
   <div class="viewtoggle js-only" hidden>
     <button type="button" class="active" data-view="rendered"
-      aria-pressed="true">Rendered</button>
+      aria-pressed="true" aria-label="Rendered view"
+      title="Rendered view"><svg class="icon" aria-hidden="true"
+      viewBox="0 0 16 16" fill="currentColor"><path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.825.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"/></svg></button>
     <button type="button" data-view="source"
-      aria-pressed="false">Source</button>
+      aria-pressed="false" aria-label="Source view"
+      title="Source view"><svg class="icon" aria-hidden="true"
+      viewBox="0 0 16 16" fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg></button>
   </div>
-  <button type="button" class="copy-source js-only" hidden>
-    Copy markdown</button>
-  <a class="download" href="./refactor-auth.md" download>Download markdown</a>
+  <button type="button" class="copy-source js-only" hidden
+    aria-label="Copy markdown" title="Copy markdown"><svg
+    class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg><svg
+    class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg><svg
+    class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg></button>
+  <a class="download" href="./refactor-auth.md" download
+    aria-label="Download markdown" title="Download markdown"><svg
+    class="icon" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg></a>
 </nav>
 <main class="content" id="rendered">
 <h1 id="refactor-auth">Refactor auth</h1>
@@ -617,27 +675,53 @@ mark {
   live.setAttribute('aria-live', 'polite');
   d.body.appendChild(live);
 
-  function flash(btn, text) {
-    var old = btn.textContent;
-    btn.textContent = text;
+  // Buttons are icon-only: feedback is an icon swap (check on
+  // success, x on failure) plus the live-region announcement.
+  function flash(btn, text, ok) {
     live.textContent = text;
+    btn.classList.add(ok ? 'is-copied' : 'is-failed');
     btn.disabled = true;
     setTimeout(function () {
-      btn.textContent = old;
+      btn.classList.remove('is-copied', 'is-failed');
       btn.disabled = false;
     }, 1200);
   }
 
   function copyText(text, btn) {
     if (!navigator.clipboard) {
-      flash(btn, 'Copy failed');
+      flash(btn, 'Copy failed', false);
       return;
     }
     navigator.clipboard.writeText(text).then(
-      function () { flash(btn, 'Copied!'); },
-      function () { flash(btn, 'Copy failed'); }
+      function () { flash(btn, 'Copied!', true); },
+      function () { flash(btn, 'Copy failed', false); }
     );
   }
+
+  // Octicons mirroring the toolbar's inline SVGs, for the
+  // JS-created per-code-block buttons.
+  var iconCopy = '<svg class="icon icon-copy" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0' +
+    ' 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0' +
+    '-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5' +
+    'a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.7' +
+    '5 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5' +
+    'C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1' +
+    '.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .13' +
+    '8.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25' +
+    '-.25Z"/></svg>';
+  var iconCheck = '<svg class="icon icon-check" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22' +
+    'a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28' +
+    'a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6' +
+    '.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>';
+  var iconX = '<svg class="icon icon-x" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72' +
+    'a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.32' +
+    '6.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326' +
+    ' 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0' +
+    ' 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.7' +
+    '5 0 0 1 0-1.06Z"/></svg>';
 
   // Rendered/source toggle.
   var rendered = d.getElementById('rendered');
@@ -674,7 +758,9 @@ mark {
     var btn = d.createElement('button');
     btn.className = 'codecopy';
     btn.type = 'button';
-    btn.textContent = 'Copy';
+    btn.setAttribute('aria-label', 'Copy code');
+    btn.title = 'Copy code';
+    btn.innerHTML = iconCopy + iconCheck + iconX;
     btn.addEventListener('click', function () {
       var code = pre.querySelector('code');
       copyText((code || pre).textContent, btn);

@@ -271,8 +271,8 @@ func TestUploadTextInput(t *testing.T) {
 	if !strings.Contains(page, `class="chroma"`) {
 		t.Error("page body not chroma-highlighted")
 	}
-	if !strings.Contains(page, ">Download source<") {
-		t.Error("page missing 'Download source' anchor label")
+	if !strings.Contains(page, `aria-label="Download source"`) {
+		t.Error("page missing 'Download source' anchor")
 	}
 	if !strings.Contains(page, "func") {
 		t.Error("page missing source content")
