@@ -1,38 +1,47 @@
+//go:build integration
+
 package airplan
 
 import (
 	"context"
 	"io"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/testcontainers/testcontainers-go"
+	tcminio "github.com/testcontainers/testcontainers-go/modules/minio"
 )
 
 // TestIntegrationRoundTrip uploads through the real pipeline against a
-// live S3-compatible server (MinIO) and verifies bytes and headers by
-// fetching the objects back. Skipped unless AIRPLAN_TEST_ENDPOINT is
-// set; run via `mise run test-integration`, which manages a MinIO
-// container around it.
+// live S3-compatible server (MinIO, managed by testcontainers) and
+// verifies bytes and headers by fetching the objects back. Excluded
+// from plain `go test ./...` by the integration build tag; run via
+// `mise run test-integration`.
 func TestIntegrationRoundTrip(t *testing.T) {
-	endpoint := os.Getenv("AIRPLAN_TEST_ENDPOINT")
-	if endpoint == "" {
-		t.Skip("AIRPLAN_TEST_ENDPOINT not set; " +
-			"run via 'mise run test-integration'")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithTimeout(
+		context.Background(), 5*time.Minute,
+	)
 	defer cancel()
 
+	minioC, err := tcminio.Run(ctx, "minio/minio:latest")
+	testcontainers.CleanupContainer(t, minioC)
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint, err := minioC.ConnectionString(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	cfg := &Config{
-		Endpoint:        endpoint,
+		Endpoint:        "http://" + endpoint,
 		Bucket:          "airplan-test",
 		Region:          "us-east-1",
-		AccessKeyID:     envOr("AIRPLAN_TEST_ACCESS_KEY", "minioadmin"),
-		SecretAccessKey: envOr("AIRPLAN_TEST_SECRET_KEY", "minioadmin"),
+		AccessKeyID:     minioC.Username,
+		SecretAccessKey: minioC.Password,
 	}
 
 	st, err := newStorage(ctx, cfg)
@@ -42,7 +51,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	_, err = st.client.CreateBucket(ctx, &s3.CreateBucketInput{
 		Bucket: aws.String(cfg.Bucket),
 	})
-	if err != nil && !strings.Contains(err.Error(), "BucketAlreadyOwnedByYou") {
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -140,11 +149,4 @@ func getObject(
 		cacheControl: aws.ToString(out.CacheControl),
 		metaTitle:    out.Metadata["title"],
 	}
-}
-
-func envOr(name, fallback string) string {
-	if v := os.Getenv(name); v != "" {
-		return v
-	}
-	return fallback
 }

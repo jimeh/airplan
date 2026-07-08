@@ -14,7 +14,7 @@ run = "go test ./..."
 
 [tasks.test-integration]
 description = "Round-trip tests against a throwaway MinIO container"
-run = "bash scripts/test-integration.sh"
+run = "go test -tags integration -count=1 -v -run TestIntegration ./airplan/"
 
 [tasks.lint]
 description = "Run golangci-lint"
