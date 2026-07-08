@@ -3,6 +3,7 @@ package airplan
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -17,6 +18,7 @@ import (
 type storage struct {
 	bucket string
 	client *s3.Client
+	creds  aws.CredentialsProvider
 }
 
 // newStorage builds the S3 client from cfg: custom endpoint support,
@@ -60,7 +62,31 @@ func newStorage(ctx context.Context, cfg *Config) (*storage, error) {
 		}
 	})
 
-	return &storage{bucket: cfg.Bucket, client: client}, nil
+	return &storage{
+		bucket: cfg.Bucket,
+		client: client,
+		creds:  awsCfg.Credentials,
+	}, nil
+}
+
+// checkCredentials resolves the credential chain once, up front, so a
+// missing-credentials failure is a clear startup error instead of a
+// PutObject failure after input has already been consumed (SPEC.md §7
+// startup validation).
+func (s *storage) checkCredentials(ctx context.Context) error {
+	if s.creds == nil {
+		return errors.New("airplan: no credential provider configured")
+	}
+	if _, err := s.creds.Retrieve(ctx); err != nil {
+		return fmt.Errorf(
+			"airplan: no usable credentials: %w; set access_key_id / "+
+				"secret_access_key in the config file, "+
+				"AIRPLAN_ACCESS_KEY_ID / AIRPLAN_SECRET_ACCESS_KEY env "+
+				"vars, or configure the standard AWS credential chain",
+			err,
+		)
+	}
+	return nil
 }
 
 // object is a single object to upload.

@@ -44,6 +44,9 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := st.checkCredentials(ctx); err != nil {
+		return nil, err
+	}
 
 	return &Client{cfg: cfg, st: st}, nil
 }

@@ -138,12 +138,7 @@ func findHeadTagEnd(doc []byte) int {
 			continue
 		}
 
-		end := bytes.IndexByte(doc[next:], '>')
-		if end == -1 {
-			return -1
-		}
-
-		return next + end + 1
+		return findTagEnd(doc, next)
 	}
 
 	return -1
@@ -160,19 +155,42 @@ func hasRobotsMeta(doc []byte) bool {
 			continue
 		}
 
-		end := bytes.IndexByte(doc[next:], '>')
+		end := findTagEnd(doc, next)
 		if end == -1 {
-			continue
+			return false
 		}
 
-		if metaTagHasRobotsName(doc[next : next+end]) {
+		if metaTagHasRobotsName(doc[next : end-1]) {
 			return true
 		}
 
-		i = next + end
+		i = end - 1
 	}
 
 	return false
+}
+
+// findTagEnd returns the index just past the '>' that closes the tag
+// being scanned from start, honoring single- and double-quoted
+// attribute values so a '>' inside a quoted attribute doesn't end the
+// tag early. Returns -1 when the tag never closes.
+func findTagEnd(doc []byte, start int) int {
+	var quote byte
+	for i := start; i < len(doc); i++ {
+		b := doc[i]
+		switch {
+		case quote != 0:
+			if b == quote {
+				quote = 0
+			}
+		case b == '"' || b == '\'':
+			quote = b
+		case b == '>':
+			return i + 1
+		}
+	}
+
+	return -1
 }
 
 func metaTagHasRobotsName(attrs []byte) bool {

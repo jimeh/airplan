@@ -279,3 +279,44 @@ func TestInjectNoindexByteExactness(t *testing.T) {
 			got[len(prefix)+len(tag):], suffix)
 	}
 }
+
+func TestInjectNoindexQuotedTagEnd(t *testing.T) {
+	t.Run("gt inside head attribute value", func(t *testing.T) {
+		doc := `<html><head data-x=">"><title>x</title></head></html>`
+		out, res := InjectNoindex([]byte(doc))
+		if res != NoindexInjected {
+			t.Fatalf("result = %v, want NoindexInjected", res)
+		}
+		want := `<html><head data-x=">">` +
+			`<meta name="robots" content="noindex, nofollow">` +
+			`<title>x</title></head></html>`
+		if string(out) != want {
+			t.Errorf("out = %q, want %q", out, want)
+		}
+	})
+
+	t.Run("gt inside meta content value", func(t *testing.T) {
+		doc := `<html><head><meta name="description" content="a > b">` +
+			`</head></html>`
+		out, res := InjectNoindex([]byte(doc))
+		if res != NoindexInjected {
+			t.Fatalf("result = %v, want NoindexInjected", res)
+		}
+		if !strings.Contains(string(out),
+			`<head><meta name="robots" content="noindex, nofollow">`) {
+			t.Errorf("meta not spliced after <head>: %q", out)
+		}
+	})
+
+	t.Run("robots meta with gt in content", func(t *testing.T) {
+		doc := `<html><head>` +
+			`<meta content="all > none" name="robots"></head></html>`
+		out, res := InjectNoindex([]byte(doc))
+		if res != NoindexAlreadyPresent {
+			t.Fatalf("result = %v, want NoindexAlreadyPresent", res)
+		}
+		if string(out) != doc {
+			t.Error("document was modified")
+		}
+	})
+}

@@ -181,3 +181,27 @@ func assertHeader(
 		t.Fatalf("%s = %q, want %q", name, got, want)
 	}
 }
+
+func TestNewClientMissingCredentials(t *testing.T) {
+	// Force every link of the SDK credential chain to fail fast.
+	t.Setenv("AWS_ACCESS_KEY_ID", "")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "")
+	t.Setenv("AWS_PROFILE", "")
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", "/nonexistent")
+	t.Setenv("AWS_CONFIG_FILE", "/nonexistent")
+	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+	t.Setenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "")
+	t.Setenv("AWS_WEB_IDENTITY_TOKEN_FILE", "")
+
+	cfg := &Config{
+		Endpoint: "http://127.0.0.1:1",
+		Bucket:   "plans",
+	}
+	_, err := New(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("expected missing-credentials error")
+	}
+	if !strings.Contains(err.Error(), "no usable credentials") {
+		t.Errorf("error = %v", err)
+	}
+}
