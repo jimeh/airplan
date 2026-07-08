@@ -17,7 +17,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: jdx/mise-action@v2
+      # Mint a short-lived app token scoped to the Homebrew tap repo
+      # for the cask push — same release bot app release-please uses,
+      # so no long-lived PAT to rotate.
+      - id: tap-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.RELEASE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: jimeh
+          repositories: homebrew-tap
+          permission-contents: write
       - run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
