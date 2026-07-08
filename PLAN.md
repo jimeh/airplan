@@ -4,9 +4,9 @@ Execution plan for building [SPEC.md](SPEC.md) v0.1.0 per
 [IMPLEMENTATION.md](IMPLEMENTATION.md). Codex-first: bounded,
 well-specified packets go to Codex (gpt-5.5) in isolated worktrees;
 Claude owns architecture, API surface, page template/UX, integration,
-and final judgement. Status: **Phase 1 complete (2026-07-08), PR
-open; R2 smoke test pending the config file appearing at
-~/.config/airplan/config.toml. Phases 2–3 not started.**
+and final judgement. Status: **Phase 1 complete (2026-07-08): PR
+open, CI green, R2 smoke test passed end-to-end via the custom
+domain. Phases 2–3 not started.**
 
 ---
 
