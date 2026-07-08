@@ -36,7 +36,7 @@ custom domains). Once:
 1. **Create a bucket** — e.g. `plans` — in the Cloudflare dashboard
    (R2 → Create bucket).
 2. **Connect a custom domain** (bucket → Settings → Custom Domains),
-   e.g. `plans.example.com`. This serves objects publicly *without*
+   e.g. `plans.example.com`. This serves objects publicly _without_
    exposing bucket listing — exactly the privacy model airplan needs.
    Verify: `https://plans.example.com/` should return an error, while
    uploaded objects load fine.

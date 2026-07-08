@@ -9,6 +9,10 @@ pre-commit:
       # golangci-lint is package-scoped; the repo is small enough to
       # lint whole whenever any Go file is staged.
       run: golangci-lint run
+    markdown:
+      glob: "*.md"
+      exclude: "airplan/testdata/*"
+      run: oxfmt --check {staged_files}
     workflows:
       glob: ".github/workflows/*.yml"
       run: mise run lint-workflows

@@ -1,6 +1,6 @@
 # airplan — Implementation Notes
 
-How *our* implementation of [SPEC.md](SPEC.md) is built: language,
+How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
 may contradict it. Targets spec version 0.3.0.

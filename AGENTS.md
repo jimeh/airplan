@@ -17,16 +17,16 @@ this implementation is built and must not contradict the spec.
 
 ## Task surface (mise)
 
-| Task | Purpose |
-| ---- | ------- |
-| `mise run setup` | install tools + git hooks (run once) |
-| `mise run check` | fast handoff gate: lint + tests |
-| `mise run test` | unit tests (no Docker needed) |
-| `mise run test-integration` | MinIO round-trip via testcontainers (needs Docker) |
-| `mise run lint` / `fmt` | golangci-lint check / write-mode format |
-| `mise run lint-workflows` | actionlint + zizmor + pinact on `.github/` |
-| `mise run verify` | CI-equivalent: check + workflows + integration + goreleaser |
-| `mise run build` | binary at `bin/airplan` (skipped when unchanged) |
+| Task                        | Purpose                                                     |
+| --------------------------- | ----------------------------------------------------------- |
+| `mise run setup`            | install tools + git hooks (run once)                        |
+| `mise run check`            | fast handoff gate: lint + tests                             |
+| `mise run test`             | unit tests (no Docker needed)                               |
+| `mise run test-integration` | MinIO round-trip via testcontainers (needs Docker)          |
+| `mise run lint` / `fmt`     | golangci-lint check / write-mode format                     |
+| `mise run lint-workflows`   | actionlint + zizmor + pinact on `.github/`                  |
+| `mise run verify`           | CI-equivalent: check + workflows + integration + goreleaser |
+| `mise run build`            | binary at `bin/airplan` (skipped when unchanged)            |
 
 Run `mise run check` before handing off; `verify` for broad or risky
 changes. Lefthook pre-commit hooks lint/format-check staged files.
@@ -36,11 +36,11 @@ pins live in `mise.lock` (commit both when bumping tools).
 ## Conventions that bite
 
 - **Output contract (SPEC §1)**: stdout carries the result URL (or
-  one JSON object) and *nothing else*; everything else → stderr.
+  one JSON object) and _nothing else_; everything else → stderr.
   Tests assert this; don't print to stdout casually in `cli/`.
 - **Golden files**: rendering snapshots live in `airplan/testdata/`;
   refresh with `go test ./airplan/ -run TestRenderMarkdownGolden
-  -update` after template/CSS/JS changes.
+-update` after template/CSS/JS changes.
 - **Config schema**: `schema/airplan.schema.json` is generated from
   the config structs and golden-tested; refresh with
   `go test ./airplan/ -run TestConfigSchema -update`. Unknown config
@@ -58,7 +58,7 @@ pins live in `mise.lock` (commit both when bumping tools).
 `airplan/` — core library, one cohesive package, public Go API
 (`LoadConfig` / `New` / `Client.Upload`). `cli/` — cobra commands,
 no business logic; anything the CLI does must be possible through
-the library. `main.go` — shim. `skills/airplan/` — the *product's*
+the library. `main.go` — shim. `skills/airplan/` — the _product's_
 agent skill shipped to users (not guidance for working on this
 repo).
 

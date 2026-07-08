@@ -9,6 +9,7 @@ lefthook = "2"
 actionlint = "1"
 zizmor = "1"
 pinact = "4"
+oxfmt = "0"
 
 [tasks.build]
 description = "Build the airplan binary (skipped when nothing changed)"
@@ -25,12 +26,12 @@ description = "Round-trip tests against a throwaway MinIO container"
 run = "go test -tags integration -count=1 -v -run TestIntegration ./airplan/"
 
 [tasks.lint]
-description = "Run golangci-lint"
-run = "golangci-lint run"
+description = "Lint Go and check Markdown formatting"
+run = ["golangci-lint run", "oxfmt --check \"**/*.md\""]
 
 [tasks.fmt]
-description = "Format Go code"
-run = "golangci-lint fmt"
+description = "Format Go code and Markdown"
+run = ["golangci-lint fmt", "oxfmt \"**/*.md\""]
 
 [tasks.check]
 description = "Fast confidence gate: lint + tests"

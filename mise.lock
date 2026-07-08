@@ -216,6 +216,10 @@ url = "https://github.com/evilmartians/lefthook/releases/download/v2.1.9/lefthoo
 url_api = "https://api.github.com/repos/evilmartians/lefthook/releases/assets/432862077"
 provenance = "github-attestations"
 
+[[tools.oxfmt]]
+version = "0.57.0"
+backend = "npm:oxfmt"
+
 [[tools.pinact]]
 version = "4.1.0"
 backend = "aqua:suzuki-shunsuke/pinact"

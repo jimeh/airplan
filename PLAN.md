@@ -12,15 +12,15 @@ domain. Phases 2–3 not started.**
 
 ## 1. Division of Labor
 
-| Owner  | Work                                                        |
-| ------ | ----------------------------------------------------------- |
-| Claude | package API surface & type stubs, page template (HTML/CSS/JS),
-|        | config struct shape (drives schema), integration & wiring
-|        | review, README copy, skill copy, final review judgement      |
-| Codex  | mechanical/spec-driven modules: config precedence, input
-|        | detection + noindex splice, keygen/slug, storage, manifest,
-|        | duration parser, CLI subcommand plumbing, test suites,
-|        | golden fixtures, CI + GoReleaser config                      |
+| Owner  | Work                                                           |
+| ------ | -------------------------------------------------------------- |
+| Claude | package API surface & type stubs, page template (HTML/CSS/JS), |
+|        | config struct shape (drives schema), integration & wiring      |
+|        | review, README copy, skill copy, final review judgement        |
+| Codex  | mechanical/spec-driven modules: config precedence, input       |
+|        | detection + noindex splice, keygen/slug, storage, manifest,    |
+|        | duration parser, CLI subcommand plumbing, test suites,         |
+|        | golden fixtures, CI + GoReleaser config                        |
 
 Rationale (model routing): the spec is unusually precise — most
 modules are "clear-spec, mechanically implementable, independently
@@ -61,12 +61,12 @@ This freezes the seams so parallel packets can't drift apart.
 
 ### Step 1 — Parallel Codex packets (worktree each)
 
-| Packet | Contents | Spec refs |
-| ------ | -------- | --------- |
-| P1 config | TOML load, root+profile merge, env, flag overlay, profile resolution (5-step), validation errors, perms warning | §7 |
-| P2 input | file/stdin read, format detection (flag > ext > sniff), HTML noindex splice rules | §2, §4 |
-| P3 keygen | crypto/rand 16B → base32 lower no-pad (26 ch), slug sanitize chain, key assembly with prefix | §8 |
-| P4 storage | s3 client (custom endpoint, path-style, `when_required` checksums), PutObject headers (+`x-amz-meta-title`), page+source ordering, URL assembly incl. no-`public_base_url` fallback + warning | §5 |
+| Packet     | Contents                                                                                                                                                                                      | Spec refs |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| P1 config  | TOML load, root+profile merge, env, flag overlay, profile resolution (5-step), validation errors, perms warning                                                                               | §7        |
+| P2 input   | file/stdin read, format detection (flag > ext > sniff), HTML noindex splice rules                                                                                                             | §2, §4    |
+| P3 keygen  | crypto/rand 16B → base32 lower no-pad (26 ch), slug sanitize chain, key assembly with prefix                                                                                                  | §8        |
+| P4 storage | s3 client (custom endpoint, path-style, `when_required` checksums), PutObject headers (+`x-amz-meta-title`), page+source ordering, URL assembly incl. no-`public_base_url` fallback + warning | §5        |
 
 Each packet ships with its unit tests (config precedence matrix,
 sniffing table, key/slug properties, header assertions against a
@@ -122,13 +122,13 @@ Claude does the taste-critical work in parallel, merge → verify →
 
 ### Codex packets (parallel worktrees)
 
-| # | Packet | Contents | Spec |
-|---|--------|----------|------|
-| X1 | manifest | state-dir helper (XDG_STATE_HOME → ~/.local/state; %LocalAppData% on Win), JSONL append via gofrs/flock, upload-record schema, wire into upload path, torn-line-tolerant reader (needed by tests now, phase 3 commands later) | §9 |
-| X2 | cli-flags | `--json` (exact §6 schema, one line), `--open` (browser launch, warn-don't-fail), `--profile`/`-p`, short forms `-s -t -j -o`, `completion` subcommand | §6 |
-| X3 | schema | invopop/jsonschema from config structs (descriptions via struct tags), `airplan config schema` cmd, committed `schema/airplan.schema.json`, CI staleness check | §7 |
-| X4 | templates | load custom template from `--template`/`AIRPLAN_TEMPLATE`/profile key, md+text only (warn on HTML input), `airplan template` dump cmd | §3 |
-| X5 | release | GoReleaser: 5-platform archives, checksums, Homebrew tap (jimeh/homebrew-tap), completions + schema in archives, version via ldflags; snapshot build in CI | — |
+| #   | Packet    | Contents                                                                                                                                                                                                                      | Spec |
+| --- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| X1  | manifest  | state-dir helper (XDG_STATE_HOME → ~/.local/state; %LocalAppData% on Win), JSONL append via gofrs/flock, upload-record schema, wire into upload path, torn-line-tolerant reader (needed by tests now, phase 3 commands later) | §9   |
+| X2  | cli-flags | `--json` (exact §6 schema, one line), `--open` (browser launch, warn-don't-fail), `--profile`/`-p`, short forms `-s -t -j -o`, `completion` subcommand                                                                        | §6   |
+| X3  | schema    | invopop/jsonschema from config structs (descriptions via struct tags), `airplan config schema` cmd, committed `schema/airplan.schema.json`, CI staleness check                                                                | §7   |
+| X4  | templates | load custom template from `--template`/`AIRPLAN_TEMPLATE`/profile key, md+text only (warn on HTML input), `airplan template` dump cmd                                                                                         | §3   |
+| X5  | release   | GoReleaser: 5-platform archives, checksums, Homebrew tap (jimeh/homebrew-tap), completions + schema in archives, version via ldflags; snapshot build in CI                                                                    | —    |
 
 ### Claude work (parallel with packets)
 
