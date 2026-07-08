@@ -48,6 +48,7 @@ type rootOptions struct {
 	noSource  bool
 	indexable bool
 	maxSize   string
+	template  string
 	timeout   string
 	json      bool
 	open      bool
@@ -112,6 +113,8 @@ func newRootCmd() *cobra.Command {
 	f.StringVar(&opts.region, "region", "", "region (default: auto)")
 	f.StringVar(&opts.publicBaseURL, "public-base-url", "",
 		"base URL public links are assembled from")
+	f.StringVar(&opts.template, "template", "",
+		"custom page template file (md and text input)")
 	f.StringVar(&opts.keyPrefix, "key-prefix", "",
 		"prefix prepended to object keys")
 
@@ -268,6 +271,7 @@ func flagOverrides(cmd *cobra.Command, opts *rootOptions) airplan.Settings {
 		Region:        opts.region,
 		PublicBaseURL: opts.publicBaseURL,
 		KeyPrefix:     opts.keyPrefix,
+		Template:      opts.template,
 		Timeout:       opts.timeout,
 	}
 	f := cmd.Flags()
