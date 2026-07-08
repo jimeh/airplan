@@ -58,6 +58,10 @@ type Client struct {
 	cfg      *Config
 	st       *storage
 	template *template.Template
+
+	// templateErr is a deferred custom-template load failure: fatal
+	// for markdown/text uploads, a warning for HTML input.
+	templateErr error
 }
 
 // New validates cfg and returns a ready Client.
@@ -69,13 +73,14 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 		return nil, err
 	}
 
+	// The template is loaded eagerly but its failure is deferred to
+	// Upload: templates don't apply to HTML input (SPEC.md §3), so a
+	// broken template path must not block an HTML upload — while
+	// markdown/text uploads still fail before anything is uploaded.
 	var tmpl *template.Template
+	var tmplErr error
 	if cfg.Template != "" {
-		var err error
-		tmpl, err = LoadTemplate(cfg.Template)
-		if err != nil {
-			return nil, err
-		}
+		tmpl, tmplErr = LoadTemplate(cfg.Template)
 	}
 
 	st, err := newStorage(ctx, cfg)
@@ -86,7 +91,12 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 		return nil, err
 	}
 
-	return &Client{cfg: cfg, st: st, template: tmpl}, nil
+	return &Client{
+		cfg:         cfg,
+		st:          st,
+		template:    tmpl,
+		templateErr: tmplErr,
+	}, nil
 }
 
 // Input describes one document to upload.
@@ -183,6 +193,10 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 
 	res := &Result{Bucket: c.cfg.Bucket}
 
+	if c.templateErr != nil && format != FormatHTML {
+		return nil, c.templateErr
+	}
+
 	var page []byte
 	var title string
 	switch format {
@@ -270,10 +284,14 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		// itself is never parsed).
 		title = ResolveTitle(in.Title, nil, in.Name, slug)
 
-		if c.template != nil {
-			res.Warnings = append(res.Warnings,
-				"custom template ignored for HTML input — "+
-					"HTML is uploaded as-is")
+		if c.template != nil || c.templateErr != nil {
+			w := "custom template ignored for HTML input — " +
+				"HTML is uploaded as-is"
+			if c.templateErr != nil {
+				w += " (note: the template also failed to load: " +
+					c.templateErr.Error() + ")"
+			}
+			res.Warnings = append(res.Warnings, w)
 		}
 
 		page = data

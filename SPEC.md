@@ -3,7 +3,7 @@
 **Spec version: 0.3.0**
 
 Changes in 0.3.0: `--lang` overrides the highlight language for text
-input (§3, §6).
+input (§3, §6); unknown config file keys are rejected (§7).
 
 Changes in 0.2.0: input size limit and `--max-size` (§2, §6);
 configurable invocation timeout, default 20 s (§6, §7);
@@ -443,6 +443,10 @@ Credential fallback order: `AIRPLAN_*` env → profile file values →
 standard AWS chain (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`,
 shared credentials file). The AWS chain fallback makes it work
 out-of-the-box in environments already configured for S3.
+
+Unknown keys in the config file are an error naming the offending
+key — typo protection, and it keeps the parser exactly in sync with
+the published schema's `additionalProperties: false`.
 
 If the config file contains credentials and is group- or
 world-readable, a warning is printed to stderr.

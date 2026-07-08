@@ -305,6 +305,22 @@ func loadFileConfig(path string) (FileConfig, toml.MetaData, bool, error) {
 		return fileConfig, toml.MetaData{}, false,
 			fmt.Errorf("airplan: parse config %s: %w", path, err)
 	}
+
+	// Unknown keys are an error, not silently ignored: a typo'd key
+	// (bucet = ...) otherwise surfaces as a baffling missing-field
+	// error later. This also keeps the parser exactly in sync with
+	// the published schema's additionalProperties: false (SPEC.md §7).
+	if unknown := meta.Undecoded(); len(unknown) > 0 {
+		names := make([]string, len(unknown))
+		for i, k := range unknown {
+			names[i] = k.String()
+		}
+		return fileConfig, toml.MetaData{}, false, fmt.Errorf(
+			"airplan: unknown config key(s) in %s: %s",
+			path, strings.Join(names, ", "),
+		)
+	}
+
 	if fileConfig.Profiles == nil {
 		fileConfig.Profiles = map[string]Settings{}
 	}

@@ -71,20 +71,34 @@ func TestLoadTemplateExpandsTilde(t *testing.T) {
 	}
 }
 
-func TestNewFailsFastOnBrokenTemplate(t *testing.T) {
+func TestBrokenTemplateFailsMarkdownUploadNotNew(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "broken.html")
 	if err := os.WriteFile(path, []byte(`{{`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
+	// New must succeed: templates don't apply to HTML input, so the
+	// load failure is deferred to Upload (where markdown/text fail
+	// before anything is uploaded, and HTML proceeds with a warning).
 	cfg := &Config{
-		Endpoint: "http://127.0.0.1:1",
-		Bucket:   "plans",
-		Template: path,
+		Endpoint:        "http://127.0.0.1:1",
+		Bucket:          "plans",
+		AccessKeyID:     "test",
+		SecretAccessKey: "test",
+		Template:        path,
+		DisableManifest: true,
 	}
-	_, err := New(context.Background(), cfg)
+	client, err := New(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("New failed on broken template: %v", err)
+	}
+
+	_, err = client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# hi\n"),
+		Name:   "plan.md",
+	})
 	if err == nil {
-		t.Fatal("expected error")
+		t.Fatal("expected markdown upload to fail")
 	}
 	if !strings.Contains(err.Error(), path) {
 		t.Errorf("error = %v, want it to name %q", err, path)
@@ -255,4 +269,68 @@ func containsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func TestUploadHTMLProceedsDespiteBrokenTemplate(t *testing.T) {
+	var (
+		mu   sync.Mutex
+		puts []capturedRequest
+	)
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			puts = append(puts, captureRequest(r))
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	cfg := &Config{
+		Endpoint:        server.URL,
+		Bucket:          "plans",
+		AccessKeyID:     "test",
+		SecretAccessKey: "test",
+		PublicBaseURL:   "https://plans.example.com",
+		Template:        "/nonexistent/template.html",
+		DisableManifest: true,
+	}
+	client, err := New(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("New must not fail on a broken template: %v", err)
+	}
+
+	doc := "<!doctype html><html><head></head><body>x</body></html>"
+	res, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader(doc),
+		Name:   "report.html",
+	})
+	if err != nil {
+		t.Fatalf("HTML upload blocked by template error: %v", err)
+	}
+	found := false
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "custom template ignored") &&
+			strings.Contains(w, "failed to load") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("warnings = %v, want ignored+load-failure note",
+			res.Warnings)
+	}
+
+	// Markdown through the same client must fail with the load error.
+	_, err = client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# hi\n"),
+		Name:   "plan.md",
+	})
+	if err == nil || !strings.Contains(err.Error(), "template") {
+		t.Errorf("markdown upload error = %v, want template error", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(puts) != 1 {
+		t.Errorf("got %d puts, want 1 (HTML page only)", len(puts))
+	}
 }
