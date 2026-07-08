@@ -167,18 +167,30 @@ func (c *Config) Validate() error {
 	)
 }
 
-// DefaultConfigPath returns the platform default config file location.
+// DefaultConfigPath returns the platform default config file location
+// (SPEC.md §7): $XDG_CONFIG_HOME/airplan/config.toml, defaulting to
+// ~/.config on every platform except Windows, which uses the
+// platform-appropriate config directory. Notably this includes macOS —
+// ~/.config, not ~/Library/Application Support.
 func DefaultConfigPath() (string, error) {
 	if dir := os.Getenv("XDG_CONFIG_HOME"); dir != "" {
 		return filepath.Join(dir, "airplan", "config.toml"), nil
 	}
 
-	dir, err := os.UserConfigDir()
+	if runtime.GOOS == "windows" {
+		dir, err := os.UserConfigDir()
+		if err != nil {
+			return "", fmt.Errorf("airplan: default config path: %w", err)
+		}
+		return filepath.Join(dir, "airplan", "config.toml"), nil
+	}
+
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("airplan: default config path: %w", err)
 	}
 
-	return filepath.Join(dir, "airplan", "config.toml"), nil
+	return filepath.Join(home, ".config", "airplan", "config.toml"), nil
 }
 
 func loadFileConfig(path string) (FileConfig, toml.MetaData, bool, error) {

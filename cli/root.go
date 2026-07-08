@@ -5,18 +5,29 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/jimeh/airplan/airplan"
 	"github.com/spf13/cobra"
 )
+
+// version is stamped by the release build via ldflags.
+var version = "dev"
 
 // Execute runs the CLI and returns the process exit code.
 func Execute() int {
 	cmd := newRootCmd()
 	if err := cmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "airplan: %s\n", err)
+		msg := err.Error()
+		// Core library errors already carry the "airplan:" prefix,
+		// stdlib style; only bare errors (cobra's own, wrapping) need
+		// it added.
+		if !strings.HasPrefix(msg, "airplan:") {
+			msg = "airplan: " + msg
+		}
+		fmt.Fprintln(os.Stderr, msg)
 		return 1
 	}
 	return 0
@@ -49,6 +60,7 @@ func newRootCmd() *cobra.Command {
 			"HTML) to S3-compatible object storage under a randomized, " +
 			"unguessable URL path and prints the resulting URL.",
 		Args:          cobra.MaximumNArgs(1),
+		Version:       version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -81,7 +93,87 @@ func newRootCmd() *cobra.Command {
 	return cmd
 }
 
-// run executes the upload pipeline for the root command.
+// run executes the upload pipeline for the root command, honoring the
+// output contract of SPEC.md §1: the final URL is the only thing on
+// stdout; warnings and errors go to stderr.
 func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
-	return errors.New("not implemented")
+	ctx := cmd.Context()
+	stderr := cmd.ErrOrStderr()
+
+	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
+		Path: opts.config,
+	})
+	if err != nil {
+		return err
+	}
+	applyFlagOverrides(cmd, cfg, opts)
+
+	for _, w := range cfg.Warnings {
+		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
+	}
+
+	client, err := airplan.New(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
+	in := airplan.Input{
+		Format: opts.format,
+		Slug:   opts.slug,
+		Title:  opts.title,
+	}
+	if len(args) == 0 || args[0] == "-" {
+		in.Reader = cmd.InOrStdin()
+	} else {
+		f, err := os.Open(args[0])
+		if err != nil {
+			return err
+		}
+		defer func() { _ = f.Close() }()
+		in.Reader = f
+		in.Name = args[0]
+	}
+
+	res, err := client.Upload(ctx, in)
+	if err != nil {
+		return err
+	}
+
+	for _, w := range res.Warnings {
+		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), res.URL)
+	return nil
+}
+
+// applyFlagOverrides overlays explicitly-passed flags onto the loaded
+// config — the top of the precedence order in SPEC.md §7. Changed()
+// guards keep unset flags from clobbering config/env values.
+func applyFlagOverrides(
+	cmd *cobra.Command,
+	cfg *airplan.Config,
+	opts *rootOptions,
+) {
+	f := cmd.Flags()
+	if f.Changed("endpoint") {
+		cfg.Endpoint = opts.endpoint
+	}
+	if f.Changed("bucket") {
+		cfg.Bucket = opts.bucket
+	}
+	if f.Changed("region") {
+		cfg.Region = opts.region
+	}
+	if f.Changed("public-base-url") {
+		cfg.PublicBaseURL = opts.publicBaseURL
+	}
+	if f.Changed("key-prefix") {
+		cfg.KeyPrefix = opts.keyPrefix
+	}
+	if f.Changed("no-source") {
+		cfg.NoSource = opts.noSource
+	}
+	if f.Changed("indexable") {
+		cfg.Indexable = opts.indexable
+	}
 }
