@@ -199,6 +199,26 @@ pre code {
   background: var(--code-bg) !important;
 }
 
+.filehead {
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: var(--code-bg);
+  border-bottom: 1px solid var(--border);
+  border-radius: 6px 6px 0 0;
+  padding: 0.6em 1em;
+}
+
+.filehead code {
+  background: none;
+  padding: 0;
+  color: var(--fg);
+}
+
+.filehead + pre {
+  border-radius: 0 0 6px 6px;
+  margin-top: 0;
+}
+
 mark {
   background: var(--mark-bg);
   color: inherit;

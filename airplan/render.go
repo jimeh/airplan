@@ -67,6 +67,11 @@ type pageData struct {
 	CSS        template.CSS
 	SyntaxCSS  template.CSS
 
+	// FileName is the original source filename shown as a header bar
+	// above text input's code block (SPEC.md §3). "" — for markdown
+	// input, or text from stdin — omits the bar.
+	FileName string
+
 	// SourceLabel is the download anchor's text — "Download markdown"
 	// for markdown input, "Download source" for text input. Built-in
 	// template detail, not part of the custom-template contract.
@@ -136,26 +141,32 @@ func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
 	}
 
 	return renderPage(
-		template.HTML(body.String()), "Download markdown", opts,
+		template.HTML(body.String()), "", "Download markdown", opts,
 	)
 }
 
 // RenderText renders plain-text source as a standalone page whose
-// body is one syntax-highlighted code block (SPEC.md §3). The
-// highlight language comes from the source filename; stdin and
-// unrecognized names fall back to unhighlighted plain text.
+// body is one syntax-highlighted code block headed by the original
+// filename (SPEC.md §3). The highlight language comes from the source
+// filename; stdin and unrecognized names fall back to unhighlighted
+// plain text and no filename header.
 func RenderText(src []byte, name string, opts RenderOptions) ([]byte, error) {
 	body, err := highlightSource(src, name)
 	if err != nil {
 		return nil, err
 	}
 
-	return renderPage(body, "Download source", opts)
+	fileName := ""
+	if name != "" {
+		fileName = filepath.Base(name)
+	}
+	return renderPage(body, fileName, "Download source", opts)
 }
 
 // renderPage wraps a rendered body in the standalone page template.
 func renderPage(
 	body template.HTML,
+	fileName string,
 	sourceLabel string,
 	opts RenderOptions,
 ) ([]byte, error) {
@@ -169,6 +180,7 @@ func renderPage(
 		Body:        body,
 		SourcePath:  opts.SourcePath,
 		Slug:        opts.Slug,
+		FileName:    fileName,
 		Noindex:     !opts.Indexable,
 		CSS:         template.CSS(pageCSS),
 		SyntaxCSS:   template.CSS(syntax),

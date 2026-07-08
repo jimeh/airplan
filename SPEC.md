@@ -145,8 +145,12 @@ A shared source file reads like a one-file gist.
 - The highlight language comes from the source filename (extension
   or recognized special names like `Makefile`); stdin and
   unrecognized names fall back to unhighlighted plain text.
-- Title chain: `--title`, else source filename, else slug (no
+- Title chain: `--title`, else the original source filename
+  including its extension (`keygen.go`), else slug (no
   content-derived title — the document is never interpreted).
+- The page shows the original filename as a header bar attached to
+  the code block, so a shared file identifies itself. Omitted for
+  stdin input, where no filename exists.
 - The original file is uploaded alongside the page as
   `<random>/<slug>.<ext>` (`text/plain; charset=utf-8`, same cache
   headers), where `<ext>` is the source filename's extension —
@@ -171,6 +175,7 @@ against):
 | `.SourceHTML` | raw HTML    | highlighted raw source        |
 | `.SourcePath` | string      | relative path to the uploaded source |
 | `.Slug`       | string      | resolved slug                 |
+| `.FileName`   | string      | original filename (text input; else "") |
 
 `.SourcePath` is empty when the source isn't uploaded
 (`--no-source`); templates must handle both cases.

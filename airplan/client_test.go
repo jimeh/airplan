@@ -250,8 +250,8 @@ func TestUploadTextInput(t *testing.T) {
 	if !strings.HasSuffix(res.Key, "/main.html") {
 		t.Errorf("Key = %q, want */main.html", res.Key)
 	}
-	if res.Title != "main" {
-		t.Errorf("Title = %q, want %q", res.Title, "main")
+	if res.Title != "main.go" {
+		t.Errorf("Title = %q, want %q", res.Title, "main.go")
 	}
 	if res.SourceURL == "" {
 		t.Error("SourceURL empty for text input")
@@ -275,5 +275,32 @@ func TestUploadTextInput(t *testing.T) {
 	}
 	if !strings.Contains(page, "func") {
 		t.Error("page missing source content")
+	}
+	if !strings.Contains(page,
+		`<div class="filehead"><code>main.go</code></div>`) {
+		t.Error("page missing filename header bar")
+	}
+}
+
+func TestRenderTextFileNameHeader(t *testing.T) {
+	src := []byte("hello\n")
+
+	out, err := RenderText(src, "notes/hello.txt", RenderOptions{
+		Title: "hello.txt",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out),
+		`<div class="filehead"><code>hello.txt</code></div>`) {
+		t.Error("named input missing filename header")
+	}
+
+	out, err = RenderText(src, "", RenderOptions{Title: "stdin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), `<div class="filehead">`) {
+		t.Error("stdin input should not render a filename header")
 	}
 }

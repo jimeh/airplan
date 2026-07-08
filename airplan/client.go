@@ -207,8 +207,15 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 
 	case FormatText:
 		// The document is never interpreted, so the title chain is
-		// explicit title → filename → slug (SPEC.md §3).
-		title = ResolveTitle(in.Title, nil, in.Name, slug)
+		// explicit title → original filename (with extension, so a
+		// shared file identifies itself) → slug (SPEC.md §3).
+		title = in.Title
+		if title == "" && in.Name != "" {
+			title = filepath.Base(in.Name)
+		}
+		if title == "" {
+			title = slug
+		}
 
 		sourceName := slug + "." + sourceExt(in.Name)
 		sourcePath := ""

@@ -19,6 +19,9 @@
 </nav>
 {{- end}}
 <main class="content">
+{{- if .FileName}}
+<div class="filehead"><code>{{.FileName}}</code></div>
+{{- end}}
 {{.Body}}
 </main>
 </body>
