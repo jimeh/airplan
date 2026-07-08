@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/jimeh/airplan/airplan"
 	"github.com/spf13/cobra"
@@ -44,6 +43,7 @@ type rootOptions struct {
 	noSource  bool
 	indexable bool
 	maxSize   string
+	timeout   string
 	config    string
 
 	// Connection overrides for one-off use (SPEC.md §6).
@@ -86,6 +86,8 @@ func newRootCmd() *cobra.Command {
 		"omit the noindex robots meta tag")
 	f.StringVar(&opts.maxSize, "max-size", "10MB",
 		"input size limit, e.g. 10MB, 512k, 1048576; 0 = no limit")
+	f.StringVar(&opts.timeout, "timeout", "",
+		"invocation timeout, e.g. 20s, 1m30s; 0 = none (default 20s)")
 	f.StringVar(&opts.config, "config", "",
 		"config file path (default: XDG config dir)")
 
@@ -100,18 +102,10 @@ func newRootCmd() *cobra.Command {
 	return cmd
 }
 
-// uploadTimeout bounds one whole invocation so a stalled endpoint
-// fails with a clear error instead of hanging the CLI (and any agent
-// harness driving it) indefinitely. Generous: plan documents are
-// small, so healthy uploads finish in seconds.
-const uploadTimeout = 2 * time.Minute
-
 // run executes the upload pipeline for the root command, honoring the
 // output contract of SPEC.md §1: the final URL is the only thing on
 // stdout; warnings and errors go to stderr.
 func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
-	ctx, cancel := context.WithTimeout(cmd.Context(), uploadTimeout)
-	defer cancel()
 	stderr := cmd.ErrOrStderr()
 
 	maxSize, err := airplan.ParseSize(opts.maxSize)
@@ -129,6 +123,16 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	})
 	if err != nil {
 		return err
+	}
+
+	// The resolved timeout bounds the whole invocation so a stalled
+	// endpoint fails with a clear error instead of hanging the CLI
+	// (and any agent harness driving it) indefinitely (SPEC.md §6).
+	ctx := cmd.Context()
+	if cfg.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cfg.Timeout)
+		defer cancel()
 	}
 
 	for _, w := range cfg.Warnings {
@@ -187,6 +191,7 @@ func flagOverrides(cmd *cobra.Command, opts *rootOptions) airplan.Settings {
 		Region:        opts.region,
 		PublicBaseURL: opts.publicBaseURL,
 		KeyPrefix:     opts.keyPrefix,
+		Timeout:       opts.timeout,
 	}
 	f := cmd.Flags()
 	if f.Changed("no-source") {

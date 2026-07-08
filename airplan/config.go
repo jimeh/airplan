@@ -7,10 +7,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
+
+// DefaultTimeout is the default whole-invocation timeout (SPEC.md §6).
+const DefaultTimeout = 20 * time.Second
 
 // Settings holds every connection and behavior key that may appear at
 // the root level of the config file or inside a [profiles.*] table
@@ -27,6 +32,7 @@ type Settings struct {
 	Template        string `toml:"template"`
 	NoSource        *bool  `toml:"no_source"`
 	Indexable       *bool  `toml:"indexable"`
+	Timeout         string `toml:"timeout"`
 }
 
 // FileConfig is the on-disk shape of the TOML config file: shared
@@ -53,6 +59,11 @@ type Config struct {
 	Template        string
 	NoSource        bool
 	Indexable       bool
+
+	// Timeout bounds one whole invocation (SPEC.md §6): default 20
+	// seconds, 0 means no timeout. The CLI applies it to its context;
+	// library consumers manage their own contexts and may ignore it.
+	Timeout time.Duration
 
 	// Profile is the resolved profile name, or "" when root-level
 	// values were used.
@@ -132,11 +143,78 @@ func LoadConfig(opts ConfigOptions) (*Config, error) {
 	applyEnv(cfg, getenv)
 	applyOverrides(cfg, opts.Overrides)
 
+	if err := resolveTimeout(cfg, opts, getenv, fileConfig,
+		meta, loaded, profile); err != nil {
+		return nil, err
+	}
+
 	if loaded {
 		warnReadableCredentials(cfg, path, fileConfig)
 	}
 
 	return cfg, nil
+}
+
+// resolveTimeout applies the timeout precedence chain (SPEC.md §6,
+// §7): flag override > AIRPLAN_TIMEOUT > profile > root > the 20s
+// default. Timeout is kept as a string through merging so the winning
+// value is parsed — and rejected — exactly once.
+func resolveTimeout(
+	cfg *Config,
+	opts ConfigOptions,
+	getenv func(string) string,
+	fileConfig FileConfig,
+	meta toml.MetaData,
+	loaded bool,
+	profile string,
+) error {
+	raw := ""
+	if loaded && meta.IsDefined("timeout") {
+		raw = fileConfig.Timeout
+	}
+	if profile != "" && meta.IsDefined("profiles", profile, "timeout") {
+		raw = fileConfig.Profiles[profile].Timeout
+	}
+	if v := getenv("AIRPLAN_TIMEOUT"); v != "" {
+		raw = v
+	}
+	if opts.Overrides.Timeout != "" {
+		raw = opts.Overrides.Timeout
+	}
+
+	cfg.Timeout = DefaultTimeout
+	if raw == "" {
+		return nil
+	}
+	d, err := parseTimeout(raw)
+	if err != nil {
+		return err
+	}
+	cfg.Timeout = d
+	return nil
+}
+
+// parseTimeout parses a timeout value (SPEC.md §6): a Go duration
+// string ("20s", "1m30s") or a bare integer meaning seconds. 0
+// disables the timeout.
+func parseTimeout(s string) (time.Duration, error) {
+	s = strings.TrimSpace(s)
+
+	var d time.Duration
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		d = time.Duration(n) * time.Second
+	} else if d, err = time.ParseDuration(s); err != nil {
+		return 0, fmt.Errorf(
+			"airplan: invalid timeout %q (examples: 20s, 1m30s, 0)", s,
+		)
+	}
+
+	if d < 0 {
+		return 0, fmt.Errorf(
+			"airplan: invalid timeout %q (must not be negative)", s,
+		)
+	}
+	return d, nil
 }
 
 // Validate checks that the configuration is complete enough to upload
@@ -398,6 +476,8 @@ func applyOverrides(cfg *Config, s Settings) {
 	if s.Indexable != nil {
 		cfg.Indexable = *s.Indexable
 	}
+	// Settings.Timeout is resolved separately (resolveTimeout) so the
+	// winning raw value is parsed exactly once.
 }
 
 func warnReadableCredentials(

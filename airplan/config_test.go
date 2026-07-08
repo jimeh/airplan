@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadConfigPrecedence(t *testing.T) {
@@ -678,5 +679,135 @@ bucket   = "work-bucket"
 		assertEqual(t, cfg.Profile, "")
 		assertEqual(t, cfg.Endpoint, "flag-endpoint")
 		assertEqual(t, cfg.Bucket, "flag-bucket")
+	})
+}
+
+func TestParseTimeout(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    time.Duration
+		wantErr bool
+	}{
+		{"20s", 20 * time.Second, false},
+		{"1m30s", 90 * time.Second, false},
+		{"500ms", 500 * time.Millisecond, false},
+		{"30", 30 * time.Second, false},
+		{"0", 0, false},
+		{" 5s ", 5 * time.Second, false},
+		{"-1", 0, true},
+		{"-5s", 0, true},
+		{"bogus", 0, true},
+		{"", 0, true},
+	}
+	for _, tt := range tests {
+		got, err := parseTimeout(tt.in)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("parseTimeout(%q) error = %v, wantErr %v",
+				tt.in, err, tt.wantErr)
+			continue
+		}
+		if !tt.wantErr && got != tt.want {
+			t.Errorf("parseTimeout(%q) = %v, want %v", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestLoadConfigTimeout(t *testing.T) {
+	base := `
+endpoint = "e"
+bucket   = "b"
+`
+
+	t.Run("default", func(t *testing.T) {
+		cfg, err := LoadConfig(ConfigOptions{
+			Path:   writeConfig(t, base, 0o600),
+			Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Timeout != DefaultTimeout {
+			t.Errorf("Timeout = %v, want %v", cfg.Timeout, DefaultTimeout)
+		}
+	})
+
+	t.Run("root value", func(t *testing.T) {
+		cfg, err := LoadConfig(ConfigOptions{
+			Path:   writeConfig(t, base+"timeout = \"45s\"\n", 0o600),
+			Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Timeout != 45*time.Second {
+			t.Errorf("Timeout = %v, want 45s", cfg.Timeout)
+		}
+	})
+
+	t.Run("profile overrides root", func(t *testing.T) {
+		cfg, err := LoadConfig(ConfigOptions{
+			Path: writeConfig(t, base+`
+timeout = "45s"
+
+[profiles.work]
+timeout = "90s"
+`, 0o600),
+			Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Timeout != 90*time.Second {
+			t.Errorf("Timeout = %v, want 90s", cfg.Timeout)
+		}
+	})
+
+	t.Run("env overrides file, flag overrides env", func(t *testing.T) {
+		env := map[string]string{"AIRPLAN_TIMEOUT": "10s"}
+
+		cfg, err := LoadConfig(ConfigOptions{
+			Path:   writeConfig(t, base+"timeout = \"45s\"\n", 0o600),
+			Getenv: envMap(env),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Timeout != 10*time.Second {
+			t.Errorf("env: Timeout = %v, want 10s", cfg.Timeout)
+		}
+
+		cfg, err = LoadConfig(ConfigOptions{
+			Path:      writeConfig(t, base+"timeout = \"45s\"\n", 0o600),
+			Getenv:    envMap(env),
+			Overrides: Settings{Timeout: "3s"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Timeout != 3*time.Second {
+			t.Errorf("flag: Timeout = %v, want 3s", cfg.Timeout)
+		}
+	})
+
+	t.Run("zero disables", func(t *testing.T) {
+		cfg, err := LoadConfig(ConfigOptions{
+			Path:      writeConfig(t, base, 0o600),
+			Getenv:    envMap(nil),
+			Overrides: Settings{Timeout: "0"},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.Timeout != 0 {
+			t.Errorf("Timeout = %v, want 0", cfg.Timeout)
+		}
+	})
+
+	t.Run("invalid value errors", func(t *testing.T) {
+		_, err := LoadConfig(ConfigOptions{
+			Path:   writeConfig(t, base+"timeout = \"bogus\"\n", 0o600),
+			Getenv: envMap(nil),
+		})
+		assertErrorContains(t, err, "invalid timeout \"bogus\"")
 	})
 }

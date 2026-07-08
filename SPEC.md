@@ -3,6 +3,7 @@
 **Spec version: 0.2.0**
 
 Changes in 0.2.0: input size limit and `--max-size` (§2, §6);
+configurable invocation timeout, default 20 s (§6, §7);
 plain-text input rendered as a highlighted code page (§2, §3, §5,
 §6, §8); binary input rejection (§2); profile resolution counts env
 vars and flag overrides toward a complete non-profile configuration
@@ -259,6 +260,7 @@ airplan [flags] [file]
 | `--no-source`    | off            | don't upload the original .md      |
 | `--indexable`    | off            | no noindex meta (md and html, §3–4)|
 | `--max-size N`   | 10MB           | input size limit; 0 = no limit (§2)|
+| `--timeout D`    | 20s            | invocation timeout; 0 = none       |
 | `--json`         | off            | JSON object on stdout              |
 | `--profile P`    | config default | named profile from config file     |
 | `--config PATH`  | XDG default    | alternate config file              |
@@ -277,6 +279,14 @@ shell completions.
 If `--open` fails to launch a browser (common in headless/agent
 environments), a warning goes to stderr and the exit code is
 unaffected — the upload succeeded and the URL was already printed.
+
+The whole invocation is bounded by a timeout — default **20
+seconds** — so a stalled endpoint fails with a clear error instead
+of hanging the caller (often an agent harness) indefinitely.
+Configurable via `--timeout` / `AIRPLAN_TIMEOUT` / the `timeout`
+config key (root or profile level), with the usual precedence (§7).
+Values are Go-style duration strings (`20s`, `1m30s`) or a bare
+integer meaning seconds; `0` disables the timeout.
 
 Examples:
 
@@ -364,6 +374,7 @@ endpoint        = "https://<account-id>.r2.cloudflarestorage.com"
 region          = "auto"
 # template = "~/.config/airplan/my-template.html"  # optional
 # no_source = true    # behavior defaults; flags override
+# timeout = "20s"     # invocation timeout; 0 = none
 # indexable = true
 # Credentials may live here, but env vars are preferred:
 # access_key_id     = "..."
@@ -415,6 +426,7 @@ AIRPLAN_SECRET_ACCESS_KEY
 AIRPLAN_PUBLIC_BASE_URL
 AIRPLAN_KEY_PREFIX
 AIRPLAN_TEMPLATE
+AIRPLAN_TIMEOUT
 AIRPLAN_CONFIG
 ```
 
@@ -426,8 +438,9 @@ out-of-the-box in environments already configured for S3.
 If the config file contains credentials and is group- or
 world-readable, a warning is printed to stderr.
 
-Behavioral defaults: `no_source` and `indexable` may be set at the
-root or profile level; their flags override the config values.
+Behavioral defaults: `no_source`, `indexable`, and `timeout` may be
+set at the root or profile level; their flags override the config
+values.
 
 `public_base_url` is strongly recommended whenever the endpoint URL
 isn't itself publicly readable (always the case for R2). If unset,
