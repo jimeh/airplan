@@ -116,7 +116,7 @@ func newRootCmd() *cobra.Command {
 		"prefix prepended to object keys")
 
 	cmd.AddCommand(newConfigCmd())
-
+	cmd.AddCommand(newTemplateCmd())
 	return cmd
 }
 

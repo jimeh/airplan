@@ -1,8 +1,11 @@
 package airplan
 
 import (
-	"errors"
+	"fmt"
 	"html/template"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
 // TemplateData is the data contract custom page templates code
@@ -37,7 +40,26 @@ type TemplateData struct {
 // takes full responsibility for the page: styles, noindex meta, and
 // any interactivity (SPEC.md §3). It executes against TemplateData.
 func LoadTemplate(path string) (*template.Template, error) {
-	return nil, errors.New("airplan: LoadTemplate not implemented")
+	resolved := path
+	if strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, fmt.Errorf(
+				"airplan: resolve template path %q: %w", path, err,
+			)
+		}
+		resolved = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+	}
+
+	src, err := os.ReadFile(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("airplan: read template %q: %w", path, err)
+	}
+	tmpl, err := template.New(filepath.Base(path)).Parse(string(src))
+	if err != nil {
+		return nil, fmt.Errorf("airplan: parse template %q: %w", path, err)
+	}
+	return tmpl, nil
 }
 
 // BuiltinTemplate returns the built-in page template source, for
