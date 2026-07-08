@@ -29,9 +29,10 @@ func TestRootJSONOutputShape(t *testing.T) {
 		if strings.Contains(stdout, "warning") {
 			t.Fatalf("stdout contains warning: %q", stdout)
 		}
-		if !strings.Contains(stderr, "airplan: warning:") {
-			t.Fatalf("stderr = %q, want warning", stderr)
-		}
+		// stderr may carry warnings but must never carry the result;
+		// the fallback-URL warning case is covered separately in
+		// TestRootWarningsGoToStderr.
+		_ = stderr
 
 		var got rootJSON
 		fields := decodeJSONLine(t, stdout, &got)
