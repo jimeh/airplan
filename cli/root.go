@@ -5,9 +5,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/jimeh/airplan/airplan"
 	"github.com/spf13/cobra"
@@ -93,11 +95,18 @@ func newRootCmd() *cobra.Command {
 	return cmd
 }
 
+// uploadTimeout bounds one whole invocation so a stalled endpoint
+// fails with a clear error instead of hanging the CLI (and any agent
+// harness driving it) indefinitely. Generous: plan documents are
+// small, so healthy uploads finish in seconds.
+const uploadTimeout = 2 * time.Minute
+
 // run executes the upload pipeline for the root command, honoring the
 // output contract of SPEC.md §1: the final URL is the only thing on
 // stdout; warnings and errors go to stderr.
 func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
-	ctx := cmd.Context()
+	ctx, cancel := context.WithTimeout(cmd.Context(), uploadTimeout)
+	defer cancel()
 	stderr := cmd.ErrOrStderr()
 
 	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
