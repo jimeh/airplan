@@ -1,8 +1,17 @@
 package airplan
 
 import (
+	"bufio"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"runtime"
 	"time"
+
+	"github.com/gofrs/flock"
 )
 
 // ManifestRecord is one line of the local upload manifest (SPEC.md
@@ -33,7 +42,29 @@ type ManifestRecord struct {
 // ~/.local/state on every platform except Windows, which uses
 // %LocalAppData%.
 func DefaultManifestPath() (string, error) {
-	return "", errors.New("airplan: DefaultManifestPath not implemented")
+	if stateHome := os.Getenv("XDG_STATE_HOME"); stateHome != "" {
+		return filepath.Join(stateHome, "airplan", "manifest.jsonl"), nil
+	}
+
+	var base string
+	if runtime.GOOS == "windows" {
+		base = os.Getenv("LocalAppData")
+		if base == "" {
+			var err error
+			base, err = os.UserConfigDir()
+			if err != nil {
+				return "", err
+			}
+		}
+	} else {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		base = filepath.Join(home, ".local", "state")
+	}
+
+	return filepath.Join(base, "airplan", "manifest.jsonl"), nil
 }
 
 // appendManifestRecord appends one record to the manifest at path,
@@ -42,7 +73,41 @@ func DefaultManifestPath() (string, error) {
 // trailing newline included — goes out in a single write, and the
 // write is wrapped in an advisory file lock (gofrs/flock).
 func appendManifestRecord(path string, rec ManifestRecord) error {
-	return errors.New("airplan: appendManifestRecord not implemented")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create manifest directory: %w", err)
+	}
+
+	line, err := json.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("marshal manifest record: %w", err)
+	}
+	line = append(line, '\n')
+
+	lock := flock.New(path+".lock", flock.SetPermissions(0o600))
+	if err := lock.Lock(); err != nil {
+		return fmt.Errorf("lock manifest: %w", err)
+	}
+	defer lock.Unlock()
+
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open manifest: %w", err)
+	}
+
+	n, err := file.Write(line)
+	if err != nil {
+		_ = file.Close()
+		return fmt.Errorf("write manifest: %w", err)
+	}
+	if n != len(line) {
+		_ = file.Close()
+		return fmt.Errorf("write manifest: %w", io.ErrShortWrite)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close manifest: %w", err)
+	}
+
+	return nil
 }
 
 // readManifest reads every record from the manifest at path. Torn or
@@ -50,7 +115,44 @@ func appendManifestRecord(path string, rec ManifestRecord) error {
 // an unknown type are skipped silently (forward compatibility). A
 // missing file is not an error — it returns no records.
 func readManifest(path string) ([]ManifestRecord, []string, error) {
-	return nil, nil, errors.New("airplan: readManifest not implemented")
+	file, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("open manifest: %w", err)
+	}
+	defer file.Close()
+
+	const maxManifestLine = 10 * 1024 * 1024
+
+	var (
+		records  []ManifestRecord
+		warnings []string
+		lineNo   int
+	)
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxManifestLine)
+	for scanner.Scan() {
+		lineNo++
+
+		var rec ManifestRecord
+		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
+			warnings = append(warnings,
+				fmt.Sprintf("skipping malformed manifest line %d", lineNo))
+			continue
+		}
+
+		if rec.Type != "upload" && rec.Type != "delete" {
+			continue
+		}
+		records = append(records, rec)
+	}
+	if err := scanner.Err(); err != nil {
+		return records, warnings, fmt.Errorf("read manifest: %w", err)
+	}
+
+	return records, warnings, nil
 }
 
 // recordUpload appends an upload record for res, best-effort: manifest
