@@ -15,7 +15,7 @@
 <body>
 {{- if .SourcePath}}
 <nav class="toolbar">
-  <a class="download" href="{{.SourcePath}}" download>Download markdown</a>
+  <a class="download" href="{{.SourcePath}}" download>{{.SourceLabel}}</a>
 </nav>
 {{- end}}
 <main class="content">

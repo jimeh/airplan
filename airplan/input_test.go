@@ -19,7 +19,8 @@ func TestParseFormat(t *testing.T) {
 		{name: "html", input: "html", want: FormatHTML},
 		{name: "empty", input: "", want: FormatUnknown, wantErr: true},
 		{name: "case sensitive", input: "MD", want: FormatUnknown, wantErr: true},
-		{name: "unknown", input: "txt", want: FormatUnknown, wantErr: true},
+		{name: "text", input: "txt", want: FormatText},
+		{name: "unknown", input: "rst", want: FormatUnknown, wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -101,7 +102,7 @@ func TestDetectFormat(t *testing.T) {
 		},
 		{
 			name: "bom and unicode whitespace sniff",
-			file: "plan.txt",
+			file: "",
 			data: "\xef\xbb\xbf\u00a0\n\t<Html></Html>",
 			want: FormatHTML,
 		},
@@ -118,16 +119,40 @@ func TestDetectFormat(t *testing.T) {
 			want: FormatMarkdown,
 		},
 		{
-			name: "unknown extension uses sniffing",
+			name: "txt extension is text",
 			file: "plan.txt",
 			data: "<!doctype html>",
-			want: FormatHTML,
+			want: FormatText,
 		},
 		{
-			name: "unknown extension markdown",
-			file: "plan.txt",
-			data: "# Plan",
+			name: "source file extension is text",
+			file: "main.go",
+			data: "package main",
+			want: FormatText,
+		},
+		{
+			name: "json extension is text",
+			file: "config.JSON",
+			data: "{}",
+			want: FormatText,
+		},
+		{
+			name: "extensionless lexer name is text",
+			file: "Makefile",
+			data: "all:\n\tgo build\n",
+			want: FormatText,
+		},
+		{
+			name: "extensionless unrecognized name sniffs to md",
+			file: "LICENSE",
+			data: "MIT License",
 			want: FormatMarkdown,
+		},
+		{
+			name: "extensionless unrecognized name sniffs to html",
+			file: "homepage",
+			data: "<!doctype html>",
+			want: FormatHTML,
 		},
 	}
 
@@ -317,6 +342,34 @@ func TestInjectNoindexQuotedTagEnd(t *testing.T) {
 		}
 		if string(out) != doc {
 			t.Error("document was modified")
+		}
+	})
+}
+
+func TestIsBinary(t *testing.T) {
+	tests := []struct {
+		name string
+		data string
+		want bool
+	}{
+		{"empty", "", false},
+		{"plain text", "hello world\n", false},
+		{"utf-8", "héllo ✨", false},
+		{"nul byte", "PK\x03\x04\x00", true},
+		{"png header", "\x89PNG\r\n\x1a\n\x00", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := IsBinary([]byte(tt.data)); got != tt.want {
+				t.Errorf("IsBinary(%q) = %v, want %v", tt.data, got, tt.want)
+			}
+		})
+	}
+
+	t.Run("nul past first 8KiB is not binary", func(t *testing.T) {
+		data := append(bytes.Repeat([]byte("a"), 8192), 0)
+		if IsBinary(data) {
+			t.Error("NUL beyond the first 8 KiB should not flag binary")
 		}
 	})
 }

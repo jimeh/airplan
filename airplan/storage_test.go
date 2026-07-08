@@ -145,6 +145,7 @@ func TestStoragePutErrorMentionsKey(t *testing.T) {
 type capturedRequest struct {
 	path   string
 	header http.Header
+	body   []byte
 }
 
 func captureRequest(r *http.Request) capturedRequest {

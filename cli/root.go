@@ -60,9 +60,10 @@ func newRootCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "airplan [flags] [file]",
 		Short: "Upload a plan document and print its shareable URL",
-		Long: "airplan uploads AI/LLM agent plan files (markdown or " +
-			"HTML) to S3-compatible object storage under a randomized, " +
-			"unguessable URL path and prints the resulting URL.",
+		Long: "airplan uploads AI/LLM agent plan files (markdown, " +
+			"HTML, or plain text) to S3-compatible object storage " +
+			"under a randomized, unguessable URL path and prints the " +
+			"resulting URL.",
 		Args:          cobra.MaximumNArgs(1),
 		Version:       version,
 		SilenceUsage:  true,
@@ -74,17 +75,17 @@ func newRootCmd() *cobra.Command {
 
 	f := cmd.Flags()
 	f.StringVar(&opts.format, "format", "",
-		"input format: md or html (default: auto-detect)")
+		"input format: md, html, or txt (default: auto-detect)")
 	f.StringVarP(&opts.slug, "slug", "s", "",
 		"filename portion of the URL (default: from filename)")
 	f.StringVarP(&opts.title, "title", "t", "",
 		"page title (default: from content)")
 	f.BoolVar(&opts.noSource, "no-source", false,
-		"don't upload the original .md alongside the page")
+		"don't upload the original source alongside the page")
 	f.BoolVar(&opts.indexable, "indexable", false,
 		"omit the noindex robots meta tag")
 	f.BoolVar(&opts.noSizeLimit, "no-size-limit", false,
-		"bypass the 100 MiB input size limit")
+		"bypass the 10 MiB input size limit")
 	f.StringVar(&opts.config, "config", "",
 		"config file path (default: XDG config dir)")
 

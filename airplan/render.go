@@ -9,7 +9,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/alecthomas/chroma/v2"
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
+	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
@@ -64,6 +66,11 @@ type pageData struct {
 	Noindex    bool
 	CSS        template.CSS
 	SyntaxCSS  template.CSS
+
+	// SourceLabel is the download anchor's text — "Download markdown"
+	// for markdown input, "Download source" for text input. Built-in
+	// template detail, not part of the custom-template contract.
+	SourceLabel string
 }
 
 // newMarkdown builds the goldmark instance implementing the dialect of
@@ -128,19 +135,44 @@ func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
 		return nil, fmt.Errorf("render markdown: %w", err)
 	}
 
+	return renderPage(
+		template.HTML(body.String()), "Download markdown", opts,
+	)
+}
+
+// RenderText renders plain-text source as a standalone page whose
+// body is one syntax-highlighted code block (SPEC.md §3). The
+// highlight language comes from the source filename; stdin and
+// unrecognized names fall back to unhighlighted plain text.
+func RenderText(src []byte, name string, opts RenderOptions) ([]byte, error) {
+	body, err := highlightSource(src, name)
+	if err != nil {
+		return nil, err
+	}
+
+	return renderPage(body, "Download source", opts)
+}
+
+// renderPage wraps a rendered body in the standalone page template.
+func renderPage(
+	body template.HTML,
+	sourceLabel string,
+	opts RenderOptions,
+) ([]byte, error) {
 	syntax, err := syntaxCSS()
 	if err != nil {
 		return nil, err
 	}
 
 	data := pageData{
-		Title:      opts.Title,
-		Body:       template.HTML(body.String()),
-		SourcePath: opts.SourcePath,
-		Slug:       opts.Slug,
-		Noindex:    !opts.Indexable,
-		CSS:        template.CSS(pageCSS),
-		SyntaxCSS:  template.CSS(syntax),
+		Title:       opts.Title,
+		Body:        body,
+		SourcePath:  opts.SourcePath,
+		Slug:        opts.Slug,
+		Noindex:     !opts.Indexable,
+		CSS:         template.CSS(pageCSS),
+		SyntaxCSS:   template.CSS(syntax),
+		SourceLabel: sourceLabel,
 	}
 
 	var out bytes.Buffer
@@ -148,6 +180,36 @@ func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
 		return nil, fmt.Errorf("execute page template: %w", err)
 	}
 	return out.Bytes(), nil
+}
+
+// highlightSource renders source bytes as one chroma-highlighted,
+// class-based code block, picking the lexer from the filename.
+func highlightSource(src []byte, name string) (template.HTML, error) {
+	lexer := lexers.Match(filepath.Base(name))
+	if lexer == nil {
+		lexer = lexers.Fallback
+	}
+	lexer = chroma.Coalesce(lexer)
+
+	it, err := lexer.Tokenise(nil, string(src))
+	if err != nil {
+		return "", fmt.Errorf("tokenise source: %w", err)
+	}
+
+	var buf bytes.Buffer
+	f := chromahtml.New(chromahtml.WithClasses(true))
+	err = f.Format(&buf, styles.Get(syntaxStyleLight), it)
+	if err != nil {
+		return "", fmt.Errorf("highlight source: %w", err)
+	}
+	return template.HTML(buf.String()), nil
+}
+
+// matchesLexerFilename reports whether the highlighter recognizes a
+// bare filename (Makefile, Dockerfile, …) — used by format detection
+// for extensionless names (SPEC.md §2).
+func matchesLexerFilename(name string) bool {
+	return lexers.Match(name) != nil
 }
 
 // ExtractTitle returns the text of the first level-1 heading in the

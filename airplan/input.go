@@ -17,21 +17,24 @@ const (
 	FormatUnknown Format = iota
 	FormatMarkdown
 	FormatHTML
+	FormatText
 )
 
-// String returns "md", "html", or "unknown".
+// String returns "md", "html", "txt", or "unknown".
 func (f Format) String() string {
 	switch f {
 	case FormatMarkdown:
 		return "md"
 	case FormatHTML:
 		return "html"
+	case FormatText:
+		return "txt"
 	default:
 		return "unknown"
 	}
 }
 
-// ParseFormat parses a --format flag value: "md" or "html"
+// ParseFormat parses a --format flag value: "md", "html", or "txt"
 // (SPEC.md §2, §6).
 func ParseFormat(s string) (Format, error) {
 	switch s {
@@ -39,24 +42,37 @@ func ParseFormat(s string) (Format, error) {
 		return FormatMarkdown, nil
 	case "html":
 		return FormatHTML, nil
+	case "txt":
+		return FormatText, nil
 	default:
 		return FormatUnknown, fmt.Errorf(
-			"airplan: invalid format %q (valid: md, html)", s,
+			"airplan: invalid format %q (valid: md, html, txt)", s,
 		)
 	}
 }
 
-// DetectFormat applies the detection order of SPEC.md §2: file
-// extension when name is non-empty and recognized, else content
-// sniffing (leading <!doctype or <html, case-insensitive, after
-// whitespace/BOM → html; anything else → md). A --format override is
-// applied by the caller before this runs.
+// DetectFormat applies the detection order of SPEC.md §2: known
+// md/html extensions; any other extension → text; an extensionless
+// filename the highlighter recognizes (Makefile, Dockerfile, …) →
+// text; else content sniffing (leading <!doctype or <html,
+// case-insensitive, after whitespace/BOM → html; anything else → md).
+// Bare stdin defaulting to markdown is load-bearing — it is the
+// primary agent path. A --format override is applied by the caller
+// before this runs.
 func DetectFormat(name string, data []byte) Format {
-	switch strings.ToLower(filepath.Ext(name)) {
-	case ".md", ".markdown":
-		return FormatMarkdown
-	case ".html", ".htm":
-		return FormatHTML
+	if name != "" {
+		switch ext := strings.ToLower(filepath.Ext(name)); ext {
+		case ".md", ".markdown":
+			return FormatMarkdown
+		case ".html", ".htm":
+			return FormatHTML
+		case "":
+			if matchesLexerFilename(filepath.Base(name)) {
+				return FormatText
+			}
+		default:
+			return FormatText
+		}
 	}
 
 	data = trimSniffPrefix(data)
@@ -66,6 +82,14 @@ func DetectFormat(name string, data []byte) Format {
 	}
 
 	return FormatMarkdown
+}
+
+// IsBinary reports whether data looks like binary rather than text:
+// a NUL byte within the first 8 KiB, git's binary heuristic
+// (SPEC.md §2).
+func IsBinary(data []byte) bool {
+	n := min(len(data), 8192)
+	return bytes.IndexByte(data[:n], 0) >= 0
 }
 
 // NoindexResult reports what InjectNoindex did (SPEC.md §4).

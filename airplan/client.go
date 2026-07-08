@@ -23,16 +23,28 @@ const pageContentType = "text/html; charset=utf-8"
 // source object (SPEC.md §5).
 const sourceContentType = "text/markdown; charset=utf-8"
 
+// textContentType is the Content-Type of text input's uploaded
+// original file (SPEC.md §3, §5).
+const textContentType = "text/plain; charset=utf-8"
+
 // MaxInputSize is the input size limit (SPEC.md §2). Documents are
 // loaded whole into memory for rendering or splicing; anything this
 // large is invariably the wrong file. Input.NoSizeLimit bypasses it.
-const MaxInputSize = 100 << 20 // 100 MiB
+const MaxInputSize = 10 << 20 // 10 MiB
 
 // ErrInputTooLarge is returned by Upload when the input exceeds
 // MaxInputSize and Input.NoSizeLimit is false. No more than the limit
 // is buffered before the overflow is detected.
 var ErrInputTooLarge = fmt.Errorf(
 	"airplan: input exceeds the %d MiB size limit", MaxInputSize>>20,
+)
+
+// ErrBinaryInput is returned by Upload when the input contains a NUL
+// byte within its first 8 KiB (SPEC.md §2). airplan uploads UTF-8
+// text documents; there is no bypass.
+var ErrBinaryInput = errors.New(
+	"airplan: input looks like binary data; " +
+		"only UTF-8 text documents are supported",
 )
 
 // Client uploads plan documents per the pipeline in SPEC.md §1:
@@ -122,6 +134,9 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	if IsBinary(data) {
+		return nil, ErrBinaryInput
+	}
 
 	var format Format
 	if in.Format != "" {
@@ -175,6 +190,40 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 				Key:         sourceKey,
 				Body:        data,
 				ContentType: sourceContentType,
+				Metadata:    titleMetadata(title),
+			})
+			if err != nil {
+				return nil, err
+			}
+			res.SourceKey = sourceKey
+		}
+
+	case FormatText:
+		// The document is never interpreted, so the title chain is
+		// explicit title → filename → slug (SPEC.md §3).
+		title = ResolveTitle(in.Title, nil, in.Name, slug)
+
+		sourceName := slug + "." + sourceExt(in.Name)
+		sourcePath := ""
+		if !c.cfg.NoSource {
+			sourcePath = "./" + sourceName
+		}
+		page, err = RenderText(data, in.Name, RenderOptions{
+			Title:      title,
+			Slug:       slug,
+			SourcePath: sourcePath,
+			Indexable:  c.cfg.Indexable,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		if !c.cfg.NoSource {
+			sourceKey := BuildKey(c.cfg.KeyPrefix, dir, sourceName)
+			err = c.st.put(ctx, object{
+				Key:         sourceKey,
+				Body:        data,
+				ContentType: textContentType,
 				Metadata:    titleMetadata(title),
 			})
 			if err != nil {
@@ -273,4 +322,25 @@ func filenameStem(name string) string {
 	}
 	base := filepath.Base(name)
 	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
+// sourceExt returns the sibling source object's extension for text
+// input (SPEC.md §3): the source filename's extension sanitized to
+// [a-z0-9], or "txt" when absent (stdin) or when it would collide
+// with the page object.
+func sourceExt(name string) string {
+	ext := strings.ToLower(strings.TrimPrefix(filepath.Ext(name), "."))
+
+	var b strings.Builder
+	for _, r := range ext {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	ext = b.String()
+
+	if ext == "" || ext == "html" || ext == "htm" {
+		return "txt"
+	}
+	return ext
 }

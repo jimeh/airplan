@@ -3,8 +3,10 @@
 **Spec version: 0.2.0**
 
 Changes in 0.2.0: input size limit and `--no-size-limit` (§2, §6);
-profile resolution counts env vars and flag overrides toward a
-complete non-profile configuration (§7).
+plain-text input rendered as a highlighted code page (§2, §3, §5,
+§6, §8); binary input rejection (§2); profile resolution counts env
+vars and flag overrides toward a complete non-profile configuration
+(§7).
 
 Semantic versioning, applied to the spec itself: **major** —
 breaking changes to observable behavior or on-disk/on-wire formats
@@ -58,22 +60,34 @@ Output contract (critical for agent use):
 
 `airplan [flags] [file]` — `file` omitted or `-` reads stdin.
 
+Three input formats: markdown (rendered, §3), HTML (uploaded as-is,
+§4), and plain text (rendered as a highlighted code page, §3).
+
 Format detection:
 
-1. `--format md|html` wins if given.
-2. File extension: `.md`/`.markdown` → md; `.html`/`.htm` → html.
-3. stdin or unknown extension: sniff — leading `<!doctype` or `<html`
-   (case-insensitive, after whitespace/BOM) → html, else md.
+1. `--format md|html|txt` wins if given.
+2. File extension: `.md`/`.markdown` → md; `.html`/`.htm` → html;
+   **any other extension → text** (`.go`, `.py`, `.txt`, `.json`, …).
+3. Extensionless filename recognized by the syntax highlighter's
+   filename patterns (`Makefile`, `Dockerfile`, …) → text.
+4. Otherwise — stdin, or an unrecognized extensionless name — sniff:
+   leading `<!doctype` or `<html` (case-insensitive, after
+   whitespace/BOM) → html, else md. Bare stdin defaulting to
+   markdown is load-bearing: it is the primary agent path.
 
-Size limit: input larger than **100 MiB** is rejected with an error
+Binary rejection: input containing a NUL byte within its first 8 KiB
+(git's binary heuristic) is rejected with an error before any upload,
+regardless of detected or forced format. airplan uploads UTF-8 text
+documents; there is no bypass.
+
+Size limit: input larger than **10 MiB** is rejected with an error
 before any upload. The whole document is loaded into memory for
-rendering (md) or the noindex splice (html), and a plan document that
-size is invariably a mistake — the wrong file, like a database dump.
-Implementations must detect the overflow without buffering
+rendering (md/text) or the noindex splice (html), and a plan document
+that size is invariably a mistake — the wrong file, like a database
+dump. Implementations must detect the overflow without buffering
 meaningfully past the limit. `--no-size-limit` bypasses the check;
-there is
-deliberately no config key for it, so bypassing stays a per-invocation
-decision.
+there is deliberately no config key for it, so bypassing stays a
+per-invocation decision.
 
 ---
 
@@ -118,12 +132,31 @@ CSS, no external fonts/scripts/assets, system font stack.
     hidden in print styles. Clipboard API needs a secure context,
     which https links satisfy.
 
+### Plain-text input
+
+Text input (§2) shares the markdown page machinery: the same
+standalone page template, styling, and dark/light behavior, with the
+body being the source rendered as one syntax-highlighted code block.
+A shared source file reads like a one-file gist.
+
+- The highlight language comes from the source filename (extension
+  or recognized special names like `Makefile`); stdin and
+  unrecognized names fall back to unhighlighted plain text.
+- Title chain: `--title`, else source filename, else slug (no
+  content-derived title — the document is never interpreted).
+- The original file is uploaded alongside the page as
+  `<random>/<slug>.<ext>` (`text/plain; charset=utf-8`, same cache
+  headers), where `<ext>` is the source filename's extension —
+  `txt` when there is none (stdin) or when it would collide with
+  the page object (`html`/`htm`). The page's download anchor points
+  at it. `--no-source` skips it, exactly as for markdown.
+
 ### Page templates & customization
 
 Users can substitute the built-in page template with their own via
 `template` in a profile, `AIRPLAN_TEMPLATE`, or `--template PATH`.
-Applies to markdown input only — HTML input is always uploaded as-is
-(warn if combined).
+Applies to markdown and text input — HTML input is always uploaded
+as-is (warn if combined).
 
 Template data contract (the stable API custom templates code
 against):
@@ -133,7 +166,7 @@ against):
 | `.Title`      | string      | resolved title                |
 | `.Body`       | raw HTML    | rendered markdown body        |
 | `.SourceHTML` | raw HTML    | highlighted raw source        |
-| `.SourcePath` | string      | relative path to uploaded .md |
+| `.SourcePath` | string      | relative path to the uploaded source |
 | `.Slug`       | string      | resolved slug                 |
 
 `.SourcePath` is empty when the source isn't uploaded
@@ -185,7 +218,9 @@ file.
     show titles via `HeadObject`.
 - Markdown input additionally uploads the original source as
   `<random>/<slug>.md` (`text/markdown; charset=utf-8`, same cache
-  headers) unless `--no-source`. The pair shares the random
+  headers) unless `--no-source`; text input likewise uploads its
+  original file as `<random>/<slug>.<ext>`
+  (`text/plain; charset=utf-8`, §3). The pair shares the random
   directory, so the page can link to it relatively (`./<slug>.md`)
   on any domain. The source uploads first; failure of either upload
   fails the command (an orphaned first object is harmless; it never
@@ -209,7 +244,7 @@ airplan [flags] [file]
 
 | Flag             | Default        | Notes                              |
 | ---------------- | -------------- | ---------------------------------- |
-| `--format`       | auto           | `md` \| `html`; overrides sniffing |
+| `--format`       | auto           | `md`\|`html`\|`txt`; overrides §2  |
 | `--slug S`       | from filename  | filename portion of the URL        |
 | `--title T`      | from content   | page title (see §3 fallback chain) |
 | `--template P`   | built-in       | custom page template (md only)     |
@@ -423,6 +458,9 @@ Scheme:
 [<key_prefix>/]<random>/<slug>.html
 [<key_prefix>/]<random>/<slug>.md      (markdown input, unless
                                         --no-source)
+[<key_prefix>/]<random>/<slug>.<ext>   (text input's original file,
+                                        unless --no-source; <ext>
+                                        per §3)
 ```
 
 Each upload owns one random directory; everything under it belongs
