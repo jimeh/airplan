@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{{- if .Noindex}}
+<meta name="robots" content="noindex, nofollow">
+{{- end}}
+<title>{{.Title}}</title>
+<style>
+{{.CSS}}
+{{.SyntaxCSS}}
+</style>
+</head>
+<body>
+{{- if .SourcePath}}
+<nav class="toolbar">
+  <a class="download" href="{{.SourcePath}}" download>Download markdown</a>
+</nav>
+{{- end}}
+<main class="content">
+{{.Body}}
+</main>
+</body>
+</html>
