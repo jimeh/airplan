@@ -12,6 +12,7 @@ import (
 	"io"
 	"mime"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -27,16 +28,18 @@ const sourceContentType = "text/markdown; charset=utf-8"
 // original file (SPEC.md §3, §5).
 const textContentType = "text/plain; charset=utf-8"
 
-// MaxInputSize is the input size limit (SPEC.md §2). Documents are
-// loaded whole into memory for rendering or splicing; anything this
-// large is invariably the wrong file. Input.NoSizeLimit bypasses it.
-const MaxInputSize = 10 << 20 // 10 MiB
+// DefaultMaxInputSize is the default input size limit (SPEC.md §2).
+// Documents are loaded whole into memory for rendering or splicing;
+// anything past this default is invariably the wrong file.
+// Input.MaxSize overrides it.
+const DefaultMaxInputSize = 10 << 20 // 10 MiB
 
-// ErrInputTooLarge is returned by Upload when the input exceeds
-// MaxInputSize and Input.NoSizeLimit is false. No more than the limit
-// is buffered before the overflow is detected.
-var ErrInputTooLarge = fmt.Errorf(
-	"airplan: input exceeds the %d MiB size limit", MaxInputSize>>20,
+// ErrInputTooLarge is returned by Upload when the input exceeds the
+// effective size limit. No more than the limit is buffered before the
+// overflow is detected. The returned error wraps this sentinel and
+// names the actual limit.
+var ErrInputTooLarge = errors.New(
+	"airplan: input exceeds the maximum input size",
 )
 
 // ErrBinaryInput is returned by Upload when the input contains a NUL
@@ -94,8 +97,9 @@ type Input struct {
 	// Title overrides the page title (SPEC.md §3).
 	Title string
 
-	// NoSizeLimit disables the MaxInputSize check (SPEC.md §2).
-	NoSizeLimit bool
+	// MaxSize is the input size limit in bytes (SPEC.md §2):
+	// 0 means DefaultMaxInputSize, negative means no limit.
+	MaxSize int64
 }
 
 // Result describes a completed upload. Bytes and ContentType describe
@@ -126,9 +130,12 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 	if in.Reader == nil {
 		return nil, errors.New("airplan: input reader is nil")
 	}
-	limit := int64(MaxInputSize)
-	if in.NoSizeLimit {
-		limit = 0
+	limit := in.MaxSize
+	switch {
+	case limit == 0:
+		limit = DefaultMaxInputSize
+	case limit < 0:
+		limit = 0 // readInput treats <= 0 as unlimited
 	}
 	data, err := readInput(in.Reader, limit)
 	if err != nil {
@@ -310,9 +317,64 @@ func readInput(r io.Reader, limit int64) ([]byte, error) {
 		return nil, fmt.Errorf("airplan: read input: %w", err)
 	}
 	if limit > 0 && int64(len(data)) > limit {
-		return nil, ErrInputTooLarge
+		return nil, fmt.Errorf("%w of %s", ErrInputTooLarge,
+			formatSize(limit))
 	}
 	return data, nil
+}
+
+// ParseSize parses a human-friendly byte size (SPEC.md §2): a plain
+// integer byte count, or an integer with a k/m/g suffix meaning
+// binary multiples (KiB/MiB/GiB). An optional trailing "b" or "ib" is
+// accepted and case is ignored: "10MB", "512k", "1gib", "1048576".
+func ParseSize(s string) (int64, error) {
+	orig := s
+	s = strings.ToLower(strings.TrimSpace(s))
+
+	var mult int64 = 1
+	s = strings.TrimSuffix(s, "ib")
+	s = strings.TrimSuffix(s, "b")
+	switch {
+	case strings.HasSuffix(s, "k"):
+		mult = 1 << 10
+		s = s[:len(s)-1]
+	case strings.HasSuffix(s, "m"):
+		mult = 1 << 20
+		s = s[:len(s)-1]
+	case strings.HasSuffix(s, "g"):
+		mult = 1 << 30
+		s = s[:len(s)-1]
+	}
+
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf(
+			"airplan: invalid size %q (examples: 10MB, 512k, 1048576)",
+			orig,
+		)
+	}
+	if n > (1<<62)/mult {
+		return 0, fmt.Errorf("airplan: size %q is out of range", orig)
+	}
+	return n * mult, nil
+}
+
+// formatSize renders a byte count human-readably: exact binary
+// multiples as KiB/MiB/GiB, anything else as a plain byte count.
+func formatSize(n int64) string {
+	for _, u := range []struct {
+		div  int64
+		name string
+	}{
+		{1 << 30, "GiB"},
+		{1 << 20, "MiB"},
+		{1 << 10, "KiB"},
+	} {
+		if n >= u.div && n%u.div == 0 {
+			return fmt.Sprintf("%d %s", n/u.div, u.name)
+		}
+	}
+	return fmt.Sprintf("%d bytes", n)
 }
 
 // filenameStem returns the base name without its extension, or "".

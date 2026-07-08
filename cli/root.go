@@ -38,13 +38,13 @@ func Execute() int {
 
 // rootOptions holds the root command's flag values.
 type rootOptions struct {
-	format      string
-	slug        string
-	title       string
-	noSource    bool
-	indexable   bool
-	noSizeLimit bool
-	config      string
+	format    string
+	slug      string
+	title     string
+	noSource  bool
+	indexable bool
+	maxSize   string
+	config    string
 
 	// Connection overrides for one-off use (SPEC.md §6).
 	endpoint      string
@@ -84,8 +84,8 @@ func newRootCmd() *cobra.Command {
 		"don't upload the original source alongside the page")
 	f.BoolVar(&opts.indexable, "indexable", false,
 		"omit the noindex robots meta tag")
-	f.BoolVar(&opts.noSizeLimit, "no-size-limit", false,
-		"bypass the 10 MiB input size limit")
+	f.StringVar(&opts.maxSize, "max-size", "10MB",
+		"input size limit, e.g. 10MB, 512k, 1048576; 0 = no limit")
 	f.StringVar(&opts.config, "config", "",
 		"config file path (default: XDG config dir)")
 
@@ -114,6 +114,15 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	defer cancel()
 	stderr := cmd.ErrOrStderr()
 
+	maxSize, err := airplan.ParseSize(opts.maxSize)
+	if err != nil {
+		return fmt.Errorf("--max-size: %s",
+			strings.TrimPrefix(err.Error(), "airplan: "))
+	}
+	if maxSize == 0 {
+		maxSize = -1 // 0 on the CLI means unlimited (SPEC.md §2)
+	}
+
 	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
 		Path:      opts.config,
 		Overrides: flagOverrides(cmd, opts),
@@ -132,10 +141,10 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	}
 
 	in := airplan.Input{
-		Format:      opts.format,
-		Slug:        opts.slug,
-		Title:       opts.title,
-		NoSizeLimit: opts.noSizeLimit,
+		Format:  opts.format,
+		Slug:    opts.slug,
+		Title:   opts.title,
+		MaxSize: maxSize,
 	}
 	if len(args) == 0 || args[0] == "-" {
 		in.Reader = cmd.InOrStdin()
@@ -153,7 +162,7 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	if err != nil {
 		if errors.Is(err, airplan.ErrInputTooLarge) {
 			return fmt.Errorf(
-				"%w (pass --no-size-limit to upload anyway)", err,
+				"%w (raise or remove the limit with --max-size)", err,
 			)
 		}
 		return err

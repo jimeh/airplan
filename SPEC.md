@@ -2,7 +2,7 @@
 
 **Spec version: 0.2.0**
 
-Changes in 0.2.0: input size limit and `--no-size-limit` (§2, §6);
+Changes in 0.2.0: input size limit and `--max-size` (§2, §6);
 plain-text input rendered as a highlighted code page (§2, §3, §5,
 §6, §8); binary input rejection (§2); profile resolution counts env
 vars and flag overrides toward a complete non-profile configuration
@@ -80,14 +80,17 @@ Binary rejection: input containing a NUL byte within its first 8 KiB
 regardless of detected or forced format. airplan uploads UTF-8 text
 documents; there is no bypass.
 
-Size limit: input larger than **10 MiB** is rejected with an error
-before any upload. The whole document is loaded into memory for
-rendering (md/text) or the noindex splice (html), and a plan document
-that size is invariably a mistake — the wrong file, like a database
-dump. Implementations must detect the overflow without buffering
-meaningfully past the limit. `--no-size-limit` bypasses the check;
-there is deliberately no config key for it, so bypassing stays a
-per-invocation decision.
+Size limit: input larger than the configured maximum — default
+**10 MiB** — is rejected with an error before any upload. The whole
+document is loaded into memory for rendering (md/text) or the noindex
+splice (html), and a plan document over the default is invariably a
+mistake — the wrong file, like a database dump. Implementations must
+detect the overflow without buffering meaningfully past the limit.
+`--max-size` sets the limit per invocation: a plain byte count, or an
+integer with a `k`/`m`/`g` suffix (binary multiples; optional
+trailing `b`/`ib`; case-insensitive — `10MB`, `512k`, `1gib`). `0`
+removes the limit. There is deliberately no config key, so raising or
+removing the guard stays a per-invocation decision.
 
 ---
 
@@ -250,7 +253,7 @@ airplan [flags] [file]
 | `--template P`   | built-in       | custom page template (md only)     |
 | `--no-source`    | off            | don't upload the original .md      |
 | `--indexable`    | off            | no noindex meta (md and html, §3–4)|
-| `--no-size-limit`| off            | bypass the 100 MiB input limit (§2)|
+| `--max-size N`   | 10MB           | input size limit; 0 = no limit (§2)|
 | `--json`         | off            | JSON object on stdout              |
 | `--profile P`    | config default | named profile from config file     |
 | `--config PATH`  | XDG default    | alternate config file              |

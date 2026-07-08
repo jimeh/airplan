@@ -47,10 +47,82 @@ func TestUploadRejectsOversizedInput(t *testing.T) {
 	// access, so a Client without a live storage backend suffices.
 	c := &Client{cfg: &Config{Bucket: "b"}}
 
-	huge := io.LimitReader(zeroReader{}, MaxInputSize+1)
-	_, err := c.Upload(context.Background(), Input{Reader: huge})
-	if !errors.Is(err, ErrInputTooLarge) {
-		t.Fatalf("err = %v, want ErrInputTooLarge", err)
+	t.Run("default limit", func(t *testing.T) {
+		huge := io.LimitReader(zeroReader{}, DefaultMaxInputSize+1)
+		_, err := c.Upload(context.Background(), Input{Reader: huge})
+		if !errors.Is(err, ErrInputTooLarge) {
+			t.Fatalf("err = %v, want ErrInputTooLarge", err)
+		}
+		if !strings.Contains(err.Error(), "10 MiB") {
+			t.Errorf("error does not name the limit: %v", err)
+		}
+	})
+
+	t.Run("custom limit", func(t *testing.T) {
+		_, err := c.Upload(context.Background(), Input{
+			Reader:  strings.NewReader("0123456789x"),
+			MaxSize: 10,
+		})
+		if !errors.Is(err, ErrInputTooLarge) {
+			t.Fatalf("err = %v, want ErrInputTooLarge", err)
+		}
+		if !strings.Contains(err.Error(), "10 bytes") {
+			t.Errorf("error does not name the limit: %v", err)
+		}
+	})
+}
+
+func TestParseSize(t *testing.T) {
+	tests := []struct {
+		in      string
+		want    int64
+		wantErr bool
+	}{
+		{"0", 0, false},
+		{"1048576", 1 << 20, false},
+		{"512k", 512 << 10, false},
+		{"512KB", 512 << 10, false},
+		{"10m", 10 << 20, false},
+		{"10MB", 10 << 20, false},
+		{"10MiB", 10 << 20, false},
+		{"1g", 1 << 30, false},
+		{"1GiB", 1 << 30, false},
+		{" 5m ", 5 << 20, false},
+		{"", 0, true},
+		{"-1", 0, true},
+		{"1.5m", 0, true},
+		{"10x", 0, true},
+		{"mb", 0, true},
+		{"9999999999g", 0, true},
+	}
+	for _, tt := range tests {
+		got, err := ParseSize(tt.in)
+		if (err != nil) != tt.wantErr {
+			t.Errorf("ParseSize(%q) error = %v, wantErr %v",
+				tt.in, err, tt.wantErr)
+			continue
+		}
+		if !tt.wantErr && got != tt.want {
+			t.Errorf("ParseSize(%q) = %d, want %d", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestFormatSize(t *testing.T) {
+	tests := []struct {
+		in   int64
+		want string
+	}{
+		{10 << 20, "10 MiB"},
+		{512 << 10, "512 KiB"},
+		{1 << 30, "1 GiB"},
+		{10, "10 bytes"},
+		{(1 << 20) + 1, "1048577 bytes"},
+	}
+	for _, tt := range tests {
+		if got := formatSize(tt.in); got != tt.want {
+			t.Errorf("formatSize(%d) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }
 
