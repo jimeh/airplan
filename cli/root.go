@@ -99,6 +99,8 @@ func newRootCmd() *cobra.Command {
 	f.StringVar(&opts.keyPrefix, "key-prefix", "",
 		"prefix prepended to object keys")
 
+	cmd.AddCommand(newConfigCmd())
+
 	return cmd
 }
 
