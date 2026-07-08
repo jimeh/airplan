@@ -21,7 +21,7 @@ Behavior is fully specified in [SPEC.md](SPEC.md).
 ## Install
 
 ```sh
-brew install jimeh/tap/airplan       # Homebrew
+brew install --cask jimeh/tap/airplan   # Homebrew
 go install github.com/jimeh/airplan@latest
 ```
 

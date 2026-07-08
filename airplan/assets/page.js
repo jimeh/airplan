@@ -7,9 +7,17 @@
     el.hidden = false;
   });
 
+  // Visually-hidden live region so screen readers announce copy
+  // feedback even when focus doesn't stay on the button.
+  var live = d.createElement('div');
+  live.className = 'sr-status';
+  live.setAttribute('aria-live', 'polite');
+  d.body.appendChild(live);
+
   function flash(btn, text) {
     var old = btn.textContent;
     btn.textContent = text;
+    live.textContent = text;
     btn.disabled = true;
     setTimeout(function () {
       btn.textContent = old;
@@ -38,7 +46,7 @@
       rendered.hidden = showSource;
       d.querySelectorAll('.viewtoggle button').forEach(function (b) {
         b.classList.toggle('active', b === btn);
-        b.setAttribute('aria-selected', b === btn ? 'true' : 'false');
+        b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
       });
     });
   });

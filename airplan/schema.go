@@ -7,6 +7,12 @@ import (
 	"github.com/invopop/jsonschema"
 )
 
+// configSchemaID deliberately points at the latest release rather
+// than a versioned URL: the schema is additive-stable, the README's
+// #:schema directive references the same URL, and a per-version $id
+// would either desynchronize the committed golden copy from release
+// assets or force regenerating it on every release (release-please
+// owns versions; there is no version file to stamp at build time).
 const configSchemaID = "https://github.com/jimeh/airplan/releases/latest/" +
 	"download/airplan.schema.json"
 

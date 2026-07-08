@@ -165,7 +165,8 @@ func TestRenderMarkdownInteractivity(t *testing.T) {
 	out := render(t, src, RenderOptions{Title: "Hi"})
 
 	for name, frag := range map[string]string{
-		"view toggle":       `class="viewtoggle js-only" role="tablist" hidden`,
+		"view toggle":       `class="viewtoggle js-only" hidden`,
+		"pressed state":     `aria-pressed="true"`,
 		"copy source":       `class="copy-source js-only" hidden`,
 		"source block":      `id="source" hidden`,
 		"embedded script":   "<script>",

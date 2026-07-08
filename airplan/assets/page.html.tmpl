@@ -16,11 +16,11 @@
 {{- if or .SourcePath .SourceHTML}}
 <nav class="toolbar">
 {{- if .SourceHTML}}
-  <div class="viewtoggle js-only" role="tablist" hidden>
+  <div class="viewtoggle js-only" hidden>
     <button type="button" class="active" data-view="rendered"
-      aria-selected="true">Rendered</button>
+      aria-pressed="true">Rendered</button>
     <button type="button" data-view="source"
-      aria-selected="false">Source</button>
+      aria-pressed="false">Source</button>
   </div>
   <button type="button" class="copy-source js-only" hidden>
     Copy markdown</button>

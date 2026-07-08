@@ -205,22 +205,15 @@ per phase — confirm.
    Makefile. Rebuild-skipping handled by mise task
    `sources`/`outputs` change detection.
 
-## 9. Phase 2 open questions (2026-07-08)
+## 9. Phase 2 decisions (settled 2026-07-08)
 
-1. **Manifest writes — core or CLI?** Spec §9 says every upload is
-   recorded; parallel-agent safety argues for the core library doing
-   it (any consumer benefits). But a library silently writing to
-   XDG state would surprise embedders. Proposal: core writes it,
-   with an exported opt-out on Config for embedders (spec stays
-   silent on the library surface).
-2. **`--lang` flag** for stdin text highlighting (deferred from
-   phase 1). Small, rounds out text mode, needs a spec bump to
-   0.3.0 (backward-compatible addition). Include in phase 2?
-3. **Schema URL** for the `#:schema` editor directive: pin to a
-   release asset URL (stable, versioned) or raw.githubusercontent
-   main (always current)? Proposal: release asset of the latest
-   tag, documented in README.
-4. **First release timing**: X5 lands GoReleaser config + a CI
-   snapshot build in the PR; the actual v0.1.0 tag + Homebrew tap
-   publish happens after merge. Proposal: tag-triggered release
-   workflow; user pushes the tag.
+1. Manifest writes live in the core library (parallel-agent safety;
+   any consumer benefits), with code-only `DisableManifest` /
+   `ManifestPath` opt-outs for embedders.
+2. `--lang` shipped in phase 2 (spec 0.3.0).
+3. Schema URL: latest-release asset, referenced by the `#:schema`
+   directive and the schema's own `$id`.
+4. Releases: release-please maintains the release PR and publishes
+   the release on merge; the tag triggers the GoReleaser publish
+   workflow. First release proposed as v0.1.0 — user pushes the
+   merge button, automation does the rest.
