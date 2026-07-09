@@ -57,6 +57,9 @@ pins live in `mise.lock` (commit both when bumping tools).
   from squash-merged titles.
 - **Actions are SHA-pinned** (pinact); `mise run lint:workflows`
   fails on tag-pinned actions. `pinact run` re-pins after bumping.
+- **GoReleaser PR checks are opt-in**: apply the `ci:goreleaser`
+  label when a PR changes `.goreleaser.yaml` or release packaging.
+  The check remains unconditional on pushes to `main`.
 
 ## Layout
 
