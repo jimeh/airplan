@@ -53,7 +53,7 @@
 {{- if .TOC}}
 <nav class="toc" id="toc" aria-label="Table of contents">
   <p class="toc-title">Contents</p>
-  <ol>
+  <ol class="toc-list">
   {{- range .TOC}}
     <li class="toc-level-{{.Level}}"><a href="#{{.ID}}">{{.Text}}</a></li>
   {{- end}}

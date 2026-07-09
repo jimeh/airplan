@@ -65,11 +65,46 @@
     ' 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0' +
     ' 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.7' +
     '5 0 0 1 0-1.06Z"/></svg>';
+  var iconToc = '<svg class="icon" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="none" stroke="currentColor"' +
+    ' stroke-width="1.5" stroke-linecap="round">' +
+    '<path d="M5 4h9M5 8h9M5 12h9"/>' +
+    '<circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/>' +
+    '<circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/>' +
+    '<circle cx="2" cy="12" r=".75" fill="currentColor"' +
+    ' stroke="none"/></svg>';
+  var iconClose = '<svg class="icon" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72' +
+    'a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1' +
+    ' 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749' +
+    '.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3' +
+    '.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1' +
+    '.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>';
 
   // Rendered/source toggle.
   var rendered = d.getElementById('rendered');
   var source = d.getElementById('source');
   var toc = d.getElementById('toc');
+  var tocTrigger = null;
+  var tocDialog = null;
+  var tocMedia = window.matchMedia('(max-width: 78rem)');
+
+  function closeTocDialog() {
+    if (tocDialog && tocDialog.open) tocDialog.close();
+  }
+
+  function syncTocTrigger() {
+    if (!toc || !tocTrigger || !tocDialog) return;
+    var show = tocMedia.matches && !rendered.hidden &&
+      toc.getBoundingClientRect().bottom < 0 && !tocDialog.open;
+    tocTrigger.classList.toggle('is-visible', show);
+    tocTrigger.tabIndex = show ? 0 : -1;
+    tocTrigger.setAttribute('aria-hidden', show ? 'false' : 'true');
+    if (tocDialog.open && (!tocMedia.matches || rendered.hidden)) {
+      closeTocDialog();
+    }
+  }
+
   d.querySelectorAll('.viewtoggle button').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var showSource = btn.dataset.view === 'source';
@@ -80,6 +115,7 @@
         b.classList.toggle('active', b === btn);
         b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
       });
+      syncTocTrigger();
     });
   });
 
@@ -88,6 +124,93 @@
   // JavaScript is disabled.
   if (toc) {
     var tocLinks = Array.from(toc.querySelectorAll('a[href^="#"]'));
+    var tocList = toc.querySelector('.toc-list');
+
+    if (tocList) {
+      tocDialog = d.createElement('dialog');
+      if (typeof tocDialog.showModal === 'function') {
+        tocDialog.className = 'toc-dialog';
+        tocDialog.id = 'toc-dialog';
+        tocDialog.setAttribute('aria-labelledby', 'toc-dialog-title');
+
+        var tocPanel = d.createElement('div');
+        tocPanel.className = 'toc-dialog-panel';
+        var tocHeader = d.createElement('div');
+        tocHeader.className = 'toc-dialog-header';
+        var tocTitle = d.createElement('h2');
+        tocTitle.className = 'toc-dialog-title';
+        tocTitle.id = 'toc-dialog-title';
+        tocTitle.textContent = 'Contents';
+        var tocClose = d.createElement('button');
+        tocClose.className = 'toc-dialog-close';
+        tocClose.type = 'button';
+        tocClose.setAttribute('aria-label', 'Close table of contents');
+        tocClose.innerHTML = iconClose;
+        tocHeader.appendChild(tocTitle);
+        tocHeader.appendChild(tocClose);
+
+        var tocNav = d.createElement('nav');
+        tocNav.className = 'toc-dialog-nav';
+        tocNav.setAttribute('aria-label', 'Table of contents');
+        tocNav.appendChild(tocList.cloneNode(true));
+        tocPanel.appendChild(tocHeader);
+        tocPanel.appendChild(tocNav);
+        tocDialog.appendChild(tocPanel);
+
+        tocTrigger = d.createElement('button');
+        tocTrigger.className = 'toc-trigger';
+        tocTrigger.type = 'button';
+        tocTrigger.tabIndex = -1;
+        tocTrigger.setAttribute('aria-label', 'Open table of contents');
+        tocTrigger.setAttribute('aria-controls', 'toc-dialog');
+        tocTrigger.setAttribute('aria-haspopup', 'dialog');
+        tocTrigger.setAttribute('aria-hidden', 'true');
+        tocTrigger.innerHTML = iconToc;
+
+        d.body.appendChild(tocTrigger);
+        d.body.appendChild(tocDialog);
+
+        tocTrigger.addEventListener('click', function () {
+          tocDialog.showModal();
+          d.body.classList.add('toc-dialog-open');
+          syncTocTrigger();
+          var active = tocDialog.querySelector('a.active');
+          if (active) active.scrollIntoView({ block: 'nearest' });
+        });
+        tocClose.addEventListener('click', closeTocDialog);
+        tocDialog.addEventListener('click', function (event) {
+          if (event.target === tocDialog) closeTocDialog();
+        });
+        tocDialog.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            closeTocDialog();
+          }
+        });
+        tocDialog.addEventListener('close', function () {
+          d.body.classList.remove('toc-dialog-open');
+          syncTocTrigger();
+          if (tocTrigger.classList.contains('is-visible')) {
+            // Let the dialog leave the top layer before restoring focus.
+            setTimeout(function () {
+              tocTrigger.focus();
+            }, 50);
+          }
+        });
+        tocNav.querySelectorAll('a').forEach(function (link) {
+          link.addEventListener('click', closeTocDialog);
+        });
+      } else {
+        tocDialog = null;
+      }
+    }
+
+    var allTocLinks = tocLinks.slice();
+    if (tocDialog) {
+      allTocLinks = allTocLinks.concat(
+        Array.from(tocDialog.querySelectorAll('a[href^="#"]'))
+      );
+    }
     var tocHeadings = tocLinks.map(function (link) {
       return d.getElementById(link.getAttribute('href').slice(1));
     });
@@ -102,8 +225,9 @@
           d.documentElement.scrollHeight - 2) {
         current = tocLinks.length - 1;
       }
-      tocLinks.forEach(function (link, index) {
-        var active = index === current;
+      var activeHref = tocLinks[current].getAttribute('href');
+      allTocLinks.forEach(function (link) {
+        var active = link.getAttribute('href') === activeHref;
         link.classList.toggle('active', active);
         if (active) {
           link.setAttribute('aria-current', 'location');
@@ -111,8 +235,10 @@
           link.removeAttribute('aria-current');
         }
       });
+      syncTocTrigger();
     }
     d.addEventListener('scroll', updateToc, { passive: true });
+    window.addEventListener('resize', updateToc);
     updateToc();
   }
 

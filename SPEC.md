@@ -1,6 +1,9 @@
 # airplan — Tool Specification
 
-**Spec version: 0.5.1**
+**Spec version: 0.5.2**
+
+Changes in 0.5.2: layouts without the sticky table-of-contents rail
+keep it reachable after the inline table of contents scrolls away (§3).
 
 Changes in 0.5.1: built-in document controls use a quieter,
 borderless treatment with a segmented view toggle and visible keyboard
@@ -156,6 +159,9 @@ CSS, no external fonts/scripts/assets, system font stack.
   - Heading links and hierarchy work without JavaScript. On wide
     screens the table of contents occupies a sticky rail beside the
     centered document; on narrow screens it moves above the document.
+    As a progressive enhancement on layouts without the sticky rail, a
+    compact control keeps the table of contents reachable after its
+    inline version scrolls above the viewport.
   - Scroll position highlighting is a progressive enhancement and
     respects `prefers-reduced-motion`. The table of contents is hidden
     in source view and omitted when fewer than two entries remain.

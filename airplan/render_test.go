@@ -168,15 +168,17 @@ func TestRenderMarkdownInteractivity(t *testing.T) {
 	out := render(t, src, RenderOptions{Title: "Hi"})
 
 	for name, frag := range map[string]string{
-		"view toggle":       `class="viewtoggle js-only" hidden`,
-		"rendered label":    `<span>Rendered</span>`,
-		"source label":      `<span>Source</span>`,
-		"pressed state":     `aria-pressed="true"`,
-		"copy source":       `class="copy-source js-only" hidden`,
-		"source heading":    `<span>Markdown source</span>`,
-		"source block":      `id="source" hidden`,
-		"embedded script":   "<script>",
-		"highlighted fence": `<span class="kn">package</span>`,
+		"view toggle":        `class="viewtoggle js-only" hidden`,
+		"rendered label":     `<span>Rendered</span>`,
+		"source label":       `<span>Source</span>`,
+		"pressed state":      `aria-pressed="true"`,
+		"copy source":        `class="copy-source js-only" hidden`,
+		"source heading":     `<span>Markdown source</span>`,
+		"source block":       `id="source" hidden`,
+		"mobile toc trigger": `Open table of contents`,
+		"native toc dialog":  `tocDialog.showModal()`,
+		"embedded script":    "<script>",
+		"highlighted fence":  `<span class="kn">package</span>`,
 	} {
 		if !strings.Contains(out, frag) {
 			t.Errorf("page missing %s (%q)", name, frag)
@@ -209,6 +211,7 @@ func TestRenderMarkdownTableOfContents(t *testing.T) {
 	}
 	for _, fragment := range []string{
 		`class="toc"`,
+		`class="toc-list"`,
 		`class="toc-level-2"><a href="#context">Context</a>`,
 		`class="toc-level-3"><a href="#detail">Detail</a>`,
 		`class="toc-level-1"><a href="#appendix">Appendix</a>`,
