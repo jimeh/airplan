@@ -1,6 +1,6 @@
 <div align="center">
 
-<img width="196px" src="./img/airplan.svg" alt="Logo">
+<img height="196px" width="196px" src="./img/airplan.svg" alt="Logo">
 
 # airplan
 
