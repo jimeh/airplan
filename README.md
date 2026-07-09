@@ -89,6 +89,11 @@ airplan pkg/server/handler.go       # source file → highlighted page
 cat plan.md | airplan -s my-plan -  # stdin (defaults to markdown)
 airplan --json plan.md              # one-line JSON for scripts
 airplan -o plan.md                  # open in browser too
+
+airplan list                        # your upload history
+airplan list --remote               # what's actually in the bucket
+airplan delete <url|key>            # remove an upload (page + source)
+airplan purge --older-than 30d      # bulk cleanup, with confirmation
 ```
 
 Output contract, built for scripting and agents: stdout is the URL
@@ -102,9 +107,12 @@ per-code-block copy buttons, and a download link to the original
 its highlight language from the filename; use `--lang` when piping
 (`cat main.go | airplan --format txt --lang go -`).
 
-Every upload is recorded in a local manifest
-(`~/.local/state/airplan/manifest.jsonl`) — history and cleanup
-commands build on it.
+Every upload made from a machine is recorded in its local manifest
+(`~/.local/state/airplan/manifest.jsonl`); `list`, `delete`, and
+`purge` build on it. `--remote` switches `list`/`purge` to a live
+bucket listing, discovering uploads made from any machine —
+recognition is strictly by airplan's key shape, so unrelated objects
+in a shared bucket are never touched.
 
 ## Agent skill
 
@@ -128,9 +136,8 @@ path makes guessing computationally absurd, and rendered pages carry
 
 - Anyone you give a link to can pass it on.
 - Chat tools may scan or prefetch URLs shared through them.
-- Objects stay in the bucket until deleted — periodic cleanup is
-  coming in the `purge` command; until then, delete via your storage
-  provider's tools.
+- Objects stay in the bucket until deleted — `airplan purge
+--older-than 30d --yes` (manual or cron) is the cleanup story.
 - Keep bucket listing non-public (the R2 custom-domain setup above
   gets this right by default).
 

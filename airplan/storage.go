@@ -5,12 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"mime"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 // storage wraps the S3-compatible client used for uploads (SPEC.md §5).
@@ -127,4 +130,89 @@ func PublicURL(cfg *Config, key string) (url string, fallback bool) {
 
 	endpoint := strings.TrimRight(cfg.Endpoint, "/")
 	return endpoint + "/" + cfg.Bucket + "/" + key, true
+}
+
+// objectInfo describes one listed object (SPEC.md §9).
+type objectInfo struct {
+	Key          string
+	Size         int64
+	LastModified time.Time
+}
+
+// listKeys returns every object under prefix, paginating as needed.
+func (s *storage) listKeys(
+	ctx context.Context, prefix string,
+) ([]objectInfo, error) {
+	var out []objectInfo
+	p := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
+		Bucket: aws.String(s.bucket),
+		Prefix: aws.String(prefix),
+	})
+	for p.HasMorePages() {
+		page, err := p.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"airplan: list objects %q: %w", prefix, err)
+		}
+		for _, o := range page.Contents {
+			out = append(out, objectInfo{
+				Key:          aws.ToString(o.Key),
+				Size:         aws.ToInt64(o.Size),
+				LastModified: aws.ToTime(o.LastModified),
+			})
+		}
+	}
+	return out, nil
+}
+
+// deleteKeys removes objects in DeleteObjects batches (1000 max per
+// call). The first per-object failure is returned as an error so
+// callers can leave the upload un-tombstoned and retry (SPEC.md §9).
+func (s *storage) deleteKeys(ctx context.Context, keys []string) error {
+	const batchSize = 1000
+	for start := 0; start < len(keys); start += batchSize {
+		end := min(start+batchSize, len(keys))
+		ids := make([]types.ObjectIdentifier, 0, end-start)
+		for _, k := range keys[start:end] {
+			ids = append(ids, types.ObjectIdentifier{Key: aws.String(k)})
+		}
+
+		out, err := s.client.DeleteObjects(ctx, &s3.DeleteObjectsInput{
+			Bucket: aws.String(s.bucket),
+			Delete: &types.Delete{Objects: ids, Quiet: aws.Bool(true)},
+		})
+		if err != nil {
+			return fmt.Errorf("airplan: delete objects: %w", err)
+		}
+		if len(out.Errors) > 0 {
+			e := out.Errors[0]
+			return fmt.Errorf("airplan: delete %q: %s",
+				aws.ToString(e.Key), aws.ToString(e.Message))
+		}
+	}
+	return nil
+}
+
+// headTitle fetches an object's x-amz-meta-title, reversing the
+// RFC 2047 encoding applied at upload; "" when absent (SPEC.md §9).
+func (s *storage) headTitle(
+	ctx context.Context, key string,
+) (string, error) {
+	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return "", fmt.Errorf("airplan: head %q: %w", key, err)
+	}
+
+	raw := out.Metadata["title"]
+	if raw == "" {
+		return "", nil
+	}
+	dec := new(mime.WordDecoder)
+	if title, err := dec.DecodeHeader(raw); err == nil {
+		return title, nil
+	}
+	return raw, nil
 }

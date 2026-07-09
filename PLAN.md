@@ -160,6 +160,12 @@ Review gate per merge batch; checkpoint at end of phase.
 
 ## 5. Phase 3 — History & cleanup
 
+Status: **implemented 2026-07-09; in review.** All packets merged;
+every command verified against the real R2 bucket, including a live
+remote purge of accumulated preview uploads. Spec at 0.3.1 (unified
+purge --profile, bucket scoping, ensure-gone deletes, text-mode
+recognition).
+
 Each independently optional (per IMPLEMENTATION §8):
 
 - `list` (manifest; `--json`) — X.

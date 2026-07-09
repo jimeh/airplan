@@ -1,6 +1,13 @@
 # airplan — Tool Specification
 
-**Spec version: 0.3.0**
+**Spec version: 0.3.1**
+
+Changes in 0.3.1: purge's `--profile` gets the standard `-p` short
+form and unified semantics — connection profile selection plus
+record filter (§9). §9 also clarified for text input — remote recognition
+keys off the 26-char base32 directory containing a `.html` page (the
+source sibling may carry any extension, §3), and tombstones reference
+the page key because the directory is the unit of deletion.
 
 Changes in 0.3.0: `--lang` overrides the highlight language for text
 input (§3, §6); unknown config file keys are rejected (§7).
@@ -573,8 +580,9 @@ conforming implementations can share a manifest:
   describes the page object; `profile` is the resolved profile
   name, omitted when root-level values were used.
 - `delete` tombstones reference the upload by its page `key` — the
-  random directory is the unit of deletion and `source_key` is
-  derivable from it, so nothing more is needed.
+  random directory is the unit of deletion, so every sibling object
+  (whatever its extension, §3) goes with it and nothing more is
+  needed in the record.
 - Forward compatibility: readers ignore unknown fields and skip
   records with an unknown `type`. No version field needed.
 
@@ -605,18 +613,27 @@ machine) and must be safe:
   so it also works on uploads made from other machines.
 - `airplan purge`: bulk delete driven by the manifest with filters —
   `--older-than 30d`, `--slug PATTERN`, `--profile P`. Durations
-  accept `d`/`w` units. Requires at least one filter or an explicit
+  accept `d`/`w` units. `--profile`/`-p` behaves as on every other
+  command — it selects the connection profile — and on `purge` it
+  additionally filters to uploads recorded with that profile, so
+  purging a profile's uploads uses that profile's credentials. Requires at least one filter or an explicit
   `--all`. `--dry-run` previews; confirmation prompt unless `--yes`.
   Failed deletes are reported to stderr and left un-tombstoned so a
-  re-run retries them. Suitable for cron
-  (`purge --older-than 30d --yes`).
+  re-run retries them. Purge only considers manifest records for the
+  connected bucket (records from other buckets are skipped with a
+  note). Deletion is ensure-gone: an upload whose directory no
+  longer contains any objects is tombstoned as already deleted with
+  a warning, not treated as a failure — so a manifest referencing
+  externally-deleted objects converges instead of jamming. Suitable
+  for cron (`purge --older-than 30d --yes`).
 - `--remote` (on `list` and `purge`): operate on a bucket listing
   instead of the manifest, discovering uploads made from any
-  machine. Airplan objects are recognized by key shape —
-  `[key_prefix/]<26-char base32>/<slug>.(html|md)` under the
-  profile's `key_prefix` — so unrelated objects in a shared bucket
-  are never touched; deletion is per random directory, keeping
-  page/source pairs together. `LastModified` from the listing
+  machine. Airplan uploads are recognized by key shape: a
+  `[key_prefix/]<26-char lowercase base32>/` directory under the
+  profile's `key_prefix` that contains a `<slug>.html` page object
+  (source siblings may carry any extension, §3). Unrelated objects
+  in a shared bucket are never touched; deletion is per random
+  directory, keeping page/source pairs together. `LastModified` from the listing
   drives `--older-than`.
   In a team bucket, each person sets their own `key_prefix`, which
   keeps `--remote` scoped to their own uploads.
