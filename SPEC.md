@@ -1,6 +1,13 @@
 # airplan — Tool Specification
 
-**Spec version: 0.3.2**
+**Spec version: 0.4.0**
+
+Changes in 0.4.0: rendered markdown pages gain a responsive table of
+contents and a wider document shell; the custom-template data contract
+exposes rendered, highlighted, and raw source forms plus structured
+headings and syntax CSS; `airplan template` emits an exact reusable
+built-in template; and `airplan preview` renders locally without S3
+access (§3, §6).
 
 Changes in 0.3.2: `airplan list` text/table output renders sizes as
 human-readable binary units; `--json` keeps exact byte counts (§9).
@@ -119,9 +126,22 @@ CSS, no external fonts/scripts/assets, system font stack.
 - Fenced code blocks are syntax-highlighted at render time. The
   highlighting must follow `prefers-color-scheme` (light and dark
   palettes).
-- Page styling: dark/light aware via `prefers-color-scheme`,
-  readable measure (~72ch max-width), comfortable line height —
-  optimized for reading a plan document.
+- Page styling: dark/light aware via `prefers-color-scheme`, a centered
+  document shell around 54rem wide, prose constrained to a readable
+  measure around 78ch, and comfortable line height. Code blocks and
+  tables may use the full shell width so an 80-column source line fits
+  without horizontal scrolling at the default font size.
+- A responsive table of contents is rendered from markdown headings:
+  - H1, H2, and H3 headings are included. If an H1 is the first visible
+    block in the document, it is treated as the document title and is
+    the only heading omitted from the built-in table of contents. Later
+    H1 headings remain top-level entries.
+  - Heading links and hierarchy work without JavaScript. On wide
+    screens the table of contents occupies a sticky rail beside the
+    centered document; on narrow screens it moves above the document.
+  - Scroll position highlighting is a progressive enhancement and
+    respects `prefers-reduced-motion`. The table of contents is hidden
+    in source view and omitted when fewer than two entries remain.
 - `<title>` from `--title`, else first `<h1>`, else source filename,
   else the resolved slug (covers stdin input with no `<h1>`).
 - `<meta name="robots" content="noindex, nofollow">` — belt and
@@ -187,21 +207,43 @@ as-is (warn if combined).
 Template data contract (the stable API custom templates code
 against):
 
-| Field         | Type     | Meaning                                 |
-| ------------- | -------- | --------------------------------------- |
-| `.Title`      | string   | resolved title                          |
-| `.Body`       | raw HTML | rendered markdown body                  |
-| `.SourceHTML` | raw HTML | highlighted raw source                  |
-| `.SourcePath` | string   | relative path to the uploaded source    |
-| `.Slug`       | string   | resolved slug                           |
-| `.FileName`   | string   | original filename (text input; else "") |
+| Field                    | Type      | Meaning                              |
+| ------------------------ | --------- | ------------------------------------ |
+| `.Title`                 | string    | resolved title                       |
+| `.RenderedHTML`          | raw HTML  | rendered markdown or text page body  |
+| `.SourceText`            | string    | original unmodified source           |
+| `.HighlightedSourceHTML` | raw HTML  | syntax-highlighted original source   |
+| `.SyntaxCSS`             | raw CSS   | styles required by highlighted HTML  |
+| `.Headings`              | heading[] | all markdown headings                |
+| `.TOC`                   | heading[] | built-in H1-H3 ToC entries           |
+| `.Format`                | string    | `md` or `txt`                        |
+| `.Language`              | string    | resolved source-highlight language   |
+| `.SourceName`            | string    | original basename; empty for stdin   |
+| `.SourcePath`            | string    | relative path to the uploaded source |
+| `.Slug`                  | string    | resolved slug                        |
+| `.Indexable`             | boolean   | whether indexing is allowed          |
+
+Each heading has `.Level` (1–6), `.ID`, `.Text`, and `.IsTitle`.
+`.IsTitle` is true only for a leading H1 that the built-in table of
+contents omits. `.TOC` is structured data, not pre-rendered navigation
+HTML, so custom templates retain control of markup and presentation.
+
+For compatibility, `.Body` remains an alias for `.RenderedHTML`,
+`.SourceHTML` remains the markdown-only alias for
+`.HighlightedSourceHTML` (and therefore stays empty for text input), and
+`.FileName` remains the legacy text-input-only filename. New templates
+should use the canonical fields.
 
 `.SourcePath` is empty when the source isn't uploaded
 (`--no-source`); templates must handle both cases.
 
-A custom template takes full responsibility for the page: styles,
-noindex meta, and any interactivity. `airplan template` prints the
-built-in template to stdout as a starting point for customization.
+A custom template takes full responsibility for the page: page styles,
+noindex meta, and any interactivity. `.SyntaxCSS` is supplied because it
+is coupled to the generated highlighting classes; the built-in page's
+own CSS and JavaScript are baked directly into its template rather than
+exposed as data. `airplan template` prints that exact, self-contained
+built-in template to stdout. Saving the output and passing it back via
+`--template` must work unchanged.
 
 Portability boundary: the data contract above is
 implementation-independent; the template _syntax_ is
@@ -274,7 +316,7 @@ airplan [flags] [file]
 | `--format`      | auto           | `md`\|`html`\|`txt`; overrides §2   |
 | `--slug S`      | from filename  | filename portion of the URL         |
 | `--title T`     | from content   | page title (see §3 fallback chain)  |
-| `--template P`  | built-in       | custom page template (md only)      |
+| `--template P`  | built-in       | custom page template (md and text)  |
 | `--no-source`   | off            | don't upload the original .md       |
 | `--indexable`   | off            | no noindex meta (md and html, §3–4) |
 | `--max-size N`  | 10MiB          | input size limit; 0 = no limit (§2) |
@@ -344,6 +386,7 @@ stays reserved for the success object).
 ```
 airplan config schema
 airplan template
+airplan preview [flags] [file]
 airplan completion bash|zsh|fish
 airplan list [--remote] [--json]
 airplan delete <url|key>
@@ -353,6 +396,17 @@ airplan purge [--remote] [--older-than 30d]
 
 `config schema` prints the config file's JSON Schema (see §7).
 `template` prints the built-in page template (see §3).
+`preview` runs input detection and page rendering locally, writing the
+resulting HTML to stdout or to `--output PATH`. It supports the rendering
+flags `--format`, `--lang`, `--slug`, `--title`, `--template`,
+`--indexable`, and `--max-size`, plus `--config` and `--profile` for
+resolving template settings. It does not validate S3 connection fields,
+access the network, upload source, or write the manifest. Consequently
+`.SourcePath` is empty in a preview, while markdown's embedded source
+view remains available. HTML input receives the same conservative
+noindex injection as an upload. `file` omitted or `-` reads stdin;
+`--output -` is equivalent to the stdout default. An output path that
+resolves to the input file is rejected without modifying the input.
 `list`/`purge` operate on the local upload manifest by default, or
 on a live bucket listing with `--remote`. `delete` takes an explicit
 URL or key, so it works on any upload regardless of which machine

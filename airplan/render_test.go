@@ -183,6 +183,63 @@ func TestRenderMarkdownInteractivity(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownTableOfContents(t *testing.T) {
+	src := []byte(strings.Join([]string{
+		"# Document title",
+		"",
+		"## Context",
+		"",
+		"### Detail",
+		"",
+		"# Appendix",
+		"",
+		"## Reference",
+		"",
+	}, "\n"))
+	out := render(t, src, RenderOptions{Title: "Document title"})
+
+	if strings.Contains(out, `href="#document-title"`) {
+		t.Error("leading title H1 should be omitted from the ToC")
+	}
+	for _, fragment := range []string{
+		`class="toc"`,
+		`class="toc-level-2"><a href="#context">Context</a>`,
+		`class="toc-level-3"><a href="#detail">Detail</a>`,
+		`class="toc-level-1"><a href="#appendix">Appendix</a>`,
+		`class="toc-level-2"><a href="#reference">Reference</a>`,
+	} {
+		if !strings.Contains(out, fragment) {
+			t.Errorf("ToC missing %q", fragment)
+		}
+	}
+}
+
+func TestRenderMarkdownIncludesNonLeadingH1InTableOfContents(t *testing.T) {
+	src := []byte("Intro first.\n\n# First section\n\n## Child\n")
+	out := render(t, src, RenderOptions{Title: "First section"})
+	if !strings.Contains(out, `href="#first-section">First section</a>`) {
+		t.Error("non-leading first H1 should remain in the ToC")
+	}
+}
+
+func TestRenderMarkdownCommentBeforeTitleDoesNotEnterTableOfContents(
+	t *testing.T,
+) {
+	src := []byte("<!-- context -->\n\n# Title\n\n## One\n\n## Two\n")
+	out := render(t, src, RenderOptions{Title: "Title"})
+	if strings.Contains(out, `href="#title"`) {
+		t.Error("an invisible comment should not stop a leading H1 being title")
+	}
+}
+
+func TestRenderMarkdownOmitsSingleEntryTableOfContents(t *testing.T) {
+	out := render(t, []byte("# Title\n\n## Only section\n"),
+		RenderOptions{Title: "Title"})
+	if strings.Contains(out, `class="toc"`) {
+		t.Error("a single-entry ToC should be omitted")
+	}
+}
+
 func TestRenderTextNoSourceToggle(t *testing.T) {
 	out, err := RenderText([]byte("hello\n"), "notes.txt", RenderOptions{
 		Title: "notes.txt",

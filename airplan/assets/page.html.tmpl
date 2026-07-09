@@ -3,19 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-{{- if .Noindex}}
+{{- if not .Indexable}}
 <meta name="robots" content="noindex, nofollow">
 {{- end}}
 <title>{{.Title}}</title>
 <style>
-{{.CSS}}
+/* airplan:page-css */
 {{.SyntaxCSS}}
 </style>
 </head>
 <body>
-{{- if or .SourcePath .SourceHTML}}
-<nav class="toolbar">
-{{- if .SourceHTML}}
+<div class="page-shell">
+{{- if or .SourcePath (and (eq .Format "md") .HighlightedSourceHTML)}}
+<nav class="toolbar" aria-label="Document controls">
+{{- if and (eq .Format "md") .HighlightedSourceHTML}}
   <div class="viewtoggle js-only" hidden>
     <button type="button" class="active" data-view="rendered"
       aria-pressed="true" aria-label="Rendered view"
@@ -37,25 +38,37 @@
 {{- end}}
 {{- if .SourcePath}}
   <a class="download" href="{{.SourcePath}}" download
-    aria-label="{{.SourceLabel}}" title="{{.SourceLabel}}"><svg
+    aria-label="Download {{if eq .Format "md"}}markdown{{else}}source{{end}}"
+    title="Download {{if eq .Format "md"}}markdown{{else}}source{{end}}"><svg
     class="icon" aria-hidden="true" viewBox="0 0 16 16"
     fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg></a>
 {{- end}}
 </nav>
 {{- end}}
+{{- if .TOC}}
+<nav class="toc" id="toc" aria-label="Table of contents">
+  <p class="toc-title">Contents</p>
+  <ol>
+  {{- range .TOC}}
+    <li class="toc-level-{{.Level}}"><a href="#{{.ID}}">{{.Text}}</a></li>
+  {{- end}}
+  </ol>
+</nav>
+{{- end}}
 <main class="content" id="rendered">
-{{- if .FileName}}
-<div class="filehead"><code>{{.FileName}}</code></div>
+{{- if and (eq .Format "txt") .SourceName}}
+<div class="filehead"><code>{{.SourceName}}</code></div>
 {{- end}}
-{{.Body}}
+{{.RenderedHTML}}
 </main>
-{{- if .SourceHTML}}
+{{- if and (eq .Format "md") .HighlightedSourceHTML}}
 <main class="content source-view" id="source" hidden>
-{{.SourceHTML}}
+{{.HighlightedSourceHTML}}
 </main>
 {{- end}}
+</div>
 <script>
-{{.JS}}
+/* airplan:page-js */
 </script>
 </body>
 </html>

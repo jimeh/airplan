@@ -339,7 +339,7 @@ func TestReadInputHonorsContext(t *testing.T) {
 func TestHighlightSourceLangOverride(t *testing.T) {
 	src := []byte("package main\n")
 
-	out, err := highlightSource(src, "", "go")
+	out, _, err := highlightSource(src, "", "go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestHighlightSourceLangOverride(t *testing.T) {
 		t.Errorf("--lang go did not highlight: %s", out)
 	}
 
-	out, err = highlightSource(src, "main.go", "notalanguage")
+	out, _, err = highlightSource(src, "main.go", "notalanguage")
 	if err != nil {
 		t.Fatal(err)
 	}

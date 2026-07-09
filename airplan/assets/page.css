@@ -7,6 +7,9 @@
   --border: #d1d9e0;
   --code-bg: #f6f8fa;
   --mark-bg: #fff8c5;
+  --page-width: 54rem;
+  --prose-width: 78ch;
+  --toc-width: 14rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -36,9 +39,18 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
+.page-shell {
+  display: grid;
+  grid-template-columns:
+    minmax(12rem, 1fr) minmax(0, var(--page-width)) minmax(12rem, 1fr);
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
 .toolbar {
-  max-width: 72ch;
-  margin: 0 auto;
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
   padding: 0.75rem 1.25rem 0;
   display: flex;
   flex-wrap: wrap;
@@ -46,6 +58,73 @@ body {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
+}
+
+.toc {
+  grid-column: 1;
+  grid-row: 2;
+  position: sticky;
+  top: 1.5rem;
+  align-self: start;
+  justify-self: end;
+  width: min(var(--toc-width), calc(100% - 2rem));
+  max-height: calc(100vh - 3rem);
+  margin: 1.5rem 1.25rem 0 0;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+
+.toc-title {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.toc ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toc li + li {
+  margin-top: 0.1rem;
+}
+
+.toc a {
+  display: block;
+  padding: 0.3rem 0;
+  color: var(--muted);
+  line-height: 1.35;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.toc a:hover,
+.toc a:focus-visible {
+  color: var(--fg);
+}
+
+.toc a.active {
+  color: var(--link);
+}
+
+.toc-level-1 {
+  margin-top: 0.65rem;
+  font-weight: 650;
+}
+
+.toc-level-1:first-child {
+  margin-top: 0;
+}
+
+.toc-level-3 a {
+  padding-left: 1rem;
+  font-size: 0.8rem;
 }
 
 .toolbar a,
@@ -177,10 +256,20 @@ body {
 }
 
 .content {
-  max-width: 72ch;
-  margin: 0 auto;
-  padding: 1.5rem 1.25rem 4rem;
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  min-width: 0;
+  padding: 1.5rem 1.5rem 4rem;
   overflow-wrap: break-word;
+}
+
+.content > p,
+.content > ul,
+.content > ol,
+.content > blockquote,
+.content > .footnotes {
+  max-width: var(--prose-width);
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -355,8 +444,41 @@ mark {
   white-space: nowrap;
 }
 
+@media (max-width: 78rem) {
+  .page-shell {
+    display: block;
+  }
+
+  .toolbar,
+  .toc,
+  .content {
+    width: 100%;
+    max-width: var(--page-width);
+    margin-inline: auto;
+  }
+
+  .toc {
+    position: static;
+    max-height: none;
+    padding: 1.25rem 1.5rem 0;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 36rem) {
+  .toolbar {
+    padding-inline: 1rem;
+  }
+
+  .toc,
+  .content {
+    padding-inline: 1.25rem;
+  }
+}
+
 @media print {
   .toolbar,
+  .toc,
   .codecopy,
   .source-view {
     display: none !important;

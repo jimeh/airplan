@@ -58,11 +58,11 @@ pins live in `mise.lock` (commit both when bumping tools).
 ## Layout
 
 `airplan/` — core library, one cohesive package, public Go API
-(`LoadConfig` / `New` / `Client.Upload`). `cli/` — cobra commands,
-no business logic; anything the CLI does must be possible through
-the library. `main.go` — shim. `skills/airplan/` — the _product's_
-agent skill shipped to users (not guidance for working on this
-repo).
+(`LoadConfig` / `New` / `Client.Upload` / `RenderInput`). `cli/` —
+cobra commands, no business logic; anything the CLI does must be
+possible through the library. `main.go` — shim. `skills/airplan/` —
+the _product's_ agent skill shipped to users (not guidance for
+working on this repo).
 
 ## Verification beyond tests
 

@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.3.0.
+may contradict it. Targets spec version 0.4.0.
 
 ---
 
@@ -119,11 +119,18 @@ res, err := client.Upload(ctx, airplan.Input{
   `prefers-color-scheme` (inline styles can't switch light/dark).
   The spec's source view is chroma's markdown lexer run at render
   time.
-- Templates: Go `html/template`. The spec's data contract maps to a
-  struct with `Title string`, `Body template.HTML`,
-  `SourceHTML template.HTML`, `SourcePath string`, `Slug string`.
-  Template syntax is implementation-defined per the spec, so being
-  Go-template-specific here is fine.
+- Templates: Go `html/template`. Canonical template data exposes the
+  raw source string, rendered and highlighted `template.HTML`, Chroma's
+  `template.CSS`, structured headings/ToC entries, format metadata,
+  title, slug, indexing intent, and source names/paths. Legacy
+  `Body`/`SourceHTML`/`FileName` aliases remain. The built-in page CSS
+  and JS are expanded into the embedded template source before parsing,
+  so `airplan template` prints an exact reusable template containing
+  only public data fields.
+- Local rendering: `RenderInput` owns read limits, binary rejection,
+  format detection, title/slug resolution, template execution, and
+  noindex handling. `Client.Upload` adds source/page storage, URLs, and
+  manifest recording; `airplan preview` stops after `RenderInput`.
 - Key randomness: `crypto/rand` — never `math/rand` (spec requires a
   CSPRNG).
 - `--older-than` durations: small custom parser for `d`/`w` units —

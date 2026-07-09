@@ -58,6 +58,11 @@ airplan plan.md
 | `--no-source`            | don't upload the original alongside the page |
 | `--open` / `-o`          | open in browser (interactive use)            |
 
+To inspect the rendered page locally without uploading it, run
+`airplan preview plan.md > plan.html` or use `--output plan.html`.
+Preview uses the same renderer but does not require S3 credentials or
+write the upload manifest.
+
 ## Examples
 
 ```sh

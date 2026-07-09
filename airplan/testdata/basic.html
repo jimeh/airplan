@@ -15,6 +15,9 @@
   --border: #d1d9e0;
   --code-bg: #f6f8fa;
   --mark-bg: #fff8c5;
+  --page-width: 54rem;
+  --prose-width: 78ch;
+  --toc-width: 14rem;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -44,9 +47,18 @@ body {
   -webkit-text-size-adjust: 100%;
 }
 
+.page-shell {
+  display: grid;
+  grid-template-columns:
+    minmax(12rem, 1fr) minmax(0, var(--page-width)) minmax(12rem, 1fr);
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
 .toolbar {
-  max-width: 72ch;
-  margin: 0 auto;
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
   padding: 0.75rem 1.25rem 0;
   display: flex;
   flex-wrap: wrap;
@@ -54,6 +66,73 @@ body {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
+}
+
+.toc {
+  grid-column: 1;
+  grid-row: 2;
+  position: sticky;
+  top: 1.5rem;
+  align-self: start;
+  justify-self: end;
+  width: min(var(--toc-width), calc(100% - 2rem));
+  max-height: calc(100vh - 3rem);
+  margin: 1.5rem 1.25rem 0 0;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+
+.toc-title {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.toc ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toc li + li {
+  margin-top: 0.1rem;
+}
+
+.toc a {
+  display: block;
+  padding: 0.3rem 0;
+  color: var(--muted);
+  line-height: 1.35;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.toc a:hover,
+.toc a:focus-visible {
+  color: var(--fg);
+}
+
+.toc a.active {
+  color: var(--link);
+}
+
+.toc-level-1 {
+  margin-top: 0.65rem;
+  font-weight: 650;
+}
+
+.toc-level-1:first-child {
+  margin-top: 0;
+}
+
+.toc-level-3 a {
+  padding-left: 1rem;
+  font-size: 0.8rem;
 }
 
 .toolbar a,
@@ -99,8 +178,6 @@ body {
   border-color: var(--muted);
 }
 
-/* Mode control, not action buttons: an inset track whose active
-   segment sits as a raised pill — no internal divider to glare. */
 .viewtoggle {
   display: inline-flex;
   gap: 2px;
@@ -185,10 +262,20 @@ body {
 }
 
 .content {
-  max-width: 72ch;
-  margin: 0 auto;
-  padding: 1.5rem 1.25rem 4rem;
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  min-width: 0;
+  padding: 1.5rem 1.5rem 4rem;
   overflow-wrap: break-word;
+}
+
+.content > p,
+.content > ul,
+.content > ol,
+.content > blockquote,
+.content > .footnotes {
+  max-width: var(--prose-width);
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -363,16 +450,46 @@ mark {
   white-space: nowrap;
 }
 
+@media (max-width: 78rem) {
+  .page-shell {
+    display: block;
+  }
+
+  .toolbar,
+  .toc,
+  .content {
+    width: 100%;
+    max-width: var(--page-width);
+    margin-inline: auto;
+  }
+
+  .toc {
+    position: static;
+    max-height: none;
+    padding: 1.25rem 1.5rem 0;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 36rem) {
+  .toolbar {
+    padding-inline: 1rem;
+  }
+
+  .toc,
+  .content {
+    padding-inline: 1.25rem;
+  }
+}
+
 @media print {
   .toolbar,
+  .toc,
   .codecopy,
   .source-view {
     display: none !important;
   }
 
-  /* Always print the rendered view, even if the reader printed while
-     the source view was toggled on ([hidden] would otherwise blank
-     the page; the ID selector out-ranks the [hidden] rule). */
   #rendered {
     display: block !important;
   }
@@ -542,7 +659,8 @@ mark {
 </style>
 </head>
 <body>
-<nav class="toolbar">
+<div class="page-shell">
+<nav class="toolbar" aria-label="Document controls">
   <div class="viewtoggle js-only" hidden>
     <button type="button" class="active" data-view="rendered"
       aria-pressed="true" aria-label="Rendered view"
@@ -562,9 +680,19 @@ mark {
     class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16"
     fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg></button>
   <a class="download" href="./refactor-auth.md" download
-    aria-label="Download markdown" title="Download markdown"><svg
+    aria-label="Download markdown"
+    title="Download markdown"><svg
     class="icon" aria-hidden="true" viewBox="0 0 16 16"
     fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg></a>
+</nav>
+<nav class="toc" id="toc" aria-label="Table of contents">
+  <p class="toc-title">Contents</p>
+  <ol>
+    <li class="toc-level-2"><a href="#goals">Goals</a></li>
+    <li class="toc-level-2"><a href="#tasks">Tasks</a></li>
+    <li class="toc-level-2"><a href="#code">Code</a></li>
+    <li class="toc-level-2"><a href="#matrix">Matrix</a></li>
+  </ol>
 </nav>
 <main class="content" id="rendered">
 <h1 id="refactor-auth">Refactor auth</h1>
@@ -658,25 +786,21 @@ mark {
 </span></span><span class="line"><span class="cl">[^flag]: <span class="sb">`auth_v2`</span> in the flags service.
 </span></span></code></pre>
 </main>
+</div>
 <script>
 (function () {
   'use strict';
   var d = document;
 
-  // Reveal JS-dependent controls (hidden for no-JS readers).
   d.querySelectorAll('.js-only').forEach(function (el) {
     el.hidden = false;
   });
 
-  // Visually-hidden live region so screen readers announce copy
-  // feedback even when focus doesn't stay on the button.
   var live = d.createElement('div');
   live.className = 'sr-status';
   live.setAttribute('aria-live', 'polite');
   d.body.appendChild(live);
 
-  // Buttons are icon-only: feedback is an icon swap (check on
-  // success, x on failure) plus the live-region announcement.
   function flash(btn, text, ok) {
     live.textContent = text;
     btn.classList.add(ok ? 'is-copied' : 'is-failed');
@@ -698,8 +822,6 @@ mark {
     );
   }
 
-  // Octicons mirroring the toolbar's inline SVGs, for the
-  // JS-created per-code-block buttons.
   var iconCopy = '<svg class="icon icon-copy" aria-hidden="true"' +
     ' viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0' +
     ' 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0' +
@@ -723,14 +845,15 @@ mark {
     ' 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.7' +
     '5 0 0 1 0-1.06Z"/></svg>';
 
-  // Rendered/source toggle.
   var rendered = d.getElementById('rendered');
   var source = d.getElementById('source');
+  var toc = d.getElementById('toc');
   d.querySelectorAll('.viewtoggle button').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var showSource = btn.dataset.view === 'source';
       source.hidden = !showSource;
       rendered.hidden = showSource;
+      if (toc) toc.hidden = showSource;
       d.querySelectorAll('.viewtoggle button').forEach(function (b) {
         b.classList.toggle('active', b === btn);
         b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
@@ -738,8 +861,36 @@ mark {
     });
   });
 
-  // Copy the full original source. The highlighted block's text
-  // content preserves the raw source exactly.
+  if (toc) {
+    var tocLinks = Array.from(toc.querySelectorAll('a[href^="#"]'));
+    var tocHeadings = tocLinks.map(function (link) {
+      return d.getElementById(link.getAttribute('href').slice(1));
+    });
+    function updateToc() {
+      var current = 0;
+      tocHeadings.forEach(function (heading, index) {
+        if (heading && heading.getBoundingClientRect().top <= 128) {
+          current = index;
+        }
+      });
+      if (window.innerHeight + window.scrollY >=
+          d.documentElement.scrollHeight - 2) {
+        current = tocLinks.length - 1;
+      }
+      tocLinks.forEach(function (link, index) {
+        var active = index === current;
+        link.classList.toggle('active', active);
+        if (active) {
+          link.setAttribute('aria-current', 'location');
+        } else {
+          link.removeAttribute('aria-current');
+        }
+      });
+    }
+    d.addEventListener('scroll', updateToc, { passive: true });
+    updateToc();
+  }
+
   var copySource = d.querySelector('.copy-source');
   if (copySource && source) {
     copySource.addEventListener('click', function () {
@@ -748,7 +899,6 @@ mark {
     });
   }
 
-  // Per-code-block copy buttons in the rendered view.
   rendered.querySelectorAll('pre').forEach(function (pre) {
     var wrap = d.createElement('div');
     wrap.className = 'codewrap';

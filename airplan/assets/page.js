@@ -65,17 +65,52 @@
   // Rendered/source toggle.
   var rendered = d.getElementById('rendered');
   var source = d.getElementById('source');
+  var toc = d.getElementById('toc');
   d.querySelectorAll('.viewtoggle button').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var showSource = btn.dataset.view === 'source';
       source.hidden = !showSource;
       rendered.hidden = showSource;
+      if (toc) toc.hidden = showSource;
       d.querySelectorAll('.viewtoggle button').forEach(function (b) {
         b.classList.toggle('active', b === btn);
         b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
       });
     });
   });
+
+  // Highlight the ToC entry nearest the top of the viewport. Links and
+  // hierarchy are rendered server-side, so navigation still works when
+  // JavaScript is disabled.
+  if (toc) {
+    var tocLinks = Array.from(toc.querySelectorAll('a[href^="#"]'));
+    var tocHeadings = tocLinks.map(function (link) {
+      return d.getElementById(link.getAttribute('href').slice(1));
+    });
+    function updateToc() {
+      var current = 0;
+      tocHeadings.forEach(function (heading, index) {
+        if (heading && heading.getBoundingClientRect().top <= 128) {
+          current = index;
+        }
+      });
+      if (window.innerHeight + window.scrollY >=
+          d.documentElement.scrollHeight - 2) {
+        current = tocLinks.length - 1;
+      }
+      tocLinks.forEach(function (link, index) {
+        var active = index === current;
+        link.classList.toggle('active', active);
+        if (active) {
+          link.setAttribute('aria-current', 'location');
+        } else {
+          link.removeAttribute('aria-current');
+        }
+      });
+    }
+    d.addEventListener('scroll', updateToc, { passive: true });
+    updateToc();
+  }
 
   // Copy the full original source. The highlighted block's text
   // content preserves the raw source exactly.

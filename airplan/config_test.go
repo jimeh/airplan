@@ -483,14 +483,18 @@ func TestDefaultConfigPath(t *testing.T) {
 		assertEqual(t, path, filepath.Join(dir, "airplan", "config.toml"))
 	})
 
-	t.Run("falls back to os.UserConfigDir", func(t *testing.T) {
+	t.Run("falls back to the platform config directory", func(t *testing.T) {
 		dir := t.TempDir()
 		t.Setenv("XDG_CONFIG_HOME", "")
 		setUserConfigDirEnv(t, dir)
 
-		configDir, err := os.UserConfigDir()
-		if err != nil {
-			t.Fatalf("os.UserConfigDir() error = %v", err)
+		configDir := filepath.Join(dir, ".config")
+		if runtime.GOOS == "windows" {
+			var err error
+			configDir, err = os.UserConfigDir()
+			if err != nil {
+				t.Fatalf("os.UserConfigDir() error = %v", err)
+			}
 		}
 
 		path, err := DefaultConfigPath()
