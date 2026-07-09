@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -98,15 +97,9 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	// other buckets can be excluded (SPEC.md §9) — but the timeout
 	// context is still created only after the confirmation prompt,
 	// so it can't expire while the user reads it.
-	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
-		Path:    opts.config,
-		Profile: opts.profile,
-	})
+	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
 	if err != nil {
 		return err
-	}
-	for _, w := range cfg.Warnings {
-		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
 	}
 
 	records, warnings, err := airplan.ReadManifest("")
@@ -167,12 +160,8 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		}
 	}
 
-	ctx := cmd.Context()
-	if cfg.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, cfg.Timeout)
-		defer cancel()
-	}
+	ctx, cancel := timeoutContext(cmd.Context(), cfg)
+	defer cancel()
 
 	client, err := airplan.New(ctx, cfg)
 	if err != nil {
@@ -209,30 +198,23 @@ func runRemotePurge(
 ) error {
 	stderr := cmd.ErrOrStderr()
 
-	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
-		Path:    opts.config,
-		Profile: opts.profile,
-	})
-	if err != nil {
-		return err
-	}
-	for _, w := range cfg.Warnings {
-		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
-	}
-
-	ctx := cmd.Context()
-	if cfg.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, cfg.Timeout)
-		defer cancel()
-	}
-
-	client, err := airplan.New(ctx, cfg)
+	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
 	if err != nil {
 		return err
 	}
 
-	uploads, err := client.ListRemote(ctx)
+	// The listing phase gets its own timeout budget; the delete phase
+	// gets a fresh one after the confirmation prompt, so user think
+	// time never eats into either (SPEC.md §6).
+	listCtx, cancelList := timeoutContext(cmd.Context(), cfg)
+	defer cancelList()
+
+	client, err := airplan.New(listCtx, cfg)
+	if err != nil {
+		return err
+	}
+
+	uploads, err := client.ListRemote(listCtx)
 	if err != nil {
 		return err
 	}
@@ -264,6 +246,9 @@ func runRemotePurge(
 			return nil
 		}
 	}
+
+	ctx, cancel := timeoutContext(cmd.Context(), cfg)
+	defer cancel()
 
 	var purged, failed int
 	for _, cand := range candidates {

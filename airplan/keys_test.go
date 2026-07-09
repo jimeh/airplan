@@ -266,3 +266,55 @@ func TestKeyFromURLOrKeyBaseURLWithPath(t *testing.T) {
 		t.Errorf("got %q, want %q", got, testDir+"/plan.html")
 	}
 }
+
+// TestDeleteUploadEnsureGoneBareDir: ensure-gone on a bare directory
+// target must tombstone the manifest's page key, not the directory
+// string, so ActiveUploads deactivates the record.
+func TestDeleteUploadEnsureGoneBareDir(t *testing.T) {
+	emptyXML := `<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>`
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = w.Write([]byte(emptyXML))
+		},
+	))
+	t.Cleanup(server.Close)
+
+	manifest := t.TempDir() + "/manifest.jsonl"
+	pageKey := testDir + "/plan.html"
+	err := appendManifestRecord(manifest, ManifestRecord{
+		Type: "upload", Key: pageKey, Bucket: "plans",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &Config{
+		Endpoint:        server.URL,
+		Bucket:          "plans",
+		AccessKeyID:     "test",
+		SecretAccessKey: "test",
+		ManifestPath:    manifest,
+	}
+	client, err := New(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := client.DeleteUpload(context.Background(), testDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.PageKey != pageKey {
+		t.Errorf("PageKey = %q, want %q", res.PageKey, pageKey)
+	}
+
+	records, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active := ActiveUploads(records); len(active) != 0 {
+		t.Errorf("upload still active after ensure-gone: %+v", active)
+	}
+}

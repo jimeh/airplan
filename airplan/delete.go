@@ -45,8 +45,11 @@ func (c *Client) DeleteUpload(
 	if len(objs) == 0 {
 		// Ensure-gone semantics (SPEC.md §9): the goal state is
 		// already reached, so tombstone the record instead of failing
-		// forever on externally-deleted uploads.
-		res := &DeleteResult{PageKey: key}
+		// forever on externally-deleted uploads. With no objects left
+		// to identify the page, normalize the tombstone to the
+		// manifest's own key — a bare-directory or source-key target
+		// must still deactivate the upload record.
+		res := &DeleteResult{PageKey: c.manifestPageKey(dir, key)}
 		res.Warnings = append(res.Warnings, fmt.Sprintf(
 			"no objects found under %q — already deleted; "+
 				"tombstoning the manifest entry", dir))
@@ -103,4 +106,24 @@ func (c *Client) recordDelete(res *DeleteResult) {
 		res.Warnings = append(res.Warnings,
 			"tombstone not recorded: "+err.Error())
 	}
+}
+
+// manifestPageKey finds the active manifest upload under dir and
+// returns its key — the key tombstones must reference for
+// ActiveUploads to converge. Falls back to the resolved target when
+// the manifest is unreadable or has no matching record.
+func (c *Client) manifestPageKey(dir, fallback string) string {
+	if c.cfg.DisableManifest {
+		return fallback
+	}
+	records, _, err := ReadManifest(c.cfg.ManifestPath)
+	if err != nil {
+		return fallback
+	}
+	for _, rec := range ActiveUploads(records) {
+		if strings.HasPrefix(rec.Key, dir) {
+			return rec.Key
+		}
+	}
+	return fallback
 }

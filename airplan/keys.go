@@ -29,30 +29,50 @@ func isRandomDir(seg string) bool {
 func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 	key := s
 	if strings.Contains(s, "://") {
-		// A public_base_url may itself carry a path
-		// (https://cdn.example.com/plans); strip the whole base
-		// before falling back to generic path handling.
-		if cfg != nil && cfg.PublicBaseURL != "" {
-			base := strings.TrimRight(cfg.PublicBaseURL, "/") + "/"
-			if rest, ok := strings.CutPrefix(s, base); ok {
-				key = rest
-				return validateTarget(cfg, key)
-			}
-		}
-
+		// Parsing up front means query strings and fragments — think
+		// URLs copy-pasted with ?utm_source=... — never leak into the
+		// resolved key.
 		u, err := url.Parse(s)
 		if err != nil {
 			return "", fmt.Errorf("airplan: parse url %q: %w", s, err)
 		}
+
 		key = strings.TrimPrefix(u.Path, "/")
-		// Path-style URLs (<endpoint>/<bucket>/<key>) carry the bucket
-		// as the first segment.
-		if cfg != nil && cfg.Bucket != "" {
+		switch {
+		case cfg != nil && baseURLMatches(cfg.PublicBaseURL, u):
+			// A public_base_url may itself carry a path
+			// (https://cdn.example.com/plans); strip that path from
+			// the key.
+			b, _ := url.Parse(cfg.PublicBaseURL)
+			basePath := strings.Trim(b.Path, "/")
+			if basePath != "" {
+				key = strings.TrimPrefix(key, basePath+"/")
+			}
+		case cfg != nil && cfg.Bucket != "":
+			// Path-style URLs (<endpoint>/<bucket>/<key>) carry the
+			// bucket as the first segment.
 			key = strings.TrimPrefix(key, cfg.Bucket+"/")
 		}
 	}
 
 	return validateTarget(cfg, key)
+}
+
+// baseURLMatches reports whether u is served from the configured
+// public_base_url (same host, path under the base's path).
+func baseURLMatches(base string, u *url.URL) bool {
+	if base == "" {
+		return false
+	}
+	b, err := url.Parse(base)
+	if err != nil || b.Host == "" || b.Host != u.Host {
+		return false
+	}
+	basePath := strings.Trim(b.Path, "/")
+	if basePath == "" {
+		return true
+	}
+	return strings.HasPrefix(strings.TrimPrefix(u.Path, "/"), basePath+"/")
 }
 
 // validateTarget checks that a resolved key is a plausible airplan

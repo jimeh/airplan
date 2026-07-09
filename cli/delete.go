@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/jimeh/airplan/airplan"
@@ -39,24 +38,13 @@ func newDeleteCmd() *cobra.Command {
 func runDelete(cmd *cobra.Command, urlOrKey string, opts *deleteOptions) error {
 	stderr := cmd.ErrOrStderr()
 
-	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
-		Path:    opts.config,
-		Profile: opts.profile,
-	})
+	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
 	if err != nil {
 		return err
 	}
 
-	ctx := cmd.Context()
-	if cfg.Timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, cfg.Timeout)
-		defer cancel()
-	}
-
-	for _, w := range cfg.Warnings {
-		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
-	}
+	ctx, cancel := timeoutContext(cmd.Context(), cfg)
+	defer cancel()
 
 	client, err := airplan.New(ctx, cfg)
 	if err != nil {

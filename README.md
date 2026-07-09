@@ -92,7 +92,7 @@ airplan -o plan.md                  # open in browser too
 
 airplan list                        # your upload history
 airplan list --remote               # what's actually in the bucket
-airplan delete <url>                # remove an upload (page + source)
+airplan delete <url|key>            # remove an upload (page + source)
 airplan purge --older-than 30d      # bulk cleanup, with confirmation
 ```
 
@@ -107,7 +107,7 @@ per-code-block copy buttons, and a download link to the original
 its highlight language from the filename; use `--lang` when piping
 (`cat main.go | airplan --format txt --lang go -`).
 
-Every upload is recorded in a local manifest
+Every upload made from a machine is recorded in its local manifest
 (`~/.local/state/airplan/manifest.jsonl`); `list`, `delete`, and
 `purge` build on it. `--remote` switches `list`/`purge` to a live
 bucket listing, discovering uploads made from any machine —
