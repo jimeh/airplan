@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strings"
 	"text/tabwriter"
 
@@ -164,10 +165,12 @@ func formatListBytes(bytes int64) string {
 	}
 
 	size := float64(bytes)
-	for _, unit := range []string{"KiB", "MiB", "GiB", "TiB", "PiB", "EiB"} {
+	units := []string{"KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
+	for i, unit := range units {
 		size /= 1024
-		if size < 1024 {
-			value := strings.TrimSuffix(fmt.Sprintf("%.1f", size), ".0")
+		rounded := math.Round(size*10) / 10
+		if rounded < 1024 || i == len(units)-1 {
+			value := strings.TrimSuffix(fmt.Sprintf("%.1f", rounded), ".0")
 			return value + " " + unit
 		}
 	}
