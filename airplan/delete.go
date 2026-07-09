@@ -43,7 +43,15 @@ func (c *Client) DeleteUpload(
 		return nil, err
 	}
 	if len(objs) == 0 {
-		return nil, fmt.Errorf("airplan: no objects found under %q", dir)
+		// Ensure-gone semantics (SPEC.md §9): the goal state is
+		// already reached, so tombstone the record instead of failing
+		// forever on externally-deleted uploads.
+		res := &DeleteResult{PageKey: key}
+		res.Warnings = append(res.Warnings, fmt.Sprintf(
+			"no objects found under %q — already deleted; "+
+				"tombstoning the manifest entry", dir))
+		c.recordDelete(res)
+		return res, nil
 	}
 
 	res := &DeleteResult{}

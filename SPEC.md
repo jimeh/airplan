@@ -619,8 +619,13 @@ machine) and must be safe:
   purging a profile's uploads uses that profile's credentials. Requires at least one filter or an explicit
   `--all`. `--dry-run` previews; confirmation prompt unless `--yes`.
   Failed deletes are reported to stderr and left un-tombstoned so a
-  re-run retries them. Suitable for cron
-  (`purge --older-than 30d --yes`).
+  re-run retries them. Purge only considers manifest records for the
+  connected bucket (records from other buckets are skipped with a
+  note). Deletion is ensure-gone: an upload whose directory no
+  longer contains any objects is tombstoned as already deleted with
+  a warning, not treated as a failure — so a manifest referencing
+  externally-deleted objects converges instead of jamming. Suitable
+  for cron (`purge --older-than 30d --yes`).
 - `--remote` (on `list` and `purge`): operate on a bucket listing
   instead of the manifest, discovering uploads made from any
   machine. Airplan uploads are recognized by key shape: a

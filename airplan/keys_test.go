@@ -185,3 +185,49 @@ func TestActiveUploads(t *testing.T) {
 		t.Error("tombstoned upload survived")
 	}
 }
+
+// TestDeleteUploadEnsureGone: an empty directory tombstones instead
+// of failing (SPEC.md §9 — the manifest must converge on
+// externally-deleted uploads).
+func TestDeleteUploadEnsureGone(t *testing.T) {
+	emptyXML := `<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>`
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = w.Write([]byte(emptyXML))
+		},
+	))
+	t.Cleanup(server.Close)
+
+	manifest := t.TempDir() + "/manifest.jsonl"
+	cfg := &Config{
+		Endpoint:        server.URL,
+		Bucket:          "plans",
+		AccessKeyID:     "test",
+		SecretAccessKey: "test",
+		ManifestPath:    manifest,
+	}
+	client, err := New(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := client.DeleteUpload(context.Background(),
+		testDir+"/plan.html")
+	if err != nil {
+		t.Fatalf("ensure-gone should not error: %v", err)
+	}
+	if len(res.Keys) != 0 {
+		t.Errorf("Keys = %v, want none", res.Keys)
+	}
+	if len(res.Warnings) == 0 ||
+		!strings.Contains(res.Warnings[0], "already deleted") {
+		t.Errorf("Warnings = %v", res.Warnings)
+	}
+
+	records, _, err := ReadManifest(manifest)
+	if err != nil || len(records) != 1 || records[0].Type != "delete" {
+		t.Fatalf("tombstone missing: %+v err=%v", records, err)
+	}
+}
