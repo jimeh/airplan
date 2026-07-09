@@ -59,9 +59,11 @@ Prebuilt binaries are available from
 
 ## Configure storage
 
-airplan works with any S3-compatible object store. You need a bucket, API
-credentials that can read and write objects, and a public base URL from which
-uploaded pages can be opened.
+airplan works with any S3-compatible object store. You need a bucket, a public
+base URL, and API credentials with the permissions required by the commands you
+use. Uploads need object-write access. Remote listing and all delete or purge
+operations need bucket-list access; deletion also needs object-delete access.
+Object-read access lets remote listings retrieve titles.
 
 Create `~/.config/airplan/config.toml`:
 
@@ -163,9 +165,10 @@ external fonts, scripts, or other page assets.
 
 ## Automation and agents
 
-The command-line contract is intentionally simple:
+For upload invocations (`airplan <file>`), the command-line contract is
+intentionally simple:
 
-- On success, stdout contains the URL and nothing else.
+- On a successful upload, stdout contains the URL and nothing else.
 - With `--json`, stdout contains one JSON object instead.
 - Logs, warnings, progress, and errors go to stderr.
 - A non-zero exit means no upload URL was produced.
