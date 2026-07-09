@@ -11,6 +11,10 @@
   --code-inline-bg: #eff1f3;
   --code-bg: #f6f8fa;
   --code-border: #d1d9e0;
+  --control-track: #eff1f3;
+  --control-active: #ffffff;
+  --control-hover: #eff1f3;
+  --control-divider: #d8dee4;
   --mark-bg: #fff8c5;
   --alert-note: #0969da;
   --alert-note-bg: #ddf4ff;
@@ -40,6 +44,10 @@
     --code-inline-bg: #212830;
     --code-bg: #151b23;
     --code-border: #30363d;
+    --control-track: #21262d;
+    --control-active: #30363d;
+    --control-hover: #21262d;
+    --control-divider: #30363d;
     --mark-bg: #693e00;
     --alert-note: #4493f8;
     --alert-note-bg: #121d2f;
@@ -166,12 +174,15 @@ body {
   white-space: nowrap;
   font: inherit;
   color: var(--muted);
-  background: none;
+  background: transparent;
   text-decoration: none;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 0;
+  border-radius: 8px;
   padding: 0.4rem 0.65rem;
   cursor: pointer;
+  transition:
+    color 0.15s ease-in-out,
+    background-color 0.15s ease-in-out;
 }
 
 .icon {
@@ -198,23 +209,29 @@ body {
 .toolbar a:hover,
 .toolbar button:hover {
   color: var(--fg);
-  border-color: var(--muted);
+  background: var(--control-hover);
 }
 
-/* Mode control, not action buttons: an inset track whose active
-   segment sits as a raised pill — no internal divider to glare. */
+.toolbar a:focus-visible,
+.toolbar button:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+/* Mode control, not action buttons: a quiet inset track whose active
+   segment sits as a raised pill. */
 .viewtoggle {
   display: inline-flex;
   gap: 2px;
   padding: 2px;
-  background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  background: var(--control-track);
+  border: 0;
+  border-radius: 8px;
 }
 
 .viewtoggle button {
   border: 0;
-  border-radius: 4px;
+  border-radius: 6px;
   padding: 0.3rem 0.55rem;
 }
 
@@ -224,8 +241,24 @@ body {
 
 .viewtoggle button.active {
   color: var(--fg);
-  background: var(--bg);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  background: var(--control-active);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.viewtoggle + .copy-source {
+  position: relative;
+  margin-left: 0.5rem;
+}
+
+.viewtoggle + .copy-source::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -0.5rem;
+  width: 1px;
+  height: 1rem;
+  background: var(--control-divider);
+  transform: translateY(-50%);
 }
 
 [hidden] {
@@ -281,6 +314,8 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .toolbar a,
+  .toolbar button,
   .codecopy {
     transition: none;
   }
@@ -599,6 +634,14 @@ mark {
   .toolbar .viewtoggle {
     grid-column: 1 / -1;
     justify-self: start;
+  }
+
+  .viewtoggle + .copy-source {
+    margin-left: 0;
+  }
+
+  .viewtoggle + .copy-source::before {
+    display: none;
   }
 
   .toc,

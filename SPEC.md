@@ -1,6 +1,10 @@
 # airplan — Tool Specification
 
-**Spec version: 0.5.0**
+**Spec version: 0.5.1**
+
+Changes in 0.5.1: built-in document controls use a quieter,
+borderless treatment with a segmented view toggle and visible keyboard
+focus (§3).
 
 Changes in 0.5.0: markdown rendering supports GitHub-style alerts;
 the built-in page gains a clearer typographic hierarchy, refined code
@@ -168,6 +172,9 @@ CSS, no external fonts/scripts/assets, system font stack.
     ships. (Embedding the source roughly doubles page weight —
     irrelevant at plan-document sizes.) The controls use visible text
     labels, and source view identifies itself as “Markdown source”.
+    The view toggle uses a subtle segmented treatment; adjacent file
+    actions are borderless, with muted hover states and a clearly
+    visible keyboard-focus outline.
   - "Copy markdown" button for the full original source. Raw text
     is recovered from the highlighted block's text content (the
     highlight markup must preserve it exactly), so the source is
