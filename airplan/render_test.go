@@ -68,6 +68,9 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		if !strings.Contains(out, `href="./plan.md" download`) {
 			t.Error("missing download anchor")
 		}
+		if !strings.Contains(out, `class="raw" href="./plan.md"`) {
+			t.Error("missing raw source anchor")
+		}
 	})
 
 	t.Run("no download link without SourcePath", func(t *testing.T) {
@@ -166,8 +169,11 @@ func TestRenderMarkdownInteractivity(t *testing.T) {
 
 	for name, frag := range map[string]string{
 		"view toggle":       `class="viewtoggle js-only" hidden`,
+		"rendered label":    `<span>Rendered</span>`,
+		"source label":      `<span>Source</span>`,
 		"pressed state":     `aria-pressed="true"`,
 		"copy source":       `class="copy-source js-only" hidden`,
+		"source heading":    `<span>Markdown source</span>`,
 		"source block":      `id="source" hidden`,
 		"embedded script":   "<script>",
 		"highlighted fence": `<span class="kn">package</span>`,

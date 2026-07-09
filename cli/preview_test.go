@@ -38,6 +38,9 @@ func TestPreviewRendersMarkdownWithoutUploadConfig(t *testing.T) {
 	if strings.Contains(got, `class="download"`) {
 		t.Error("local preview unexpectedly contains a source download link")
 	}
+	if strings.Contains(got, `class="raw"`) {
+		t.Error("local preview unexpectedly contains a raw source link")
+	}
 }
 
 func TestPreviewWritesOutputFile(t *testing.T) {

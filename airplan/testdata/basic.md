@@ -32,6 +32,7 @@ plain block, no language
 | happy    | pass   |
 | sad      | fail   |
 
-> Note: rollback plan lives at https://example.com/rollback
+> [!NOTE]
+> The rollback plan lives at https://example.com/rollback.
 
 [^flag]: `auth_v2` in the flags service.

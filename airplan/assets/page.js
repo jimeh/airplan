@@ -18,11 +18,15 @@
   // success, x on failure) plus the live-region announcement.
   function flash(btn, text, ok) {
     live.textContent = text;
+    var label = btn.querySelector('.action-label');
+    var previousLabel = label ? label.textContent : '';
+    if (label) label.textContent = ok ? 'Copied' : 'Failed';
     btn.classList.add(ok ? 'is-copied' : 'is-failed');
     btn.disabled = true;
     setTimeout(function () {
       btn.classList.remove('is-copied', 'is-failed');
       btn.disabled = false;
+      if (label) label.textContent = previousLabel;
     }, 1200);
   }
 

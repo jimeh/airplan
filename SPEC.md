@@ -1,6 +1,11 @@
 # airplan — Tool Specification
 
-**Spec version: 0.4.0**
+**Spec version: 0.5.0**
+
+Changes in 0.5.0: markdown rendering supports GitHub-style alerts;
+the built-in page gains a clearer typographic hierarchy, refined code
+surfaces, and labelled rendered/source controls; and uploaded source
+files can be opened raw as well as downloaded (§3).
 
 Changes in 0.4.0: rendered markdown pages gain a responsive table of
 contents and a wider document shell; the custom-template data contract
@@ -122,15 +127,23 @@ CSS, no external fonts/scripts/assets, system font stack.
 
 - Markdown dialect: CommonMark plus GitHub Flavored Markdown
   extensions — tables, strikethrough, task lists, autolinks — plus
-  footnotes and heading anchors.
+  footnotes, heading anchors, and GitHub-style alerts. Alerts use the
+  standard blockquote markers `NOTE`, `TIP`, `IMPORTANT`, `WARNING`,
+  and `CAUTION`; they are converted to static HTML during
+  rendering and may contain normal block Markdown. Unrecognized alert
+  markers remain ordinary blockquotes.
 - Fenced code blocks are syntax-highlighted at render time. The
   highlighting must follow `prefers-color-scheme` (light and dark
   palettes).
 - Page styling: dark/light aware via `prefers-color-scheme`, a centered
   document shell around 54rem wide, prose constrained to a readable
-  measure around 78ch, and comfortable line height. Code blocks and
-  tables may use the full shell width so an 80-column source line fits
-  without horizontal scrolling at the default font size.
+  measure around 78ch, comfortable line height, distinct heading/body/
+  muted color roles, and section hierarchy carried primarily by type and
+  spacing rather than repeated divider rules. Code blocks and tables may
+  use the full shell width so an 80-column source line fits without
+  horizontal scrolling at the default font size. Inline and block code
+  use separate subtle surfaces; block code has a quiet border and thin
+  horizontal scrollbar.
 - A responsive table of contents is rendered from markdown headings:
   - H1, H2, and H3 headings are included. If an H1 is the first visible
     block in the document, it is treated as the document title and is
@@ -153,7 +166,8 @@ CSS, no external fonts/scripts/assets, system font stack.
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter
     ships. (Embedding the source roughly doubles page weight —
-    irrelevant at plan-document sizes.)
+    irrelevant at plan-document sizes.) The controls use visible text
+    labels, and source view identifies itself as “Markdown source”.
   - "Copy markdown" button for the full original source. Raw text
     is recovered from the highlighted block's text content (the
     highlight markup must preserve it exactly), so the source is
@@ -162,6 +176,9 @@ CSS, no external fonts/scripts/assets, system font stack.
     sibling `.md` object (relative link, `./<slug>.md`). Being a
     plain anchor, it works even without JS; omitted when the source
     wasn't uploaded (`--no-source`).
+  - "Raw" link: a plain anchor to the same sibling source without the
+    `download` attribute, so the browser can open it directly. It has
+    the same availability and no-JavaScript behavior as Download.
   - Per-code-block copy buttons on hover; always visible on touch
     devices, where hover doesn't exist.
   - Graceful degradation: with JS disabled the rendered view stays
@@ -195,7 +212,8 @@ A shared source file reads like a one-file gist.
   headers), where `<ext>` is the source filename's extension —
   `txt` when there is none (stdin) or when it would collide with
   the page object (`html`/`htm`). The page's download anchor points
-  at it. `--no-source` skips it, exactly as for markdown.
+  at it, and the Raw anchor opens it without forcing a download.
+  `--no-source` skips it, exactly as for markdown.
 
 ### Page templates & customization
 

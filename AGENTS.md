@@ -49,6 +49,9 @@ pins live in `mise.lock` (commit both when bumping tools).
   keys are a hard error — parser and schema must not drift (SPEC §7).
 - **Page assets** (`airplan/assets/`): embedded via go:embed; pages
   must stay fully standalone (no external fonts/scripts/requests).
+- **Markdown alerts** (`airplan/alert.go`): Goldmark splits markers
+  such as `[!NOTE]` across multiple text nodes. Reconstruct the first
+  blockquote line when matching alerts; do not assume one marker node.
 - **Conventional commits are load-bearing**: PR titles are validated
   (semantic-pr) and release-please derives versions and changelogs
   from squash-merged titles.

@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.4.0.
+may contradict it. Targets spec version 0.5.0.
 
 ---
 
@@ -113,7 +113,10 @@ res, err := client.Upload(ctx, airplan.Input{
 ## 4. Spec Requirements → Mechanisms
 
 - Rendering: goldmark with GFM extensions (tables, strikethrough,
-  task lists, autolinks), footnotes, heading anchors.
+  task lists, autolinks), footnotes, heading anchors, and a small local
+  AST transformer/renderer for GitHub-style alerts. Alert parsing and
+  HTML generation happen before template execution; the uploaded page
+  needs CSS for presentation but no alert JavaScript.
 - Highlighting: chroma emitting class-based markup with CSS custom
   properties for the palette — required so highlighting can follow
   `prefers-color-scheme` (inline styles can't switch light/dark).
@@ -222,9 +225,9 @@ page is readable on desktop + mobile, light + dark.
   already exists when the phase-3 commands ship; set
   `x-amz-meta-title` on upload.
 - Default template interactivity: rendered/source toggle, "copy
-  markdown", per-code-block copy buttons — embedded vanilla JS with
-  no-JS and print fallbacks (spec §3). Phase 1 ships the template
-  static, without JS.
+  markdown", raw/download source links, per-code-block copy buttons —
+  embedded vanilla JS with no-JS and print fallbacks (spec §3). Phase 1
+  ships the template static, without JS.
 - Custom template support (`--template` / `AIRPLAN_TEMPLATE` /
   profile `template`) with the documented data contract, plus
   `airplan template` to dump the built-in as a starting point.

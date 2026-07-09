@@ -63,6 +63,10 @@ To inspect the rendered page locally without uploading it, run
 Preview uses the same renderer but does not require S3 credentials or
 write the upload manifest.
 
+Markdown uses the GitHub alert syntax for callouts when useful:
+`> [!NOTE]`, `> [!TIP]`, `> [!IMPORTANT]`, `> [!WARNING]`, and
+`> [!CAUTION]`.
+
 ## Examples
 
 ```sh

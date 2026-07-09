@@ -132,6 +132,7 @@ func newMarkdown() goldmark.Markdown {
 		goldmark.WithExtensions(
 			extension.GFM,
 			extension.Footnote,
+			alertExtension{},
 			highlighting.NewHighlighting(
 				highlighting.WithFormatOptions(
 					chromahtml.WithClasses(true),

@@ -10,11 +10,26 @@
   color-scheme: light dark;
   --bg: #ffffff;
   --fg: #1f2328;
+  --heading: #1f2328;
+  --subheading: #3d444d;
   --muted: #59636e;
   --link: #0969da;
   --border: #d1d9e0;
+  --surface-subtle: #f6f8fa;
+  --code-inline-bg: #eff1f3;
   --code-bg: #f6f8fa;
+  --code-border: #d1d9e0;
   --mark-bg: #fff8c5;
+  --alert-note: #0969da;
+  --alert-note-bg: #ddf4ff;
+  --alert-tip: #1a7f37;
+  --alert-tip-bg: #dafbe1;
+  --alert-important: #8250df;
+  --alert-important-bg: #fbefff;
+  --alert-warning: #9a6700;
+  --alert-warning-bg: #fff8c5;
+  --alert-caution: #cf222e;
+  --alert-caution-bg: #ffebe9;
   --page-width: 54rem;
   --prose-width: 78ch;
   --toc-width: 14rem;
@@ -24,11 +39,26 @@
   :root {
     --bg: #0d1117;
     --fg: #e6edf3;
+    --heading: #f0f6fc;
+    --subheading: #c9d1d9;
     --muted: #9198a1;
     --link: #4493f8;
     --border: #3d444d;
+    --surface-subtle: #151b23;
+    --code-inline-bg: #212830;
     --code-bg: #151b23;
+    --code-border: #30363d;
     --mark-bg: #693e00;
+    --alert-note: #4493f8;
+    --alert-note-bg: #121d2f;
+    --alert-tip: #3fb950;
+    --alert-tip-bg: #12261e;
+    --alert-important: #a371f7;
+    --alert-important-bg: #211a2e;
+    --alert-warning: #d29922;
+    --alert-warning-bg: #272115;
+    --alert-caution: #f85149;
+    --alert-caution-bg: #2d1618;
   }
 }
 
@@ -43,7 +73,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
     Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   font-size: 16px;
-  line-height: 1.6;
+  line-height: 1.7;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -140,6 +170,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.4rem;
   white-space: nowrap;
   font: inherit;
   color: var(--muted);
@@ -147,7 +178,7 @@ body {
   text-decoration: none;
   border: 1px solid var(--border);
   border-radius: 6px;
-  padding: 0.4rem;
+  padding: 0.4rem 0.65rem;
   cursor: pointer;
 }
 
@@ -190,7 +221,7 @@ body {
 .viewtoggle button {
   border: 0;
   border-radius: 4px;
-  padding: 0.3rem 0.5rem;
+  padding: 0.3rem 0.55rem;
 }
 
 .viewtoggle button:hover {
@@ -209,7 +240,7 @@ body {
 
 .codewrap {
   position: relative;
-  margin: 0 0 1em;
+  margin: 0 0 1.5em;
 }
 
 .codewrap pre {
@@ -225,8 +256,8 @@ body {
   justify-content: center;
   font: inherit;
   color: var(--muted);
-  background: var(--bg);
-  border: 1px solid var(--border);
+  background: var(--code-bg);
+  border: 1px solid transparent;
   border-radius: 6px;
   padding: 0.35rem;
   cursor: pointer;
@@ -279,31 +310,35 @@ body {
 }
 
 h1, h2, h3, h4, h5, h6 {
+  color: var(--heading);
+  font-weight: 700;
+  letter-spacing: -0.015em;
   line-height: 1.25;
-  margin: 1.75em 0 0.6em;
+  margin: 2em 0 0.75em;
   scroll-margin-top: 0.75em;
 }
 
 h1 {
-  font-size: 1.9em;
-  margin-top: 0.5em;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--border);
+  font-size: 2em;
+  margin-top: 0.35em;
+  letter-spacing: -0.025em;
 }
 
 h2 {
-  font-size: 1.45em;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--border);
+  font-size: 1.5em;
+  margin-top: 2.25em;
 }
 
-h3 { font-size: 1.2em; }
+h3 {
+  font-size: 1.2em;
+  color: var(--subheading);
+}
 h4 { font-size: 1.05em; }
 h5, h6 { font-size: 1em; }
 h6 { color: var(--muted); }
 
 p, ul, ol, blockquote, table, pre {
-  margin: 0 0 1em;
+  margin: 0 0 1.25em;
 }
 
 a {
@@ -340,6 +375,60 @@ blockquote {
 
 blockquote > :first-child { margin-top: 0; }
 blockquote > :last-child { margin-bottom: 0; }
+
+.markdown-alert {
+  --alert-color: var(--alert-note);
+  --alert-bg: var(--alert-note-bg);
+  margin: 1.5em 0;
+  padding: 0.85em 1em;
+  border-left: 3px solid var(--alert-color);
+  border-radius: 6px;
+  background: var(--alert-bg);
+  color: var(--fg);
+}
+
+.markdown-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin: 0 0 0.55em;
+  color: var(--alert-color);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.markdown-alert-icon {
+  width: 1em;
+  height: 1em;
+  flex: none;
+}
+
+.markdown-alert > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-alert-tip {
+  --alert-color: var(--alert-tip);
+  --alert-bg: var(--alert-tip-bg);
+}
+
+.markdown-alert-important {
+  --alert-color: var(--alert-important);
+  --alert-bg: var(--alert-important-bg);
+}
+
+.markdown-alert-warning {
+  --alert-color: var(--alert-warning);
+  --alert-bg: var(--alert-warning-bg);
+}
+
+.markdown-alert-caution {
+  --alert-color: var(--alert-caution);
+  --alert-bg: var(--alert-caution-bg);
+}
 
 hr {
   border: 0;
@@ -380,22 +469,40 @@ code, pre, kbd, samp {
 }
 
 code {
-  background: var(--code-bg);
-  border-radius: 6px;
+  background: var(--code-inline-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 4px;
   padding: 0.15em 0.35em;
   font-size: 0.875em;
 }
 
 pre {
   background: var(--code-bg);
-  border-radius: 6px;
-  padding: 1em;
+  border: 1px solid var(--code-border);
+  border-radius: 8px;
+  padding: 1em 1.25em;
   overflow-x: auto;
-  line-height: 1.45;
+  line-height: 1.6;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+pre::-webkit-scrollbar {
+  height: 6px;
+}
+
+pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+pre::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
 }
 
 pre code {
   background: none;
+  border: 0;
   padding: 0;
   font-size: 0.875em;
 }
@@ -407,9 +514,10 @@ pre code {
 .filehead {
   font-size: 0.8rem;
   color: var(--muted);
-  background: var(--code-bg);
-  border-bottom: 1px solid var(--border);
-  border-radius: 6px 6px 0 0;
+  background: var(--surface-subtle);
+  border: 1px solid var(--code-border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
   padding: 0.6em 1em;
 }
 
@@ -420,8 +528,23 @@ pre code {
 }
 
 .filehead + pre {
-  border-radius: 0 0 6px 6px;
+  border-radius: 0 0 8px 8px;
   margin-top: 0;
+}
+
+.source-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.source-heading .icon {
+  width: 14px;
+  height: 14px;
 }
 
 mark {
@@ -473,7 +596,15 @@ mark {
 
 @media (max-width: 36rem) {
   .toolbar {
+    display: grid;
+    grid-template-columns: repeat(3, max-content);
+    justify-content: flex-start;
     padding-inline: 1rem;
+  }
+
+  .toolbar .viewtoggle {
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 
   .toc,
@@ -665,11 +796,11 @@ mark {
     <button type="button" class="active" data-view="rendered"
       aria-pressed="true" aria-label="Rendered view"
       title="Rendered view"><svg class="icon" aria-hidden="true"
-      viewBox="0 0 16 16" fill="currentColor"><path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.825.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"/></svg></button>
+      viewBox="0 0 16 16" fill="currentColor"><path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.825.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"/></svg><span>Rendered</span></button>
     <button type="button" data-view="source"
       aria-pressed="false" aria-label="Source view"
       title="Source view"><svg class="icon" aria-hidden="true"
-      viewBox="0 0 16 16" fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg></button>
+      viewBox="0 0 16 16" fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Source</span></button>
   </div>
   <button type="button" class="copy-source js-only" hidden
     aria-label="Copy markdown" title="Copy markdown"><svg
@@ -678,12 +809,17 @@ mark {
     class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16"
     fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg><svg
     class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16"
-    fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg></button>
+    fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg><span class="action-label">Copy</span></button>
   <a class="download" href="./refactor-auth.md" download
     aria-label="Download markdown"
     title="Download markdown"><svg
     class="icon" aria-hidden="true" viewBox="0 0 16 16"
-    fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg></a>
+    fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg><span>Download</span></a>
+  <a class="raw" href="./refactor-auth.md"
+    aria-label="Open raw markdown"
+    title="Open raw markdown"><svg
+    class="icon" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Raw</span></a>
 </nav>
 <nav class="toc" id="toc" aria-label="Table of contents">
   <p class="toc-title">Contents</p>
@@ -733,9 +869,10 @@ mark {
 </tr>
 </tbody>
 </table>
-<blockquote>
-<p>Note: rollback plan lives at <a href="https://example.com/rollback">https://example.com/rollback</a></p>
-</blockquote>
+<div class="markdown-alert markdown-alert-note">
+<p class="markdown-alert-title"><svg class="markdown-alert-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8m8-6.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 0 0 0-13M6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75M8 6a1 1 0 1 1 0-2a1 1 0 0 1 0 2"/></svg>Note</p>
+<p>The rollback plan lives at <a href="https://example.com/rollback">https://example.com/rollback</a>.</p>
+</div>
 <div class="footnotes" role="doc-endnotes">
 <hr>
 <ol>
@@ -747,6 +884,8 @@ mark {
 
 </main>
 <main class="content source-view" id="source" hidden>
+<p class="source-heading"><svg class="icon" aria-hidden="true"
+  viewBox="0 0 16 16" fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Markdown source</span></p>
 <pre class="chroma"><code><span class="line"><span class="cl"><span class="gh"># Refactor auth
 </span></span></span><span class="line"><span class="cl">
 </span></span><span class="line"><span class="cl">A short plan document exercising the rendering pipeline.
@@ -781,7 +920,8 @@ mark {
 </span></span><span class="line"><span class="cl">| happy    | pass   |
 </span></span><span class="line"><span class="cl">| sad      | fail   |
 </span></span><span class="line"><span class="cl"><span class="k">
-</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">Note: rollback plan lives at https://example.com/rollback
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">[!NOTE]
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">The rollback plan lives at https://example.com/rollback.
 </span></span></span><span class="line"><span class="cl">
 </span></span><span class="line"><span class="cl">[^flag]: <span class="sb">`auth_v2`</span> in the flags service.
 </span></span></code></pre>
@@ -803,11 +943,15 @@ mark {
 
   function flash(btn, text, ok) {
     live.textContent = text;
+    var label = btn.querySelector('.action-label');
+    var previousLabel = label ? label.textContent : '';
+    if (label) label.textContent = ok ? 'Copied' : 'Failed';
     btn.classList.add(ok ? 'is-copied' : 'is-failed');
     btn.disabled = true;
     setTimeout(function () {
       btn.classList.remove('is-copied', 'is-failed');
       btn.disabled = false;
+      if (label) label.textContent = previousLabel;
     }, 1200);
   }
 

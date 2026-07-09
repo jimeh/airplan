@@ -103,11 +103,11 @@ goes to stderr; non-zero exit means nothing was uploaded. The local
 `preview` subcommand writes HTML instead.
 
 Rendered markdown pages are fully standalone — embedded styles, no
-external assets — with a responsive table of contents, a
-rendered/source toggle, copy-markdown and per-code-block copy buttons,
-and a download link to the original `.md` uploaded alongside
-(`--no-source` to skip). Text input picks its highlight language from
-the filename; use `--lang` when piping
+external assets — with a responsive table of contents, GitHub-style
+alerts, a rendered/source toggle, copy-markdown and per-code-block copy
+buttons, and raw/download links to the original `.md` uploaded alongside
+(`--no-source` to skip). Text input picks its highlight language from the
+filename; use `--lang` when piping
 (`cat main.go | airplan --format txt --lang go -`). `airplan preview`
 uses the same rendering pipeline locally and writes HTML to stdout or
 `--output PATH`, without validating credentials or contacting S3.
