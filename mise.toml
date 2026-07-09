@@ -26,18 +26,18 @@ description = "Round-trip tests against a throwaway MinIO container"
 run = "go test -tags integration -count=1 -v -run TestIntegration ./airplan/"
 
 [tasks.lint]
-description = "Lint Go and check Markdown formatting"
-run = ["golangci-lint run", "oxfmt --check \"**/*.md\""]
+description = "All lints and format checks"
+depends = ["lint:go", "lint:markdown", "lint:workflows"]
 
-[tasks.fmt]
-description = "Format Go code and Markdown"
-run = ["golangci-lint fmt", "oxfmt \"**/*.md\""]
+[tasks."lint:go"]
+description = "Lint Go code"
+run = "golangci-lint run"
 
-[tasks.check]
-description = "Fast confidence gate: lint + tests"
-depends = ["lint", "test"]
+[tasks."lint:markdown"]
+description = "Check Markdown formatting"
+run = "oxfmt --check \"**/*.md\""
 
-[tasks.lint-workflows]
+[tasks."lint:workflows"]
 description = "Validate GitHub Actions: syntax, security, SHA pins"
 run = [
   "actionlint",
@@ -45,9 +45,25 @@ run = [
   "pinact run --check",
 ]
 
+[tasks.format]
+description = "Format everything (write mode)"
+depends = ["format:go", "format:markdown"]
+
+[tasks."format:go"]
+description = "Format Go code"
+run = "golangci-lint fmt"
+
+[tasks."format:markdown"]
+description = "Format Markdown files"
+run = "oxfmt \"**/*.md\""
+
+[tasks.check]
+description = "Fast confidence gate: lint + tests"
+depends = ["lint", "test"]
+
 [tasks.verify]
 description = "CI-equivalent validation before handoff"
-depends = ["check", "lint-workflows", "test-integration"]
+depends = ["check", "test-integration"]
 run = "goreleaser check"
 
 [tasks.setup]

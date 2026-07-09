@@ -24,7 +24,6 @@ this implementation is built and must not contradict the spec.
 | `mise run test`             | unit tests (no Docker needed)                               |
 | `mise run test-integration` | MinIO round-trip via testcontainers (needs Docker)          |
 | `mise run lint` / `fmt`     | golangci-lint check / write-mode format                     |
-| `mise run lint-workflows`   | actionlint + zizmor + pinact on `.github/`                  |
 | `mise run verify`           | CI-equivalent: check + workflows + integration + goreleaser |
 | `mise run build`            | binary at `bin/airplan` (skipped when unchanged)            |
 
@@ -50,7 +49,7 @@ pins live in `mise.lock` (commit both when bumping tools).
 - **Conventional commits are load-bearing**: PR titles are validated
   (semantic-pr) and release-please derives versions and changelogs
   from squash-merged titles.
-- **Actions are SHA-pinned** (pinact); `mise run lint-workflows`
+- **Actions are SHA-pinned** (pinact); `mise run lint:workflows`
   fails on tag-pinned actions. `pinact run` re-pins after bumping.
 
 ## Layout

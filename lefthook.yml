@@ -15,4 +15,4 @@ pre-commit:
       run: oxfmt --check {staged_files}
     workflows:
       glob: ".github/workflows/*.yml"
-      run: mise run lint-workflows
+      run: mise run lint:workflows
