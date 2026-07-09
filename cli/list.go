@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/jimeh/airplan/airplan"
@@ -158,5 +159,18 @@ func printUploadTable(
 }
 
 func formatListBytes(bytes int64) string {
+	if bytes < 1024 {
+		return fmt.Sprintf("%d B", bytes)
+	}
+
+	size := float64(bytes)
+	for _, unit := range []string{"KiB", "MiB", "GiB", "TiB", "PiB", "EiB"} {
+		size /= 1024
+		if size < 1024 {
+			value := strings.TrimSuffix(fmt.Sprintf("%.1f", size), ".0")
+			return value + " " + unit
+		}
+	}
+
 	return fmt.Sprintf("%d B", bytes)
 }
