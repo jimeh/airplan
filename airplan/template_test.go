@@ -244,7 +244,7 @@ func TestUploadHTMLWarnsCustomTemplateIgnored(t *testing.T) {
 	}
 
 	wantWarning := "custom template ignored for HTML input — " +
-		"HTML is uploaded as-is"
+		"HTML input is used as-is"
 	if !containsString(res.Warnings, wantWarning) {
 		t.Fatalf("warnings = %v, want %q", res.Warnings, wantWarning)
 	}

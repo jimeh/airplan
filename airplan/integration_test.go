@@ -101,6 +101,10 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		`href="./integration-plan.md" download`) {
 		t.Error("page missing download link to sibling source")
 	}
+	if !strings.Contains(string(page.body),
+		`class="raw" href="./integration-plan.md"`) {
+		t.Error("page missing raw link to sibling source")
+	}
 
 	source := getObject(ctx, t, st, res.SourceKey)
 	if string(source.body) != src {

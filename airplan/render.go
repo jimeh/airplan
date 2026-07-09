@@ -23,13 +23,65 @@ import (
 )
 
 //go:embed assets/page.html.tmpl
-var builtinTemplate string
+var builtinTemplateLayout string
 
 //go:embed assets/page.css
 var pageCSS string
 
 //go:embed assets/page.js
 var pageJS string
+
+// builtinTemplate is the exact reusable custom-template source printed
+// by `airplan template`. Page-specific CSS and JavaScript are baked in;
+// SyntaxCSS remains data because it is coupled to generated highlighting
+// classes (SPEC.md §3).
+var builtinTemplate = bakeBuiltinTemplate(pageCSS, pageJS)
+
+// executableBuiltinTemplate omits source comments because html/template
+// replaces literal CSS and JS comments with whitespace when parsing.
+// Keeping the comments in builtinTemplate makes its dumped customization
+// source useful without introducing trailing spaces in rendered pages.
+var executableBuiltinTemplate = bakeBuiltinTemplate(
+	templateAsset(pageCSS),
+	templateAsset(pageJS),
+)
+
+func bakeBuiltinTemplate(css, js string) string {
+	return strings.NewReplacer(
+		"/* airplan:page-css */", css,
+		"/* airplan:page-js */", js,
+	).Replace(builtinTemplateLayout)
+}
+
+// templateAsset removes source-only full-line comments before CSS and
+// JavaScript are parsed as literal html/template content. html/template
+// replaces those comments with spaces, which would otherwise introduce
+// trailing whitespace into generated pages.
+func templateAsset(source string) string {
+	lines := strings.Split(source, "\n")
+	out := make([]string, 0, len(lines))
+	inBlockComment := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if inBlockComment {
+			if strings.Contains(trimmed, "*/") {
+				inBlockComment = false
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "/*") {
+			if !strings.Contains(trimmed, "*/") {
+				inBlockComment = true
+			}
+			continue
+		}
+		if strings.HasPrefix(trimmed, "//") {
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.Join(out, "\n")
+}
 
 // Chroma styles used for syntax highlighting in light and dark mode.
 const (
@@ -38,7 +90,7 @@ const (
 )
 
 var pageTmpl = template.Must(
-	template.New("page").Parse(builtinTemplate),
+	template.New("page").Parse(executableBuiltinTemplate),
 )
 
 // RenderOptions controls markdown-to-HTML page rendering (SPEC.md §3).
@@ -48,6 +100,9 @@ type RenderOptions struct {
 
 	// Slug is the resolved slug, exposed to the page template.
 	Slug string
+
+	// SourceName is the original source basename, or "" for stdin.
+	SourceName string
 
 	// SourcePath is the relative path to the sibling uploaded .md
 	// object (e.g. "./plan.md"). "" means the source was not uploaded
@@ -68,37 +123,6 @@ type RenderOptions struct {
 	Template *template.Template
 }
 
-// pageData feeds the built-in page template. The exported field names
-// Title, Body, SourcePath, and Slug match the custom-template data
-// contract of SPEC.md §3.
-type pageData struct {
-	Title      string
-	Body       template.HTML
-	SourcePath string
-	Slug       string
-	Noindex    bool
-	CSS        template.CSS
-	SyntaxCSS  template.CSS
-	JS         template.JS
-
-	// SourceHTML is the highlighted raw markdown source backing the
-	// rendered/source toggle and "copy markdown" (SPEC.md §3). Empty
-	// for text and when there is no source view. Embedded regardless
-	// of no-source: that flag governs the sibling upload, not the
-	// in-page source view.
-	SourceHTML template.HTML
-
-	// FileName is the original source filename shown as a header bar
-	// above text input's code block (SPEC.md §3). "" — for markdown
-	// input, or text from stdin — omits the bar.
-	FileName string
-
-	// SourceLabel is the download anchor's text — "Download markdown"
-	// for markdown input, "Download source" for text input. Built-in
-	// template detail, not part of the custom-template contract.
-	SourceLabel string
-}
-
 // newMarkdown builds the goldmark instance implementing the dialect of
 // SPEC.md §3: CommonMark + GFM (tables, strikethrough, task lists,
 // autolinks) + footnotes + heading anchors, with class-based chroma
@@ -108,6 +132,7 @@ func newMarkdown() goldmark.Markdown {
 		goldmark.WithExtensions(
 			extension.GFM,
 			extension.Footnote,
+			alertExtension{},
 			highlighting.NewHighlighting(
 				highlighting.WithFormatOptions(
 					chromahtml.WithClasses(true),
@@ -156,22 +181,30 @@ var syntaxCSS = sync.OnceValues(func() (string, error) {
 // page: embedded CSS, no external assets, dark/light aware, syntax
 // highlighted code blocks (SPEC.md §3).
 func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
+	md := newMarkdown()
+	doc := md.Parser().Parse(text.NewReader(src))
+	headings := extractHeadings(doc, src)
+
 	var body bytes.Buffer
-	if err := newMarkdown().Convert(src, &body); err != nil {
+	if err := md.Renderer().Render(&body, src, doc); err != nil {
 		return nil, fmt.Errorf("render markdown: %w", err)
 	}
 
 	// The raw source is embedded highlighted so the rendered/source
 	// toggle and "copy markdown" work entirely offline (SPEC.md §3).
-	sourceHTML, err := highlightSource(src, "", "markdown")
+	sourceHTML, language, err := highlightSource(src, "", "markdown")
 	if err != nil {
 		return nil, err
 	}
 
-	return renderPage(pageData{
-		Body:        template.HTML(body.String()),
-		SourceHTML:  sourceHTML,
-		SourceLabel: "Download markdown",
+	return renderPage(TemplateData{
+		RenderedHTML:          template.HTML(body.String()),
+		SourceText:            string(src),
+		HighlightedSourceHTML: sourceHTML,
+		Headings:              headings,
+		TOC:                   tocHeadings(headings),
+		Format:                FormatMarkdown.String(),
+		Language:              language,
 	}, opts)
 }
 
@@ -181,7 +214,7 @@ func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
 // filename; stdin and unrecognized names fall back to unhighlighted
 // plain text and no filename header.
 func RenderText(src []byte, name string, opts RenderOptions) ([]byte, error) {
-	body, err := highlightSource(src, name, opts.Lang)
+	body, language, err := highlightSource(src, name, opts.Lang)
 	if err != nil {
 		return nil, err
 	}
@@ -190,33 +223,19 @@ func RenderText(src []byte, name string, opts RenderOptions) ([]byte, error) {
 	if name != "" {
 		fileName = filepath.Base(name)
 	}
-	return renderPage(pageData{
-		Body:        body,
-		FileName:    fileName,
-		SourceLabel: "Download source",
+	return renderPage(TemplateData{
+		RenderedHTML:          body,
+		SourceText:            string(src),
+		HighlightedSourceHTML: body,
+		Format:                FormatText.String(),
+		Language:              language,
+		SourceName:            fileName,
 	}, opts)
 }
 
-// renderPage wraps a partially-filled pageData (Body, SourceHTML,
-// FileName, SourceLabel) in the standalone page template, supplying
-// the shared fields from opts and the embedded assets.
-func renderPage(data pageData, opts RenderOptions) ([]byte, error) {
-	if opts.Template != nil {
-		var out bytes.Buffer
-		err := opts.Template.Execute(&out, TemplateData{
-			Title:      opts.Title,
-			Body:       data.Body,
-			SourceHTML: data.SourceHTML,
-			SourcePath: opts.SourcePath,
-			Slug:       opts.Slug,
-			FileName:   data.FileName,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("execute custom template: %w", err)
-		}
-		return out.Bytes(), nil
-	}
-
+// renderPage supplies the shared fields and compatibility aliases before
+// executing either a custom or the built-in standalone page template.
+func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 	syntax, err := syntaxCSS()
 	if err != nil {
 		return nil, err
@@ -225,14 +244,29 @@ func renderPage(data pageData, opts RenderOptions) ([]byte, error) {
 	data.Title = opts.Title
 	data.SourcePath = opts.SourcePath
 	data.Slug = opts.Slug
-	data.Noindex = !opts.Indexable
-	data.CSS = template.CSS(pageCSS)
+	data.Indexable = opts.Indexable
+	if data.SourceName == "" {
+		data.SourceName = opts.SourceName
+	}
 	data.SyntaxCSS = template.CSS(syntax)
-	data.JS = template.JS(pageJS)
+	data.Body = data.RenderedHTML
+	data.SourceHTML = data.HighlightedSourceHTML
+	if data.Format == FormatText.String() {
+		// Preserve the legacy contract: SourceHTML was markdown-only.
+		// HighlightedSourceHTML is the canonical field for text input.
+		data.SourceHTML = ""
+		data.FileName = data.SourceName
+	}
 
 	var out bytes.Buffer
-	if err := pageTmpl.Execute(&out, data); err != nil {
-		return nil, fmt.Errorf("execute page template: %w", err)
+	tmpl := pageTmpl
+	label := "page"
+	if opts.Template != nil {
+		tmpl = opts.Template
+		label = "custom template"
+	}
+	if err := tmpl.Execute(&out, data); err != nil {
+		return nil, fmt.Errorf("execute %s: %w", label, err)
 	}
 	return out.Bytes(), nil
 }
@@ -241,7 +275,11 @@ func renderPage(data pageData, opts RenderOptions) ([]byte, error) {
 // class-based code block. The lexer comes from lang when given, else
 // the filename; unrecognized values fall back to plain text
 // (SPEC.md §3).
-func highlightSource(src []byte, name, lang string) (template.HTML, error) {
+func highlightSource(
+	src []byte,
+	name string,
+	lang string,
+) (template.HTML, string, error) {
 	var lexer chroma.Lexer
 	if lang != "" {
 		lexer = lexers.Get(lang)
@@ -255,16 +293,24 @@ func highlightSource(src []byte, name, lang string) (template.HTML, error) {
 
 	it, err := lexer.Tokenise(nil, string(src))
 	if err != nil {
-		return "", fmt.Errorf("tokenise source: %w", err)
+		return "", "", fmt.Errorf("tokenise source: %w", err)
 	}
 
 	var buf bytes.Buffer
 	f := chromahtml.New(chromahtml.WithClasses(true))
 	err = f.Format(&buf, styles.Get(syntaxStyleLight), it)
 	if err != nil {
-		return "", fmt.Errorf("highlight source: %w", err)
+		return "", "", fmt.Errorf("highlight source: %w", err)
 	}
-	return template.HTML(buf.String()), nil
+	return template.HTML(buf.String()), lexerLanguage(lexer), nil
+}
+
+func lexerLanguage(lexer chroma.Lexer) string {
+	config := lexer.Config()
+	if len(config.Aliases) > 0 {
+		return config.Aliases[0]
+	}
+	return strings.ToLower(config.Name)
 }
 
 // matchesLexerFilename reports whether the highlighter recognizes a
@@ -272,6 +318,84 @@ func highlightSource(src []byte, name, lang string) (template.HTML, error) {
 // for extensionless names (SPEC.md §2).
 func matchesLexerFilename(name string) bool {
 	return lexers.Match(name) != nil
+}
+
+// extractHeadings returns every markdown heading and marks a leading H1
+// as the document title. Blank lines are absent from the AST; invisible
+// HTML comments are ignored when deciding whether the H1 leads the
+// visible document (SPEC.md §3).
+func extractHeadings(doc ast.Node, src []byte) []Heading {
+	var title ast.Node
+	for n := doc.FirstChild(); n != nil; n = n.NextSibling() {
+		if isHTMLComment(n, src) {
+			continue
+		}
+		if h, ok := n.(*ast.Heading); ok && h.Level == 1 {
+			title = n
+		}
+		break
+	}
+
+	var headings []Heading
+	_ = ast.Walk(doc, func(n ast.Node, enter bool) (ast.WalkStatus, error) {
+		if !enter {
+			return ast.WalkContinue, nil
+		}
+		h, ok := n.(*ast.Heading)
+		if !ok {
+			return ast.WalkContinue, nil
+		}
+
+		id, _ := h.AttributeString("id")
+		headings = append(headings, Heading{
+			Level:   h.Level,
+			ID:      attributeString(id),
+			Text:    strings.TrimSpace(nodeText(h, src)),
+			IsTitle: n == title,
+		})
+		return ast.WalkSkipChildren, nil
+	})
+	return headings
+}
+
+func isHTMLComment(n ast.Node, src []byte) bool {
+	block, ok := n.(*ast.HTMLBlock)
+	if !ok {
+		return false
+	}
+	var content bytes.Buffer
+	content.Write(block.Lines().Value(src))
+	if block.HasClosure() {
+		content.Write(block.ClosureLine.Value(src))
+	}
+	text := bytes.TrimSpace(content.Bytes())
+	return bytes.HasPrefix(text, []byte("<!--")) &&
+		bytes.HasSuffix(text, []byte("-->"))
+}
+
+func attributeString(value any) string {
+	switch value := value.(type) {
+	case []byte:
+		return string(value)
+	case string:
+		return value
+	default:
+		return ""
+	}
+}
+
+func tocHeadings(headings []Heading) []Heading {
+	toc := make([]Heading, 0, len(headings))
+	for _, heading := range headings {
+		if heading.IsTitle || heading.Level > 3 {
+			continue
+		}
+		toc = append(toc, heading)
+	}
+	if len(toc) < 2 {
+		return nil
+	}
+	return toc
 }
 
 // ExtractTitle returns the text of the first level-1 heading in the

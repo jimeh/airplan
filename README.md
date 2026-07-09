@@ -89,6 +89,7 @@ airplan pkg/server/handler.go       # source file → highlighted page
 cat plan.md | airplan -s my-plan -  # stdin (defaults to markdown)
 airplan --json plan.md              # one-line JSON for scripts
 airplan -o plan.md                  # open in browser too
+airplan preview plan.md > plan.html # render locally, without S3 access
 
 airplan list                        # your upload history
 airplan list --remote               # what's actually in the bucket
@@ -96,16 +97,20 @@ airplan delete <url|key>            # remove an upload (page + source)
 airplan purge --older-than 30d      # bulk cleanup, with confirmation
 ```
 
-Output contract, built for scripting and agents: stdout is the URL
-and nothing else (or a single JSON object with `--json`); everything
-else goes to stderr; non-zero exit means nothing was uploaded.
+Upload output is built for scripting and agents: stdout is the URL and
+nothing else (or a single JSON object with `--json`); everything else
+goes to stderr; non-zero exit means nothing was uploaded. The local
+`preview` subcommand writes HTML instead.
 
 Rendered markdown pages are fully standalone — embedded styles, no
-external assets — with a rendered/source toggle, copy-markdown and
-per-code-block copy buttons, and a download link to the original
-`.md` uploaded alongside (`--no-source` to skip). Text input picks
-its highlight language from the filename; use `--lang` when piping
-(`cat main.go | airplan --format txt --lang go -`).
+external assets — with a responsive table of contents, GitHub-style
+alerts, a rendered/source toggle, copy-markdown and per-code-block copy
+buttons, and raw/download links to the original `.md` uploaded alongside
+(`--no-source` to skip). Text input picks its highlight language from the
+filename; use `--lang` when piping
+(`cat main.go | airplan --format txt --lang go -`). `airplan preview`
+uses the same rendering pipeline locally and writes HTML to stdout or
+`--output PATH`, without validating credentials or contacting S3.
 
 Every upload made from a machine is recorded in its local manifest
 (`~/.local/state/airplan/manifest.jsonl`); `list`, `delete`, and

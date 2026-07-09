@@ -1,6 +1,6 @@
-// Command airplan uploads AI/LLM agent plan files (markdown or HTML)
-// to S3-compatible object storage under a randomized, unguessable URL
-// path and prints the resulting URL. Behavior is defined by SPEC.md.
+// Command airplan renders and uploads AI/LLM plan documents, with a
+// local preview path that does not require object storage. Behavior is
+// defined by SPEC.md.
 package main
 
 import (

@@ -152,178 +152,58 @@ type Result struct {
 // uploads first; failure of either upload fails the whole call
 // (SPEC.md §5).
 func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
-	if in.Reader == nil {
-		return nil, errors.New("airplan: input reader is nil")
-	}
-	limit := in.MaxSize
-	switch {
-	case limit == 0:
-		limit = DefaultMaxInputSize
-	case limit < 0:
-		limit = 0 // readInput treats <= 0 as unlimited
-	}
-	data, err := readInput(ctx, in.Reader, limit)
+	doc, err := renderInput(ctx, in, RenderInputOptions{
+		Indexable:     c.cfg.Indexable,
+		IncludeSource: !c.cfg.NoSource,
+	}, c.template, c.templateErr)
 	if err != nil {
 		return nil, err
 	}
-	if IsBinary(data) {
-		return nil, ErrBinaryInput
-	}
-
-	var format Format
-	if in.Format != "" {
-		format, err = ParseFormat(in.Format)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		format = DetectFormat(in.Name, data)
-	}
-
-	slug := in.Slug
-	if slug == "" {
-		slug = filenameStem(in.Name)
-	}
-	slug = SanitizeSlug(slug)
 
 	dir, err := RandomDirName()
 	if err != nil {
 		return nil, fmt.Errorf("airplan: generate key: %w", err)
 	}
 
-	res := &Result{Bucket: c.cfg.Bucket}
-
-	if c.templateErr != nil && format != FormatHTML {
-		return nil, c.templateErr
+	res := &Result{
+		Bucket:   c.cfg.Bucket,
+		Title:    doc.Title,
+		Warnings: append([]string(nil), doc.Warnings...),
 	}
 
-	var page []byte
-	var title string
-	switch format {
-	case FormatMarkdown:
-		title = ResolveTitle(in.Title, data, in.Name, slug)
-
-		sourcePath := ""
-		if !c.cfg.NoSource {
-			sourcePath = "./" + slug + ".md"
-		}
-		page, err = RenderMarkdown(data, RenderOptions{
-			Title:      title,
-			Slug:       slug,
-			SourcePath: sourcePath,
-			Indexable:  c.cfg.Indexable,
-			Template:   c.template,
+	// The source uploads first: an orphaned source object is harmless,
+	// while an orphaned page URL would contain a broken download link
+	// (SPEC.md §5).
+	if doc.sourceObjectName != "" && doc.SourcePath != "" {
+		sourceKey := BuildKey(
+			c.cfg.KeyPrefix, dir, doc.sourceObjectName,
+		)
+		err = c.st.put(ctx, object{
+			Key:         sourceKey,
+			Body:        doc.source,
+			ContentType: doc.sourceContentType(),
+			Metadata:    titleMetadata(doc.Title),
 		})
 		if err != nil {
 			return nil, err
 		}
-
-		// The source uploads first: an orphaned source object is
-		// harmless, an orphaned page URL is a broken download link
-		// (SPEC.md §5).
-		if !c.cfg.NoSource {
-			sourceKey := BuildKey(c.cfg.KeyPrefix, dir, slug+".md")
-			err = c.st.put(ctx, object{
-				Key:         sourceKey,
-				Body:        data,
-				ContentType: sourceContentType,
-				Metadata:    titleMetadata(title),
-			})
-			if err != nil {
-				return nil, err
-			}
-			res.SourceKey = sourceKey
-		}
-
-	case FormatText:
-		// The document is never interpreted, so the title chain is
-		// explicit title → original filename (with extension, so a
-		// shared file identifies itself) → slug (SPEC.md §3).
-		title = in.Title
-		if title == "" && in.Name != "" {
-			title = filepath.Base(in.Name)
-		}
-		if title == "" {
-			title = slug
-		}
-
-		sourceName := slug + "." + sourceExt(in.Name)
-		sourcePath := ""
-		if !c.cfg.NoSource {
-			sourcePath = "./" + sourceName
-		}
-		page, err = RenderText(data, in.Name, RenderOptions{
-			Title:      title,
-			Slug:       slug,
-			SourcePath: sourcePath,
-			Indexable:  c.cfg.Indexable,
-			Lang:       in.Lang,
-			Template:   c.template,
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		if !c.cfg.NoSource {
-			sourceKey := BuildKey(c.cfg.KeyPrefix, dir, sourceName)
-			err = c.st.put(ctx, object{
-				Key:         sourceKey,
-				Body:        data,
-				ContentType: textContentType,
-				Metadata:    titleMetadata(title),
-			})
-			if err != nil {
-				return nil, err
-			}
-			res.SourceKey = sourceKey
-		}
-
-	case FormatHTML:
-		// HTML has no markdown source to inspect; the title chain is
-		// explicit title → filename → slug (SPEC.md §4: the document
-		// itself is never parsed).
-		title = ResolveTitle(in.Title, nil, in.Name, slug)
-
-		if c.template != nil || c.templateErr != nil {
-			w := "custom template ignored for HTML input — " +
-				"HTML is uploaded as-is"
-			if c.templateErr != nil {
-				w += " (note: the template also failed to load: " +
-					c.templateErr.Error() + ")"
-			}
-			res.Warnings = append(res.Warnings, w)
-		}
-
-		page = data
-		if !c.cfg.Indexable {
-			out, outcome := InjectNoindex(data)
-			page = out
-			if outcome == NoindexNoHead {
-				res.Warnings = append(res.Warnings,
-					"no <head> tag found; uploaded HTML unmodified, "+
-						"without a noindex meta tag")
-			}
-		}
-
-	default:
-		return nil, fmt.Errorf("airplan: unsupported format %v", format)
+		res.SourceKey = sourceKey
 	}
 
-	pageKey := BuildKey(c.cfg.KeyPrefix, dir, slug+".html")
+	pageKey := BuildKey(c.cfg.KeyPrefix, dir, doc.Slug+".html")
 	err = c.st.put(ctx, object{
 		Key:         pageKey,
-		Body:        page,
+		Body:        doc.HTML,
 		ContentType: pageContentType,
-		Metadata:    titleMetadata(title),
+		Metadata:    titleMetadata(doc.Title),
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	res.Key = pageKey
-	res.Bytes = int64(len(page))
+	res.Bytes = int64(len(doc.HTML))
 	res.ContentType = pageContentType
-	res.Title = title
 
 	url, fallback := PublicURL(c.cfg, pageKey)
 	if fallback {

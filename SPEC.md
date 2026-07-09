@@ -1,6 +1,25 @@
 # airplan — Tool Specification
 
-**Spec version: 0.3.2**
+**Spec version: 0.5.2**
+
+Changes in 0.5.2: layouts without the sticky table-of-contents rail
+keep it reachable after the inline table of contents scrolls away (§3).
+
+Changes in 0.5.1: built-in document controls use a quieter,
+borderless treatment with a segmented view toggle and visible keyboard
+focus (§3).
+
+Changes in 0.5.0: markdown rendering supports GitHub-style alerts;
+the built-in page gains a clearer typographic hierarchy, refined code
+surfaces, and labelled rendered/source controls; and uploaded source
+files can be opened raw as well as downloaded (§3).
+
+Changes in 0.4.0: rendered markdown pages gain a responsive table of
+contents and a wider document shell; the custom-template data contract
+exposes rendered, highlighted, and raw source forms plus structured
+headings and syntax CSS; `airplan template` emits an exact reusable
+built-in template; and `airplan preview` renders locally without S3
+access (§3, §6).
 
 Changes in 0.3.2: `airplan list` text/table output renders sizes as
 human-readable binary units; `--json` keeps exact byte counts (§9).
@@ -115,13 +134,37 @@ CSS, no external fonts/scripts/assets, system font stack.
 
 - Markdown dialect: CommonMark plus GitHub Flavored Markdown
   extensions — tables, strikethrough, task lists, autolinks — plus
-  footnotes and heading anchors.
+  footnotes, heading anchors, and GitHub-style alerts. Alerts use the
+  standard blockquote markers `NOTE`, `TIP`, `IMPORTANT`, `WARNING`,
+  and `CAUTION`; they are converted to static HTML during
+  rendering and may contain normal block Markdown. Unrecognized alert
+  markers remain ordinary blockquotes.
 - Fenced code blocks are syntax-highlighted at render time. The
   highlighting must follow `prefers-color-scheme` (light and dark
   palettes).
-- Page styling: dark/light aware via `prefers-color-scheme`,
-  readable measure (~72ch max-width), comfortable line height —
-  optimized for reading a plan document.
+- Page styling: dark/light aware via `prefers-color-scheme`, a centered
+  document shell around 54rem wide, prose constrained to a readable
+  measure around 78ch, comfortable line height, distinct heading/body/
+  muted color roles, and section hierarchy carried primarily by type and
+  spacing rather than repeated divider rules. Code blocks and tables may
+  use the full shell width so an 80-column source line fits without
+  horizontal scrolling at the default font size. Inline and block code
+  use separate subtle surfaces; block code has a quiet border and thin
+  horizontal scrollbar.
+- A responsive table of contents is rendered from markdown headings:
+  - H1, H2, and H3 headings are included. If an H1 is the first visible
+    block in the document, it is treated as the document title and is
+    the only heading omitted from the built-in table of contents. Later
+    H1 headings remain top-level entries.
+  - Heading links and hierarchy work without JavaScript. On wide
+    screens the table of contents occupies a sticky rail beside the
+    centered document; on narrow screens it moves above the document.
+    As a progressive enhancement on layouts without the sticky rail, a
+    compact control keeps the table of contents reachable after its
+    inline version scrolls above the viewport.
+  - Scroll position highlighting is a progressive enhancement and
+    respects `prefers-reduced-motion`. The table of contents is hidden
+    in source view and omitted when fewer than two entries remain.
 - `<title>` from `--title`, else first `<h1>`, else source filename,
   else the resolved slug (covers stdin input with no `<h1>`).
 - `<meta name="robots" content="noindex, nofollow">` — belt and
@@ -133,7 +176,11 @@ CSS, no external fonts/scripts/assets, system font stack.
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter
     ships. (Embedding the source roughly doubles page weight —
-    irrelevant at plan-document sizes.)
+    irrelevant at plan-document sizes.) The controls use visible text
+    labels, and source view identifies itself as “Markdown source”.
+    The view toggle uses a subtle segmented treatment; adjacent file
+    actions are borderless, with muted hover states and a clearly
+    visible keyboard-focus outline.
   - "Copy markdown" button for the full original source. Raw text
     is recovered from the highlighted block's text content (the
     highlight markup must preserve it exactly), so the source is
@@ -142,6 +189,9 @@ CSS, no external fonts/scripts/assets, system font stack.
     sibling `.md` object (relative link, `./<slug>.md`). Being a
     plain anchor, it works even without JS; omitted when the source
     wasn't uploaded (`--no-source`).
+  - "Raw" link: a plain anchor to the same sibling source without the
+    `download` attribute, so the browser can open it directly. It has
+    the same availability and no-JavaScript behavior as Download.
   - Per-code-block copy buttons on hover; always visible on touch
     devices, where hover doesn't exist.
   - Graceful degradation: with JS disabled the rendered view stays
@@ -175,7 +225,8 @@ A shared source file reads like a one-file gist.
   headers), where `<ext>` is the source filename's extension —
   `txt` when there is none (stdin) or when it would collide with
   the page object (`html`/`htm`). The page's download anchor points
-  at it. `--no-source` skips it, exactly as for markdown.
+  at it, and the Raw anchor opens it without forcing a download.
+  `--no-source` skips it, exactly as for markdown.
 
 ### Page templates & customization
 
@@ -187,21 +238,43 @@ as-is (warn if combined).
 Template data contract (the stable API custom templates code
 against):
 
-| Field         | Type     | Meaning                                 |
-| ------------- | -------- | --------------------------------------- |
-| `.Title`      | string   | resolved title                          |
-| `.Body`       | raw HTML | rendered markdown body                  |
-| `.SourceHTML` | raw HTML | highlighted raw source                  |
-| `.SourcePath` | string   | relative path to the uploaded source    |
-| `.Slug`       | string   | resolved slug                           |
-| `.FileName`   | string   | original filename (text input; else "") |
+| Field                    | Type      | Meaning                              |
+| ------------------------ | --------- | ------------------------------------ |
+| `.Title`                 | string    | resolved title                       |
+| `.RenderedHTML`          | raw HTML  | rendered markdown or text page body  |
+| `.SourceText`            | string    | original unmodified source           |
+| `.HighlightedSourceHTML` | raw HTML  | syntax-highlighted original source   |
+| `.SyntaxCSS`             | raw CSS   | styles required by highlighted HTML  |
+| `.Headings`              | heading[] | all markdown headings                |
+| `.TOC`                   | heading[] | built-in H1-H3 ToC entries           |
+| `.Format`                | string    | `md` or `txt`                        |
+| `.Language`              | string    | resolved source-highlight language   |
+| `.SourceName`            | string    | original basename; empty for stdin   |
+| `.SourcePath`            | string    | relative path to the uploaded source |
+| `.Slug`                  | string    | resolved slug                        |
+| `.Indexable`             | boolean   | whether indexing is allowed          |
+
+Each heading has `.Level` (1–6), `.ID`, `.Text`, and `.IsTitle`.
+`.IsTitle` is true only for a leading H1 that the built-in table of
+contents omits. `.TOC` is structured data, not pre-rendered navigation
+HTML, so custom templates retain control of markup and presentation.
+
+For compatibility, `.Body` remains an alias for `.RenderedHTML`,
+`.SourceHTML` remains the markdown-only alias for
+`.HighlightedSourceHTML` (and therefore stays empty for text input), and
+`.FileName` remains the legacy text-input-only filename. New templates
+should use the canonical fields.
 
 `.SourcePath` is empty when the source isn't uploaded
 (`--no-source`); templates must handle both cases.
 
-A custom template takes full responsibility for the page: styles,
-noindex meta, and any interactivity. `airplan template` prints the
-built-in template to stdout as a starting point for customization.
+A custom template takes full responsibility for the page: page styles,
+noindex meta, and any interactivity. `.SyntaxCSS` is supplied because it
+is coupled to the generated highlighting classes; the built-in page's
+own CSS and JavaScript are baked directly into its template rather than
+exposed as data. `airplan template` prints that exact, self-contained
+built-in template to stdout. Saving the output and passing it back via
+`--template` must work unchanged.
 
 Portability boundary: the data contract above is
 implementation-independent; the template _syntax_ is
@@ -274,7 +347,7 @@ airplan [flags] [file]
 | `--format`      | auto           | `md`\|`html`\|`txt`; overrides §2   |
 | `--slug S`      | from filename  | filename portion of the URL         |
 | `--title T`     | from content   | page title (see §3 fallback chain)  |
-| `--template P`  | built-in       | custom page template (md only)      |
+| `--template P`  | built-in       | custom page template (md and text)  |
 | `--no-source`   | off            | don't upload the original .md       |
 | `--indexable`   | off            | no noindex meta (md and html, §3–4) |
 | `--max-size N`  | 10MiB          | input size limit; 0 = no limit (§2) |
@@ -344,6 +417,7 @@ stays reserved for the success object).
 ```
 airplan config schema
 airplan template
+airplan preview [flags] [file]
 airplan completion bash|zsh|fish
 airplan list [--remote] [--json]
 airplan delete <url|key>
@@ -353,6 +427,17 @@ airplan purge [--remote] [--older-than 30d]
 
 `config schema` prints the config file's JSON Schema (see §7).
 `template` prints the built-in page template (see §3).
+`preview` runs input detection and page rendering locally, writing the
+resulting HTML to stdout or to `--output PATH`. It supports the rendering
+flags `--format`, `--lang`, `--slug`, `--title`, `--template`,
+`--indexable`, and `--max-size`, plus `--config` and `--profile` for
+resolving template settings. It does not validate S3 connection fields,
+access the network, upload source, or write the manifest. Consequently
+`.SourcePath` is empty in a preview, while markdown's embedded source
+view remains available. HTML input receives the same conservative
+noindex injection as an upload. `file` omitted or `-` reads stdin;
+`--output -` is equivalent to the stdout default. An output path that
+resolves to the input file is rejected without modifying the input.
 `list`/`purge` operate on the local upload manifest by default, or
 on a live bucket listing with `--remote`. `delete` takes an explicit
 URL or key, so it works on any upload regardless of which machine

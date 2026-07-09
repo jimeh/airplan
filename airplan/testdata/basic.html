@@ -10,22 +10,67 @@
   color-scheme: light dark;
   --bg: #ffffff;
   --fg: #1f2328;
+  --heading: #1f2328;
+  --subheading: #3d444d;
   --muted: #59636e;
   --link: #0969da;
   --border: #d1d9e0;
+  --surface-subtle: #f6f8fa;
+  --code-inline-bg: #eff1f3;
   --code-bg: #f6f8fa;
+  --code-border: #d1d9e0;
+  --control-track: #eff1f3;
+  --control-active: #ffffff;
+  --control-hover: #eff1f3;
+  --control-divider: #d8dee4;
+  --on-link: #ffffff;
+  --dialog-backdrop: rgba(31, 35, 40, 0.45);
   --mark-bg: #fff8c5;
+  --alert-note: #0969da;
+  --alert-note-bg: #ddf4ff;
+  --alert-tip: #1a7f37;
+  --alert-tip-bg: #dafbe1;
+  --alert-important: #8250df;
+  --alert-important-bg: #fbefff;
+  --alert-warning: #9a6700;
+  --alert-warning-bg: #fff8c5;
+  --alert-caution: #cf222e;
+  --alert-caution-bg: #ffebe9;
+  --page-width: 54rem;
+  --prose-width: 78ch;
+  --toc-width: 14rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #0d1117;
     --fg: #e6edf3;
+    --heading: #f0f6fc;
+    --subheading: #c9d1d9;
     --muted: #9198a1;
     --link: #4493f8;
     --border: #3d444d;
+    --surface-subtle: #151b23;
+    --code-inline-bg: #212830;
     --code-bg: #151b23;
+    --code-border: #30363d;
+    --control-track: #21262d;
+    --control-active: #30363d;
+    --control-hover: #21262d;
+    --control-divider: #30363d;
+    --on-link: #0d1117;
+    --dialog-backdrop: rgba(0, 0, 0, 0.66);
     --mark-bg: #693e00;
+    --alert-note: #4493f8;
+    --alert-note-bg: #121d2f;
+    --alert-tip: #3fb950;
+    --alert-tip-bg: #12261e;
+    --alert-important: #a371f7;
+    --alert-important-bg: #211a2e;
+    --alert-warning: #d29922;
+    --alert-warning-bg: #272115;
+    --alert-caution: #f85149;
+    --alert-caution-bg: #2d1618;
   }
 }
 
@@ -40,13 +85,22 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
     Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
   font-size: 16px;
-  line-height: 1.6;
+  line-height: 1.7;
   -webkit-text-size-adjust: 100%;
 }
 
+.page-shell {
+  display: grid;
+  grid-template-columns:
+    minmax(12rem, 1fr) minmax(0, var(--page-width)) minmax(12rem, 1fr);
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
 .toolbar {
-  max-width: 72ch;
-  margin: 0 auto;
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
   padding: 0.75rem 1.25rem 0;
   display: flex;
   flex-wrap: wrap;
@@ -56,20 +110,221 @@ body {
   font-size: 0.85rem;
 }
 
+.toc {
+  grid-column: 1;
+  grid-row: 2;
+  position: sticky;
+  top: 1.5rem;
+  align-self: start;
+  justify-self: end;
+  width: min(var(--toc-width), calc(100% - 2rem));
+  max-height: calc(100vh - 3rem);
+  margin: 1.5rem 1.25rem 0 0;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+
+.toc-title {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.toc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toc-list li + li {
+  margin-top: 0.1rem;
+}
+
+.toc-list a {
+  display: block;
+  padding: 0.3rem 0;
+  color: var(--muted);
+  line-height: 1.35;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.toc-list a:hover,
+.toc-list a:focus-visible {
+  color: var(--fg);
+}
+
+.toc-list a.active {
+  color: var(--link);
+}
+
+.toc-level-1 {
+  margin-top: 0.65rem;
+  font-weight: 650;
+}
+
+.toc-level-1:first-child {
+  margin-top: 0;
+}
+
+.toc-level-3 a {
+  padding-left: 1rem;
+  font-size: 0.8rem;
+}
+
+.toc-trigger {
+  display: none;
+  position: fixed;
+  right: 1.25rem;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom));
+  z-index: 20;
+  width: 3rem;
+  height: 3rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--on-link);
+  background: var(--link);
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(0.5rem);
+  transition:
+    opacity 0.15s ease-in-out,
+    visibility 0.15s ease-in-out,
+    transform 0.15s ease-in-out,
+    box-shadow 0.15s ease-in-out;
+}
+
+.toc-trigger.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.toc-trigger:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+
+.toc-trigger .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.toc-trigger:focus-visible,
+.toc-dialog-close:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 3px;
+}
+
+.toc-dialog {
+  position: fixed;
+  inset: auto 0 0;
+  width: min(100%, 42rem);
+  max-width: none;
+  max-height: 70vh;
+  max-height: 70svh;
+  margin: 0 auto;
+  padding: 0;
+  color: var(--fg);
+  background: var(--bg);
+  border: 0;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.toc-dialog::backdrop {
+  background: var(--dialog-backdrop);
+}
+
+.toc-dialog-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+}
+
+.toc-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: 1.25rem 1.25rem 0.75rem;
+}
+
+.toc-dialog-title {
+  margin: 0;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.toc-dialog-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.toc-dialog-close:hover {
+  color: var(--fg);
+  background: var(--control-hover);
+}
+
+.toc-dialog-nav {
+  min-height: 0;
+  padding: 0.25rem 1.25rem
+    calc(1.5rem + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.toc-dialog .toc-list a {
+  padding-block: 0.55rem;
+}
+
+body.toc-dialog-open {
+  overflow: hidden;
+}
+
 .toolbar a,
 .toolbar button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.4rem;
   white-space: nowrap;
   font: inherit;
   color: var(--muted);
-  background: none;
+  background: transparent;
   text-decoration: none;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0.4rem;
+  border: 0;
+  border-radius: 8px;
+  padding: 0.4rem 0.65rem;
   cursor: pointer;
+  transition:
+    color 0.15s ease-in-out,
+    background-color 0.15s ease-in-out;
 }
 
 .icon {
@@ -96,24 +351,28 @@ body {
 .toolbar a:hover,
 .toolbar button:hover {
   color: var(--fg);
-  border-color: var(--muted);
+  background: var(--control-hover);
 }
 
-/* Mode control, not action buttons: an inset track whose active
-   segment sits as a raised pill — no internal divider to glare. */
+.toolbar a:focus-visible,
+.toolbar button:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
 .viewtoggle {
   display: inline-flex;
   gap: 2px;
   padding: 2px;
-  background: var(--code-bg);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  background: var(--control-track);
+  border: 0;
+  border-radius: 8px;
 }
 
 .viewtoggle button {
   border: 0;
-  border-radius: 4px;
-  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  padding: 0.3rem 0.55rem;
 }
 
 .viewtoggle button:hover {
@@ -122,8 +381,24 @@ body {
 
 .viewtoggle button.active {
   color: var(--fg);
-  background: var(--bg);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  background: var(--control-active);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.viewtoggle + .copy-source {
+  position: relative;
+  margin-left: 0.5rem;
+}
+
+.viewtoggle + .copy-source::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -0.5rem;
+  width: 1px;
+  height: 1rem;
+  background: var(--control-divider);
+  transform: translateY(-50%);
 }
 
 [hidden] {
@@ -132,7 +407,7 @@ body {
 
 .codewrap {
   position: relative;
-  margin: 0 0 1em;
+  margin: 0 0 1.5em;
 }
 
 .codewrap pre {
@@ -148,8 +423,8 @@ body {
   justify-content: center;
   font: inherit;
   color: var(--muted);
-  background: var(--bg);
-  border: 1px solid var(--border);
+  background: var(--code-bg);
+  border: 1px solid transparent;
   border-radius: 6px;
   padding: 0.35rem;
   cursor: pointer;
@@ -179,44 +454,61 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .toolbar a,
+  .toolbar button,
+  .toc-trigger,
   .codecopy {
     transition: none;
   }
 }
 
 .content {
-  max-width: 72ch;
-  margin: 0 auto;
-  padding: 1.5rem 1.25rem 4rem;
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  min-width: 0;
+  padding: 1.5rem 1.5rem 4rem;
   overflow-wrap: break-word;
 }
 
+.content > p,
+.content > ul,
+.content > ol,
+.content > blockquote,
+.content > .footnotes {
+  max-width: var(--prose-width);
+}
+
 h1, h2, h3, h4, h5, h6 {
+  color: var(--heading);
+  font-weight: 700;
+  letter-spacing: -0.015em;
   line-height: 1.25;
-  margin: 1.75em 0 0.6em;
+  margin: 2em 0 0.75em;
   scroll-margin-top: 0.75em;
 }
 
 h1 {
-  font-size: 1.9em;
-  margin-top: 0.5em;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--border);
+  font-size: 2em;
+  margin-top: 0.35em;
+  letter-spacing: -0.025em;
 }
 
 h2 {
-  font-size: 1.45em;
-  padding-bottom: 0.3em;
-  border-bottom: 1px solid var(--border);
+  font-size: 1.5em;
+  margin-top: 2.25em;
 }
 
-h3 { font-size: 1.2em; }
+h3 {
+  font-size: 1.2em;
+  color: var(--subheading);
+}
 h4 { font-size: 1.05em; }
 h5, h6 { font-size: 1em; }
 h6 { color: var(--muted); }
 
 p, ul, ol, blockquote, table, pre {
-  margin: 0 0 1em;
+  margin: 0 0 1.25em;
 }
 
 a {
@@ -253,6 +545,60 @@ blockquote {
 
 blockquote > :first-child { margin-top: 0; }
 blockquote > :last-child { margin-bottom: 0; }
+
+.markdown-alert {
+  --alert-color: var(--alert-note);
+  --alert-bg: var(--alert-note-bg);
+  margin: 1.5em 0;
+  padding: 0.85em 1em;
+  border-left: 3px solid var(--alert-color);
+  border-radius: 6px;
+  background: var(--alert-bg);
+  color: var(--fg);
+}
+
+.markdown-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin: 0 0 0.55em;
+  color: var(--alert-color);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.markdown-alert-icon {
+  width: 1em;
+  height: 1em;
+  flex: none;
+}
+
+.markdown-alert > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-alert-tip {
+  --alert-color: var(--alert-tip);
+  --alert-bg: var(--alert-tip-bg);
+}
+
+.markdown-alert-important {
+  --alert-color: var(--alert-important);
+  --alert-bg: var(--alert-important-bg);
+}
+
+.markdown-alert-warning {
+  --alert-color: var(--alert-warning);
+  --alert-bg: var(--alert-warning-bg);
+}
+
+.markdown-alert-caution {
+  --alert-color: var(--alert-caution);
+  --alert-bg: var(--alert-caution-bg);
+}
 
 hr {
   border: 0;
@@ -293,22 +639,40 @@ code, pre, kbd, samp {
 }
 
 code {
-  background: var(--code-bg);
-  border-radius: 6px;
+  background: var(--code-inline-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 4px;
   padding: 0.15em 0.35em;
   font-size: 0.875em;
 }
 
 pre {
   background: var(--code-bg);
-  border-radius: 6px;
-  padding: 1em;
+  border: 1px solid var(--code-border);
+  border-radius: 8px;
+  padding: 1em 1.25em;
   overflow-x: auto;
-  line-height: 1.45;
+  line-height: 1.6;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+pre::-webkit-scrollbar {
+  height: 6px;
+}
+
+pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+pre::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
 }
 
 pre code {
   background: none;
+  border: 0;
   padding: 0;
   font-size: 0.875em;
 }
@@ -320,9 +684,10 @@ pre code {
 .filehead {
   font-size: 0.8rem;
   color: var(--muted);
-  background: var(--code-bg);
-  border-bottom: 1px solid var(--border);
-  border-radius: 6px 6px 0 0;
+  background: var(--surface-subtle);
+  border: 1px solid var(--code-border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
   padding: 0.6em 1em;
 }
 
@@ -333,8 +698,23 @@ pre code {
 }
 
 .filehead + pre {
-  border-radius: 0 0 6px 6px;
+  border-radius: 0 0 8px 8px;
   margin-top: 0;
+}
+
+.source-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.source-heading .icon {
+  width: 14px;
+  height: 14px;
 }
 
 mark {
@@ -363,16 +743,72 @@ mark {
   white-space: nowrap;
 }
 
+@media (max-width: 78rem) {
+  .page-shell {
+    display: block;
+  }
+
+  .toolbar,
+  .toc,
+  .content {
+    width: 100%;
+    max-width: var(--page-width);
+    margin-inline: auto;
+  }
+
+  .toc {
+    position: static;
+    max-height: none;
+    padding: 1.25rem 1.5rem 0;
+    overflow: visible;
+  }
+
+  .toc-trigger {
+    display: inline-flex;
+  }
+
+  .toc-trigger.is-visible {
+    pointer-events: auto;
+  }
+}
+
+@media (max-width: 36rem) {
+  .toolbar {
+    display: grid;
+    grid-template-columns: repeat(3, max-content);
+    justify-content: flex-start;
+    padding-inline: 1rem;
+  }
+
+  .toolbar .viewtoggle {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .viewtoggle + .copy-source {
+    margin-left: 0;
+  }
+
+  .viewtoggle + .copy-source::before {
+    display: none;
+  }
+
+  .toc,
+  .content {
+    padding-inline: 1.25rem;
+  }
+}
+
 @media print {
   .toolbar,
+  .toc,
+  .toc-trigger,
+  .toc-dialog,
   .codecopy,
   .source-view {
     display: none !important;
   }
 
-  /* Always print the rendered view, even if the reader printed while
-     the source view was toggled on ([hidden] would otherwise blank
-     the page; the ID selector out-ranks the [hidden] rule). */
   #rendered {
     display: block !important;
   }
@@ -542,16 +978,17 @@ mark {
 </style>
 </head>
 <body>
-<nav class="toolbar">
+<div class="page-shell">
+<nav class="toolbar" aria-label="Document controls">
   <div class="viewtoggle js-only" hidden>
     <button type="button" class="active" data-view="rendered"
       aria-pressed="true" aria-label="Rendered view"
       title="Rendered view"><svg class="icon" aria-hidden="true"
-      viewBox="0 0 16 16" fill="currentColor"><path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.825.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"/></svg></button>
+      viewBox="0 0 16 16" fill="currentColor"><path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.825.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"/></svg><span>Rendered</span></button>
     <button type="button" data-view="source"
       aria-pressed="false" aria-label="Source view"
       title="Source view"><svg class="icon" aria-hidden="true"
-      viewBox="0 0 16 16" fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg></button>
+      viewBox="0 0 16 16" fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Source</span></button>
   </div>
   <button type="button" class="copy-source js-only" hidden
     aria-label="Copy markdown" title="Copy markdown"><svg
@@ -560,11 +997,26 @@ mark {
     class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16"
     fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg><svg
     class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16"
-    fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg></button>
+    fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg><span class="action-label">Copy</span></button>
   <a class="download" href="./refactor-auth.md" download
-    aria-label="Download markdown" title="Download markdown"><svg
+    aria-label="Download markdown"
+    title="Download markdown"><svg
     class="icon" aria-hidden="true" viewBox="0 0 16 16"
-    fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg></a>
+    fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg><span>Download</span></a>
+  <a class="raw" href="./refactor-auth.md"
+    aria-label="Open raw markdown"
+    title="Open raw markdown"><svg
+    class="icon" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Raw</span></a>
+</nav>
+<nav class="toc" id="toc" aria-label="Table of contents">
+  <p class="toc-title">Contents</p>
+  <ol class="toc-list">
+    <li class="toc-level-2"><a href="#goals">Goals</a></li>
+    <li class="toc-level-2"><a href="#tasks">Tasks</a></li>
+    <li class="toc-level-2"><a href="#code">Code</a></li>
+    <li class="toc-level-2"><a href="#matrix">Matrix</a></li>
+  </ol>
 </nav>
 <main class="content" id="rendered">
 <h1 id="refactor-auth">Refactor auth</h1>
@@ -605,9 +1057,10 @@ mark {
 </tr>
 </tbody>
 </table>
-<blockquote>
-<p>Note: rollback plan lives at <a href="https://example.com/rollback">https://example.com/rollback</a></p>
-</blockquote>
+<div class="markdown-alert markdown-alert-note">
+<p class="markdown-alert-title"><svg class="markdown-alert-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8m8-6.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 0 0 0-13M6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75M8 6a1 1 0 1 1 0-2a1 1 0 0 1 0 2"/></svg>Note</p>
+<p>The rollback plan lives at <a href="https://example.com/rollback">https://example.com/rollback</a>.</p>
+</div>
 <div class="footnotes" role="doc-endnotes">
 <hr>
 <ol>
@@ -619,6 +1072,8 @@ mark {
 
 </main>
 <main class="content source-view" id="source" hidden>
+<p class="source-heading"><svg class="icon" aria-hidden="true"
+  viewBox="0 0 16 16" fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Markdown source</span></p>
 <pre class="chroma"><code><span class="line"><span class="cl"><span class="gh"># Refactor auth
 </span></span></span><span class="line"><span class="cl">
 </span></span><span class="line"><span class="cl">A short plan document exercising the rendering pipeline.
@@ -653,37 +1108,38 @@ mark {
 </span></span><span class="line"><span class="cl">| happy    | pass   |
 </span></span><span class="line"><span class="cl">| sad      | fail   |
 </span></span><span class="line"><span class="cl"><span class="k">
-</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">Note: rollback plan lives at https://example.com/rollback
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">[!NOTE]
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">The rollback plan lives at https://example.com/rollback.
 </span></span></span><span class="line"><span class="cl">
 </span></span><span class="line"><span class="cl">[^flag]: <span class="sb">`auth_v2`</span> in the flags service.
 </span></span></code></pre>
 </main>
+</div>
 <script>
 (function () {
   'use strict';
   var d = document;
 
-  // Reveal JS-dependent controls (hidden for no-JS readers).
   d.querySelectorAll('.js-only').forEach(function (el) {
     el.hidden = false;
   });
 
-  // Visually-hidden live region so screen readers announce copy
-  // feedback even when focus doesn't stay on the button.
   var live = d.createElement('div');
   live.className = 'sr-status';
   live.setAttribute('aria-live', 'polite');
   d.body.appendChild(live);
 
-  // Buttons are icon-only: feedback is an icon swap (check on
-  // success, x on failure) plus the live-region announcement.
   function flash(btn, text, ok) {
     live.textContent = text;
+    var label = btn.querySelector('.action-label');
+    var previousLabel = label ? label.textContent : '';
+    if (label) label.textContent = ok ? 'Copied' : 'Failed';
     btn.classList.add(ok ? 'is-copied' : 'is-failed');
     btn.disabled = true;
     setTimeout(function () {
       btn.classList.remove('is-copied', 'is-failed');
       btn.disabled = false;
+      if (label) label.textContent = previousLabel;
     }, 1200);
   }
 
@@ -698,8 +1154,6 @@ mark {
     );
   }
 
-  // Octicons mirroring the toolbar's inline SVGs, for the
-  // JS-created per-code-block buttons.
   var iconCopy = '<svg class="icon icon-copy" aria-hidden="true"' +
     ' viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0' +
     ' 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0' +
@@ -722,24 +1176,187 @@ mark {
     ' 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0' +
     ' 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.7' +
     '5 0 0 1 0-1.06Z"/></svg>';
+  var iconToc = '<svg class="icon" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="none" stroke="currentColor"' +
+    ' stroke-width="1.5" stroke-linecap="round">' +
+    '<path d="M5 4h9M5 8h9M5 12h9"/>' +
+    '<circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/>' +
+    '<circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/>' +
+    '<circle cx="2" cy="12" r=".75" fill="currentColor"' +
+    ' stroke="none"/></svg>';
+  var iconClose = '<svg class="icon" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72' +
+    'a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1' +
+    ' 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749' +
+    '.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3' +
+    '.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1' +
+    '.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>';
 
-  // Rendered/source toggle.
   var rendered = d.getElementById('rendered');
   var source = d.getElementById('source');
+  var toc = d.getElementById('toc');
+  var tocTrigger = null;
+  var tocDialog = null;
+  var tocMedia = window.matchMedia('(max-width: 78rem)');
+
+  function closeTocDialog() {
+    if (tocDialog && tocDialog.open) tocDialog.close();
+  }
+
+  function syncTocTrigger() {
+    if (!toc || !tocTrigger || !tocDialog) return;
+    var show = tocMedia.matches && !rendered.hidden &&
+      toc.getBoundingClientRect().bottom < 0 && !tocDialog.open;
+    tocTrigger.classList.toggle('is-visible', show);
+    tocTrigger.tabIndex = show ? 0 : -1;
+    tocTrigger.setAttribute('aria-hidden', show ? 'false' : 'true');
+    if (tocDialog.open && (!tocMedia.matches || rendered.hidden)) {
+      closeTocDialog();
+    }
+  }
+
   d.querySelectorAll('.viewtoggle button').forEach(function (btn) {
     btn.addEventListener('click', function () {
       var showSource = btn.dataset.view === 'source';
       source.hidden = !showSource;
       rendered.hidden = showSource;
+      if (toc) toc.hidden = showSource;
       d.querySelectorAll('.viewtoggle button').forEach(function (b) {
         b.classList.toggle('active', b === btn);
         b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
       });
+      syncTocTrigger();
     });
   });
 
-  // Copy the full original source. The highlighted block's text
-  // content preserves the raw source exactly.
+  if (toc) {
+    var tocLinks = Array.from(toc.querySelectorAll('a[href^="#"]'));
+    var tocList = toc.querySelector('.toc-list');
+
+    if (tocList) {
+      tocDialog = d.createElement('dialog');
+      if (typeof tocDialog.showModal === 'function') {
+        tocDialog.className = 'toc-dialog';
+        tocDialog.id = 'toc-dialog';
+        tocDialog.setAttribute('aria-labelledby', 'toc-dialog-title');
+
+        var tocPanel = d.createElement('div');
+        tocPanel.className = 'toc-dialog-panel';
+        var tocHeader = d.createElement('div');
+        tocHeader.className = 'toc-dialog-header';
+        var tocTitle = d.createElement('h2');
+        tocTitle.className = 'toc-dialog-title';
+        tocTitle.id = 'toc-dialog-title';
+        tocTitle.textContent = 'Contents';
+        var tocClose = d.createElement('button');
+        tocClose.className = 'toc-dialog-close';
+        tocClose.type = 'button';
+        tocClose.setAttribute('aria-label', 'Close table of contents');
+        tocClose.innerHTML = iconClose;
+        tocHeader.appendChild(tocTitle);
+        tocHeader.appendChild(tocClose);
+
+        var tocNav = d.createElement('nav');
+        tocNav.className = 'toc-dialog-nav';
+        tocNav.setAttribute('aria-label', 'Table of contents');
+        tocNav.appendChild(tocList.cloneNode(true));
+        tocPanel.appendChild(tocHeader);
+        tocPanel.appendChild(tocNav);
+        tocDialog.appendChild(tocPanel);
+
+        tocTrigger = d.createElement('button');
+        tocTrigger.className = 'toc-trigger';
+        tocTrigger.type = 'button';
+        tocTrigger.tabIndex = -1;
+        tocTrigger.setAttribute('aria-label', 'Open table of contents');
+        tocTrigger.setAttribute('aria-controls', 'toc-dialog');
+        tocTrigger.setAttribute('aria-haspopup', 'dialog');
+        tocTrigger.setAttribute('aria-hidden', 'true');
+        tocTrigger.innerHTML = iconToc;
+
+        d.body.appendChild(tocTrigger);
+        d.body.appendChild(tocDialog);
+
+        tocTrigger.addEventListener('click', function () {
+          tocDialog.showModal();
+          d.body.classList.add('toc-dialog-open');
+          syncTocTrigger();
+          var active = tocDialog.querySelector('a.active');
+          if (active) active.scrollIntoView({ block: 'nearest' });
+        });
+        tocClose.addEventListener('click', closeTocDialog);
+        tocDialog.addEventListener('click', function (event) {
+          if (event.target === tocDialog) closeTocDialog();
+        });
+        tocDialog.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            closeTocDialog();
+          }
+        });
+        tocDialog.addEventListener('close', function () {
+          d.body.classList.remove('toc-dialog-open');
+          syncTocTrigger();
+          if (tocTrigger.classList.contains('is-visible')) {
+            setTimeout(function () {
+              tocTrigger.focus();
+            }, 50);
+          }
+        });
+        tocNav.querySelectorAll('a').forEach(function (link) {
+          link.addEventListener('click', closeTocDialog);
+        });
+      } else {
+        tocDialog = null;
+      }
+    }
+
+    var allTocLinks = tocLinks.slice();
+    if (tocDialog) {
+      allTocLinks = allTocLinks.concat(
+        Array.from(tocDialog.querySelectorAll('a[href^="#"]'))
+      );
+    }
+    var tocHeadings = tocLinks.map(function (link) {
+      return d.getElementById(link.getAttribute('href').slice(1));
+    });
+    function updateToc() {
+      var current = 0;
+      tocHeadings.forEach(function (heading, index) {
+        if (heading && heading.getBoundingClientRect().top <= 128) {
+          current = index;
+        }
+      });
+      if (window.innerHeight + window.scrollY >=
+          d.documentElement.scrollHeight - 2) {
+        current = tocLinks.length - 1;
+      }
+      var activeHref = tocLinks[current].getAttribute('href');
+      allTocLinks.forEach(function (link) {
+        var active = link.getAttribute('href') === activeHref;
+        link.classList.toggle('active', active);
+        if (active) {
+          link.setAttribute('aria-current', 'location');
+        } else {
+          link.removeAttribute('aria-current');
+        }
+      });
+      syncTocTrigger();
+    }
+    var tocFramePending = false;
+    function scheduleTocUpdate() {
+      if (tocFramePending) return;
+      tocFramePending = true;
+      window.requestAnimationFrame(function () {
+        tocFramePending = false;
+        updateToc();
+      });
+    }
+    d.addEventListener('scroll', scheduleTocUpdate, { passive: true });
+    window.addEventListener('resize', updateToc);
+    updateToc();
+  }
+
   var copySource = d.querySelector('.copy-source');
   if (copySource && source) {
     copySource.addEventListener('click', function () {
@@ -748,7 +1365,6 @@ mark {
     });
   }
 
-  // Per-code-block copy buttons in the rendered view.
   rendered.querySelectorAll('pre').forEach(function (pre) {
     var wrap = d.createElement('div');
     wrap.className = 'codewrap';

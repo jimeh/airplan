@@ -68,6 +68,9 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		if !strings.Contains(out, `href="./plan.md" download`) {
 			t.Error("missing download anchor")
 		}
+		if !strings.Contains(out, `class="raw" href="./plan.md"`) {
+			t.Error("missing raw source anchor")
+		}
 	})
 
 	t.Run("no download link without SourcePath", func(t *testing.T) {
@@ -165,12 +168,18 @@ func TestRenderMarkdownInteractivity(t *testing.T) {
 	out := render(t, src, RenderOptions{Title: "Hi"})
 
 	for name, frag := range map[string]string{
-		"view toggle":       `class="viewtoggle js-only" hidden`,
-		"pressed state":     `aria-pressed="true"`,
-		"copy source":       `class="copy-source js-only" hidden`,
-		"source block":      `id="source" hidden`,
-		"embedded script":   "<script>",
-		"highlighted fence": `<span class="kn">package</span>`,
+		"view toggle":          `class="viewtoggle js-only" hidden`,
+		"rendered label":       `<span>Rendered</span>`,
+		"source label":         `<span>Source</span>`,
+		"pressed state":        `aria-pressed="true"`,
+		"copy source":          `class="copy-source js-only" hidden`,
+		"source heading":       `<span>Markdown source</span>`,
+		"source block":         `id="source" hidden`,
+		"mobile toc trigger":   `Open table of contents`,
+		"native toc dialog":    `tocDialog.showModal()`,
+		"coalesced toc scroll": `requestAnimationFrame`,
+		"embedded script":      "<script>",
+		"highlighted fence":    `<span class="kn">package</span>`,
 	} {
 		if !strings.Contains(out, frag) {
 			t.Errorf("page missing %s (%q)", name, frag)
@@ -180,6 +189,64 @@ func TestRenderMarkdownInteractivity(t *testing.T) {
 	// The embedded source view must preserve the raw markdown text.
 	if !strings.Contains(out, "# Hi") {
 		t.Error("source view missing raw markdown")
+	}
+}
+
+func TestRenderMarkdownTableOfContents(t *testing.T) {
+	src := []byte(strings.Join([]string{
+		"# Document title",
+		"",
+		"## Context",
+		"",
+		"### Detail",
+		"",
+		"# Appendix",
+		"",
+		"## Reference",
+		"",
+	}, "\n"))
+	out := render(t, src, RenderOptions{Title: "Document title"})
+
+	if strings.Contains(out, `href="#document-title"`) {
+		t.Error("leading title H1 should be omitted from the ToC")
+	}
+	for _, fragment := range []string{
+		`class="toc"`,
+		`class="toc-list"`,
+		`class="toc-level-2"><a href="#context">Context</a>`,
+		`class="toc-level-3"><a href="#detail">Detail</a>`,
+		`class="toc-level-1"><a href="#appendix">Appendix</a>`,
+		`class="toc-level-2"><a href="#reference">Reference</a>`,
+	} {
+		if !strings.Contains(out, fragment) {
+			t.Errorf("ToC missing %q", fragment)
+		}
+	}
+}
+
+func TestRenderMarkdownIncludesNonLeadingH1InTableOfContents(t *testing.T) {
+	src := []byte("Intro first.\n\n# First section\n\n## Child\n")
+	out := render(t, src, RenderOptions{Title: "First section"})
+	if !strings.Contains(out, `href="#first-section">First section</a>`) {
+		t.Error("non-leading first H1 should remain in the ToC")
+	}
+}
+
+func TestRenderMarkdownCommentBeforeTitleDoesNotEnterTableOfContents(
+	t *testing.T,
+) {
+	src := []byte("<!-- context -->\n\n# Title\n\n## One\n\n## Two\n")
+	out := render(t, src, RenderOptions{Title: "Title"})
+	if strings.Contains(out, `href="#title"`) {
+		t.Error("an invisible comment should not stop a leading H1 being title")
+	}
+}
+
+func TestRenderMarkdownOmitsSingleEntryTableOfContents(t *testing.T) {
+	out := render(t, []byte("# Title\n\n## Only section\n"),
+		RenderOptions{Title: "Title"})
+	if strings.Contains(out, `class="toc"`) {
+		t.Error("a single-entry ToC should be omitted")
 	}
 }
 
