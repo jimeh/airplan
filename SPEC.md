@@ -2,7 +2,9 @@
 
 **Spec version: 0.3.1**
 
-Changes in 0.3.1: §9 clarified for text input — remote recognition
+Changes in 0.3.1: purge's `--profile` gets the standard `-p` short
+form and unified semantics — connection profile selection plus
+record filter (§9). §9 also clarified for text input — remote recognition
 keys off the 26-char base32 directory containing a `.html` page (the
 source sibling may carry any extension, §3), and tombstones reference
 the page key because the directory is the unit of deletion.
@@ -611,7 +613,10 @@ machine) and must be safe:
   so it also works on uploads made from other machines.
 - `airplan purge`: bulk delete driven by the manifest with filters —
   `--older-than 30d`, `--slug PATTERN`, `--profile P`. Durations
-  accept `d`/`w` units. Requires at least one filter or an explicit
+  accept `d`/`w` units. `--profile`/`-p` behaves as on every other
+  command — it selects the connection profile — and on `purge` it
+  additionally filters to uploads recorded with that profile, so
+  purging a profile's uploads uses that profile's credentials. Requires at least one filter or an explicit
   `--all`. `--dry-run` previews; confirmation prompt unless `--yes`.
   Failed deletes are reported to stderr and left un-tombstoned so a
   re-run retries them. Suitable for cron
