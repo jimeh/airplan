@@ -160,10 +160,11 @@ Review gate per merge batch; checkpoint at end of phase.
 
 ## 5. Phase 3 — History & cleanup
 
-Status: **in progress (2026-07-09).** Branch
-`feat/phase-3-history-cleanup`. Seams + storage primitives by
-Claude; wave 1: X1 list (manifest), X2 delete+purge; wave 2: X3
---remote (touches wave-1 command files, so it waits for the merge).
+Status: **implemented 2026-07-09; in review.** All packets merged;
+every command verified against the real R2 bucket, including a live
+remote purge of accumulated preview uploads. Spec at 0.3.1 (unified
+purge --profile, bucket scoping, ensure-gone deletes, text-mode
+recognition).
 
 Each independently optional (per IMPLEMENTATION §8):
 
