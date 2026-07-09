@@ -1,7 +1,15 @@
+[settings]
+lockfile = true
+
 [tools]
-go = "1.26.4"
-goreleaser = "2.17.0"
-golangci-lint = "2.12.2"
+go = "1"
+goreleaser = "2"
+golangci-lint = "2"
+lefthook = "2"
+actionlint = "1"
+zizmor = "1"
+pinact = "4"
+oxfmt = "0"
 
 [tasks.build]
 description = "Build the airplan binary (skipped when nothing changed)"
@@ -18,9 +26,54 @@ description = "Round-trip tests against a throwaway MinIO container"
 run = "go test -tags integration -count=1 -v -run TestIntegration ./airplan/"
 
 [tasks.lint]
-description = "Run golangci-lint"
+description = "All lints"
+depends = ["lint:go", "lint:workflows"]
+
+[tasks."lint:go"]
+description = "Lint Go code"
 run = "golangci-lint run"
 
-[tasks.fmt]
+[tasks."lint:workflows"]
+description = "Validate GitHub Actions: syntax, security, SHA pins"
+run = [
+  "actionlint",
+  "zizmor --offline .github/workflows",
+  "pinact run --check",
+]
+
+[tasks.format]
+description = "Format everything (write mode)"
+depends = ["format:go", "format:markdown"]
+
+[tasks."format:check"]
+description = "Check formatting without writing changes"
+depends = ["format:go:check", "format:markdown:check"]
+
+[tasks."format:go"]
 description = "Format Go code"
 run = "golangci-lint fmt"
+
+[tasks."format:go:check"]
+description = "Check Go formatting without writing changes"
+run = "golangci-lint fmt --diff"
+
+[tasks."format:markdown"]
+description = "Format Markdown files"
+run = "oxfmt \"**/*.md\""
+
+[tasks."format:markdown:check"]
+description = "Check Markdown formatting without writing changes"
+run = "oxfmt --check \"**/*.md\""
+
+[tasks.check]
+description = "Fast confidence gate: lints, format checks, tests"
+depends = ["lint", "format:check", "test"]
+
+[tasks.verify]
+description = "CI-equivalent validation before handoff"
+depends = ["check", "test-integration"]
+run = "goreleaser check"
+
+[tasks.setup]
+description = "Install tools and git hooks"
+run = ["mise install", "lefthook install"]

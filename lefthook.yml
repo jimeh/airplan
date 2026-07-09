@@ -1,0 +1,18 @@
+pre-commit:
+  parallel: true
+  commands:
+    go-fmt:
+      glob: "*.go"
+      run: golangci-lint fmt --diff {staged_files}
+    go-lint:
+      glob: "*.go"
+      # golangci-lint is package-scoped; the repo is small enough to
+      # lint whole whenever any Go file is staged.
+      run: golangci-lint run
+    markdown:
+      glob: "*.md"
+      exclude: "airplan/testdata/*"
+      run: oxfmt --check {staged_files}
+    workflows:
+      glob: ".github/workflows/*.yml"
+      run: mise run lint:workflows

@@ -1,4 +1,19 @@
+<div align="center">
+
+<img height="196px" width="196px" src="./img/airplan.svg" alt="Logo">
+
 # airplan
+
+**Upload plan documents to S3-compatible storage — get back an
+unguessable, shareable link.**
+
+[![GitHub Release](https://img.shields.io/github/v/release/jimeh/airplan?logo=github&label=Release)](https://github.com/jimeh/airplan/releases/latest)
+[![Go Reference](https://img.shields.io/badge/pkg.go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/jimeh/airplan/airplan)
+[![GitHub Issues](https://img.shields.io/github/issues/jimeh/airplan?logo=github&label=Issues)](https://github.com/jimeh/airplan/issues)
+[![GitHub Pull Requests](https://img.shields.io/github/issues-pr/jimeh/airplan?logo=github&label=PRs)](https://github.com/jimeh/airplan/pulls)
+[![License](https://img.shields.io/github/license/jimeh/airplan?label=License)](https://github.com/jimeh/airplan/blob/main/LICENSE)
+
+</div>
 
 Upload a plan, doc, or source file to S3-compatible storage under an
 unguessable URL — and get back a link anyone can open in a browser.
@@ -36,7 +51,7 @@ custom domains). Once:
 1. **Create a bucket** — e.g. `plans` — in the Cloudflare dashboard
    (R2 → Create bucket).
 2. **Connect a custom domain** (bucket → Settings → Custom Domains),
-   e.g. `plans.example.com`. This serves objects publicly *without*
+   e.g. `plans.example.com`. This serves objects publicly _without_
    exposing bucket listing — exactly the privacy model airplan needs.
    Verify: `https://plans.example.com/` should return an error, while
    uploaded objects load fine.

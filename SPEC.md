@@ -29,7 +29,7 @@ This document specifies **behavior only**: what the tool does, its
 interfaces, and its on-the-wire and on-disk formats. It contains no
 implementation detail; a conforming implementation can be built in any
 language and remain fully compatible — same CLI, same config files,
-same URLs, same page features, same manifest format. How *our*
+same URLs, same page features, same manifest format. How _our_
 implementation is built lives in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 Non-goals: no server component, no accounts, not a general pastebin.
@@ -153,7 +153,7 @@ A shared source file reads like a one-file gist.
   on stdin without `--lang`, an unknown extension, or an
   unrecognized `--lang` value — the block renders as unhighlighted
   plain text. (This is about the highlight language only; which
-  inputs *become* text format is decided solely by §2.)
+  inputs _become_ text format is decided solely by §2.)
 - Title chain: `--title`, else the original source filename
   including its extension (`keygen.go`), else slug (no
   content-derived title — the document is never interpreted).
@@ -177,14 +177,14 @@ as-is (warn if combined).
 Template data contract (the stable API custom templates code
 against):
 
-| Field         | Type        | Meaning                       |
-| ------------- | ----------- | ----------------------------- |
-| `.Title`      | string      | resolved title                |
-| `.Body`       | raw HTML    | rendered markdown body        |
-| `.SourceHTML` | raw HTML    | highlighted raw source        |
-| `.SourcePath` | string      | relative path to the uploaded source |
-| `.Slug`       | string      | resolved slug                 |
-| `.FileName`   | string      | original filename (text input; else "") |
+| Field         | Type     | Meaning                                 |
+| ------------- | -------- | --------------------------------------- |
+| `.Title`      | string   | resolved title                          |
+| `.Body`       | raw HTML | rendered markdown body                  |
+| `.SourceHTML` | raw HTML | highlighted raw source                  |
+| `.SourcePath` | string   | relative path to the uploaded source    |
+| `.Slug`       | string   | resolved slug                           |
+| `.FileName`   | string   | original filename (text input; else "") |
 
 `.SourcePath` is empty when the source isn't uploaded
 (`--no-source`); templates must handle both cases.
@@ -194,7 +194,7 @@ noindex meta, and any interactivity. `airplan template` prints the
 built-in template to stdout as a starting point for customization.
 
 Portability boundary: the data contract above is
-implementation-independent; the template *syntax* is
+implementation-independent; the template _syntax_ is
 implementation-defined, so user template files are not portable
 across implementations.
 
@@ -259,22 +259,22 @@ airplan [flags] [file]
 
 `file` omitted or `-` → read stdin.
 
-| Flag             | Default        | Notes                              |
-| ---------------- | -------------- | ---------------------------------- |
-| `--format`       | auto           | `md`\|`html`\|`txt`; overrides §2  |
-| `--slug S`       | from filename  | filename portion of the URL        |
-| `--title T`      | from content   | page title (see §3 fallback chain) |
-| `--template P`   | built-in       | custom page template (md only)     |
-| `--no-source`    | off            | don't upload the original .md      |
-| `--indexable`    | off            | no noindex meta (md and html, §3–4)|
-| `--max-size N`   | 10MiB          | input size limit; 0 = no limit (§2)|
-| `--timeout D`    | 20s            | invocation timeout; 0 = none       |
-| `--lang L`       | from filename  | highlight language, text only (§3) |
-| `--json`         | off            | JSON object on stdout              |
-| `--profile P`    | config default | named profile from config file     |
-| `--config PATH`  | XDG default    | alternate config file              |
-| `--open`         | off            | open resulting URL in browser      |
-| `--version`      |                |                                    |
+| Flag            | Default        | Notes                               |
+| --------------- | -------------- | ----------------------------------- |
+| `--format`      | auto           | `md`\|`html`\|`txt`; overrides §2   |
+| `--slug S`      | from filename  | filename portion of the URL         |
+| `--title T`     | from content   | page title (see §3 fallback chain)  |
+| `--template P`  | built-in       | custom page template (md only)      |
+| `--no-source`   | off            | don't upload the original .md       |
+| `--indexable`   | off            | no noindex meta (md and html, §3–4) |
+| `--max-size N`  | 10MiB          | input size limit; 0 = no limit (§2) |
+| `--timeout D`   | 20s            | invocation timeout; 0 = none        |
+| `--lang L`      | from filename  | highlight language, text only (§3)  |
+| `--json`        | off            | JSON object on stdout               |
+| `--profile P`   | config default | named profile from config file      |
+| `--config PATH` | XDG default    | alternate config file               |
+| `--open`        | off            | open resulting URL in browser       |
+| `--version`     |                |                                     |
 
 Plus flag overrides for every connection setting (`--endpoint`,
 `--bucket`, `--region`, `--public-base-url`, `--key-prefix`) for

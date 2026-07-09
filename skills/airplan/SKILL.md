@@ -35,7 +35,7 @@ airplan plan.md
   Warnings and errors go to stderr; a non-zero exit means no URL was
   produced — never fabricate or reuse one.
 - Prefer `--json` when scripting: `{"url","key","source_url",
-  "bucket","bytes","content_type"}` on a single line. `source_url`
+"bucket","bytes","content_type"}` on a single line. `source_url`
   is omitted for HTML input and under `--no-source`.
 - stdin works: `airplan -` (defaults to markdown). Give it a name
   with `--slug` and `--title` since there's no filename to infer
@@ -47,16 +47,16 @@ airplan plan.md
 
 ## Useful flags
 
-| Flag | Purpose |
-| ---- | ------- |
-| `--json` / `-j` | machine-readable result |
-| `--slug S` / `-s` | filename part of the URL |
-| `--title T` / `-t` | page title |
-| `--format md\|html\|txt` | override detection |
-| `--lang go` | highlight language for text from stdin |
-| `--profile P` / `-p` | named config profile |
-| `--no-source` | don't upload the original alongside the page |
-| `--open` / `-o` | open in browser (interactive use) |
+| Flag                     | Purpose                                      |
+| ------------------------ | -------------------------------------------- |
+| `--json` / `-j`          | machine-readable result                      |
+| `--slug S` / `-s`        | filename part of the URL                     |
+| `--title T` / `-t`       | page title                                   |
+| `--format md\|html\|txt` | override detection                           |
+| `--lang go`              | highlight language for text from stdin       |
+| `--profile P` / `-p`     | named config profile                         |
+| `--no-source`            | don't upload the original alongside the page |
+| `--open` / `-o`          | open in browser (interactive use)            |
 
 ## Examples
 
