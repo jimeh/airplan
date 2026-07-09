@@ -237,7 +237,16 @@
       });
       syncTocTrigger();
     }
-    d.addEventListener('scroll', updateToc, { passive: true });
+    var tocFramePending = false;
+    function scheduleTocUpdate() {
+      if (tocFramePending) return;
+      tocFramePending = true;
+      window.requestAnimationFrame(function () {
+        tocFramePending = false;
+        updateToc();
+      });
+    }
+    d.addEventListener('scroll', scheduleTocUpdate, { passive: true });
     window.addEventListener('resize', updateToc);
     updateToc();
   }
