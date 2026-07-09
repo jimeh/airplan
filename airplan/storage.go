@@ -195,8 +195,6 @@ func (s *storage) deleteKeys(ctx context.Context, keys []string) error {
 
 // headTitle fetches an object's x-amz-meta-title, reversing the
 // RFC 2047 encoding applied at upload; "" when absent (SPEC.md §9).
-//
-//nolint:unused // consumed by the remote list/purge packet.
 func (s *storage) headTitle(
 	ctx context.Context, key string,
 ) (string, error) {

@@ -3,10 +3,16 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jimeh/airplan/airplan"
 )
@@ -179,6 +185,71 @@ func TestListEmptyManifest(t *testing.T) {
 	})
 }
 
+func TestListRemoteTableAndJSON(t *testing.T) {
+	when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
+	key := deleteDirA + "/plan.html"
+
+	t.Run("table", func(t *testing.T) {
+		isolateEnv(t)
+		fake := newFakeRemoteS3(t, []remoteFakeObject{
+			{key: key, size: 18432, lastModified: when},
+		}, map[string]string{key: "Remote plan"}, nil)
+
+		stdout, stderr, err := executeList(t,
+			"--remote", "--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+		for _, want := range []string{
+			"DATE", "TITLE", "SIZE", "URL",
+			"2026-07-08 14:03", "Remote plan", "18432 B",
+			"https://plans.example.com/" + key,
+		} {
+			if !strings.Contains(stdout, want) {
+				t.Fatalf("stdout missing %q:\n%s", want, stdout)
+			}
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		isolateEnv(t)
+		fake := newFakeRemoteS3(t, []remoteFakeObject{
+			{key: key, size: 18432, lastModified: when},
+		}, map[string]string{key: "Remote plan"}, nil)
+
+		stdout, stderr, err := executeList(t,
+			"--remote", "--json",
+			"--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+		if strings.Count(stdout, "\n") != 1 {
+			t.Fatalf("stdout = %q, want one JSON line", stdout)
+		}
+
+		var records []airplan.ManifestRecord
+		if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+			t.Fatalf("json.Unmarshal: %v\nstdout: %s", err, stdout)
+		}
+		if len(records) != 1 {
+			t.Fatalf("records = %+v, want one record", records)
+		}
+		rec := records[0]
+		if rec.Type != "upload" || rec.Key != key ||
+			rec.URL != "https://plans.example.com/"+key ||
+			rec.Bucket != "plans" || rec.Title != "Remote plan" ||
+			rec.Bytes != 18432 || !rec.Time.Equal(when) {
+			t.Fatalf("record = %+v", rec)
+		}
+	})
+}
+
 func executeList(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
 
@@ -210,4 +281,114 @@ func writeManifest(t *testing.T, path string, contents string) {
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("os.WriteFile: %v", err)
 	}
+}
+
+type remoteFakeObject struct {
+	key          string
+	size         int64
+	lastModified time.Time
+}
+
+type fakeRemoteS3 struct {
+	server     *httptest.Server
+	mu         sync.Mutex
+	objects    []remoteFakeObject
+	titles     map[string]string
+	failDelete map[string]bool
+	prefixes   []string
+	posts      int
+}
+
+func newFakeRemoteS3(
+	t *testing.T,
+	objects []remoteFakeObject,
+	titles map[string]string,
+	failDelete map[string]bool,
+) *fakeRemoteS3 {
+	t.Helper()
+
+	fake := &fakeRemoteS3{
+		objects:    objects,
+		titles:     titles,
+		failDelete: failDelete,
+	}
+	fake.server = httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			switch r.Method {
+			case "GET":
+				fake.handleList(w, r)
+			case "HEAD":
+				fake.handleHead(w, r)
+			case "POST":
+				fake.handleDelete(w, r)
+			default:
+				w.WriteHeader(http.StatusOK)
+			}
+		},
+	))
+	t.Cleanup(fake.server.Close)
+	return fake
+}
+
+func (f *fakeRemoteS3) handleList(w http.ResponseWriter, r *http.Request) {
+	prefix := r.URL.Query().Get("prefix")
+
+	f.mu.Lock()
+	f.prefixes = append(f.prefixes, prefix)
+	objects := append([]remoteFakeObject(nil), f.objects...)
+	f.mu.Unlock()
+
+	w.Header().Set("Content-Type", "application/xml")
+	fmt.Fprintln(w, `<?xml version="1.0" encoding="UTF-8"?>`)
+	fmt.Fprintln(w, `<ListBucketResult><IsTruncated>false</IsTruncated>`)
+	for _, obj := range objects {
+		if !strings.HasPrefix(obj.key, prefix) {
+			continue
+		}
+		fmt.Fprintf(w, "<Contents><Key>%s</Key><Size>%d</Size>",
+			obj.key, obj.size)
+		fmt.Fprintf(w, "<LastModified>%s</LastModified>",
+			obj.lastModified.Format(time.RFC3339))
+		fmt.Fprintln(w, "</Contents>")
+	}
+	fmt.Fprintln(w, `</ListBucketResult>`)
+}
+
+func (f *fakeRemoteS3) handleHead(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimPrefix(r.URL.Path, "/plans/")
+
+	f.mu.Lock()
+	title, ok := f.titles[key]
+	f.mu.Unlock()
+
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	w.Header().Set("X-Amz-Meta-Title", title)
+	w.WriteHeader(http.StatusOK)
+}
+
+func (f *fakeRemoteS3) handleDelete(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	bodyText := string(body)
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	for dir := range f.failDelete {
+		if strings.Contains(bodyText, dir) {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+	}
+	f.posts++
+	w.Header().Set("Content-Type", "application/xml")
+	fmt.Fprintln(w, `<?xml version="1.0"?><DeleteResult></DeleteResult>`)
+}
+
+func (f *fakeRemoteS3) deleteCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.posts
 }

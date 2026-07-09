@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,15 +12,20 @@ import (
 )
 
 type listOptions struct {
-	json bool
+	config  string
+	profile string
+	json    bool
+	remote  bool
 }
 
 func newListCmd() *cobra.Command {
 	opts := &listOptions{}
 
 	cmd := &cobra.Command{
-		Use:           "list",
-		Short:         "List uploads from the local manifest",
+		Use:   "list",
+		Short: "List uploads from the local manifest",
+		Long: "List uploads from the local manifest, or with --remote, " +
+			"from a live bucket listing using the selected config profile.",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -28,13 +34,24 @@ func newListCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVarP(&opts.json, "json", "j", false,
+	f := cmd.Flags()
+	f.StringVar(&opts.config, "config", "",
+		"config file path for --remote (default: XDG config dir)")
+	f.StringVarP(&opts.profile, "profile", "p", "",
+		"config profile for --remote (default: config default)")
+	f.BoolVarP(&opts.json, "json", "j", false,
 		"print a JSON array instead of a table")
+	f.BoolVar(&opts.remote, "remote", false,
+		"list uploads from a live bucket listing instead of the manifest")
 
 	return cmd
 }
 
 func runList(cmd *cobra.Command, opts *listOptions) error {
+	if opts.remote {
+		return runRemoteList(cmd, opts)
+	}
+
 	records, warnings, err := airplan.ReadManifest("")
 	if err != nil {
 		return err
@@ -54,6 +71,78 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 	}
 
 	return printUploadTable(cmd.OutOrStdout(), uploads)
+}
+
+func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
+	stderr := cmd.ErrOrStderr()
+	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
+		Path:    opts.config,
+		Profile: opts.profile,
+	})
+	if err != nil {
+		return err
+	}
+
+	ctx := cmd.Context()
+	if cfg.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, cfg.Timeout)
+		defer cancel()
+	}
+
+	for _, w := range cfg.Warnings {
+		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
+	}
+
+	client, err := airplan.New(ctx, cfg)
+	if err != nil {
+		return err
+	}
+
+	uploads, err := client.ListRemote(ctx)
+	if err != nil {
+		return err
+	}
+
+	records := remoteListRecords(ctx, cmd, cfg, client, uploads)
+	if opts.json {
+		if records == nil {
+			records = []airplan.ManifestRecord{}
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(records)
+	}
+
+	return printUploadTable(cmd.OutOrStdout(), records)
+}
+
+func remoteListRecords(
+	ctx context.Context,
+	cmd *cobra.Command,
+	cfg *airplan.Config,
+	client *airplan.Client,
+	uploads []airplan.RemoteUpload,
+) []airplan.ManifestRecord {
+	records := make([]airplan.ManifestRecord, 0, len(uploads))
+	for _, upload := range uploads {
+		title, err := client.RemoteTitle(ctx, upload.PageKey)
+		if err != nil {
+			title = "-"
+			fmt.Fprintf(cmd.ErrOrStderr(),
+				"airplan: warning: title unavailable for %s: %s\n",
+				upload.PageKey, err)
+		}
+		url, _ := airplan.PublicURL(cfg, upload.PageKey)
+		records = append(records, airplan.ManifestRecord{
+			Type:   "upload",
+			Time:   upload.LastModified.UTC(),
+			Key:    upload.PageKey,
+			URL:    url,
+			Bucket: cfg.Bucket,
+			Title:  title,
+			Bytes:  upload.Bytes,
+		})
+	}
+	return records
 }
 
 func printUploadTable(
