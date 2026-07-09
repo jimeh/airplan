@@ -9,6 +9,7 @@
   "force-tag-creation": true,
   "packages": {
     ".": {
+      "initial-version": "0.1.0",
       "package-name": "airplan"
     }
   }

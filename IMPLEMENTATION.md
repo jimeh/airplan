@@ -13,7 +13,7 @@ may contradict it. Targets spec version 0.3.0.
 
 - Single static binary via `CGO_ENABLED=0`; trivial cross-compilation
   for the usual agent-host platforms (linux/amd64, linux/arm64,
-  darwin/arm64, darwin/amd64, windows/amd64).
+  darwin/arm64, darwin/amd64, windows/amd64, windows/arm64).
 - Cold-start is a few milliseconds — matters because the tool is
   invoked per-plan by agent harnesses.
 - Mature ecosystem for exactly this job: `goldmark` (CommonMark + GFM

@@ -20,11 +20,13 @@ this implementation is built and must not contradict the spec.
 | Task                               | Purpose                                                     |
 | ---------------------------------- | ----------------------------------------------------------- |
 | `mise run setup`                   | install tools + git hooks (run once)                        |
-| `mise run check`                   | fast handoff gate: lint + tests                             |
+| `mise run check`                   | fast handoff gate: lint + generated files + format + tests  |
 | `mise run test`                    | unit tests (no Docker needed)                               |
 | `mise run test-integration`        | MinIO round-trip via testcontainers (needs Docker)          |
 | `mise run lint`                    | all lints: `lint:go`, `lint:workflows`                      |
 | `mise run format` / `format:check` | write / check formatting (`:go`, `:markdown`)               |
+| `mise run generate`                | refresh committed generated files                           |
+| `mise run generate:check`          | fail if generated files are stale                           |
 | `mise run verify`                  | CI-equivalent: check + workflows + integration + goreleaser |
 | `mise run build`                   | binary at `bin/airplan` (skipped when unchanged)            |
 
