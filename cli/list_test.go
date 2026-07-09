@@ -46,7 +46,7 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 
 	for _, want := range []string{
 		"DATE", "TITLE", "SIZE", "URL",
-		"2026-07-08 14:03", "Active plan", "18432 B",
+		"2026-07-08 14:03", "Active plan", "18 KiB",
 		"https://plans.example.com/active/plan.html",
 		"2026-07-08 16:05", "7 B",
 		"https://plans.example.com/untitled/plan.html",
@@ -205,7 +205,7 @@ func TestListRemoteTableAndJSON(t *testing.T) {
 		}
 		for _, want := range []string{
 			"DATE", "TITLE", "SIZE", "URL",
-			"2026-07-08 14:03", "Remote plan", "18432 B",
+			"2026-07-08 14:03", "Remote plan", "18 KiB",
 			"https://plans.example.com/" + key,
 		} {
 			if !strings.Contains(stdout, want) {
@@ -248,6 +248,31 @@ func TestListRemoteTableAndJSON(t *testing.T) {
 			t.Fatalf("record = %+v", rec)
 		}
 	})
+}
+
+func TestFormatListBytes(t *testing.T) {
+	tests := map[int64]string{
+		0:                   "0 B",
+		7:                   "7 B",
+		1023:                "1023 B",
+		1024:                "1 KiB",
+		1536:                "1.5 KiB",
+		18432:               "18 KiB",
+		1048575:             "1 MiB",
+		1048576:             "1 MiB",
+		1073741823:          "1 GiB",
+		1073741824:          "1 GiB",
+		1099511627776:       "1 TiB",
+		1125899906842624:    "1 PiB",
+		1152921504606846976: "1 EiB",
+	}
+
+	for bytes, want := range tests {
+		if got := formatListBytes(bytes); got != want {
+			t.Errorf("formatListBytes(%d) = %q, want %q",
+				bytes, got, want)
+		}
+	}
 }
 
 func executeList(t *testing.T, args ...string) (string, string, error) {

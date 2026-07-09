@@ -1,6 +1,9 @@
 # airplan — Tool Specification
 
-**Spec version: 0.3.1**
+**Spec version: 0.3.2**
+
+Changes in 0.3.2: `airplan list` text/table output renders sizes as
+human-readable binary units; `--json` keeps exact byte counts (§9).
 
 Changes in 0.3.1: purge's `--profile` gets the standard `-p` short
 form and unified semantics — connection profile selection plus
@@ -604,8 +607,9 @@ machine) and must be safe:
 
 ### Commands
 
-- `airplan list`: past uploads from the manifest (date, title, size,
-  URL); `--json` for scripting.
+- `airplan list`: past uploads from the manifest (date, title,
+  human-readable binary size, URL); `--json` for scripting with exact
+  byte counts.
 - `airplan delete <url|key>`: delete an upload — every object under
   its random directory, so page and markdown source go together —
   and tombstone its manifest entry if one exists (append a deletion
