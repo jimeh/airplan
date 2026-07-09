@@ -31,10 +31,7 @@ run = "go generate ./..."
 
 [tasks."generate:check"]
 description = "Check generated files are up to date"
-run = [
-  "go generate ./...",
-  "git diff --exit-code -- schema/airplan.schema.json",
-]
+run = "go run ./internal/cmd/genschema --check schema/airplan.schema.json"
 
 [tasks.lint]
 description = "All lints"
