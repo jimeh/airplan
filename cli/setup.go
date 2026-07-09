@@ -27,6 +27,31 @@ func loadCommandConfig(
 	return cfg, nil
 }
 
+// setupClient is the whole common sequence — load config, print
+// warnings, apply the timeout, construct the client — for commands
+// whose timeout starts immediately. The purge flows compose
+// loadCommandConfig and timeoutContext directly instead: their
+// timeout placement is deliberately different (after the
+// confirmation prompt, and per-phase for remote purge).
+func setupClient(
+	cmd *cobra.Command, path, profile string,
+) (*airplan.Client, *airplan.Config, context.Context,
+	context.CancelFunc, error,
+) {
+	cfg, err := loadCommandConfig(cmd, path, profile)
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
+	ctx, cancel := timeoutContext(cmd.Context(), cfg)
+	client, err := airplan.New(ctx, cfg)
+	if err != nil {
+		cancel()
+		return nil, nil, nil, nil, err
+	}
+	return client, cfg, ctx, cancel, nil
+}
+
 // timeoutContext applies cfg.Timeout when set (SPEC.md §6). Callers
 // choose where in their flow to call it — notably after interactive
 // confirmation prompts, so the budget is never spent on user think

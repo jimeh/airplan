@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 
-	"github.com/jimeh/airplan/airplan"
 	"github.com/spf13/cobra"
 )
 
@@ -38,18 +37,12 @@ func newDeleteCmd() *cobra.Command {
 func runDelete(cmd *cobra.Command, urlOrKey string, opts *deleteOptions) error {
 	stderr := cmd.ErrOrStderr()
 
-	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
+	client, _, ctx, cancel, err := setupClient(
+		cmd, opts.config, opts.profile)
 	if err != nil {
 		return err
 	}
-
-	ctx, cancel := timeoutContext(cmd.Context(), cfg)
 	defer cancel()
-
-	client, err := airplan.New(ctx, cfg)
-	if err != nil {
-		return err
-	}
 
 	res, err := client.DeleteUpload(ctx, urlOrKey)
 	if err != nil {

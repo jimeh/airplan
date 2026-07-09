@@ -74,18 +74,12 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 }
 
 func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
-	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
+	client, cfg, ctx, cancel, err := setupClient(
+		cmd, opts.config, opts.profile)
 	if err != nil {
 		return err
 	}
-
-	ctx, cancel := timeoutContext(cmd.Context(), cfg)
 	defer cancel()
-
-	client, err := airplan.New(ctx, cfg)
-	if err != nil {
-		return err
-	}
 
 	uploads, err := client.ListRemote(ctx)
 	if err != nil {
