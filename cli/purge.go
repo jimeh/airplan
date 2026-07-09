@@ -94,6 +94,21 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		return runRemotePurge(cmd, opts, olderThan)
 	}
 
+	// Config is loaded before candidate selection so records for
+	// other buckets can be excluded (SPEC.md §9) — but the timeout
+	// context is still created only after the confirmation prompt,
+	// so it can't expire while the user reads it.
+	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
+		Path:    opts.config,
+		Profile: opts.profile,
+	})
+	if err != nil {
+		return err
+	}
+	for _, w := range cfg.Warnings {
+		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
+	}
+
 	records, warnings, err := airplan.ReadManifest("")
 	if err != nil {
 		return err
@@ -106,6 +121,28 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		airplan.ActiveUploads(records), opts, olderThan, time.Now())
 	if err != nil {
 		return err
+	}
+
+	// Only records for the connected bucket are purgeable
+	// (SPEC.md §9). With no bucket configured (e.g. a config-free
+	// --dry-run) there is nothing to scope against, so the filter is
+	// skipped — actual deletion would still fail config validation.
+	if cfg.Bucket != "" {
+		kept := candidates[:0]
+		skipped := 0
+		for _, rec := range candidates {
+			if rec.Bucket != "" && rec.Bucket != cfg.Bucket {
+				skipped++
+				continue
+			}
+			kept = append(kept, rec)
+		}
+		candidates = kept
+		if skipped > 0 {
+			fmt.Fprintf(stderr,
+				"airplan: note: skipped %d upload(s) recorded for "+
+					"other buckets\n", skipped)
+		}
 	}
 
 	if opts.dryRun {
@@ -130,23 +167,11 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		}
 	}
 
-	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
-		Path:    opts.config,
-		Profile: opts.profile,
-	})
-	if err != nil {
-		return err
-	}
-
 	ctx := cmd.Context()
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, cfg.Timeout)
 		defer cancel()
-	}
-
-	for _, w := range cfg.Warnings {
-		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
 	}
 
 	client, err := airplan.New(ctx, cfg)
@@ -191,16 +216,15 @@ func runRemotePurge(
 	if err != nil {
 		return err
 	}
+	for _, w := range cfg.Warnings {
+		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
+	}
 
 	ctx := cmd.Context()
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, cfg.Timeout)
 		defer cancel()
-	}
-
-	for _, w := range cfg.Warnings {
-		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
 	}
 
 	client, err := airplan.New(ctx, cfg)

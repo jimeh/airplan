@@ -36,7 +36,12 @@ func TestPurgeCommandFilters(t *testing.T) {
 		},
 		{
 			name: "profile",
-			args: []string{"purge", "--profile", "home", "--dry-run"},
+			// Unified semantics: --profile selects the connection
+			// profile too, so it must exist in the config file.
+			args: []string{
+				"purge", "--profile", "home", "--dry-run",
+				"--config", writeProfilesConfig(t),
+			},
 			want: []string{"beta.html"},
 		},
 	}
@@ -347,4 +352,19 @@ func contains(values []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// writeProfilesConfig writes a config defining the profiles the
+// filter fixtures reference, so the unified --profile flag resolves.
+func writeProfilesConfig(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	cfg := "endpoint = \"https://example.com\"\n" +
+		"bucket = \"plans\"\n\n" +
+		"[profiles.home]\n" +
+		"[profiles.work]\n"
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
