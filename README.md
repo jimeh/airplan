@@ -42,6 +42,12 @@ With Homebrew:
 brew install --cask jimeh/tap/airplan
 ```
 
+With mise:
+
+```sh
+mise use -g github:jimeh/airplan
+```
+
 With Go:
 
 ```sh
