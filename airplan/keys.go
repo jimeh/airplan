@@ -23,10 +23,23 @@ func isRandomDir(seg string) bool {
 
 // KeyFromURLOrKey resolves a delete/purge target (SPEC.md §9): a full
 // URL (public_base_url-based or path-style), a bare object key, or
-// the random directory itself. cfg may be nil for bare keys.
+// the random directory itself. When a key_prefix is configured, the
+// target must fall under it — deletion never reaches outside the
+// configured scope in a shared bucket. cfg may be nil for bare keys.
 func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 	key := s
 	if strings.Contains(s, "://") {
+		// A public_base_url may itself carry a path
+		// (https://cdn.example.com/plans); strip the whole base
+		// before falling back to generic path handling.
+		if cfg != nil && cfg.PublicBaseURL != "" {
+			base := strings.TrimRight(cfg.PublicBaseURL, "/") + "/"
+			if rest, ok := strings.CutPrefix(s, base); ok {
+				key = rest
+				return validateTarget(cfg, key)
+			}
+		}
+
 		u, err := url.Parse(s)
 		if err != nil {
 			return "", fmt.Errorf("airplan: parse url %q: %w", s, err)
@@ -39,9 +52,24 @@ func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 		}
 	}
 
+	return validateTarget(cfg, key)
+}
+
+// validateTarget checks that a resolved key is a plausible airplan
+// key and, when a key_prefix is configured, that it falls under it.
+func validateTarget(cfg *Config, key string) (string, error) {
 	key = strings.Trim(key, "/")
 	if _, err := uploadDirPrefix(key); err != nil {
 		return "", err
+	}
+
+	if cfg != nil && cfg.KeyPrefix != "" {
+		prefix := strings.Trim(cfg.KeyPrefix, "/") + "/"
+		if !strings.HasPrefix(key, prefix) {
+			return "", fmt.Errorf(
+				"airplan: %q is outside the configured key_prefix %q — "+
+					"refusing to touch it", key, cfg.KeyPrefix)
+		}
 	}
 	return key, nil
 }

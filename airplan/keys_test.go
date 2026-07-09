@@ -231,3 +231,38 @@ func TestDeleteUploadEnsureGone(t *testing.T) {
 		t.Fatalf("tombstone missing: %+v err=%v", records, err)
 	}
 }
+
+func TestKeyFromURLOrKeyPrefixScoping(t *testing.T) {
+	cfg := &Config{Bucket: "plans", KeyPrefix: "team/jimeh"}
+
+	if _, err := KeyFromURLOrKey(cfg,
+		"team/jimeh/"+testDir+"/plan.html"); err != nil {
+		t.Errorf("in-prefix key rejected: %v", err)
+	}
+
+	_, err := KeyFromURLOrKey(cfg, "team/other/"+testDir+"/plan.html")
+	if err == nil || !strings.Contains(err.Error(), "outside the configured") {
+		t.Errorf("out-of-prefix key not rejected: %v", err)
+	}
+
+	// Un-prefixed keys are outside a configured prefix too.
+	if _, err := KeyFromURLOrKey(cfg, testDir+"/plan.html"); err == nil {
+		t.Error("bare key accepted despite configured key_prefix")
+	}
+}
+
+func TestKeyFromURLOrKeyBaseURLWithPath(t *testing.T) {
+	cfg := &Config{
+		Bucket:        "plans",
+		PublicBaseURL: "https://cdn.example.com/plans",
+	}
+
+	got, err := KeyFromURLOrKey(cfg,
+		"https://cdn.example.com/plans/"+testDir+"/plan.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != testDir+"/plan.html" {
+		t.Errorf("got %q, want %q", got, testDir+"/plan.html")
+	}
+}

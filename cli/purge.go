@@ -267,7 +267,7 @@ func runRemotePurge(
 
 	var purged, failed int
 	for _, cand := range candidates {
-		if _, err := client.DeleteUpload(ctx, cand.upload.Dir); err != nil {
+		if _, err := client.DeleteUpload(ctx, cand.upload.PageKey); err != nil {
 			failed++
 			fmt.Fprintf(stderr, "airplan: error: delete %s: %s\n",
 				purgeTarget(cand.record), err)
@@ -289,10 +289,9 @@ func purgeCandidates(
 	olderThan time.Duration,
 	now time.Time,
 ) ([]airplan.ManifestRecord, error) {
-	if opts.all {
-		return uploads, nil
-	}
-
+	// --all only satisfies the at-least-one-filter requirement; any
+	// filters given alongside it still apply (SPEC.md §9) — otherwise
+	// "purge --all --profile work" would delete everyone's uploads.
 	var out []airplan.ManifestRecord
 	cutoff := now.Add(-olderThan)
 	for _, rec := range uploads {
@@ -326,18 +325,16 @@ func remotePurgeCandidates(
 	var out []remotePurgeCandidate
 	cutoff := now.Add(-olderThan)
 	for _, upload := range uploads {
-		if !opts.all {
-			if opts.olderThan != "" && !upload.LastModified.Before(cutoff) {
-				continue
+		if opts.olderThan != "" && !upload.LastModified.Before(cutoff) {
+			continue
+		}
+		if opts.slug != "" {
+			ok, err := path.Match(opts.slug, uploadSlug(upload.PageKey))
+			if err != nil {
+				return nil, fmt.Errorf("--slug: %w", err)
 			}
-			if opts.slug != "" {
-				ok, err := path.Match(opts.slug, uploadSlug(upload.PageKey))
-				if err != nil {
-					return nil, fmt.Errorf("--slug: %w", err)
-				}
-				if !ok {
-					continue
-				}
+			if !ok {
+				continue
 			}
 		}
 

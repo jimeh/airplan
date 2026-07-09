@@ -368,3 +368,31 @@ func writeProfilesConfig(t *testing.T) string {
 	}
 	return path
 }
+
+// TestPurgeAllStillAppliesFilters: --all satisfies the filter
+// requirement but must not bypass filters given alongside it —
+// "purge --all --slug alpha*" deletes alpha uploads only.
+func TestPurgeAllStillAppliesFilters(t *testing.T) {
+	now := time.Now().UTC()
+	records := []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "alpha", "work", now.Add(-time.Hour)),
+		uploadRecord(deleteDirB, "beta", "home", now.Add(-time.Hour)),
+	}
+	isolateEnv(t)
+	writeDefaultManifest(t, records)
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--all", "--slug", "alpha*", "--dry-run")
+	if err != nil {
+		t.Fatalf("Execute: %v\nstderr:\n%s", err, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	if !strings.Contains(stderr, "alpha.html") {
+		t.Errorf("stderr missing alpha candidate: %q", stderr)
+	}
+	if strings.Contains(stderr, "beta.html") {
+		t.Errorf("--all bypassed --slug filter: %q", stderr)
+	}
+}
