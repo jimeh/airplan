@@ -17,15 +17,16 @@ this implementation is built and must not contradict the spec.
 
 ## Task surface (mise)
 
-| Task                        | Purpose                                                     |
-| --------------------------- | ----------------------------------------------------------- |
-| `mise run setup`            | install tools + git hooks (run once)                        |
-| `mise run check`            | fast handoff gate: lint + tests                             |
-| `mise run test`             | unit tests (no Docker needed)                               |
-| `mise run test-integration` | MinIO round-trip via testcontainers (needs Docker)          |
-| `mise run lint` / `fmt`     | golangci-lint check / write-mode format                     |
-| `mise run verify`           | CI-equivalent: check + workflows + integration + goreleaser |
-| `mise run build`            | binary at `bin/airplan` (skipped when unchanged)            |
+| Task                               | Purpose                                                     |
+| ---------------------------------- | ----------------------------------------------------------- |
+| `mise run setup`                   | install tools + git hooks (run once)                        |
+| `mise run check`                   | fast handoff gate: lint + tests                             |
+| `mise run test`                    | unit tests (no Docker needed)                               |
+| `mise run test-integration`        | MinIO round-trip via testcontainers (needs Docker)          |
+| `mise run lint`                    | all lints: `lint:go`, `lint:workflows`                      |
+| `mise run format` / `format:check` | write / check formatting (`:go`, `:markdown`)               |
+| `mise run verify`                  | CI-equivalent: check + workflows + integration + goreleaser |
+| `mise run build`                   | binary at `bin/airplan` (skipped when unchanged)            |
 
 Run `mise run check` before handing off; `verify` for broad or risky
 changes. Lefthook pre-commit hooks lint/format-check staged files.
