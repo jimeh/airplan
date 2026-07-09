@@ -89,6 +89,71 @@ func TestPurgeRequiresFilterOrAll(t *testing.T) {
 	}
 }
 
+func TestPurgeRemoteRequiresFilterBeyondProfile(t *testing.T) {
+	tests := [][]string{
+		{"purge", "--remote"},
+		{"purge", "--remote", "--profile", "work"},
+	}
+	for _, args := range tests {
+		t.Run(strings.Join(args[1:], " "), func(t *testing.T) {
+			isolateEnv(t)
+
+			stdout, stderr, err := executeCommand(t, "", "", args...)
+			if err == nil {
+				t.Fatal("Execute error = nil, want error")
+			}
+			if stdout != "" {
+				t.Fatalf("stdout = %q, want empty", stdout)
+			}
+			if stderr != "" {
+				t.Fatalf("stderr = %q, want empty before Execute handles error",
+					stderr)
+			}
+			if !strings.Contains(err.Error(), "requires at least one filter") {
+				t.Fatalf("error = %v, want filter requirement", err)
+			}
+		})
+	}
+}
+
+func TestPurgeRemoteOlderThanDeletesOnlyOldUploads(t *testing.T) {
+	isolateEnv(t)
+	old := time.Now().UTC().Add(-60 * 24 * time.Hour).Truncate(time.Second)
+	newer := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	oldKey := deleteDirA + "/old.html"
+	newKey := deleteDirB + "/new.html"
+	fake := newFakeRemoteS3(t, []remoteFakeObject{
+		{key: oldKey, size: 10, lastModified: old},
+		{key: deleteDirA + "/old.md", size: 5, lastModified: old},
+		{key: newKey, size: 10, lastModified: newer},
+	}, nil, nil)
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--remote", "--older-than", "30d", "--yes",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	if !strings.Contains(stderr, "purged 1 uploads (0 failed)") {
+		t.Fatalf("stderr = %q, want purge summary", stderr)
+	}
+	if fake.deleteCalls() != 1 {
+		t.Fatalf("delete calls = %d, want 1", fake.deleteCalls())
+	}
+
+	records, warnings, err := airplan.ReadManifest("")
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("ReadManifest: %v %v", err, warnings)
+	}
+	if len(records) != 1 || records[0].Type != "delete" ||
+		records[0].Key != oldKey {
+		t.Fatalf("tombstone = %+v, want old upload only", records)
+	}
+}
+
 func TestPurgeDryRunDeletesNothing(t *testing.T) {
 	isolateEnv(t)
 	writeDefaultManifest(t, []airplan.ManifestRecord{
