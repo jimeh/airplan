@@ -25,6 +25,17 @@ run = "go test ./..."
 description = "Round-trip tests against a throwaway MinIO container"
 run = "go test -tags integration -count=1 -v -run TestIntegration ./airplan/"
 
+[tasks.generate]
+description = "Regenerate committed generated files"
+run = "go generate ./..."
+
+[tasks."generate:check"]
+description = "Check generated files are up to date"
+run = [
+  "go generate ./...",
+  "git diff --exit-code -- schema/airplan.schema.json",
+]
+
 [tasks.lint]
 description = "All lints"
 depends = ["lint:go", "lint:workflows"]
@@ -66,8 +77,8 @@ description = "Check Markdown formatting without writing changes"
 run = "oxfmt --check \"**/*.md\""
 
 [tasks.check]
-description = "Fast confidence gate: lints, format checks, tests"
-depends = ["lint", "format:check", "test"]
+description = "Fast confidence gate: lints, generation, format checks, tests"
+depends = ["lint", "generate:check", "format:check", "test"]
 
 [tasks.verify]
 description = "CI-equivalent validation before handoff"
