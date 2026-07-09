@@ -1,6 +1,11 @@
 # airplan — Tool Specification
 
-**Spec version: 0.3.0**
+**Spec version: 0.3.1**
+
+Changes in 0.3.1: §9 clarified for text input — remote recognition
+keys off the 26-char base32 directory containing a `.html` page (the
+source sibling may carry any extension, §3), and tombstones reference
+the page key because the directory is the unit of deletion.
 
 Changes in 0.3.0: `--lang` overrides the highlight language for text
 input (§3, §6); unknown config file keys are rejected (§7).
@@ -573,8 +578,9 @@ conforming implementations can share a manifest:
   describes the page object; `profile` is the resolved profile
   name, omitted when root-level values were used.
 - `delete` tombstones reference the upload by its page `key` — the
-  random directory is the unit of deletion and `source_key` is
-  derivable from it, so nothing more is needed.
+  random directory is the unit of deletion, so every sibling object
+  (whatever its extension, §3) goes with it and nothing more is
+  needed in the record.
 - Forward compatibility: readers ignore unknown fields and skip
   records with an unknown `type`. No version field needed.
 
@@ -612,11 +618,12 @@ machine) and must be safe:
   (`purge --older-than 30d --yes`).
 - `--remote` (on `list` and `purge`): operate on a bucket listing
   instead of the manifest, discovering uploads made from any
-  machine. Airplan objects are recognized by key shape —
-  `[key_prefix/]<26-char base32>/<slug>.(html|md)` under the
-  profile's `key_prefix` — so unrelated objects in a shared bucket
-  are never touched; deletion is per random directory, keeping
-  page/source pairs together. `LastModified` from the listing
+  machine. Airplan uploads are recognized by key shape: a
+  `[key_prefix/]<26-char lowercase base32>/` directory under the
+  profile's `key_prefix` that contains a `<slug>.html` page object
+  (source siblings may carry any extension, §3). Unrelated objects
+  in a shared bucket are never touched; deletion is per random
+  directory, keeping page/source pairs together. `LastModified` from the listing
   drives `--older-than`.
   In a team bucket, each person sets their own `key_prefix`, which
   keeps `--remote` scoped to their own uploads.

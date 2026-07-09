@@ -120,6 +120,9 @@ func newRootCmd() *cobra.Command {
 
 	cmd.AddCommand(newConfigCmd())
 	cmd.AddCommand(newTemplateCmd())
+	cmd.AddCommand(newListCmd())
+	cmd.AddCommand(newDeleteCmd())
+	cmd.AddCommand(newPurgeCmd())
 	return cmd
 }
 

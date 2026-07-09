@@ -160,6 +160,11 @@ Review gate per merge batch; checkpoint at end of phase.
 
 ## 5. Phase 3 — History & cleanup
 
+Status: **in progress (2026-07-09).** Branch
+`feat/phase-3-history-cleanup`. Seams + storage primitives by
+Claude; wave 1: X1 list (manifest), X2 delete+purge; wave 2: X3
+--remote (touches wave-1 command files, so it waits for the merge).
+
 Each independently optional (per IMPLEMENTATION §8):
 
 - `list` (manifest; `--json`) — X.

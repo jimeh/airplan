@@ -190,3 +190,36 @@ func (c *Client) recordUpload(res *Result) {
 			"manifest not recorded: "+err.Error())
 	}
 }
+
+// ReadManifest loads the manifest at path ("" = platform default),
+// returning records in file order plus torn-line warnings (SPEC.md
+// §9). A missing manifest yields no records and no error.
+func ReadManifest(path string) ([]ManifestRecord, []string, error) {
+	if path == "" {
+		var err error
+		path, err = DefaultManifestPath()
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return readManifest(path)
+}
+
+// ActiveUploads filters manifest records to upload entries without a
+// matching delete tombstone, preserving file order.
+func ActiveUploads(records []ManifestRecord) []ManifestRecord {
+	deleted := make(map[string]bool)
+	for _, r := range records {
+		if r.Type == "delete" {
+			deleted[r.Key] = true
+		}
+	}
+
+	var out []ManifestRecord
+	for _, r := range records {
+		if r.Type == "upload" && !deleted[r.Key] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
