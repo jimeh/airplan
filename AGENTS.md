@@ -44,6 +44,9 @@ pins live in `mise.lock` (commit both when bumping tools).
 - **Golden files**: rendering snapshots live in `airplan/testdata/`;
   refresh with `go test ./airplan/ -run TestRenderMarkdownGolden
 -update` after template/CSS/JS changes.
+- **Repository text files use LF on every platform** via
+  `.gitattributes`; byte-exact golden and generated-file tests depend
+  on this even when Git runs on Windows.
 - **Config schema**: `schema/airplan.schema.json` is generated from
   the config structs and golden-tested; refresh with
   `go test ./airplan/ -run TestConfigSchema -update`. Unknown config

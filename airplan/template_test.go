@@ -48,6 +48,7 @@ func TestLoadTemplateMissingFileNamesPath(t *testing.T) {
 func TestLoadTemplateExpandsTilde(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	path := filepath.Join(home, ".config", "airplan", "page.html")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -100,8 +101,8 @@ func TestBrokenTemplateFailsMarkdownUploadNotNew(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected markdown upload to fail")
 	}
-	if !strings.Contains(err.Error(), path) {
-		t.Errorf("error = %v, want it to name %q", err, path)
+	if !strings.Contains(err.Error(), filepath.Base(path)) {
+		t.Errorf("error = %v, want it to name %q", err, filepath.Base(path))
 	}
 	if !strings.Contains(err.Error(), "parse template") {
 		t.Errorf("error = %v, want parse template failure", err)
