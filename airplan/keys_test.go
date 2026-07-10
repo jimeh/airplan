@@ -14,6 +14,7 @@ const testDir = "vq3nhk2p7r4wzt5c6ydjm3xhqd"
 
 func TestKeyFromURLOrKey(t *testing.T) {
 	cfg := &Config{
+		Endpoint:      "https://s3.example.com",
 		Bucket:        "plans",
 		PublicBaseURL: "https://plans.example.com",
 	}
@@ -33,6 +34,16 @@ func TestKeyFromURLOrKey(t *testing.T) {
 			"path-style url strips bucket",
 			"https://s3.example.com/plans/" + testDir + "/plan.html",
 			testDir + "/plan.html", false,
+		},
+		{
+			"unconfigured host",
+			"https://other.example.com/plans/" + testDir + "/plan.html",
+			"", true,
+		},
+		{
+			"unsupported scheme",
+			"ftp://plans.example.com/" + testDir + "/plan.html",
+			"", true,
 		},
 		{
 			"bare key",
@@ -62,6 +73,18 @@ func TestKeyFromURLOrKey(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestKeyFromURLOrKeyBucketOnlyFallback(t *testing.T) {
+	cfg := &Config{Bucket: "plans"}
+	got, err := KeyFromURLOrKey(cfg,
+		"https://s3.example.com/plans/"+testDir+"/plan.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != testDir+"/plan.html" {
+		t.Fatalf("got %q, want %q", got, testDir+"/plan.html")
 	}
 }
 
@@ -141,8 +164,17 @@ func TestDeleteUpload(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	_, err = client.DeleteUpload(context.Background(),
+		"https://other.example.com/plans/"+testDir+"/plan.html")
+	if err == nil || !strings.Contains(err.Error(),
+		"does not match the configured") {
+		t.Fatalf("unconfigured URL error = %v", err)
+	}
+
+	// Scheme variants of the configured public host remain equivalent:
+	// the target is parsed for its key, not fetched.
 	res, err := client.DeleteUpload(context.Background(),
-		"https://plans.example.com/"+testDir+"/plan.html")
+		"http://plans.example.com/"+testDir+"/plan.html")
 	if err != nil {
 		t.Fatal(err)
 	}

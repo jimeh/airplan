@@ -36,6 +36,11 @@ func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("airplan: parse url %q: %w", s, err)
 		}
+		if !strings.EqualFold(u.Scheme, "http") &&
+			!strings.EqualFold(u.Scheme, "https") {
+			return "", fmt.Errorf(
+				"airplan: URL %q must use http or https", s)
+		}
 
 		key = strings.TrimPrefix(u.Path, "/")
 		switch {
@@ -57,10 +62,16 @@ func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 				key = strings.TrimPrefix(key, basePath+"/")
 			}
 			key = strings.TrimPrefix(key, cfg.Bucket+"/")
-		case cfg != nil && cfg.Bucket != "":
+		case cfg != nil && cfg.Endpoint == "" &&
+			cfg.PublicBaseURL == "" && cfg.Bucket != "":
 			// Keep accepting path-style URLs when only the bucket is
 			// available to the library caller.
 			key = strings.TrimPrefix(key, cfg.Bucket+"/")
+		case cfg != nil &&
+			(cfg.Endpoint != "" || cfg.PublicBaseURL != ""):
+			return "", fmt.Errorf(
+				"airplan: URL %q does not match the configured endpoint "+
+					"or public_base_url", s)
 		}
 	}
 
@@ -68,7 +79,9 @@ func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 }
 
 // baseURLMatches reports whether u is served from the configured
-// public_base_url (same host, path under the base's path).
+// public_base_url (same host, path under the base's path). HTTP and
+// HTTPS are equivalent here because parsing a delete target does not
+// fetch the supplied URL.
 func baseURLMatches(base string, u *url.URL) bool {
 	if base == "" {
 		return false

@@ -13,6 +13,7 @@ import (
 func TestRenderInputRejectsInvalidUTF8(t *testing.T) {
 	inputs := map[string][]byte{
 		"invalid byte":         {'a', 'b', 0xff, 'c'},
+		"binary and invalid":   {0x00, 0xff},
 		"truncated sequence":   {'a', 0xe2, 0x82},
 		"overlong encoding":    {0xc0, 0xaf},
 		"surrogate code point": {0xed, 0xa0, 0x80},

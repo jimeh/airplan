@@ -97,11 +97,11 @@ func renderInput(
 	if err != nil {
 		return nil, err
 	}
-	if IsBinary(data) {
-		return nil, ErrBinaryInput
-	}
 	if !utf8.Valid(data) {
 		return nil, ErrInvalidUTF8
+	}
+	if IsBinary(data) {
+		return nil, ErrBinaryInput
 	}
 
 	var format Format

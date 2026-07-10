@@ -60,8 +60,8 @@ go install github.com/jimeh/airplan@latest
 Prebuilt binaries are available from
 [GitHub Releases](https://github.com/jimeh/airplan/releases).
 
-Release archives include SPDX JSON SBOMs and are covered by GitHub artifact
-attestations. After downloading the release assets, verify them:
+Release assets include separate SPDX JSON SBOMs, and the archives are covered by
+GitHub artifact attestations. After downloading the release assets, verify them:
 
 ```sh
 # Linux

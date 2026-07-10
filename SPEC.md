@@ -124,7 +124,8 @@ Binary rejection: input containing a NUL byte within its first 8 KiB
 regardless of detected or forced format. airplan uploads UTF-8 text
 documents: input that is not valid UTF-8 is likewise rejected before
 any upload, regardless of detected or forced format. There is no
-bypass for either check.
+bypass for either check. When input fails both checks, the invalid
+UTF-8 error takes precedence over the binary-input error.
 
 Size limit: input larger than the configured maximum — default
 **10 MiB** — is rejected with an error before any upload. The whole
@@ -739,8 +740,12 @@ machine) and must be safe:
   its random directory, so page and markdown source go together —
   and tombstone its manifest entry if one exists (append a deletion
   record; the file stays append-only). Takes an explicit URL/key,
-  so it also works on uploads made from other machines. Ensure-gone
-  tombstoning checks a matching active manifest record: if its
+  so it also works on uploads made from other machines. Full URLs must
+  use HTTP(S) and match the configured public base URL or endpoint by
+  host and base path; HTTP and HTTPS variants of the same host are
+  equivalent because the URL is parsed, not fetched. Bucket-only URL
+  parsing is allowed only when neither connection URL is configured.
+  Ensure-gone tombstoning checks a matching active manifest record: if its
   recorded bucket or profile differs from the active connection,
   deletion fails with an actionable error instead of hiding an upload
   that may still be live under another profile. If the manifest cannot
