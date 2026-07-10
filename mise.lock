@@ -266,6 +266,45 @@ url = "https://github.com/suzuki-shunsuke/pinact/releases/download/v4.1.0/pinact
 url_api = "https://api.github.com/repos/suzuki-shunsuke/pinact/releases/assets/442249974"
 provenance = "github-attestations"
 
+[[tools.syft]]
+version = "1.46.0"
+backend = "aqua:anchore/syft"
+
+[tools.syft."platforms.linux-arm64"]
+checksum = "sha256:9fafef4db4f032ce81008d3a1529985d41ceb6ccdf2b388c9ce2f1ed7d32082e"
+url = "https://github.com/anchore/syft/releases/download/v1.46.0/syft_1.46.0_linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/anchore/syft/releases/assets/458512839"
+
+[tools.syft."platforms.linux-arm64-musl"]
+checksum = "sha256:9fafef4db4f032ce81008d3a1529985d41ceb6ccdf2b388c9ce2f1ed7d32082e"
+url = "https://github.com/anchore/syft/releases/download/v1.46.0/syft_1.46.0_linux_arm64.tar.gz"
+url_api = "https://api.github.com/repos/anchore/syft/releases/assets/458512839"
+
+[tools.syft."platforms.linux-x64"]
+checksum = "sha256:d654f678b709eb53c393d38519d5ed7d2e57205529404018614cfefa0fb2b5ca"
+url = "https://github.com/anchore/syft/releases/download/v1.46.0/syft_1.46.0_linux_amd64.tar.gz"
+url_api = "https://api.github.com/repos/anchore/syft/releases/assets/458512846"
+
+[tools.syft."platforms.linux-x64-musl"]
+checksum = "sha256:d654f678b709eb53c393d38519d5ed7d2e57205529404018614cfefa0fb2b5ca"
+url = "https://github.com/anchore/syft/releases/download/v1.46.0/syft_1.46.0_linux_amd64.tar.gz"
+url_api = "https://api.github.com/repos/anchore/syft/releases/assets/458512846"
+
+[tools.syft."platforms.macos-arm64"]
+checksum = "sha256:cd4e2c40e075684a5746d8959f76b6572bb2d2dda8cf6877dbfff1cc0baeea01"
+url = "https://github.com/anchore/syft/releases/download/v1.46.0/syft_1.46.0_darwin_arm64.tar.gz"
+url_api = "https://api.github.com/repos/anchore/syft/releases/assets/458512850"
+
+[tools.syft."platforms.macos-x64"]
+checksum = "sha256:5c983db13533de02e5331aae88091116f25365840741f86234084a30166672a7"
+url = "https://github.com/anchore/syft/releases/download/v1.46.0/syft_1.46.0_darwin_amd64.tar.gz"
+url_api = "https://api.github.com/repos/anchore/syft/releases/assets/458512854"
+
+[tools.syft."platforms.windows-x64"]
+checksum = "sha256:1e515c1ac4bc65917f8d0a52b6ae0e611082779cbf2da9d470282158dd24ea13"
+url = "https://github.com/anchore/syft/releases/download/v1.46.0/syft_1.46.0_windows_amd64.zip"
+url_api = "https://api.github.com/repos/anchore/syft/releases/assets/458512848"
+
 [[tools.zizmor]]
 version = "1.26.1"
 backend = "aqua:zizmorcore/zizmor"

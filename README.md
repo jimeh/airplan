@@ -26,9 +26,11 @@ It is useful when an agent has written a plan that a person should review, or
 whenever you want to share a local document without running a server or using a
 paste service.
 
-- Markdown becomes a polished, standalone page with light and dark themes.
+- Markdown becomes a polished, standalone page with light and dark themes. Raw
+  HTML and unsafe link destinations are omitted from its rendered view.
 - Source and plain-text files become highlighted, gist-like pages.
-- HTML stays HTML, with no rendering step.
+- HTML stays HTML, with no rendering step. Treat HTML input as trusted code: it
+  may execute scripts when someone opens the link.
 - Files live in a bucket you own. There are no accounts or background services.
 - The command has a predictable output contract for scripts and agents.
 
@@ -57,6 +59,22 @@ go install github.com/jimeh/airplan@latest
 Prebuilt binaries are available from
 [GitHub Releases](https://github.com/jimeh/airplan/releases).
 
+Release archives include SPDX JSON SBOMs and are covered by GitHub artifact
+attestations. After downloading the release assets, verify them:
+
+```sh
+# Linux
+sha256sum --check checksums.txt
+# macOS
+shasum --algorithm 256 --check checksums.txt
+
+gh attestation verify airplan_0.1.0_darwin_arm64.tar.gz \
+  --repo jimeh/airplan
+```
+
+Use the matching `.zip` name on Windows. The attestation verifies that the
+archive was produced by this repository's release workflow.
+
 ## Configure storage
 
 airplan works with any S3-compatible object store. You need a bucket, a public
@@ -76,6 +94,10 @@ public_base_url   = "https://plans.example.com"
 access_key_id     = "..." # or AIRPLAN_ACCESS_KEY_ID
 secret_access_key = "..." # or AIRPLAN_SECRET_ACCESS_KEY
 ```
+
+Explicit access and secret keys must be configured as a pair. Omit both to use
+the standard AWS credential chain. Endpoint and public base URLs must be
+absolute HTTP(S) URLs.
 
 If the file contains credentials, protect it with `chmod 600`. airplan warns
 when its permissions are too broad. The `#:schema` comment enables validation
@@ -161,7 +183,10 @@ highlight language from the filename. Use `--lang` to override it, especially
 for input piped through stdin.
 
 Everything needed to view a rendered page is embedded in the HTML. There are no
-external fonts, scripts, or other page assets.
+external fonts, scripts, or other page assets. Markdown rendering omits raw HTML
+and unsafe URL schemes; the original Markdown remains exact in source view and
+the optional source object. Explicit HTML input is intentionally different: it
+is uploaded as authored and can contain executable content.
 
 ## Automation and agents
 
@@ -201,7 +226,9 @@ while it remains unknown, but it is not access-controlled:
 
 - Anyone with the link can open it and pass it on.
 - Chat tools may scan or prefetch links shared through them.
-- Objects remain in the bucket until they are deleted.
+- Objects remain in the bucket until they are deleted. airplan serves them with
+  `Cache-Control: no-store` so browsers and shared caches should not retain a
+  reusable response after deletion.
 - Bucket listing must remain private.
 
 Use `airplan purge --older-than 30d --yes` manually or from cron when uploads
@@ -213,15 +240,33 @@ should expire. For defense in depth on Cloudflare, a Transform Rule can add an
 The CLI is a thin shell over an importable Go package:
 
 ```go
-import "github.com/jimeh/airplan/airplan"
+import (
+    "context"
+    "fmt"
+    "io"
 
-cfg, _ := airplan.LoadConfig(airplan.ConfigOptions{})
-client, _ := airplan.New(ctx, cfg)
-res, _ := client.Upload(ctx, airplan.Input{
-    Reader: f,
-    Name:   "plan.md",
-})
-fmt.Println(res.URL)
+    "github.com/jimeh/airplan/airplan"
+)
+
+func upload(ctx context.Context, f io.Reader) error {
+    cfg, err := airplan.LoadConfig(airplan.ConfigOptions{})
+    if err != nil {
+        return err
+    }
+    client, err := airplan.New(ctx, cfg)
+    if err != nil {
+        return err
+    }
+    res, err := client.Upload(ctx, airplan.Input{
+        Reader: f,
+        Name:   "plan.md",
+    })
+    if err != nil {
+        return err
+    }
+    fmt.Println(res.URL)
+    return nil
+}
 ```
 
 The library exposes the same behavior as the CLI. See the

@@ -13,7 +13,8 @@ same PR**, including its version per the semver rules at the top of
 the file. Code comments reference spec sections (`SPEC.md §7`); keep
 them accurate. [IMPLEMENTATION.md](IMPLEMENTATION.md) describes how
 this implementation is built and must not contradict the spec.
-[PLAN.md](PLAN.md) tracks phased execution status.
+[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) tracks the v0.1.0
+release-hardening work and evidence gates.
 
 ## Task surface (mise)
 
@@ -60,6 +61,12 @@ pins live in `mise.lock` (commit both when bumping tools).
 - **GoReleaser PR checks are opt-in**: apply the `ci:goreleaser`
   label when a PR changes `.goreleaser.yaml` or release packaging.
   The check remains unconditional on pushes to `main`.
+- **MinIO is immutable-pinned** in `airplan/integration_test.go`:
+  update the release tag and multi-platform digest together, inspect
+  the image labels, then run `mise run test-integration`.
+- **Real R2 release smoke tests may use `AIRPLAN_TIMEOUT=60s`** when
+  local firewall approval could interrupt the sequence. The product
+  default remains 30 seconds.
 
 ## Layout
 

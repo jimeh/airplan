@@ -18,7 +18,6 @@ import (
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
-	"github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/text"
 )
 
@@ -141,11 +140,6 @@ func newMarkdown() goldmark.Markdown {
 		),
 		goldmark.WithParserOptions(
 			parser.WithAutoHeadingID(),
-		),
-		goldmark.WithRendererOptions(
-			// Plan documents are the author's own content; raw HTML
-			// passes through like on GitHub READMEs rendered locally.
-			html.WithUnsafe(),
 		),
 	)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -214,7 +215,7 @@ func TestDeleteUploadEnsureGone(t *testing.T) {
 	}
 
 	res, err := client.DeleteUpload(context.Background(),
-		testDir+"/plan.html")
+		testDir+"/plan.md")
 	if err != nil {
 		t.Fatalf("ensure-gone should not error: %v", err)
 	}
@@ -267,6 +268,133 @@ func TestKeyFromURLOrKeyBaseURLWithPath(t *testing.T) {
 	}
 }
 
+func TestKeyFromURLOrKeyEncodedPathRoundTrip(t *testing.T) {
+	cfg := &Config{
+		Endpoint:      "https://s3.example.com/api",
+		Bucket:        "plans",
+		PublicBaseURL: "https://CDN.example.com/shared/plans",
+		KeyPrefix:     "team/Jiméh plans",
+	}
+	key := "team/Jiméh plans/" + testDir + "/plan #1.html"
+	public, _ := PublicURL(cfg, key)
+
+	got, err := KeyFromURLOrKey(cfg, public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != key {
+		t.Fatalf("round trip = %q, want %q", got, key)
+	}
+
+	cfg.PublicBaseURL = ""
+	fallback, _ := PublicURL(cfg, key)
+	got, err = KeyFromURLOrKey(cfg, fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != key {
+		t.Fatalf("fallback round trip = %q, want %q", got, key)
+	}
+}
+
+func TestDeleteUploadEnsureGoneRejectsWrongConnection(t *testing.T) {
+	emptyXML := `<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>`
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = w.Write([]byte(emptyXML))
+		},
+	))
+	t.Cleanup(server.Close)
+
+	for _, tt := range []struct {
+		name          string
+		recordBucket  string
+		recordProfile string
+		activeBucket  string
+		activeProfile string
+	}{
+		{"different bucket", "archive", "work", "plans", "work"},
+		{"different profile in shared bucket", "plans", "home", "plans", "work"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			manifest := t.TempDir() + "/manifest.jsonl"
+			pageKey := testDir + "/plan.html"
+			if err := appendManifestRecord(manifest, ManifestRecord{
+				Type: "upload", Key: pageKey, Bucket: tt.recordBucket,
+				Profile: tt.recordProfile,
+			}); err != nil {
+				t.Fatal(err)
+			}
+
+			client, err := New(context.Background(), &Config{
+				Endpoint: server.URL, Bucket: tt.activeBucket,
+				AccessKeyID: "test", SecretAccessKey: "test",
+				Profile: tt.activeProfile, ManifestPath: manifest,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = client.DeleteUpload(context.Background(), pageKey)
+			if err == nil || !strings.Contains(err.Error(),
+				"retry with the recorded profile") {
+				t.Fatalf("wrong connection error = %v", err)
+			}
+
+			records, _, readErr := ReadManifest(manifest)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if len(records) != 1 || records[0].Type != "upload" {
+				t.Fatalf("manifest changed despite refusal: %+v", records)
+			}
+		})
+	}
+}
+
+func TestEnsureGoneWithoutManifestUsesTarget(t *testing.T) {
+	c := &Client{cfg: &Config{DisableManifest: true}}
+	key := testDir + "/plan.md"
+	got, err := c.ensureGonePageKey(testDir+"/", key)
+	if err != nil || got != key {
+		t.Fatalf("ensureGonePageKey() = %q, %v", got, err)
+	}
+}
+
+func TestDeleteUploadEnsureGoneWithManifestDisabled(t *testing.T) {
+	emptyXML := `<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>`
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = w.Write([]byte(emptyXML))
+		},
+	))
+	t.Cleanup(server.Close)
+
+	manifest := t.TempDir() + "/manifest.jsonl"
+	client, err := New(context.Background(), &Config{
+		Endpoint: server.URL, Bucket: "plans",
+		AccessKeyID: "test", SecretAccessKey: "test",
+		DisableManifest: true, ManifestPath: manifest,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := testDir + "/plan.md"
+	res, err := client.DeleteUpload(context.Background(), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.PageKey != target {
+		t.Fatalf("PageKey = %q, want %q", res.PageKey, target)
+	}
+	if _, err := os.Stat(manifest); !os.IsNotExist(err) {
+		t.Fatalf("disabled manifest was written: %v", err)
+	}
+}
+
 // TestDeleteUploadEnsureGoneBareDir: ensure-gone on a bare directory
 // target must tombstone the manifest's page key, not the directory
 // string, so ActiveUploads deactivates the record.
@@ -284,7 +412,7 @@ func TestDeleteUploadEnsureGoneBareDir(t *testing.T) {
 	manifest := t.TempDir() + "/manifest.jsonl"
 	pageKey := testDir + "/plan.html"
 	err := appendManifestRecord(manifest, ManifestRecord{
-		Type: "upload", Key: pageKey, Bucket: "plans",
+		Type: "upload", Key: pageKey, Bucket: "plans", Profile: "work",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -296,6 +424,7 @@ func TestDeleteUploadEnsureGoneBareDir(t *testing.T) {
 		AccessKeyID:     "test",
 		SecretAccessKey: "test",
 		ManifestPath:    manifest,
+		Profile:         "work",
 	}
 	client, err := New(context.Background(), cfg)
 	if err != nil {

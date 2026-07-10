@@ -39,6 +39,17 @@ archives:
 checksum:
   name_template: checksums.txt
 
+sboms:
+  - id: archives
+    artifacts: archive
+    cmd: syft
+    documents:
+      - "${artifact}.spdx.json"
+    args:
+      - "${artifact}"
+      - --output
+      - "spdx-json=${document}"
+
 changelog:
   disable: true
 

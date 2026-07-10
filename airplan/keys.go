@@ -48,9 +48,18 @@ func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 			if basePath != "" {
 				key = strings.TrimPrefix(key, basePath+"/")
 			}
-		case cfg != nil && cfg.Bucket != "":
+		case cfg != nil && baseURLMatches(cfg.Endpoint, u):
 			// Path-style URLs (<endpoint>/<bucket>/<key>) carry the
-			// bucket as the first segment.
+			// endpoint path and bucket before the key.
+			b, _ := url.Parse(cfg.Endpoint)
+			basePath := strings.Trim(b.Path, "/")
+			if basePath != "" {
+				key = strings.TrimPrefix(key, basePath+"/")
+			}
+			key = strings.TrimPrefix(key, cfg.Bucket+"/")
+		case cfg != nil && cfg.Bucket != "":
+			// Keep accepting path-style URLs when only the bucket is
+			// available to the library caller.
 			key = strings.TrimPrefix(key, cfg.Bucket+"/")
 		}
 	}
@@ -65,7 +74,9 @@ func baseURLMatches(base string, u *url.URL) bool {
 		return false
 	}
 	b, err := url.Parse(base)
-	if err != nil || b.Host == "" || b.Host != u.Host {
+	if err != nil || b.Host == "" ||
+		!strings.EqualFold(b.Scheme, u.Scheme) ||
+		!strings.EqualFold(b.Host, u.Host) {
 		return false
 	}
 	basePath := strings.Trim(b.Path, "/")

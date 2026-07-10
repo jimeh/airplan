@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"runtime/debug"
 	"strings"
 
 	"github.com/jimeh/airplan/airplan"
@@ -75,7 +76,7 @@ func newRootCmd() *cobra.Command {
 			"under a randomized, unguessable URL path and prints the " +
 			"resulting URL.",
 		Args:          cobra.MaximumNArgs(1),
-		Version:       version,
+		Version:       buildVersion(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -99,7 +100,7 @@ func newRootCmd() *cobra.Command {
 	f.StringVar(&opts.maxSize, "max-size", "10MiB",
 		"input size limit, e.g. 10MiB, 512k, 1048576; 0 = no limit")
 	f.StringVar(&opts.timeout, "timeout", "",
-		"invocation timeout, e.g. 20s, 1m30s; 0 = none (default 20s)")
+		"invocation timeout, e.g. 30s, 1m30s; 0 = none (default 30s)")
 	f.BoolVarP(&opts.json, "json", "j", false,
 		"print a single JSON object instead of the URL")
 	f.BoolVarP(&opts.open, "open", "o", false,
@@ -126,6 +127,29 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newDeleteCmd())
 	cmd.AddCommand(newPurgeCmd())
 	return cmd
+}
+
+func buildVersion() string {
+	if version != "dev" {
+		return version
+	}
+	info, ok := debug.ReadBuildInfo()
+	return resolveVersion(version, info, ok)
+}
+
+func resolveVersion(
+	stamped string,
+	info *debug.BuildInfo,
+	ok bool,
+) string {
+	if stamped != "dev" {
+		return stamped
+	}
+	if !ok || info == nil || info.Main.Version == "" ||
+		info.Main.Version == "(devel)" {
+		return "dev"
+	}
+	return strings.TrimPrefix(info.Main.Version, "v")
 }
 
 // run executes the upload pipeline for the root command, honoring the

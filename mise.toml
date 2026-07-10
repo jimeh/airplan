@@ -10,6 +10,7 @@ actionlint = "1"
 zizmor = "1"
 pinact = "4"
 oxfmt = "0"
+syft = "1"
 
 [tasks.build]
 description = "Build the airplan binary (skipped when nothing changed)"

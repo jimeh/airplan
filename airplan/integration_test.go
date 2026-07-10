@@ -26,7 +26,12 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	)
 	defer cancel()
 
-	minioC, err := tcminio.Run(ctx, "minio/minio:latest")
+	// Keep the reviewed release tag and multi-platform digest together.
+	// Refresh both, inspect the image labels, then run this test before
+	// accepting a newer MinIO image.
+	const minioImage = "minio/minio:RELEASE.2025-09-07T16-13-09Z@" +
+		"sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+	minioC, err := tcminio.Run(ctx, minioImage)
 	testcontainers.CleanupContainer(t, minioC)
 	if err != nil {
 		t.Fatal(err)
@@ -84,7 +89,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	if page.contentType != "text/html; charset=utf-8" {
 		t.Errorf("page Content-Type = %q", page.contentType)
 	}
-	if page.cacheControl != "public, max-age=31536000, immutable" {
+	if page.cacheControl != "no-store" {
 		t.Errorf("page Cache-Control = %q", page.cacheControl)
 	}
 	if page.metaTitle != "Integration Plan" {
@@ -113,7 +118,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	if source.contentType != "text/markdown; charset=utf-8" {
 		t.Errorf("source Content-Type = %q", source.contentType)
 	}
-	if source.cacheControl != "public, max-age=31536000, immutable" {
+	if source.cacheControl != "no-store" {
 		t.Errorf("source Cache-Control = %q", source.cacheControl)
 	}
 }

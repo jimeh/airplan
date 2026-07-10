@@ -1,12 +1,57 @@
 package airplan
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestRenderInputRejectsInvalidUTF8(t *testing.T) {
+	inputs := map[string][]byte{
+		"invalid byte":         {'a', 'b', 0xff, 'c'},
+		"truncated sequence":   {'a', 0xe2, 0x82},
+		"overlong encoding":    {0xc0, 0xaf},
+		"surrogate code point": {0xed, 0xa0, 0x80},
+	}
+	for name, invalid := range inputs {
+		for _, format := range []string{"", "md", "txt", "html"} {
+			t.Run(name+"/format="+format, func(t *testing.T) {
+				_, err := RenderInput(context.Background(), Input{
+					Reader: bytes.NewReader(invalid), Format: format,
+				}, RenderInputOptions{})
+				if !errors.Is(err, ErrInvalidUTF8) {
+					t.Fatalf("err = %v, want ErrInvalidUTF8", err)
+				}
+			})
+		}
+	}
+}
+
+func TestRenderInputAcceptsValidNonASCII(t *testing.T) {
+	_, err := RenderInput(context.Background(), Input{
+		Reader: strings.NewReader("# Héllo 👋\n"), Format: "md",
+	}, RenderInputOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRenderInputExplicitHTMLPreservesExecutableContent(t *testing.T) {
+	src := `<!doctype html><script>window.intentional = true</script>`
+	doc, err := RenderInput(context.Background(), Input{
+		Reader: strings.NewReader(src), Format: "html",
+	}, RenderInputOptions{Indexable: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(doc.HTML) != src {
+		t.Fatalf("explicit HTML changed: %q", doc.HTML)
+	}
+}
 
 func TestRenderInputUsesUploadSourcePathOnlyWhenRequested(t *testing.T) {
 	input := func() Input {

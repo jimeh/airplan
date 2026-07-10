@@ -51,6 +51,15 @@ func TestPublicURL(t *testing.T) {
 				"abc/page.html",
 			wantFallback: true,
 		},
+		{
+			name: "percent encodes each object key segment",
+			cfg: Config{
+				PublicBaseURL: "https://plans.example.com/base/",
+			},
+			key: "team/Jiméh plans/abc/plan #1.html",
+			wantURL: "https://plans.example.com/base/team/" +
+				"Jim%C3%A9h%20plans/abc/plan%20%231.html",
+		},
 	}
 
 	for _, tt := range tests {
@@ -112,7 +121,7 @@ func TestStoragePutHeaders(t *testing.T) {
 		t,
 		got.header,
 		"Cache-Control",
-		"public, max-age=31536000, immutable",
+		"no-store",
 	)
 	assertHeader(t, got.header, "X-Amz-Meta-Title", "Launch Plan")
 }

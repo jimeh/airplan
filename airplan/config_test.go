@@ -66,7 +66,7 @@ func TestLoadConfigDefaultRegion(t *testing.T) {
 	cfg, err := LoadConfig(ConfigOptions{
 		Path: missingPath(t),
 		Getenv: envMap(map[string]string{
-			"AIRPLAN_ENDPOINT": "env-endpoint",
+			"AIRPLAN_ENDPOINT": "https://s3.example.com",
 			"AIRPLAN_BUCKET":   "env-bucket",
 		}),
 	})
@@ -75,7 +75,7 @@ func TestLoadConfigDefaultRegion(t *testing.T) {
 	}
 
 	assertEqual(t, cfg.Profile, "")
-	assertEqual(t, cfg.Endpoint, "env-endpoint")
+	assertEqual(t, cfg.Endpoint, "https://s3.example.com")
 	assertEqual(t, cfg.Bucket, "env-bucket")
 	assertEqual(t, cfg.Region, "auto")
 	if err := cfg.Validate(); err != nil {
@@ -471,6 +471,162 @@ func TestValidateErrorContent(t *testing.T) {
 	})
 }
 
+func TestValidateCredentials(t *testing.T) {
+	base := Config{
+		Endpoint: "https://s3.example.com",
+		Bucket:   "plans",
+	}
+
+	t.Run("ambient chain", func(t *testing.T) {
+		if err := base.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("complete explicit pair", func(t *testing.T) {
+		cfg := base
+		cfg.AccessKeyID = "id"
+		cfg.SecretAccessKey = "secret"
+		if err := cfg.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	for _, tt := range []struct {
+		name   string
+		access string
+		secret string
+	}{
+		{"access key only", "id", ""},
+		{"secret key only", "", "secret"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := base
+			cfg.AccessKeyID = tt.access
+			cfg.SecretAccessKey = tt.secret
+			err := cfg.Validate()
+			assertErrorContains(t, err,
+				"access_key_id and secret_access_key",
+				"configured together")
+		})
+	}
+
+	t.Run("mixed precedence may complete pair", func(t *testing.T) {
+		path := writeConfig(t, `
+endpoint = "https://s3.example.com"
+bucket = "plans"
+access_key_id = "from-file"
+`, 0o600)
+		cfg, err := LoadConfig(ConfigOptions{
+			Path: path,
+			Getenv: envMap(map[string]string{
+				"AIRPLAN_SECRET_ACCESS_KEY": "from-env",
+			}),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("profile partial remains invalid", func(t *testing.T) {
+		path := writeConfig(t, `
+[profiles.work]
+endpoint = "https://s3.example.com"
+bucket = "plans"
+secret_access_key = "secret-only"
+`, 0o600)
+		cfg, err := LoadConfig(ConfigOptions{
+			Path: path, Profile: "work", Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertErrorContains(t, cfg.Validate(),
+			"access_key_id and secret_access_key")
+	})
+
+	t.Run("environment partial remains invalid", func(t *testing.T) {
+		cfg, err := LoadConfig(ConfigOptions{
+			Path: missingPath(t),
+			Getenv: envMap(map[string]string{
+				"AIRPLAN_ENDPOINT":      "https://s3.example.com",
+				"AIRPLAN_BUCKET":        "plans",
+				"AIRPLAN_ACCESS_KEY_ID": "id-only",
+			}),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertErrorContains(t, cfg.Validate(),
+			"access_key_id and secret_access_key")
+	})
+
+	t.Run("root file partial remains invalid", func(t *testing.T) {
+		path := writeConfig(t, `
+endpoint = "https://s3.example.com"
+bucket = "plans"
+access_key_id = "id-only"
+`, 0o600)
+		cfg, err := LoadConfig(ConfigOptions{
+			Path: path, Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertErrorContains(t, cfg.Validate(),
+			"access_key_id and secret_access_key")
+	})
+}
+
+func TestValidateURLsAndKeyPrefix(t *testing.T) {
+	valid := Config{
+		Endpoint:      "https://s3.example.com/api/",
+		Bucket:        "plans",
+		PublicBaseURL: "https://cdn.example.com/shared/plans/",
+		KeyPrefix:     "team/Jiméh plans",
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("valid config rejected: %v", err)
+	}
+
+	for _, tt := range []struct {
+		name   string
+		mutate func(*Config)
+		want   string
+	}{
+		{
+			"endpoint scheme", func(c *Config) { c.Endpoint = "s3.example.com" },
+			"scheme must be http or https",
+		},
+		{
+			"endpoint host", func(c *Config) { c.Endpoint = "https:///api" },
+			"host is required",
+		},
+		{
+			"endpoint query", func(c *Config) { c.Endpoint += "?x=1" },
+			"query",
+		},
+		{"public user info", func(c *Config) {
+			c.PublicBaseURL = "https://user@cdn.example.com"
+		}, "user info"},
+		{"empty prefix segment", func(c *Config) {
+			c.KeyPrefix = "team//plans"
+		}, "path segments"},
+		{"dot prefix segment", func(c *Config) {
+			c.KeyPrefix = "team/../plans"
+		}, "path segments"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := valid
+			tt.mutate(&cfg)
+			assertErrorContains(t, cfg.Validate(), tt.want)
+		})
+	}
+}
+
 func TestDefaultConfigPath(t *testing.T) {
 	t.Run("prefers XDG_CONFIG_HOME", func(t *testing.T) {
 		dir := t.TempDir()
@@ -723,6 +879,9 @@ bucket   = "b"
 `
 
 	t.Run("default", func(t *testing.T) {
+		if DefaultTimeout != 30*time.Second {
+			t.Fatalf("DefaultTimeout = %v, want 30s", DefaultTimeout)
+		}
 		cfg, err := LoadConfig(ConfigOptions{
 			Path:   writeConfig(t, base, 0o600),
 			Getenv: envMap(nil),

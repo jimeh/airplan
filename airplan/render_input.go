@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"path/filepath"
+	"unicode/utf8"
 )
 
 // RenderInputOptions controls the local input-to-HTML pipeline.
@@ -98,6 +99,9 @@ func renderInput(
 	}
 	if IsBinary(data) {
 		return nil, ErrBinaryInput
+	}
+	if !utf8.Valid(data) {
+		return nil, ErrInvalidUTF8
 	}
 
 	var format Format

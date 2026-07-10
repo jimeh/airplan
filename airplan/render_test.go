@@ -104,6 +104,57 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 	})
 }
 
+func TestRenderMarkdownOmitsUnsafeContent(t *testing.T) {
+	src := []byte(strings.Join([]string{
+		"# Safety",
+		"",
+		`<script>window.airplanPwned = true</script>`,
+		"",
+		`<img src=x onerror="window.airplanPwned = true">`,
+		"",
+		`inline <span onclick="window.airplanPwned = true">HTML</span>`,
+		"",
+		`[unsafe](javascript:alert(1))`,
+		"",
+		`![unsafe image](javascript:alert(2))`,
+		"",
+		`[safe](https://example.com/path)`,
+	}, "\n"))
+	out := render(t, src, RenderOptions{Title: "Safety"})
+	rendered := renderedSection(t, out)
+
+	for _, unsafe := range []string{
+		"<script>window.airplanPwned", "onerror=", "onclick=",
+		`href="javascript:`, `src="javascript:`,
+	} {
+		if strings.Contains(rendered, unsafe) {
+			t.Errorf("rendered view contains unsafe content %q: %s",
+				unsafe, rendered)
+		}
+	}
+	if !strings.Contains(rendered, `href="https://example.com/path"`) {
+		t.Error("safe HTTPS link was not preserved")
+	}
+	if !strings.Contains(out, "window.airplanPwned = true") ||
+		!strings.Contains(out, "javascript:alert") {
+		t.Error("source view did not preserve the original Markdown")
+	}
+}
+
+func renderedSection(t *testing.T, page string) string {
+	t.Helper()
+	start := strings.Index(page, `id="rendered">`)
+	if start < 0 {
+		t.Fatal("rendered main section not found")
+	}
+	start = strings.LastIndex(page[:start], "<main")
+	end := strings.Index(page[start:], "</main>")
+	if end < 0 {
+		t.Fatal("rendered main closing tag not found")
+	}
+	return page[start : start+end]
+}
+
 func render(t *testing.T, src []byte, opts RenderOptions) string {
 	t.Helper()
 	out, err := RenderMarkdown(src, opts)

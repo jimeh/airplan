@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"mime"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -102,15 +103,14 @@ type object struct {
 	Metadata map[string]string
 }
 
-// put uploads one object with
-// Cache-Control: public, max-age=31536000, immutable (SPEC.md §5).
+// put uploads one object with Cache-Control: no-store (SPEC.md §5).
 func (s *storage) put(ctx context.Context, obj object) error {
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:       aws.String(s.bucket),
 		Key:          aws.String(obj.Key),
 		Body:         bytes.NewReader(obj.Body),
 		ContentType:  aws.String(obj.ContentType),
-		CacheControl: aws.String("public, max-age=31536000, immutable"),
+		CacheControl: aws.String("no-store"),
 		Metadata:     obj.Metadata,
 	})
 	if err != nil {
@@ -125,11 +125,31 @@ func (s *storage) put(ctx context.Context, obj object) error {
 // that the URL may not be publicly reachable (SPEC.md §7, §8).
 func PublicURL(cfg *Config, key string) (url string, fallback bool) {
 	if cfg.PublicBaseURL != "" {
-		return strings.TrimRight(cfg.PublicBaseURL, "/") + "/" + key, false
+		return appendURLPath(cfg.PublicBaseURL, key), false
 	}
 
-	endpoint := strings.TrimRight(cfg.Endpoint, "/")
-	return endpoint + "/" + cfg.Bucket + "/" + key, true
+	return appendURLPath(cfg.Endpoint, cfg.Bucket+"/"+key), true
+}
+
+func appendURLPath(base, path string) string {
+	u, err := neturl.Parse(base)
+	if err != nil {
+		return strings.TrimRight(base, "/") + "/" + escapeObjectKey(path)
+	}
+	basePath := strings.TrimRight(u.Path, "/")
+	baseRawPath := strings.TrimRight(u.EscapedPath(), "/")
+	u.Path = basePath + "/" + path
+	u.RawPath = baseRawPath + "/" +
+		escapeObjectKey(path)
+	return u.String()
+}
+
+func escapeObjectKey(key string) string {
+	segments := strings.Split(key, "/")
+	for i, segment := range segments {
+		segments[i] = neturl.PathEscape(segment)
+	}
+	return strings.Join(segments, "/")
 }
 
 // objectInfo describes one listed object (SPEC.md §9).
