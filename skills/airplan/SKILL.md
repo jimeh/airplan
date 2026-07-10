@@ -28,9 +28,9 @@ airplan plan.md
 ```
 
 Upload only the referenced file. Anyone with the resulting link can read it,
-and the upload persists until deleted. Markdown is rendered without raw HTML or
-unsafe links. HTML is uploaded as authored and may execute scripts when opened,
-so only upload the exact HTML file the user requested.
+and the upload persists until deleted. Markdown preserves authored raw HTML and
+link destinations, while HTML is uploaded as authored. Both may execute active
+content when opened, so only upload the exact trusted file the user requested.
 
 ## Failure handling
 

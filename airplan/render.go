@@ -18,6 +18,7 @@ import (
 	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/text"
 )
 
@@ -140,6 +141,11 @@ func newMarkdown() goldmark.Markdown {
 		),
 		goldmark.WithParserOptions(
 			parser.WithAutoHeadingID(),
+		),
+		goldmark.WithRendererOptions(
+			// Markdown and raw HTML inputs share the same trust
+			// boundary: preserve the author's HTML and URL destinations.
+			html.WithUnsafe(),
 		),
 	)
 }

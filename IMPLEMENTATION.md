@@ -113,13 +113,14 @@ res, err := client.Upload(ctx, airplan.Input{
 
 ## 4. Spec Requirements → Mechanisms
 
-- Rendering: goldmark's safe renderer with GFM extensions (tables,
+- Rendering: goldmark with GFM extensions (tables,
   strikethrough, task lists, autolinks), footnotes, heading anchors,
   and a small local AST transformer/renderer for GitHub-style alerts.
   Alert parsing and HTML generation happen before template execution;
   the uploaded page needs CSS for presentation but no alert JavaScript.
-  Raw Markdown HTML and dangerous link destinations stay disabled;
-  explicit HTML input remains the separate trusted-content path.
+  Unsafe rendering remains enabled so Markdown preserves authored raw
+  HTML and link destinations; Markdown and explicit HTML input share the
+  same trusted-content boundary.
 - Highlighting: chroma emitting class-based markup with CSS custom
   properties for the palette — required so highlighting can follow
   `prefers-color-scheme` (inline styles can't switch light/dark).

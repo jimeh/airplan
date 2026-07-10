@@ -2,14 +2,14 @@
 
 **Spec version: 0.6.0**
 
-Changes in 0.6.0: rendered Markdown no longer emits raw HTML or
-dangerous link destinations; uploaded objects use `no-store` so
-deletion is not defeated by long-lived caches; invalid UTF-8 and
+Changes in 0.6.0: uploaded objects use `no-store` so deletion is not
+defeated by long-lived caches; invalid UTF-8 and
 partial explicit credentials are rejected; configured URLs and key
 prefixes are validated and object keys are URL-encoded in public
 links; wrong-profile ensure-gone deletion cannot hide a still-live
-manifest upload; installed Go binaries report their module version;
-and the default invocation timeout is 30 seconds (§2, §3, §5–§9).
+manifest upload, and incomplete manifest checks produce warnings;
+installed Go binaries report their module version;
+and the default invocation timeout is 30 seconds (§2, §5–§9).
 
 Changes in 0.5.2: layouts without the sticky table-of-contents rail
 keep it reachable after the inline table of contents scrolls away (§3).
@@ -152,12 +152,11 @@ CSS, no external fonts/scripts/assets, system font stack.
   and `CAUTION`; they are converted to static HTML during
   rendering and may contain normal block Markdown. Unrecognized alert
   markers remain ordinary blockquotes.
-- Safety boundary: raw inline/block HTML is omitted from the rendered
-  view, and potentially dangerous link/image destinations such as
-  `javascript:` are not emitted as navigable URLs. The original
-  Markdown remains exact in source view and in the uploaded sibling.
-  Users who intentionally need executable HTML use HTML input (§4),
-  whose bytes are uploaded as authored.
+- Trust boundary: raw inline/block HTML and link/image destinations are
+  rendered as authored. Markdown and HTML input are trusted content and
+  may execute active content when someone opens the resulting page.
+  The original Markdown remains exact in source view and in the
+  uploaded sibling.
 - Fenced code blocks are syntax-highlighted at render time. The
   highlighting must follow `prefers-color-scheme` (light and dark
   palettes).
@@ -395,7 +394,9 @@ unaffected — the upload succeeded and the URL was already printed.
 Released binaries report their release version under `--version`.
 GoReleaser builds may stamp it directly; binaries installed through
 the Go module path derive it from embedded Go build information.
-Unversioned local development builds report `dev`.
+Module pseudo-versions are reported without their leading `v`.
+Unversioned local development builds, including dirty builds, report
+`dev`.
 
 The whole invocation is bounded by a timeout — default **30
 seconds** — so a stalled endpoint fails with a clear error instead
@@ -742,7 +743,10 @@ machine) and must be safe:
   tombstoning checks a matching active manifest record: if its
   recorded bucket or profile differs from the active connection,
   deletion fails with an actionable error instead of hiding an upload
-  that may still be live under another profile.
+  that may still be live under another profile. If the manifest cannot
+  be read, or malformed/oversized records were skipped, ensure-gone
+  proceeds from the explicit target but warns that the bucket/profile
+  check was skipped or may be incomplete.
 - `airplan purge`: bulk delete driven by the manifest with filters —
   `--older-than 30d`, `--slug PATTERN`, `--profile P`. Durations
   accept `d`/`w` units. `--profile`/`-p` behaves as on every other
@@ -793,7 +797,6 @@ machine) and must be safe:
   feasible.
 - Key generation must use a cryptographically secure random source —
   never a seeded/insecure PRNG.
-- Markdown rendering does not execute raw HTML or dangerous link
-  schemes. HTML input is intentionally different: it is uploaded as
-  authored and may execute scripts, so only share HTML from a trusted
-  source.
+- Markdown rendering preserves raw HTML and link destinations, and HTML
+  input is uploaded as authored. Both may execute active content, so
+  only share documents from trusted sources.

@@ -23,9 +23,9 @@ evidence gates are complete.
 
 - [x] **One hardening PR:** complete the initial-release work together so the
       spec, implementation, tests, and release automation cannot drift across PRs.
-- [x] **Safe Markdown by default:** Markdown must not execute raw HTML or unsafe
-      URL schemes. Explicit HTML input remains the intentional escape hatch for
-      user-authored executable pages.
+- [x] **Trusted Markdown and HTML:** both input modes preserve authored active
+      content. Airplan uploads the user's own documents, so the trust boundary is
+      documented rather than enforced by sanitizing Markdown.
 - [x] **Revocable cache behavior:** pages and uploaded sources default to
       `Cache-Control: no-store`; deletion and expiry matter more than caching for
       capability URLs.
@@ -50,16 +50,15 @@ evidence gates are complete.
 
 ### Document safety and privacy
 
-- [x] **SEC-01 — Prevent executable Markdown output.**
-  - Remove Goldmark unsafe rendering from Markdown mode.
-  - Ensure raw `<script>`/event-handler HTML and dangerous schemes such as
-    `javascript:` cannot become executable output.
+- [x] **SEC-01 — Define and verify the Markdown trust boundary.**
+  - Keep Goldmark unsafe rendering enabled so Markdown preserves authored raw
+    HTML and link destinations.
   - Preserve the exact original Markdown in source view and source downloads.
-  - Keep explicit `--format html` input as-is, with its trust boundary stated
-    clearly in the spec and README.
-  - Add regression tests covering raw HTML, unsafe links, normal inline HTML,
-    source preservation, and explicit HTML input.
-  - Browser-test hostile Markdown and verify no payload executes.
+  - State clearly in the spec, README, and shipped skill that Markdown and
+    explicit `--format html` input are trusted and may execute active content.
+  - Add regression tests covering raw HTML, authored link destinations, source
+    preservation, and explicit HTML input.
+  - Browser-test trusted Markdown and verify its authored content is preserved.
 
 - [x] **SEC-02 — Make deletion meaningful despite caches.**
   - Change page and source object headers from one-year public immutable caching
@@ -87,6 +86,8 @@ evidence gates are complete.
   - Refuse with an actionable error, or safely resolve the recorded profile,
     when they differ. Do not hide an object that may still be live elsewhere.
   - Preserve ensure-gone convergence for genuinely externally deleted uploads.
+  - Warn when an unreadable or incomplete manifest prevents a complete
+    bucket/profile check before ensure-gone tombstoning.
   - Cover correct profile, wrong profile, different bucket, shared bucket,
     missing record, bare directory, page URL, source key, and disabled-manifest
     cases.
@@ -123,6 +124,7 @@ evidence gates are complete.
     reports the released version.
   - Keep the GoReleaser ldflag authoritative for packaged artifacts.
   - Define sensible output for local builds and dirty VCS builds.
+  - Preserve module pseudo-versions without their leading `v`.
   - Test ldflag, module-version, devel, and unavailable-build-info cases.
 
 ## Should fix before v0.1.0
@@ -202,7 +204,7 @@ evidence gates are complete.
       viewports, including source toggle, copy controls, code blocks, alerts,
       tables, and responsive table of contents.
 - [x] Browser console and page errors are empty during the rendered-page checks.
-- [x] Hostile Markdown cannot execute scripts, event handlers, or unsafe links.
+- [x] Trusted Markdown preserves authored raw HTML and link destinations.
 - [x] Explicit HTML input remains byte-preserving apart from documented noindex
       injection.
 - [x] Real R2 smoke test covers upload, public GET, metadata title, list remote,
@@ -222,7 +224,9 @@ evidence gates are complete.
   license, README, spec, and schema; its binary reported the snapshot version.
 - Real-browser QA covered light/dark desktop and narrow layouts, reduced motion,
   source/rendered toggling, copy controls, alerts, tables, code, responsive ToC,
-  hostile Markdown, and trusted HTML. Product console/page errors were empty.
+  trusted Markdown, and trusted HTML. A focused follow-up confirmed Markdown's
+  authored script executed and its raw HTML marker and `javascript:` link were
+  preserved. Product console/page errors were empty.
 - Real R2 checks returned `200` and `Cache-Control: no-store` for Markdown,
   HTML, text, and both source-object types. Page metadata appeared in remote
   listing; page/source URLs returned `404` after deletion; ensure-gone

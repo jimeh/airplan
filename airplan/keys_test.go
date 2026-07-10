@@ -258,13 +258,18 @@ func TestKeyFromURLOrKeyBaseURLWithPath(t *testing.T) {
 		PublicBaseURL: "https://cdn.example.com/plans",
 	}
 
-	got, err := KeyFromURLOrKey(cfg,
-		"https://cdn.example.com/plans/"+testDir+"/plan.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != testDir+"/plan.html" {
-		t.Errorf("got %q, want %q", got, testDir+"/plan.html")
+	for _, scheme := range []string{"https", "http"} {
+		t.Run(scheme, func(t *testing.T) {
+			got, err := KeyFromURLOrKey(cfg,
+				scheme+"://cdn.example.com/plans/"+
+					testDir+"/plan.html")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != testDir+"/plan.html" {
+				t.Errorf("got %q, want %q", got, testDir+"/plan.html")
+			}
+		})
 	}
 }
 
@@ -356,9 +361,9 @@ func TestDeleteUploadEnsureGoneRejectsWrongConnection(t *testing.T) {
 func TestEnsureGoneWithoutManifestUsesTarget(t *testing.T) {
 	c := &Client{cfg: &Config{DisableManifest: true}}
 	key := testDir + "/plan.md"
-	got, err := c.ensureGonePageKey(testDir+"/", key)
-	if err != nil || got != key {
-		t.Fatalf("ensureGonePageKey() = %q, %v", got, err)
+	got, warnings, err := c.ensureGonePageKey(testDir+"/", key)
+	if err != nil || got != key || len(warnings) != 0 {
+		t.Fatalf("ensureGonePageKey() = %q, %v, %v", got, warnings, err)
 	}
 }
 
@@ -392,6 +397,66 @@ func TestDeleteUploadEnsureGoneWithManifestDisabled(t *testing.T) {
 	}
 	if _, err := os.Stat(manifest); !os.IsNotExist(err) {
 		t.Fatalf("disabled manifest was written: %v", err)
+	}
+}
+
+func TestDeleteUploadEnsureGoneReportsManifestProblems(t *testing.T) {
+	emptyXML := `<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult><IsTruncated>false</IsTruncated></ListBucketResult>`
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = w.Write([]byte(emptyXML))
+		},
+	))
+	t.Cleanup(server.Close)
+
+	tests := []struct {
+		name         string
+		manifestPath func(*testing.T) string
+		wantWarning  string
+	}{
+		{
+			name: "unreadable manifest",
+			manifestPath: func(*testing.T) string {
+				return string([]byte{0})
+			},
+			wantWarning: "manifest unreadable; skipping bucket/profile check",
+		},
+		{
+			name: "malformed manifest line",
+			manifestPath: func(t *testing.T) string {
+				path := t.TempDir() + "/manifest.jsonl"
+				if err := os.WriteFile(path, []byte("not json\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return path
+			},
+			wantWarning: "manifest incomplete; bucket/profile check may be " +
+				"incomplete: skipping malformed manifest line 1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, err := New(context.Background(), &Config{
+				Endpoint: server.URL, Bucket: "plans",
+				AccessKeyID: "test", SecretAccessKey: "test",
+				ManifestPath: tt.manifestPath(t),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := client.DeleteUpload(context.Background(),
+				testDir+"/plan.html")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(strings.Join(res.Warnings, "\n"),
+				tt.wantWarning) {
+				t.Fatalf("warnings = %v, want %q", res.Warnings,
+					tt.wantWarning)
+			}
+		})
 	}
 }
 

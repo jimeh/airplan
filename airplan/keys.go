@@ -75,7 +75,6 @@ func baseURLMatches(base string, u *url.URL) bool {
 	}
 	b, err := url.Parse(base)
 	if err != nil || b.Host == "" ||
-		!strings.EqualFold(b.Scheme, u.Scheme) ||
 		!strings.EqualFold(b.Host, u.Host) {
 		return false
 	}

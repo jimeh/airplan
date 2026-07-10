@@ -130,9 +130,6 @@ func newRootCmd() *cobra.Command {
 }
 
 func buildVersion() string {
-	if version != "dev" {
-		return version
-	}
 	info, ok := debug.ReadBuildInfo()
 	return resolveVersion(version, info, ok)
 }

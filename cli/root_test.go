@@ -24,8 +24,14 @@ func TestResolveVersion(t *testing.T) {
 	}{
 		{"ldflag wins", "0.2.0", info, true, "0.2.0"},
 		{"module version", "dev", info, true, "0.1.2"},
-		{"devel build", "dev", &debug.BuildInfo{
+		{"pseudo-version", "dev", &debug.BuildInfo{Main: debug.Module{
+			Version: "v0.0.0-20260710011458-abcdef123456",
+		}}, true, "0.0.0-20260710011458-abcdef123456"},
+		{"dirty local build", "dev", &debug.BuildInfo{
 			Main: debug.Module{Version: "(devel)"},
+			Settings: []debug.BuildSetting{
+				{Key: "vcs.modified", Value: "true"},
+			},
 		}, true, "dev"},
 		{"unavailable", "dev", nil, false, "dev"},
 	} {

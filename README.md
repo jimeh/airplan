@@ -26,8 +26,9 @@ It is useful when an agent has written a plan that a person should review, or
 whenever you want to share a local document without running a server or using a
 paste service.
 
-- Markdown becomes a polished, standalone page with light and dark themes. Raw
-  HTML and unsafe link destinations are omitted from its rendered view.
+- Markdown becomes a polished, standalone page with light and dark themes.
+  Authored HTML and link destinations are preserved, so treat it as trusted
+  content.
 - Source and plain-text files become highlighted, gist-like pages.
 - HTML stays HTML, with no rendering step. Treat HTML input as trusted code: it
   may execute scripts when someone opens the link.
@@ -64,9 +65,9 @@ attestations. After downloading the release assets, verify them:
 
 ```sh
 # Linux
-sha256sum --check checksums.txt
+sha256sum --ignore-missing --check checksums.txt
 # macOS
-shasum --algorithm 256 --check checksums.txt
+shasum --ignore-missing --algorithm 256 --check checksums.txt
 
 gh attestation verify airplan_0.1.0_darwin_arm64.tar.gz \
   --repo jimeh/airplan
@@ -183,10 +184,9 @@ highlight language from the filename. Use `--lang` to override it, especially
 for input piped through stdin.
 
 Everything needed to view a rendered page is embedded in the HTML. There are no
-external fonts, scripts, or other page assets. Markdown rendering omits raw HTML
-and unsafe URL schemes; the original Markdown remains exact in source view and
-the optional source object. Explicit HTML input is intentionally different: it
-is uploaded as authored and can contain executable content.
+external fonts, scripts, or other page assets. Markdown and HTML preserve
+authored executable content, so only share documents from trusted sources. The
+original Markdown remains exact in source view and the optional source object.
 
 ## Automation and agents
 
