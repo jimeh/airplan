@@ -185,8 +185,10 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		return nil, err
 	}
 	doc, err := renderInput(ctx, in, RenderInputOptions{
-		Indexable:     c.cfg.Indexable,
-		IncludeSource: !c.cfg.NoSource,
+		Indexable:        c.cfg.Indexable,
+		IncludeSource:    !c.cfg.NoSource,
+		NoExternalAssets: c.cfg.NoExternalAssets,
+		MermaidURL:       c.cfg.MermaidURL,
 	}, c.template, c.templateErr)
 	if err != nil {
 		return nil, err

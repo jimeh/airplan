@@ -51,8 +51,9 @@ pins live in `mise.lock` (commit both when bumping tools).
   the config structs and golden-tested; refresh with
   `go test ./airplan/ -run TestConfigSchema -update`. Unknown config
   keys are a hard error — parser and schema must not drift (SPEC §7).
-- **Page assets** (`airplan/assets/`): embedded via go:embed; pages
-  must stay fully standalone (no external fonts/scripts/requests).
+- **Page assets** (`airplan/assets/`): embedded via go:embed. Mermaid is the
+  only airplan-managed external load and is conditional. Update its pin with
+  `mise run update:mermaid`; dependency-only updates never bump SPEC.md.
 - **Markdown input is trusted content**: Goldmark's unsafe renderer is
   intentionally enabled so authored HTML and URL destinations survive.
   Do not add sanitization without changing the product trust boundary

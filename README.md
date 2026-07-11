@@ -26,7 +26,7 @@ It is useful when an agent has written a plan that a person should review, or
 whenever you want to share a local document without running a server or using a
 paste service.
 
-- Markdown becomes a polished, standalone page with light and dark themes.
+- Markdown becomes a polished page with light and dark themes.
   Authored HTML and link destinations are preserved, so treat it as trusted
   content.
 - Source and plain-text files become highlighted, gist-like pages.
@@ -178,18 +178,21 @@ are invisible to airplan and cannot be deleted or purged through it. Use
 
 ## Pages airplan creates
 
-Markdown pages include syntax highlighting, a responsive table of contents,
-GitHub-style alerts, rendered/source views, copy buttons, and links to the
-original Markdown. Use `--no-source` if the original should not be uploaded.
+Markdown pages include syntax highlighting, Mermaid diagrams from exact
+`mermaid` fences, a responsive table of contents, GitHub-style alerts,
+rendered/source views, copy buttons, and links to the original Markdown. Use
+`--no-source` if the original should not be uploaded.
 
 Plain-text and source files use the same standalone page shell and infer their
 highlight language from the filename. Use `--lang` to override it, especially
 for input piped through stdin.
 
-Everything needed to view a rendered page is embedded in the HTML. There are no
-external fonts, scripts, or other page assets. Markdown and HTML preserve
-authored executable content, so only share documents from trusted sources. The
-original Markdown remains exact in source view and the optional source object.
+Everything except the conditionally loaded Mermaid runtime is embedded in the
+HTML. Use `--no-external-assets` to keep airplan-managed features offline, or
+`--mermaid-url` to select another HTTPS CDN or self-hosted module. This policy
+does not block external content authored in trusted Markdown, HTML, or custom
+templates. The original Markdown remains exact in source view and the optional
+source object.
 
 ## Automation and agents
 
@@ -289,6 +292,7 @@ mise run setup              # install tools and Git hooks
 mise run check              # lint, generated files, format, and unit tests
 mise run test-integration   # MinIO round trip; requires Docker
 mise run verify             # CI-equivalent validation
+mise run update:mermaid     # update an eligible, 72-hour-old Mermaid pin
 ```
 
 See [AGENTS.md](AGENTS.md) for the repository map and contribution constraints.

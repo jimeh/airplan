@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.11.0.
+may contradict it. Targets spec version 0.12.0.
 
 ---
 
@@ -81,8 +81,8 @@ airplan/                core library (public Go API): config
                         rendering, ownership markers, key/slug
                         generation, S3 upload/list/show/delete,
                         manifest history, URL assembly; embeds assets
-                        via go:embed — no external assets at
-                        runtime, ever
+                        via go:embed; Mermaid is the sole conditional
+                        runtime asset
 schema/airplan.schema.json   generated config schema (committed)
 skills/airplan/SKILL.md      agent skill: using airplan from harnesses
 ```
@@ -132,6 +132,14 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
   `prefers-color-scheme` (inline styles can't switch light/dark).
   The spec's source view is chroma's markdown lexer run at render
   time.
+- Mermaid: a stateless Goldmark node renderer intercepts only exact
+  `mermaid` fences ahead of Chroma and emits escaped source containers. The
+  built-in template conditionally imports the generated exact module URL and
+  explicitly runs Mermaid with strict security. The pin manifest under
+  `internal/deps` generates exported constants; a networked updater observes a
+  72-hour minimum age, stays within the current major, verifies jsDelivr, and
+  refreshes generated/rendered artifacts. Dependency-only updates do not alter
+  this document or SPEC.md.
 - Templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, structured headings/ToC entries, format metadata,

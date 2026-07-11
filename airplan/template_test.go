@@ -3,6 +3,7 @@ package airplan
 import (
 	"bytes"
 	"context"
+	"html/template"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +31,35 @@ func TestLoadTemplate(t *testing.T) {
 	}
 	if got := out.String(); got != "title=hello" {
 		t.Errorf("output = %q, want %q", got, "title=hello")
+	}
+}
+
+func TestCustomTemplateReceivesMermaidPolicyDataWithoutInjection(t *testing.T) {
+	tmpl, err := template.New("custom").Parse(
+		`{{.HasMermaid}}|{{.NoExternalAssets}}|{{.MermaidURL}}|` +
+			`{{.RenderedHTML}}`,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := RenderMarkdown(
+		[]byte("```mermaid\ngraph TD\n  A --> B\n```\n"),
+		RenderOptions{
+			Title: "Diagram", NoExternalAssets: true,
+			MermaidURL: "https://assets.example.test/mermaid.mjs",
+			Template:   tmpl,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(out)
+	if !strings.HasPrefix(page,
+		"true|true|https://assets.example.test/mermaid.mjs|") {
+		t.Fatalf("custom Mermaid data missing: %s", page)
+	}
+	if strings.Contains(page, "await import") {
+		t.Fatal("airplan injected Mermaid loader into custom template")
 	}
 }
 

@@ -48,6 +48,25 @@ func TestPreviewRendersMarkdownWithoutUploadConfig(t *testing.T) {
 	}
 }
 
+func TestPreviewExternalAssetFlagExplicitFalseOverridesEnvironment(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("AIRPLAN_NO_EXTERNAL_ASSETS", "true")
+
+	cmd := newRootCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetIn(strings.NewReader("```mermaid\ngraph TD\n  A --> B\n```\n"))
+	cmd.SetArgs([]string{
+		"preview", "--no-external-assets=false", "-",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "cdn.jsdelivr.net/npm/mermaid@") {
+		t.Fatal("explicit false did not re-enable Mermaid module loading")
+	}
+}
+
 func TestPreviewWritesOutputFile(t *testing.T) {
 	isolateEnv(t)
 

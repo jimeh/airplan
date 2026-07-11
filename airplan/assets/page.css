@@ -675,6 +675,23 @@ pre code {
   background: var(--code-bg) !important;
 }
 
+pre.mermaid {
+  display: flex;
+  justify-content: center;
+  max-width: 100%;
+  white-space: pre-wrap;
+}
+
+pre.mermaid svg {
+  height: auto;
+  max-width: 100%;
+}
+
+pre.mermaid.mermaid-failed {
+  display: block;
+  color: var(--muted);
+}
+
 .filehead {
   font-size: 0.8rem;
   color: var(--muted);

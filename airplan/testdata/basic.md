@@ -25,6 +25,11 @@ func main() {
 plain block, no language
 ```
 
+```mermaid
+flowchart LR
+    Plan --> Review --> Ship
+```
+
 ## Matrix
 
 | Case     | Result |

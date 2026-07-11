@@ -25,17 +25,19 @@ const DefaultTimeout = 30 * time.Second
 // (SPEC.md §7). Boolean fields are pointers so profile merging can
 // distinguish "unset" from "false".
 type Settings struct {
-	Endpoint        string `toml:"endpoint" json:"endpoint,omitempty" jsonschema_description:"Absolute HTTP(S) S3-compatible API endpoint URL; path prefixes are allowed."`
-	Bucket          string `toml:"bucket" json:"bucket,omitempty" jsonschema_description:"Bucket where rendered plans are uploaded."`
-	Region          string `toml:"region" json:"region,omitempty" jsonschema_description:"S3 signing region; R2 commonly uses auto."`
-	AccessKeyID     string `toml:"access_key_id" json:"access_key_id,omitempty" jsonschema_description:"Access key ID for explicit credentials; must be paired with secret_access_key."`
-	SecretAccessKey string `toml:"secret_access_key" json:"secret_access_key,omitempty" jsonschema_description:"Secret for explicit credentials; must be paired with access_key_id."`
-	PublicBaseURL   string `toml:"public_base_url" json:"public_base_url,omitempty" jsonschema_description:"Absolute HTTP(S) public base URL used to assemble share links; path prefixes are allowed."`
-	KeyPrefix       string `toml:"key_prefix" json:"key_prefix,omitempty" jsonschema_description:"UTF-8 path segments prepended to uploaded keys; empty, dot, and dot-dot segments are rejected."`
-	Template        string `toml:"template" json:"template,omitempty" jsonschema_description:"Path to the HTML template used for rendered pages."`
-	NoSource        *bool  `toml:"no_source" json:"no_source,omitempty" jsonschema_description:"Omit uploading the original source alongside rendered output."`
-	Indexable       *bool  `toml:"indexable" json:"indexable,omitempty" jsonschema_description:"Allow search indexing by omitting the noindex robots meta tag."`
-	Timeout         string `toml:"timeout" json:"timeout,omitempty" jsonschema_description:"Operation timeout as a Go duration or seconds; 0 disables it."`
+	Endpoint         string `toml:"endpoint" json:"endpoint,omitempty" jsonschema_description:"Absolute HTTP(S) S3-compatible API endpoint URL; path prefixes are allowed."`
+	Bucket           string `toml:"bucket" json:"bucket,omitempty" jsonschema_description:"Bucket where rendered plans are uploaded."`
+	Region           string `toml:"region" json:"region,omitempty" jsonschema_description:"S3 signing region; R2 commonly uses auto."`
+	AccessKeyID      string `toml:"access_key_id" json:"access_key_id,omitempty" jsonschema_description:"Access key ID for explicit credentials; must be paired with secret_access_key."`
+	SecretAccessKey  string `toml:"secret_access_key" json:"secret_access_key,omitempty" jsonschema_description:"Secret for explicit credentials; must be paired with access_key_id."`
+	PublicBaseURL    string `toml:"public_base_url" json:"public_base_url,omitempty" jsonschema_description:"Absolute HTTP(S) public base URL used to assemble share links; path prefixes are allowed."`
+	KeyPrefix        string `toml:"key_prefix" json:"key_prefix,omitempty" jsonschema_description:"UTF-8 path segments prepended to uploaded keys; empty, dot, and dot-dot segments are rejected."`
+	Template         string `toml:"template" json:"template,omitempty" jsonschema_description:"Path to the HTML template used for rendered pages."`
+	NoSource         *bool  `toml:"no_source" json:"no_source,omitempty" jsonschema_description:"Omit uploading the original source alongside rendered output."`
+	Indexable        *bool  `toml:"indexable" json:"indexable,omitempty" jsonschema_description:"Allow search indexing by omitting the noindex robots meta tag."`
+	NoExternalAssets *bool  `toml:"no_external_assets" json:"no_external_assets,omitempty" jsonschema_description:"Disable airplan-managed features that load external assets when a page is viewed."`
+	MermaidURL       string `toml:"mermaid_url" json:"mermaid_url,omitempty" jsonschema_description:"Absolute HTTPS URL of the Mermaid ECMAScript module."`
+	Timeout          string `toml:"timeout" json:"timeout,omitempty" jsonschema_description:"Operation timeout as a Go duration or seconds; 0 disables it."`
 }
 
 // FileConfig is the on-disk shape of the TOML config file: shared
@@ -52,16 +54,18 @@ type FileConfig struct {
 // SPEC.md §7. Flag overrides are overlaid by the caller afterwards,
 // then completeness is checked with Validate.
 type Config struct {
-	Endpoint        string
-	Bucket          string
-	Region          string
-	AccessKeyID     string
-	SecretAccessKey string
-	PublicBaseURL   string
-	KeyPrefix       string
-	Template        string
-	NoSource        bool
-	Indexable       bool
+	Endpoint         string
+	Bucket           string
+	Region           string
+	AccessKeyID      string
+	SecretAccessKey  string
+	PublicBaseURL    string
+	KeyPrefix        string
+	Template         string
+	NoSource         bool
+	Indexable        bool
+	NoExternalAssets bool
+	MermaidURL       string
 
 	// Timeout bounds one context-aware operation or phase (SPEC.md §6):
 	// default 30 seconds, 0 means no timeout. The CLI applies it to its
@@ -151,7 +155,11 @@ func LoadConfig(opts ConfigOptions) (*Config, error) {
 		return nil, err
 	}
 
-	cfg := &Config{Region: "auto", Profile: profile}
+	cfg := &Config{
+		Region:     "auto",
+		Profile:    profile,
+		MermaidURL: DefaultMermaidURL,
+	}
 	applySettings(cfg, fileConfig.Settings, rootKeyDefined(meta, loaded))
 	if profile != "" {
 		applySettings(
@@ -159,6 +167,14 @@ func LoadConfig(opts ConfigOptions) (*Config, error) {
 			fileConfig.Profiles[profile],
 			profileKeyDefined(meta, profile),
 		)
+	}
+	if raw := getenv("AIRPLAN_NO_EXTERNAL_ASSETS"); raw != "" {
+		if _, err := strconv.ParseBool(raw); err != nil {
+			return nil, fmt.Errorf(
+				"airplan: invalid AIRPLAN_NO_EXTERNAL_ASSETS %q: must be a boolean",
+				raw,
+			)
+		}
 	}
 	applyEnv(cfg, getenv)
 	applyOverrides(cfg, opts.Overrides)
@@ -295,6 +311,34 @@ func (c *Config) Validate() error {
 	}
 	if err := validateKeyPrefix(c.KeyPrefix); err != nil {
 		return err
+	}
+	if c.MermaidURL != "" {
+		if err := validateMermaidURL(c.MermaidURL); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateMermaidURL(raw string) error {
+	if !utf8.ValidString(raw) {
+		return errors.New("airplan: mermaid_url must be valid UTF-8")
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("airplan: invalid mermaid_url %q: %w", raw, err)
+	}
+	if u.Scheme != "https" || u.Host == "" {
+		return fmt.Errorf(
+			"airplan: invalid mermaid_url %q: absolute HTTPS URL required",
+			raw,
+		)
+	}
+	if u.User != nil || u.Fragment != "" {
+		return fmt.Errorf(
+			"airplan: invalid mermaid_url %q: user info and fragment are not allowed",
+			raw,
+		)
 	}
 	return nil
 }
@@ -545,6 +589,12 @@ func applySettings(
 	if settings.Indexable != nil {
 		cfg.Indexable = *settings.Indexable
 	}
+	if settings.NoExternalAssets != nil {
+		cfg.NoExternalAssets = *settings.NoExternalAssets
+	}
+	if defined("mermaid_url") && settings.MermaidURL != "" {
+		cfg.MermaidURL = settings.MermaidURL
+	}
 }
 
 func applyEnv(cfg *Config, getenv func(string) string) {
@@ -556,6 +606,17 @@ func applyEnv(cfg *Config, getenv func(string) string) {
 	applyEnvString(&cfg.PublicBaseURL, getenv, "AIRPLAN_PUBLIC_BASE_URL")
 	applyEnvString(&cfg.KeyPrefix, getenv, "AIRPLAN_KEY_PREFIX")
 	applyEnvString(&cfg.Template, getenv, "AIRPLAN_TEMPLATE")
+	applyEnvString(&cfg.MermaidURL, getenv, "AIRPLAN_MERMAID_URL")
+	applyEnvBool(&cfg.NoExternalAssets, getenv, "AIRPLAN_NO_EXTERNAL_ASSETS")
+}
+
+func applyEnvBool(field *bool, getenv func(string) string, name string) {
+	if value := getenv(name); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err == nil {
+			*field = parsed
+		}
+	}
 }
 
 func applyEnvString(field *string, getenv func(string) string, name string) {
@@ -576,6 +637,7 @@ func applyOverrides(cfg *Config, s Settings) {
 		&cfg.PublicBaseURL:   s.PublicBaseURL,
 		&cfg.KeyPrefix:       s.KeyPrefix,
 		&cfg.Template:        s.Template,
+		&cfg.MermaidURL:      s.MermaidURL,
 	} {
 		if value != "" {
 			*field = value
@@ -586,6 +648,9 @@ func applyOverrides(cfg *Config, s Settings) {
 	}
 	if s.Indexable != nil {
 		cfg.Indexable = *s.Indexable
+	}
+	if s.NoExternalAssets != nil {
+		cfg.NoExternalAssets = *s.NoExternalAssets
 	}
 	// Settings.Timeout is resolved separately (resolveTimeout) so the
 	// winning raw value is parsed exactly once.

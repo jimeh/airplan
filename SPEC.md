@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.11.0**
+**Spec version: 0.12.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -35,7 +35,7 @@ One process, one straight-line pipeline, no daemon:
 ```
 input (file|stdin)
   → detect format (md | html)
-  → render (md → standalone HTML)  [skip for html]
+  → render (md → HTML page)  [skip for html]
   → generate object key (random dir + slug)
   → PUT ownership marker
   → PUT page — and, for md/text input, the original alongside
@@ -101,8 +101,9 @@ the guard stays a per-invocation decision.
 
 ## 3. Markdown Rendering
 
-Markdown input is rendered to a fully standalone HTML page: embedded
-CSS, no external fonts/scripts/assets, system font stack.
+Markdown input is rendered to an HTML page with embedded CSS and a system font
+stack. Airplan-managed external loading is limited to optional features
+described below.
 
 - Markdown dialect: CommonMark plus GitHub Flavored Markdown
   extensions — tables, strikethrough, task lists, autolinks — plus
@@ -119,6 +120,13 @@ CSS, no external fonts/scripts/assets, system font stack.
 - Fenced code blocks are syntax-highlighted at render time. The
   highlighting must follow `prefers-color-scheme` (light and dark
   palettes).
+- An exact lowercase `mermaid` fenced code block is rendered as a Mermaid
+  diagram. Its readable, HTML-escaped source remains the no-JavaScript and
+  load-failure fallback and remains exact in source view. The built-in page
+  loads Mermaid only when such a block exists and external assets are allowed,
+  using an exact pinned ECMAScript module URL, strict security, explicit
+  rendering, and the initial light or dark system theme. Custom templates
+  receive the Mermaid template data below but do not receive injected assets.
 - Page styling: dark/light aware via `prefers-color-scheme`, a centered
   document shell around 54rem wide, prose constrained to a readable
   measure around 78ch, comfortable line height, distinct heading/body/
@@ -147,8 +155,9 @@ CSS, no external fonts/scripts/assets, system font stack.
 - `<meta name="robots" content="noindex, nofollow">` — belt and
   braces on top of URL unguessability; works regardless of what
   headers the CDN/domain serves. Omitted under `--indexable`.
-- Interactive niceties via a small amount of embedded vanilla JS —
-  no frameworks, no external scripts, page stays fully standalone:
+- Baseline interactive niceties use a small amount of embedded vanilla JS with
+  no framework. Mermaid's conditional module is the only airplan-managed
+  external script:
   - Rendered/source toggle: switch between the rendered plan and a
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter
@@ -230,6 +239,9 @@ against):
 | `.SourcePath`            | string    | relative path to the uploaded source |
 | `.Slug`                  | string    | resolved slug                        |
 | `.Indexable`             | boolean   | whether indexing is allowed          |
+| `.HasMermaid`            | boolean   | exact Mermaid fence was rendered     |
+| `.NoExternalAssets`      | boolean   | managed external loads are disabled  |
+| `.MermaidURL`            | string    | resolved Mermaid module URL          |
 
 Each heading has `.Level` (1–6), `.ID`, `.Text`, and `.IsTitle`.
 `.IsTitle` is true only for a leading H1 that the built-in table of
@@ -362,22 +374,24 @@ airplan [flags] [file]
 
 `file` omitted or `-` → read stdin.
 
-| Flag            | Default        | Notes                               |
-| --------------- | -------------- | ----------------------------------- |
-| `--format`      | auto           | `md`\|`html`\|`txt`; overrides §2   |
-| `--slug S`      | from filename  | filename portion of the URL         |
-| `--title T`     | from content   | page title (see §3 fallback chain)  |
-| `--template P`  | built-in       | custom page template (md and text)  |
-| `--no-source`   | off            | don't upload the original .md       |
-| `--indexable`   | off            | no noindex meta (md and html, §3–4) |
-| `--max-size N`  | 10MiB          | input size limit; 0 = no limit (§2) |
-| `--timeout D`   | 30s            | operation timeout; 0 = none         |
-| `--lang L`      | from filename  | highlight language, text only (§3)  |
-| `--json`        | off            | JSON object on stdout               |
-| `--profile P`   | config default | named profile from config file      |
-| `--config PATH` | XDG default    | alternate config file               |
-| `--open`        | off            | open resulting URL in browser       |
-| `--version`     |                |                                     |
+| Flag                   | Default        | Notes                               |
+| ---------------------- | -------------- | ----------------------------------- |
+| `--format`             | auto           | `md`\|`html`\|`txt`; overrides §2   |
+| `--slug S`             | from filename  | filename portion of the URL         |
+| `--title T`            | from content   | page title (see §3 fallback chain)  |
+| `--template P`         | built-in       | custom page template (md and text)  |
+| `--no-source`          | off            | don't upload the original .md       |
+| `--indexable`          | off            | no noindex meta (md and html, §3–4) |
+| `--no-external-assets` | off            | disable managed view-time loads     |
+| `--mermaid-url URL`    | pinned URL     | alternate HTTPS Mermaid module      |
+| `--max-size N`         | 10MiB          | input size limit; 0 = no limit (§2) |
+| `--timeout D`          | 30s            | operation timeout; 0 = none         |
+| `--lang L`             | from filename  | highlight language, text only (§3)  |
+| `--json`               | off            | JSON object on stdout               |
+| `--profile P`          | config default | named profile from config file      |
+| `--config PATH`        | XDG default    | alternate config file               |
+| `--open`               | off            | open resulting URL in browser       |
+| `--version`            |                |                                     |
 
 Plus flag overrides for every connection setting (`--endpoint`,
 `--bucket`, `--region`, `--public-base-url`, `--key-prefix`) for
@@ -469,7 +483,8 @@ airplan purge [--remote] [--older-than 30d]
 `preview` runs input detection and page rendering locally, writing the
 resulting HTML to stdout or to `--output PATH`. It supports the rendering
 flags `--format`, `--lang`, `--slug`, `--title`, `--template`,
-`--indexable`, and `--max-size`, plus `--config` and `--profile` for
+`--indexable`, `--no-external-assets`, `--mermaid-url`, and `--max-size`,
+plus `--config` and `--profile` for
 resolving template settings. It does not validate S3 connection fields,
 access the network, upload source, or write the manifest. Consequently
 `.SourcePath` is empty in a preview, while markdown's embedded source
@@ -580,6 +595,8 @@ AIRPLAN_SECRET_ACCESS_KEY
 AIRPLAN_PUBLIC_BASE_URL
 AIRPLAN_KEY_PREFIX
 AIRPLAN_TEMPLATE
+AIRPLAN_NO_EXTERNAL_ASSETS
+AIRPLAN_MERMAID_URL
 AIRPLAN_TIMEOUT
 AIRPLAN_CONFIG
 ```
@@ -599,6 +616,10 @@ path-segment text, but empty internal segments and `.` / `..`
 segments are rejected because intermediaries can normalize them.
 When public links are assembled, every object-key segment is
 percent-encoded; delete URL parsing reverses that encoding.
+`mermaid_url` must be valid UTF-8 and an absolute HTTPS URL with a host and
+without user information or a fragment; paths and query strings are allowed.
+It is validated even when external assets are disabled or a custom template is
+used.
 
 Unknown keys in the config file are an error naming the offending
 key — typo protection, and it keeps the parser exactly in sync with
@@ -607,9 +628,16 @@ the published schema's `additionalProperties: false`.
 If the config file contains credentials and is group- or
 world-readable, a warning is printed to stderr.
 
-Behavioral defaults: `no_source`, `indexable`, and `timeout` may be
+Behavioral defaults: `no_source`, `indexable`, `no_external_assets`,
+`mermaid_url`, and `timeout` may be
 set at the root or profile level; their flags override the config
 values.
+
+`no_external_assets` covers only airplan-managed view-time loads, including
+Mermaid. It does not rewrite or block external content authored in trusted
+Markdown, HTML, or custom templates. `mermaid_url` may point at another CDN or
+self-hosted compatible module; an empty direct library option uses the built-in
+exact pin.
 
 `public_base_url` is strongly recommended whenever the endpoint URL
 isn't itself publicly readable (always the case for R2). If unset,

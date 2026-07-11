@@ -12,16 +12,18 @@ import (
 )
 
 type previewOptions struct {
-	format    string
-	lang      string
-	slug      string
-	title     string
-	indexable bool
-	maxSize   string
-	template  string
-	profile   string
-	config    string
-	output    string
+	format           string
+	lang             string
+	slug             string
+	title            string
+	indexable        bool
+	noExternalAssets bool
+	mermaidURL       string
+	maxSize          string
+	template         string
+	profile          string
+	config           string
+	output           string
 }
 
 func newPreviewCmd() *cobra.Command {
@@ -46,6 +48,10 @@ func newPreviewCmd() *cobra.Command {
 		"page title (default: from content)")
 	f.BoolVar(&opts.indexable, "indexable", false,
 		"omit the noindex robots meta tag")
+	f.BoolVar(&opts.noExternalAssets, "no-external-assets", false,
+		"disable airplan-managed external assets in rendered pages")
+	f.StringVar(&opts.mermaidURL, "mermaid-url", "",
+		"Mermaid ECMAScript module URL")
 	f.StringVar(&opts.maxSize, "max-size", "10MiB",
 		"input size limit, e.g. 10MiB, 512k, 1048576; 0 = no limit")
 	f.StringVar(&opts.template, "template", "",
@@ -73,9 +79,15 @@ func runPreview(
 		maxSize = -1
 	}
 
-	overrides := airplan.Settings{Template: opts.template}
+	overrides := airplan.Settings{
+		Template:   opts.template,
+		MermaidURL: opts.mermaidURL,
+	}
 	if cmd.Flags().Changed("indexable") {
 		overrides.Indexable = &opts.indexable
+	}
+	if cmd.Flags().Changed("no-external-assets") {
+		overrides.NoExternalAssets = &opts.noExternalAssets
 	}
 	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
 		Path:      opts.config,
@@ -122,8 +134,10 @@ func runPreview(
 	}
 	doc, err := airplan.RenderInput(ctx, in,
 		airplan.RenderInputOptions{
-			Indexable:    cfg.Indexable,
-			TemplatePath: cfg.Template,
+			Indexable:        cfg.Indexable,
+			TemplatePath:     cfg.Template,
+			NoExternalAssets: cfg.NoExternalAssets,
+			MermaidURL:       cfg.MermaidURL,
 		})
 	if err != nil {
 		if errors.Is(err, airplan.ErrInputTooLarge) {

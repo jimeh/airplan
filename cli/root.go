@@ -43,19 +43,21 @@ func Execute() int {
 
 // rootOptions holds the root command's flag values.
 type rootOptions struct {
-	format    string
-	lang      string
-	slug      string
-	title     string
-	noSource  bool
-	indexable bool
-	maxSize   string
-	template  string
-	timeout   string
-	json      bool
-	open      bool
-	profile   string
-	config    string
+	format           string
+	lang             string
+	slug             string
+	title            string
+	noSource         bool
+	indexable        bool
+	noExternalAssets bool
+	mermaidURL       string
+	maxSize          string
+	template         string
+	timeout          string
+	json             bool
+	open             bool
+	profile          string
+	config           string
 
 	// Connection overrides for one-off use (SPEC.md §6).
 	endpoint      string
@@ -97,6 +99,10 @@ func newRootCmd() *cobra.Command {
 		"don't upload the original source alongside the page")
 	f.BoolVar(&opts.indexable, "indexable", false,
 		"omit the noindex robots meta tag")
+	f.BoolVar(&opts.noExternalAssets, "no-external-assets", false,
+		"disable airplan-managed external assets in rendered pages")
+	f.StringVar(&opts.mermaidURL, "mermaid-url", "",
+		"Mermaid ECMAScript module URL")
 	f.StringVar(&opts.maxSize, "max-size", "10MiB",
 		"input size limit, e.g. 10MiB, 512k, 1048576; 0 = no limit")
 	f.StringVar(&opts.timeout, "timeout", "",
@@ -299,6 +305,7 @@ func flagOverrides(cmd *cobra.Command, opts *rootOptions) airplan.Settings {
 		KeyPrefix:     opts.keyPrefix,
 		Template:      opts.template,
 		Timeout:       opts.timeout,
+		MermaidURL:    opts.mermaidURL,
 	}
 	f := cmd.Flags()
 	if f.Changed("no-source") {
@@ -306,6 +313,9 @@ func flagOverrides(cmd *cobra.Command, opts *rootOptions) airplan.Settings {
 	}
 	if f.Changed("indexable") {
 		ov.Indexable = &opts.indexable
+	}
+	if f.Changed("no-external-assets") {
+		ov.NoExternalAssets = &opts.noExternalAssets
 	}
 	return ov
 }
