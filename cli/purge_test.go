@@ -235,6 +235,21 @@ func TestPurgeRemoteWarnsForFallbackPublicURL(t *testing.T) {
 	}
 }
 
+func TestPrintRemotePurgeWarningsCountsAffectedUploads(t *testing.T) {
+	var out strings.Builder
+	printRemotePurgeWarnings(&out, []remotePurgeCandidate{
+		{warnings: []string{"shared warning", "single warning"}},
+		{warnings: []string{"shared warning"}},
+	})
+
+	got := out.String()
+	if strings.Count(got, "shared warning") != 1 ||
+		!strings.Contains(got, "shared warning (2 uploads)") ||
+		!strings.Contains(got, "airplan: warning: single warning\n") {
+		t.Fatalf("warnings = %q", got)
+	}
+}
+
 func TestPurgeRemoteConfirmationAbort(t *testing.T) {
 	isolateEnv(t)
 	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
@@ -589,6 +604,24 @@ func TestPurgeAllStillAppliesFilters(t *testing.T) {
 	}
 	if strings.Contains(stderr, "beta.html") {
 		t.Errorf("--all bypassed --slug filter: %q", stderr)
+	}
+}
+
+func TestPurgeDryRunWithoutBucketDoesNotScopeKeyPrefix(t *testing.T) {
+	isolateEnv(t)
+	record := uploadRecord(deleteDirA, "legacy", "", time.Now().UTC())
+	record.Key = "team/old/" + record.Key
+	record.URL = "https://plans.example.com/" + record.Key
+	writeDefaultManifest(t, []airplan.ManifestRecord{record})
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--all", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || !strings.Contains(stderr, "legacy.html") ||
+		strings.Contains(stderr, "other key prefixes") {
+		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
 	}
 }
 

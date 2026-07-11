@@ -52,6 +52,9 @@ func TestDeleteCommand(t *testing.T) {
 	if fake.deleteCalls() != 1 {
 		t.Fatalf("delete calls = %d, want 1", fake.deleteCalls())
 	}
+	if fake.markerDeleteCalls() != 1 {
+		t.Fatalf("marker delete calls = %d, want 1", fake.markerDeleteCalls())
+	}
 
 	manifest := filepath.Join(stateHome, "airplan", "manifest.jsonl")
 	records, warnings, err := airplan.ReadManifest(manifest)
@@ -65,11 +68,12 @@ func TestDeleteCommand(t *testing.T) {
 }
 
 type fakeDeleteS3 struct {
-	server *httptest.Server
-	mu     sync.Mutex
-	keys   map[string][]string
-	fail   map[string]bool
-	posts  int
+	server        *httptest.Server
+	mu            sync.Mutex
+	keys          map[string][]string
+	fail          map[string]bool
+	posts         int
+	markerDeletes int
 }
 
 func newFakeDeleteS3(
@@ -96,6 +100,9 @@ func newFakeDeleteS3(
 			case "POST":
 				fake.handleDelete(w, string(body))
 			case "DELETE":
+				fake.mu.Lock()
+				fake.markerDeletes++
+				fake.mu.Unlock()
 				w.WriteHeader(http.StatusNoContent)
 			default:
 				w.WriteHeader(http.StatusOK)
@@ -180,6 +187,12 @@ func (f *fakeDeleteS3) deleteCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.posts
+}
+
+func (f *fakeDeleteS3) markerDeleteCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.markerDeletes
 }
 
 func writeCLIConfig(t *testing.T, endpoint string) string {

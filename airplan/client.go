@@ -75,7 +75,8 @@ var ErrUninitializedClient = errors.New(
 
 // Client uploads plan documents per the pipeline in SPEC.md §1:
 // detect format → render (markdown) or noindex-splice (HTML) →
-// generate key → upload marker → upload page (+ source) → assemble URL.
+// generate key → upload marker → upload source (if any) → upload page →
+// assemble URL.
 type Client struct {
 	cfg      *Config
 	st       *storage

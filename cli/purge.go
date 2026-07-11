@@ -131,7 +131,8 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 			otherBuckets++
 			continue
 		}
-		if !airplan.KeyMatchesPrefix(rec.Key, cfg.KeyPrefix) {
+		if cfg.Bucket != "" &&
+			!airplan.KeyMatchesPrefix(rec.Key, cfg.KeyPrefix) {
 			otherPrefixes++
 			continue
 		}
@@ -381,6 +382,13 @@ func remotePurgeCandidates(
 func printRemotePurgeWarnings(
 	w io.Writer, candidates []remotePurgeCandidate,
 ) {
+	counts := map[string]int{}
+	for _, candidate := range candidates {
+		for _, warning := range candidate.warnings {
+			counts[warning]++
+		}
+	}
+
 	seen := map[string]bool{}
 	for _, candidate := range candidates {
 		for _, warning := range candidate.warnings {
@@ -388,7 +396,12 @@ func printRemotePurgeWarnings(
 				continue
 			}
 			seen[warning] = true
-			fmt.Fprintf(w, "airplan: warning: %s\n", warning)
+			if counts[warning] > 1 {
+				fmt.Fprintf(w, "airplan: warning: %s (%d uploads)\n",
+					warning, counts[warning])
+			} else {
+				fmt.Fprintf(w, "airplan: warning: %s\n", warning)
+			}
 		}
 	}
 }
