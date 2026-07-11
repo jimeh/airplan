@@ -147,6 +147,9 @@ func (e repositoryLinkExtension) destination(reference string) string {
 }
 
 func newRepositoryLinkExtension(base string) goldmark.Extender {
-	u, _ := url.Parse(base)
-	return repositoryLinkExtension{base: base, host: u.Host}
+	host := ""
+	if u, err := url.Parse(base); err == nil && u != nil {
+		host = u.Host
+	}
+	return repositoryLinkExtension{base: base, host: host}
 }

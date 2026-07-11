@@ -185,7 +185,7 @@ func renderInput(
 		if opts.IncludeSource {
 			doc.SourcePath = "./" + doc.sourceObjectName
 		}
-		doc.HTML, err = RenderMarkdown(data, RenderOptions{
+		doc.HTML, err = renderMarkdown(data, frontMatter, RenderOptions{
 			Title:            doc.Title,
 			Slug:             slug,
 			SourceName:       sourceName,

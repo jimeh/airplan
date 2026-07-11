@@ -94,6 +94,8 @@ func parseFrontMatter(src []byte) (frontMatter, error) {
 			)
 		}
 		mapping := node.Content[0]
+		// Decode the full mapping so yaml.v3 applies validation recursively,
+		// including duplicate-key checks in nested mappings.
 		var validated any
 		if err := mapping.Decode(&validated); err != nil {
 			return frontMatter{}, fmt.Errorf(

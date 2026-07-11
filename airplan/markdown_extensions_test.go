@@ -225,6 +225,16 @@ func TestRepositoryLinksPreserveHeadingText(t *testing.T) {
 	}
 }
 
+func TestRepositoryLinksMalformedURLDoesNotPanic(t *testing.T) {
+	_, err := RenderMarkdown(
+		[]byte("See #123.\n"),
+		RenderOptions{RepositoryURL: "%"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestRenderMarkdownPandocColumns(t *testing.T) {
 	source := []byte(strings.Join([]string{
 		":::: {.columns}", "::: {.column width=40%}", "## Left", "", "- one",

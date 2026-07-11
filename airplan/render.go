@@ -206,6 +206,12 @@ func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return renderMarkdown(src, frontMatter, opts)
+}
+
+func renderMarkdown(
+	src []byte, frontMatter frontMatter, opts RenderOptions,
+) ([]byte, error) {
 	bodySource := frontMatter.body
 	md := newMarkdownWithRepository(opts.RepositoryURL, bodySource)
 	doc := md.Parser().Parse(text.NewReader(bodySource))

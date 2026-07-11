@@ -875,7 +875,7 @@ mark {
   }
 }
 
-@media (max-width: 48rem) {
+@media (max-width: 48rem), print {
   .columns {
     display: block;
   }
@@ -886,14 +886,6 @@ mark {
 }
 
 @media print {
-  .columns {
-    display: block;
-  }
-
-  .column + .column {
-    margin-top: 1.5rem;
-  }
-
   .toolbar,
   .toc,
   .toc-trigger,
