@@ -39,6 +39,7 @@ Considered alternatives:
 | `alecthomas/chroma/v2`      | code block syntax highlighting        |
 | `aws/aws-sdk-go-v2` (s3)    | uploads (SigV4, retries, checksums)   |
 | `BurntSushi/toml`           | config file parsing                   |
+| `gopkg.in/yaml.v3`          | YAML frontmatter parsing              |
 | `spf13/cobra`               | CLI: subcommands, flags, completion   |
 | `invopop/jsonschema`        | config JSON Schema from Go structs    |
 | `gofrs/flock`               | cross-platform manifest file locking  |
@@ -120,13 +121,29 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
 ## 4. Spec Requirements → Mechanisms
 
 - Rendering: goldmark with GFM extensions (tables,
-  strikethrough, task lists, autolinks), footnotes, heading anchors,
+  strikethrough, task lists, autolinks), definition lists, footnotes,
+  heading anchors,
   and a small local AST transformer/renderer for GitHub-style alerts.
   Alert parsing and HTML generation happen before template execution;
   the uploaded page needs CSS for presentation but no alert JavaScript.
   Unsafe rendering remains enabled so Markdown preserves authored raw
   HTML and link destinations; Markdown and explicit HTML input share the
   same trusted-content boundary.
+- Frontmatter: a byte-oriented delimiter pass extracts exact leading YAML or
+  TOML blocks before Goldmark sees the body. The native parsers validate a
+  mapping root and extract only a string title; Chroma highlights the original
+  block for the collapsed built-in presentation.
+- Repository context: explicit remotes are normalized locally. Automatic
+  discovery runs bounded `git` subprocesses with `Cmd.Dir`, checks file
+  repository membership before the working-directory fallback, and accepts
+  only GitHub.com origins. A Goldmark AST transformer turns references into
+  links after parsing, where code, links, images, HTML, and autolinks can be
+  excluded structurally.
+- Columns: a strict line scanner indexes only complete supported Pandoc columns
+  containers. Local Goldmark block parsers then build dedicated columns and
+  column AST nodes, and a node renderer emits the fixed div markup. Goldmark
+  parses all child Markdown in one document, preserving heading IDs and
+  table-of-contents order; invalid structures remain ordinary Markdown nodes.
 - Highlighting: chroma emitting class-based markup with CSS custom
   properties for the palette — required so highlighting can follow
   `prefers-color-scheme` (inline styles can't switch light/dark).
@@ -143,7 +160,8 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
 - Templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, structured headings/ToC entries, format metadata,
-  title, slug, indexing intent, and source names/paths. The built-in page CSS
+  title, slug, indexing intent, frontmatter, repository context, and source
+  names/paths. The built-in page CSS
   and JS are expanded into the embedded template source before parsing, so
   `airplan template` prints an exact reusable template containing only public
   data fields.

@@ -63,6 +63,7 @@ func TestConfigSchemaShape(t *testing.T) {
 		"profiles",
 		"public_base_url",
 		"region",
+		"repo",
 		"secret_access_key",
 		"template",
 		"timeout",

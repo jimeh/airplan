@@ -95,9 +95,20 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 	if ctx == nil {
 		return nil, errors.New("airplan: nil context")
 	}
-	if err := cfg.Validate(); err != nil {
+	resolved := *cfg
+	if resolved.Repository == "" {
+		resolved.Repository = "auto"
+	} else if resolved.Repository != "auto" && resolved.Repository != "none" {
+		canonical, err := NormalizeRepositoryURL(resolved.Repository)
+		if err != nil {
+			return nil, err
+		}
+		resolved.Repository = canonical
+	}
+	if err := resolved.Validate(); err != nil {
 		return nil, err
 	}
+	cfg = &resolved
 
 	// The template is loaded eagerly but its failure is deferred to
 	// Upload: templates don't apply to HTML input (SPEC.md §3), so a
@@ -189,6 +200,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		IncludeSource:    !c.cfg.NoSource,
 		NoExternalAssets: c.cfg.NoExternalAssets,
 		MermaidURL:       c.cfg.MermaidURL,
+		Repository:       c.cfg.Repository,
 	}, c.template, c.templateErr)
 	if err != nil {
 		return nil, err

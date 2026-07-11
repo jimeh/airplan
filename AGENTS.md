@@ -61,6 +61,9 @@ pins live in `mise.lock` (commit both when bumping tools).
 - **Markdown alerts** (`airplan/alert.go`): Goldmark splits markers
   such as `[!NOTE]` across multiple text nodes. Reconstruct the first
   blockquote line when matching alerts; do not assume one marker node.
+- **Markdown columns** (`airplan/columns.go`): pre-validate complete fenced
+  containers before the Goldmark block parser creates custom nodes. Invalid
+  or incomplete column syntax must remain ordinary literal Markdown.
 - **Conventional commits are load-bearing**: PR titles are validated
   (semantic-pr) and release-please derives versions and changelogs
   from squash-merged titles.

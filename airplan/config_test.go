@@ -21,6 +21,7 @@ public_base_url = "root-public"
 key_prefix = "root-prefix"
 template = "root-template"
 mermaid_url = "https://root.example/mermaid.mjs"
+repo = "https://github.com/root/project"
 no_external_assets = false
 no_source = false
 indexable = true
@@ -36,6 +37,7 @@ template = "profile-template"
 no_source = true
 indexable = false
 mermaid_url = "https://profile.example/mermaid.mjs"
+repo = "https://github.com/profile/project"
 no_external_assets = true
 `, 0o600)
 
@@ -49,6 +51,7 @@ no_external_assets = true
 			"AIRPLAN_PUBLIC_BASE_URL":    "env-public",
 			"AIRPLAN_TEMPLATE":           "env-template",
 			"AIRPLAN_MERMAID_URL":        "https://env.example/mermaid.mjs",
+			"AIRPLAN_REPO":               "https://github.com/env/project.git",
 			"AIRPLAN_NO_EXTERNAL_ASSETS": "false",
 		}),
 	})
@@ -68,7 +71,36 @@ no_external_assets = true
 	assertEqual(t, cfg.NoSource, true)
 	assertEqual(t, cfg.Indexable, false)
 	assertEqual(t, cfg.MermaidURL, "https://env.example/mermaid.mjs")
+	assertEqual(t, cfg.Repository, "https://github.com/env/project.git")
 	assertEqual(t, cfg.NoExternalAssets, false)
+}
+
+func TestLoadConfigRepositoryPrecedenceAndDefault(t *testing.T) {
+	cfg, err := LoadConfig(ConfigOptions{
+		Path: missingPath(t), Getenv: envMap(nil),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEqual(t, cfg.Repository, "auto")
+
+	path := writeConfig(t, `
+repo = "none"
+
+[profiles.work]
+repo = "https://github.com/profile/project"
+`, 0o600)
+	cfg, err = LoadConfig(ConfigOptions{
+		Path: path, Profile: "work",
+		Getenv: envMap(map[string]string{
+			"AIRPLAN_REPO": "https://github.com/env/project",
+		}),
+		Overrides: Settings{Repository: "https://github.com/flag/project"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEqual(t, cfg.Repository, "https://github.com/flag/project")
 }
 
 func TestLoadConfigMermaidDefaultsAndValidation(t *testing.T) {

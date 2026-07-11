@@ -20,6 +20,14 @@ type RenderInputOptions struct {
 	// MermaidURL overrides the Mermaid module URL. Empty uses the default.
 	MermaidURL string
 
+	// Repository is "auto", "none", or an explicit repository URL.
+	// The zero value disables repository discovery for direct callers.
+	Repository string
+
+	// WorkingDirectory is the invocation directory used by automatic
+	// repository discovery. Empty uses the process working directory.
+	WorkingDirectory string
+
 	// IncludeSource gives rendered pages the relative source path they
 	// will use after upload. Local previews leave this false.
 	IncludeSource bool
@@ -80,6 +88,13 @@ func RenderInput(
 		return nil, err
 	}
 	opts.MermaidURL = mermaidURL
+	if opts.Repository != "" && opts.Repository != "auto" &&
+		opts.Repository != "none" {
+		opts.Repository, err = NormalizeRepositoryURL(opts.Repository)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	tmpl := opts.Template
 	var tmplErr error
@@ -153,7 +168,19 @@ func renderInput(
 
 	switch format {
 	case FormatMarkdown:
-		doc.Title = ResolveTitle(in.Title, data, in.Name, slug)
+		frontMatter, frontMatterErr := parseFrontMatter(data)
+		if frontMatterErr != nil {
+			return nil, frontMatterErr
+		}
+		doc.Title = resolveMarkdownTitle(
+			in.Title, frontMatter.title, frontMatter.body, in.Name, slug,
+		)
+		repositoryURL, repositoryErr := resolveRepository(
+			ctx, opts.Repository, in.Name, opts.WorkingDirectory,
+		)
+		if repositoryErr != nil {
+			return nil, repositoryErr
+		}
 		doc.sourceObjectName = slug + ".md"
 		if opts.IncludeSource {
 			doc.SourcePath = "./" + doc.sourceObjectName
@@ -166,6 +193,7 @@ func renderInput(
 			Indexable:        opts.Indexable,
 			NoExternalAssets: opts.NoExternalAssets,
 			MermaidURL:       opts.MermaidURL,
+			RepositoryURL:    repositoryURL,
 			Template:         tmpl,
 		})
 
@@ -223,6 +251,22 @@ func renderInput(
 		return nil, err
 	}
 	return doc, nil
+}
+
+func resolveMarkdownTitle(
+	explicit string,
+	frontMatterTitle string,
+	body []byte,
+	filename string,
+	slug string,
+) string {
+	if explicit != "" {
+		return explicit
+	}
+	if frontMatterTitle != "" {
+		return frontMatterTitle
+	}
+	return ResolveTitle("", body, filename, slug)
 }
 
 func (d *RenderedDocument) sourceContentType() string {

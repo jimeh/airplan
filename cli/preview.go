@@ -19,6 +19,7 @@ type previewOptions struct {
 	indexable        bool
 	noExternalAssets bool
 	mermaidURL       string
+	repository       string
 	maxSize          string
 	template         string
 	profile          string
@@ -52,6 +53,8 @@ func newPreviewCmd() *cobra.Command {
 		"disable airplan-managed external assets in rendered pages")
 	f.StringVar(&opts.mermaidURL, "mermaid-url", "",
 		"Mermaid ECMAScript module URL")
+	f.StringVar(&opts.repository, "repo", "",
+		"repository context: auto, none, or URL (default: auto)")
 	f.StringVar(&opts.maxSize, "max-size", "10MiB",
 		"input size limit, e.g. 10MiB, 512k, 1048576; 0 = no limit")
 	f.StringVar(&opts.template, "template", "",
@@ -80,7 +83,8 @@ func runPreview(
 	}
 
 	overrides := airplan.Settings{
-		Template: opts.template,
+		Template:   opts.template,
+		Repository: opts.repository,
 		MermaidURL: airplan.ResolveMermaidURLOverride(
 			opts.mermaidURL,
 			cmd.Flags().Changed("mermaid-url"),
@@ -141,6 +145,7 @@ func runPreview(
 			TemplatePath:     cfg.Template,
 			NoExternalAssets: cfg.NoExternalAssets,
 			MermaidURL:       cfg.MermaidURL,
+			Repository:       cfg.Repository,
 		})
 	if err != nil {
 		if errors.Is(err, airplan.ErrInputTooLarge) {
