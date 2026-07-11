@@ -592,8 +592,11 @@ func applySettings(
 	if settings.NoExternalAssets != nil {
 		cfg.NoExternalAssets = *settings.NoExternalAssets
 	}
-	if defined("mermaid_url") && settings.MermaidURL != "" {
+	if defined("mermaid_url") {
 		cfg.MermaidURL = settings.MermaidURL
+		if cfg.MermaidURL == "" {
+			cfg.MermaidURL = DefaultMermaidURL
+		}
 	}
 }
 

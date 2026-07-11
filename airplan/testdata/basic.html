@@ -1423,7 +1423,15 @@ try {
     securityLevel: 'strict',
     theme: dark ? 'dark' : 'default'
   });
-  await mermaid.run({nodes: diagrams});
+  for (const [index, diagram] of diagrams.entries()) {
+    try {
+      await mermaid.run({nodes: [diagram]});
+    } catch (error) {
+      diagram.textContent = sources[index];
+      diagram.classList.add('mermaid-failed');
+      console.warn('airplan: Mermaid diagram rendering failed', error);
+    }
+  }
 } catch (error) {
   diagrams.forEach((diagram, index) => {
     diagram.textContent = sources[index];

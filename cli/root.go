@@ -308,6 +308,9 @@ func flagOverrides(cmd *cobra.Command, opts *rootOptions) airplan.Settings {
 		MermaidURL:    opts.mermaidURL,
 	}
 	f := cmd.Flags()
+	if f.Changed("mermaid-url") && ov.MermaidURL == "" {
+		ov.MermaidURL = airplan.DefaultMermaidURL
+	}
 	if f.Changed("no-source") {
 		ov.NoSource = &opts.noSource
 	}

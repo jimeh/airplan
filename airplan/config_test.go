@@ -106,6 +106,42 @@ func TestLoadConfigMermaidDefaultsAndValidation(t *testing.T) {
 	}
 }
 
+func TestLoadConfigEmptyMermaidURLResetsInheritedValue(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		config  string
+		profile string
+	}{
+		{
+			name: "empty root value",
+			config: `
+mermaid_url = ""
+`,
+		},
+		{
+			name: "empty profile value",
+			config: `
+mermaid_url = "https://assets.example.test/mermaid.mjs"
+
+[profiles.work]
+mermaid_url = ""
+`,
+			profile: "work",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := LoadConfig(ConfigOptions{
+				Path: writeConfig(t, tc.config, 0o600), Profile: tc.profile,
+				Getenv: envMap(nil),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertEqual(t, cfg.MermaidURL, DefaultMermaidURL)
+		})
+	}
+}
+
 func TestLoadConfigDefaultRegion(t *testing.T) {
 	cfg, err := LoadConfig(ConfigOptions{
 		Path: missingPath(t),

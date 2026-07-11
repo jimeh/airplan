@@ -67,6 +67,28 @@ func TestPreviewExternalAssetFlagExplicitFalseOverridesEnvironment(t *testing.T)
 	}
 }
 
+func TestPreviewEmptyMermaidURLFlagResetsEnvironment(t *testing.T) {
+	isolateEnv(t)
+	customURL := "https://assets.example.test/custom-mermaid.mjs"
+	t.Setenv("AIRPLAN_MERMAID_URL", customURL)
+
+	cmd := newRootCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetIn(strings.NewReader("```mermaid\ngraph TD\n  A --> B\n```\n"))
+	cmd.SetArgs([]string{"preview", "--mermaid-url", "", "-"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	page := stdout.String()
+	if strings.Contains(page, customURL) {
+		t.Fatal("empty Mermaid URL flag retained inherited custom URL")
+	}
+	if !strings.Contains(page, "cdn.jsdelivr.net/npm/mermaid@") {
+		t.Fatal("empty Mermaid URL flag did not restore built-in default")
+	}
+}
+
 func TestPreviewWritesOutputFile(t *testing.T) {
 	isolateEnv(t)
 

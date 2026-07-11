@@ -52,8 +52,10 @@ jobs:
           git remote set-url origin \
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push --force-with-lease origin "$BRANCH"
-          if gh pr view "$BRANCH" >/dev/null 2>&1; then
-            gh pr edit "$BRANCH" --title "chore(deps): update Mermaid" \
+          pr_number="$(gh pr list --head "$BRANCH" --state open \
+            --json number --jq '.[0].number')"
+          if [[ -n "$pr_number" ]]; then
+            gh pr edit "$pr_number" --title "chore(deps): update Mermaid" \
               --body "Updates the pinned Mermaid runtime after the 72-hour minimum age."
           else
             gh pr create --draft --base main --head "$BRANCH" \

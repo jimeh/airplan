@@ -120,6 +120,10 @@ func TestRenderMarkdownMermaid(t *testing.T) {
 	if !strings.Contains(out, "await import(\""+DefaultMermaidURL+"\")") {
 		t.Fatal("pinned Mermaid module import missing")
 	}
+	if !strings.Contains(out, "mermaid.run({nodes: [diagram]})") ||
+		strings.Contains(out, "mermaid.run({nodes: diagrams})") {
+		t.Fatal("Mermaid diagrams are not rendered independently")
+	}
 	if strings.Contains(out, `class="codewrap"><pre class="mermaid"`) {
 		t.Fatal("Mermaid block received code-copy wrapper")
 	}
