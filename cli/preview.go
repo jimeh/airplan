@@ -80,11 +80,11 @@ func runPreview(
 	}
 
 	overrides := airplan.Settings{
-		Template:   opts.template,
-		MermaidURL: opts.mermaidURL,
-	}
-	if cmd.Flags().Changed("mermaid-url") && overrides.MermaidURL == "" {
-		overrides.MermaidURL = airplan.DefaultMermaidURL
+		Template: opts.template,
+		MermaidURL: airplan.ResolveMermaidURLOverride(
+			opts.mermaidURL,
+			cmd.Flags().Changed("mermaid-url"),
+		),
 	}
 	if cmd.Flags().Changed("indexable") {
 		overrides.Indexable = &opts.indexable

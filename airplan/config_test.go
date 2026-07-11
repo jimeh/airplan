@@ -142,6 +142,29 @@ mermaid_url = ""
 	}
 }
 
+func TestResolveMermaidURLOverride(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		value    string
+		explicit bool
+		want     string
+	}{
+		{"unset empty", "", false, ""},
+		{"explicit empty", "", true, DefaultMermaidURL},
+		{
+			"explicit custom",
+			"https://assets.example.test/mermaid.mjs",
+			true,
+			"https://assets.example.test/mermaid.mjs",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ResolveMermaidURLOverride(tc.value, tc.explicit)
+			assertEqual(t, got, tc.want)
+		})
+	}
+}
+
 func TestLoadConfigDefaultRegion(t *testing.T) {
 	cfg, err := LoadConfig(ConfigOptions{
 		Path: missingPath(t),

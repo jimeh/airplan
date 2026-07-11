@@ -168,15 +168,9 @@ func LoadConfig(opts ConfigOptions) (*Config, error) {
 			profileKeyDefined(meta, profile),
 		)
 	}
-	if raw := getenv("AIRPLAN_NO_EXTERNAL_ASSETS"); raw != "" {
-		if _, err := strconv.ParseBool(raw); err != nil {
-			return nil, fmt.Errorf(
-				"airplan: invalid AIRPLAN_NO_EXTERNAL_ASSETS %q: must be a boolean",
-				raw,
-			)
-		}
+	if err := applyEnv(cfg, getenv); err != nil {
+		return nil, err
 	}
-	applyEnv(cfg, getenv)
 	applyOverrides(cfg, opts.Overrides)
 
 	if err := resolveTimeout(cfg, opts, getenv, fileConfig,
@@ -341,6 +335,25 @@ func validateMermaidURL(raw string) error {
 		)
 	}
 	return nil
+}
+
+func resolveMermaidURL(raw string) (string, error) {
+	if raw == "" {
+		raw = DefaultMermaidURL
+	}
+	if err := validateMermaidURL(raw); err != nil {
+		return "", err
+	}
+	return raw, nil
+}
+
+// ResolveMermaidURLOverride normalizes an explicit empty override to the
+// built-in Mermaid module URL. An unset or non-empty value is unchanged.
+func ResolveMermaidURLOverride(value string, explicit bool) string {
+	if explicit && value == "" {
+		return DefaultMermaidURL
+	}
+	return value
 }
 
 func validateHTTPURL(name, raw string) error {
@@ -517,7 +530,9 @@ func resolveProfile(
 	// resolution step 4).
 	rootCfg := &Config{Region: "auto"}
 	applySettings(rootCfg, fileConfig.Settings, rootKeyDefined(meta, true))
-	applyEnv(rootCfg, getenv)
+	if err := applyEnv(rootCfg, getenv); err != nil {
+		return "", err
+	}
 	applyOverrides(rootCfg, opts.Overrides)
 	if rootCfg.Endpoint != "" && rootCfg.Bucket != "" {
 		return "", nil
@@ -600,7 +615,7 @@ func applySettings(
 	}
 }
 
-func applyEnv(cfg *Config, getenv func(string) string) {
+func applyEnv(cfg *Config, getenv func(string) string) error {
 	applyEnvString(&cfg.Endpoint, getenv, "AIRPLAN_ENDPOINT")
 	applyEnvString(&cfg.Bucket, getenv, "AIRPLAN_BUCKET")
 	applyEnvString(&cfg.Region, getenv, "AIRPLAN_REGION")
@@ -610,16 +625,30 @@ func applyEnv(cfg *Config, getenv func(string) string) {
 	applyEnvString(&cfg.KeyPrefix, getenv, "AIRPLAN_KEY_PREFIX")
 	applyEnvString(&cfg.Template, getenv, "AIRPLAN_TEMPLATE")
 	applyEnvString(&cfg.MermaidURL, getenv, "AIRPLAN_MERMAID_URL")
-	applyEnvBool(&cfg.NoExternalAssets, getenv, "AIRPLAN_NO_EXTERNAL_ASSETS")
+	return applyEnvBool(
+		&cfg.NoExternalAssets,
+		getenv,
+		"AIRPLAN_NO_EXTERNAL_ASSETS",
+	)
 }
 
-func applyEnvBool(field *bool, getenv func(string) string, name string) {
+func applyEnvBool(
+	field *bool,
+	getenv func(string) string,
+	name string,
+) error {
 	if value := getenv(name); value != "" {
 		parsed, err := strconv.ParseBool(value)
-		if err == nil {
-			*field = parsed
+		if err != nil {
+			return fmt.Errorf(
+				"airplan: invalid %s %q: must be a boolean",
+				name,
+				value,
+			)
 		}
+		*field = parsed
 	}
+	return nil
 }
 
 func applyEnvString(field *string, getenv func(string) string, name string) {

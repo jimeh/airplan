@@ -75,12 +75,11 @@ func RenderInput(
 				"mutually exclusive",
 		)
 	}
-	if opts.MermaidURL == "" {
-		opts.MermaidURL = DefaultMermaidURL
-	}
-	if err := validateMermaidURL(opts.MermaidURL); err != nil {
+	mermaidURL, err := resolveMermaidURL(opts.MermaidURL)
+	if err != nil {
 		return nil, err
 	}
+	opts.MermaidURL = mermaidURL
 
 	tmpl := opts.Template
 	var tmplErr error

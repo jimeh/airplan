@@ -103,6 +103,41 @@ func TestUpdateSelectsEligibleReleaseBehindTooNewLatest(t *testing.T) {
 	}
 }
 
+func TestUpdateSelectsEligibleReleaseWithinCurrentMajor(t *testing.T) {
+	now := time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC)
+	withManifest(t, `{"package":"mermaid","version":"11.14.0",`+
+		`"released_at":"2026-06-01T00:00:00Z"}`)
+	probedURL := ""
+	client := &http.Client{Transport: roundTripFunc(
+		func(req *http.Request) (*http.Response, error) {
+			body := ""
+			status := http.StatusOK
+			if req.URL.Host == "registry.npmjs.org" {
+				body = `{"dist-tags":{"latest":"12.0.0"},"time":{` +
+					`"11.14.0":"2026-06-01T00:00:00Z",` +
+					`"11.15.0":"` +
+					now.Add(-72*time.Hour).Format(time.RFC3339Nano) + `",` +
+					`"12.0.0":"` +
+					now.Add(-72*time.Hour).Format(time.RFC3339Nano) + `"}}`
+			} else {
+				probedURL = req.URL.String()
+				status = http.StatusPartialContent
+			}
+			return &http.Response{
+				StatusCode: status,
+				Status:     http.StatusText(status),
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}, nil
+		},
+	)}
+	if err := update(now, client, true); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(probedURL, "mermaid@11.15.0/") {
+		t.Fatalf("probed URL = %q, want same-major 11.15.0", probedURL)
+	}
+}
+
 func withManifest(t *testing.T, contents string) {
 	t.Helper()
 	old, err := os.Getwd()

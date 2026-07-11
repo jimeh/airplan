@@ -124,6 +124,13 @@ func TestRenderMarkdownMermaid(t *testing.T) {
 		strings.Contains(out, "mermaid.run({nodes: diagrams})") {
 		t.Fatal("Mermaid diagrams are not rendered independently")
 	}
+	if !strings.Contains(out,
+		"diagram.classList.add('mermaid-rendered')") {
+		t.Fatal("successful Mermaid diagrams are not marked as rendered")
+	}
+	if !strings.Contains(out, "pre.mermaid.mermaid-rendered {") {
+		t.Fatal("rendered Mermaid layout is not state-scoped")
+	}
 	if strings.Contains(out, `class="codewrap"><pre class="mermaid"`) {
 		t.Fatal("Mermaid block received code-copy wrapper")
 	}

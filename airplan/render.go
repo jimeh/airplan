@@ -188,12 +188,6 @@ var syntaxCSS = sync.OnceValues(func() (string, error) {
 // dark/light-aware syntax highlighting, and conditional Mermaid support
 // (SPEC.md §3).
 func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
-	if opts.MermaidURL == "" {
-		opts.MermaidURL = DefaultMermaidURL
-	}
-	if err := validateMermaidURL(opts.MermaidURL); err != nil {
-		return nil, err
-	}
 	md := newMarkdown()
 	doc := md.Parser().Parse(text.NewReader(src))
 	headings := extractHeadings(doc, src)
@@ -250,12 +244,11 @@ func RenderText(src []byte, name string, opts RenderOptions) ([]byte, error) {
 // renderPage supplies the shared fields before executing either a custom or
 // the built-in standalone page template.
 func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
-	if opts.MermaidURL == "" {
-		opts.MermaidURL = DefaultMermaidURL
-	}
-	if err := validateMermaidURL(opts.MermaidURL); err != nil {
+	mermaidURL, err := resolveMermaidURL(opts.MermaidURL)
+	if err != nil {
 		return nil, err
 	}
+	opts.MermaidURL = mermaidURL
 	syntax, err := syntaxCSS()
 	if err != nil {
 		return nil, err

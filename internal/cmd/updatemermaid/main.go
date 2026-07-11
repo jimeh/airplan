@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,8 +35,14 @@ type registryDocument struct {
 type version struct{ major, minor, patch int }
 
 func main() {
+	dryRun := flag.Bool(
+		"dry-run",
+		false,
+		"report the eligible update without writing files",
+	)
+	flag.Parse()
 	client := &http.Client{Timeout: 15 * time.Second}
-	if err := update(time.Now().UTC(), client, false); err != nil {
+	if err := update(time.Now().UTC(), client, *dryRun); err != nil {
 		fmt.Fprintln(os.Stderr, "update Mermaid:", err)
 		os.Exit(1)
 	}

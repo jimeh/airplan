@@ -92,6 +92,7 @@ try {
   for (const [index, diagram] of diagrams.entries()) {
     try {
       await mermaid.run({nodes: [diagram]});
+      diagram.classList.add('mermaid-rendered');
     } catch (error) {
       diagram.textContent = sources[index];
       diagram.classList.add('mermaid-failed');

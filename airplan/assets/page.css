@@ -676,13 +676,16 @@ pre code {
 }
 
 pre.mermaid {
-  display: flex;
-  justify-content: center;
   max-width: 100%;
   white-space: pre-wrap;
 }
 
-pre.mermaid svg {
+pre.mermaid.mermaid-rendered {
+  display: flex;
+  justify-content: center;
+}
+
+pre.mermaid.mermaid-rendered svg {
   height: auto;
   max-width: 100%;
 }
