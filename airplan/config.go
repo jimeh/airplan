@@ -36,8 +36,11 @@ type Settings struct {
 	NoSource         *bool  `toml:"no_source" json:"no_source,omitempty" jsonschema_description:"Omit uploading the original source alongside rendered output."`
 	Indexable        *bool  `toml:"indexable" json:"indexable,omitempty" jsonschema_description:"Allow search indexing by omitting the noindex robots meta tag."`
 	NoExternalAssets *bool  `toml:"no_external_assets" json:"no_external_assets,omitempty" jsonschema_description:"Disable airplan-managed features that load external assets when a page is viewed."`
-	MermaidURL       string `toml:"mermaid_url" json:"mermaid_url,omitempty" jsonschema_description:"Absolute HTTPS URL of the Mermaid ECMAScript module."`
-	Timeout          string `toml:"timeout" json:"timeout,omitempty" jsonschema_description:"Operation timeout as a Go duration or seconds; 0 disables it."`
+	// MermaidURL overrides the Mermaid module URL. Callers representing an
+	// explicit empty override must use ResolveMermaidURLOverride; a bare empty
+	// value is treated as unset when Settings are overlaid.
+	MermaidURL string `toml:"mermaid_url" json:"mermaid_url,omitempty" jsonschema_description:"Absolute HTTPS URL of the Mermaid ECMAScript module."`
+	Timeout    string `toml:"timeout" json:"timeout,omitempty" jsonschema_description:"Operation timeout as a Go duration or seconds; 0 disables it."`
 }
 
 // FileConfig is the on-disk shape of the TOML config file: shared
