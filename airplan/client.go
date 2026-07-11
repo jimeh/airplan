@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"math"
 	"mime"
 	"path/filepath"
 	"strconv"
@@ -61,6 +62,10 @@ var ErrInvalidUTF8 = errors.New(
 	"airplan: input is not valid UTF-8; " +
 		"only UTF-8 text documents are supported",
 )
+
+// ErrEmptyInput is returned by Upload or RenderInput for a zero-byte
+// document. Whitespace-only input remains valid (SPEC.md §2).
+var ErrEmptyInput = errors.New("airplan: input is empty")
 
 // Client uploads plan documents per the pipeline in SPEC.md §1:
 // detect format → render (markdown) or noindex-splice (HTML) →
@@ -285,7 +290,7 @@ func titleMetadata(title string) map[string]string {
 // though the reading goroutine itself stays blocked until the
 // underlying reader unblocks or the process exits.
 func readInput(ctx context.Context, r io.Reader, limit int64) ([]byte, error) {
-	if limit > 0 {
+	if limit > 0 && limit < math.MaxInt64 {
 		r = io.LimitReader(r, limit+1)
 	}
 
@@ -319,25 +324,33 @@ func readInput(ctx context.Context, r io.Reader, limit int64) ([]byte, error) {
 
 // ParseSize parses a human-friendly byte size (SPEC.md §2): a plain
 // integer byte count, or an integer with a k/m/g suffix meaning
-// binary multiples (KiB/MiB/GiB). An optional trailing "b" or "ib" is
-// accepted and case is ignored: "10MB", "512k", "1gib", "1048576".
+// binary multiples (KiB/MiB/GiB). Unit suffixes may have a trailing
+// "b" or "ib", and case is ignored: "10MB", "512k", "1gib",
+// "1048576". A tail without k/m/g, such as "10ib", is invalid.
 func ParseSize(s string) (int64, error) {
 	orig := s
 	s = strings.ToLower(strings.TrimSpace(s))
 
 	var mult int64 = 1
-	s = strings.TrimSuffix(s, "ib")
-	s = strings.TrimSuffix(s, "b")
-	switch {
-	case strings.HasSuffix(s, "k"):
-		mult = 1 << 10
-		s = s[:len(s)-1]
-	case strings.HasSuffix(s, "m"):
-		mult = 1 << 20
-		s = s[:len(s)-1]
-	case strings.HasSuffix(s, "g"):
-		mult = 1 << 30
-		s = s[:len(s)-1]
+	for _, unit := range []struct {
+		suffix string
+		mult   int64
+	}{
+		{"kib", 1 << 10},
+		{"kb", 1 << 10},
+		{"k", 1 << 10},
+		{"mib", 1 << 20},
+		{"mb", 1 << 20},
+		{"m", 1 << 20},
+		{"gib", 1 << 30},
+		{"gb", 1 << 30},
+		{"g", 1 << 30},
+	} {
+		if strings.HasSuffix(s, unit.suffix) {
+			mult = unit.mult
+			s = strings.TrimSuffix(s, unit.suffix)
+			break
+		}
 	}
 
 	n, err := strconv.ParseInt(s, 10, 64)

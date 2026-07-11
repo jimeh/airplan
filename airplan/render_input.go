@@ -97,6 +97,9 @@ func renderInput(
 	if err != nil {
 		return nil, err
 	}
+	if len(data) == 0 {
+		return nil, ErrEmptyInput
+	}
 	if !utf8.Valid(data) {
 		return nil, ErrInvalidUTF8
 	}

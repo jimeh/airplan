@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gofrs/flock"
 )
 
 const testDir = "vq3nhk2p7r4wzt5c6ydjm3xhqd"
@@ -266,7 +268,9 @@ func TestDeleteUploadMissingMarkerReconciliation(t *testing.T) {
 	pageKey := testDir + "/plan.html"
 	if err := appendManifestRecord(context.Background(), manifest, ManifestRecord{
 		Type: "upload", Time: time.Now().UTC(), Key: pageKey,
-		Bucket: "plans", Profile: "work", MarkerVersion: MarkerVersion,
+		URL:    "https://plans.example.com/" + pageKey,
+		Bucket: "plans", Profile: "work", Bytes: 1,
+		MarkerVersion: MarkerVersion,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -280,6 +284,53 @@ func TestDeleteUploadMissingMarkerReconciliation(t *testing.T) {
 	if res.PageKey != pageKey || fake.deleteCalls() != 0 ||
 		len(res.Warnings) == 0 {
 		t.Fatalf("result = %+v, delete calls = %d", res, fake.deleteCalls())
+	}
+	if active := mustActiveUploads(t, manifest); len(active) != 0 {
+		t.Fatalf("active uploads = %+v", active)
+	}
+}
+
+func TestDeleteTombstoneFailureRecoversOnRetry(t *testing.T) {
+	marker := testUploadMarker(t, "html", "plan.html", "")
+	fake := newDeleteLifecycleS3(t, marker, []objectInfo{
+		{Key: testDir + "/" + MarkerFilename, Size: int64(len(marker))},
+		{Key: testDir + "/plan.html", Size: 10},
+	})
+	manifest := t.TempDir() + "/manifest.jsonl"
+	pageKey := testDir + "/plan.html"
+	if err := appendManifestRecord(context.Background(), manifest, ManifestRecord{
+		Type: "upload", Time: time.Now().UTC(), Key: pageKey,
+		URL:    "https://plans.example.com/" + pageKey,
+		Bucket: "plans", Bytes: 10, MarkerVersion: MarkerVersion,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	lock := flock.New(manifest + ".lock")
+	if err := lock.Lock(); err != nil {
+		t.Fatal(err)
+	}
+	client := newDeleteTestClient(t, fake.server.URL, manifest, false)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	res, err := client.DeleteUpload(ctx, pageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(res.Warnings, "\n"),
+		"tombstone not recorded") {
+		t.Fatalf("warnings = %v", res.Warnings)
+	}
+	if err := lock.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+
+	retry, err := client.DeleteUpload(context.Background(), pageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retry.PageKey != pageKey || len(retry.Warnings) == 0 {
+		t.Fatalf("retry = %+v", retry)
 	}
 	if active := mustActiveUploads(t, manifest); len(active) != 0 {
 		t.Fatalf("active uploads = %+v", active)
@@ -414,6 +465,9 @@ func (f *deleteLifecycleS3) handle(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		f.mu.Lock()
+		f.markerMissing = true
+		f.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)

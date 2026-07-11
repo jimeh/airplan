@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"mime"
 	"net/http"
 	"net/http/httptest"
@@ -43,6 +44,14 @@ func TestReadInput(t *testing.T) {
 			t.Errorf("len = %d, err = %v", len(data), err)
 		}
 	})
+
+	t.Run("maximum int64 limit does not wrap", func(t *testing.T) {
+		data, err := readInput(context.Background(),
+			strings.NewReader("not empty"), math.MaxInt64)
+		if err != nil || string(data) != "not empty" {
+			t.Fatalf("data = %q, err = %v", data, err)
+		}
+	})
 }
 
 func TestUploadRejectsOversizedInput(t *testing.T) {
@@ -75,6 +84,16 @@ func TestUploadRejectsOversizedInput(t *testing.T) {
 	})
 }
 
+func TestUploadRejectsEmptyInputBeforeStorage(t *testing.T) {
+	c := &Client{cfg: &Config{Bucket: "b"}}
+	res, err := c.Upload(context.Background(), Input{
+		Reader: strings.NewReader(""),
+	})
+	if res != nil || !errors.Is(err, ErrEmptyInput) {
+		t.Fatalf("result = %+v, error = %v", res, err)
+	}
+}
+
 func TestParseSize(t *testing.T) {
 	tests := []struct {
 		in      string
@@ -97,6 +116,8 @@ func TestParseSize(t *testing.T) {
 		{"10x", 0, true},
 		{"mb", 0, true},
 		{"9999999999g", 0, true},
+		{"10ib", 0, true},
+		{"10b", 0, true},
 	}
 	for _, tt := range tests {
 		got, err := ParseSize(tt.in)
@@ -379,6 +400,40 @@ func TestUploadFailureStopsPipelineAndManifest(t *testing.T) {
 				t.Fatalf("manifest was written after failed upload: %v", statErr)
 			}
 		})
+	}
+}
+
+func TestUploadManifestFailureIsWarningOnly(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(context.Background(), &Config{
+		Endpoint: server.URL, Bucket: "plans",
+		AccessKeyID: "test", SecretAccessKey: "test",
+		PublicBaseURL: "https://plans.example.com",
+		ManifestPath:  filepath.Join(blocker, "manifest.jsonl"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.URL == "" || !strings.Contains(strings.Join(res.Warnings, "\n"),
+		"manifest not recorded: create manifest directory") {
+		t.Fatalf("result = %+v", res)
 	}
 }
 

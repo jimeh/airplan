@@ -228,6 +228,33 @@ func TestStorageDeleteKeysReturnsPerObjectError(t *testing.T) {
 	}
 }
 
+func TestStorageDeleteKeysBatchesAtOneThousand(t *testing.T) {
+	var batchSizes []int
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			batchSizes = append(batchSizes,
+				strings.Count(string(body), "<Object>"))
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(w,
+				`<?xml version="1.0"?><DeleteResult></DeleteResult>`)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	keys := make([]string, 1001)
+	for i := range keys {
+		keys[i] = "random/page.html"
+	}
+	st := newTestStorage(t, server.URL)
+	if err := st.deleteKeys(context.Background(), keys); err != nil {
+		t.Fatal(err)
+	}
+	if len(batchSizes) != 2 || batchSizes[0] != 1000 || batchSizes[1] != 1 {
+		t.Fatalf("batch sizes = %v, want [1000 1]", batchSizes)
+	}
+}
+
 type capturedRequest struct {
 	path   string
 	header http.Header

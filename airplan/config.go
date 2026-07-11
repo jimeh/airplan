@@ -3,6 +3,7 @@ package airplan
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -214,6 +215,16 @@ func parseTimeout(s string) (time.Duration, error) {
 
 	var d time.Duration
 	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		if n < 0 {
+			return 0, fmt.Errorf(
+				"airplan: invalid timeout %q (must not be negative)", s,
+			)
+		}
+		if n > math.MaxInt64/int64(time.Second) {
+			return 0, fmt.Errorf(
+				"airplan: invalid timeout %q (out of range)", s,
+			)
+		}
 		d = time.Duration(n) * time.Second
 	} else if d, err = time.ParseDuration(s); err != nil {
 		return 0, fmt.Errorf(

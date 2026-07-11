@@ -32,6 +32,21 @@ func TestRenderInputRejectsInvalidUTF8(t *testing.T) {
 	}
 }
 
+func TestRenderInputRejectsEmptyButAcceptsWhitespace(t *testing.T) {
+	_, err := RenderInput(context.Background(), Input{
+		Reader: strings.NewReader(""),
+	}, RenderInputOptions{})
+	if !errors.Is(err, ErrEmptyInput) {
+		t.Fatalf("empty input error = %v, want ErrEmptyInput", err)
+	}
+
+	if _, err := RenderInput(context.Background(), Input{
+		Reader: strings.NewReader(" \n"),
+	}, RenderInputOptions{}); err != nil {
+		t.Fatalf("whitespace input: %v", err)
+	}
+}
+
 func TestRenderInputAcceptsValidNonASCII(t *testing.T) {
 	_, err := RenderInput(context.Background(), Input{
 		Reader: strings.NewReader("# Héllo 👋\n"), Format: "md",

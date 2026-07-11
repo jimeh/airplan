@@ -156,6 +156,12 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 		} else {
 			line = bytes.TrimSuffix(line, []byte{'\n'})
 			line = bytes.TrimSuffix(line, []byte{'\r'})
+			if len(bytes.TrimSpace(line)) == 0 {
+				if readErr == io.EOF {
+					break
+				}
+				continue
+			}
 
 			var rec ManifestRecord
 			if err := json.Unmarshal(line, &rec); err != nil {
@@ -167,11 +173,21 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 						"skipping manifest line %d with unsupported marker_version %d",
 						lineNo, rec.MarkerVersion,
 					))
+				} else if err := validateManifestRecord(rec); err != nil {
+					warnings = append(warnings, fmt.Sprintf(
+						"skipping invalid manifest line %d: %s", lineNo, err,
+					))
 				} else {
 					records = append(records, rec)
 				}
 			} else if rec.Type == "delete" {
-				records = append(records, rec)
+				if err := validateManifestRecord(rec); err != nil {
+					warnings = append(warnings, fmt.Sprintf(
+						"skipping invalid manifest line %d: %s", lineNo, err,
+					))
+				} else {
+					records = append(records, rec)
+				}
 			}
 		}
 		if readErr != nil {
@@ -183,6 +199,37 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 	}
 
 	return records, warnings, nil
+}
+
+func validateManifestRecord(rec ManifestRecord) error {
+	if rec.Time.IsZero() {
+		return errors.New("time is required")
+	}
+	if _, offset := rec.Time.Zone(); offset != 0 {
+		return errors.New("time must be UTC")
+	}
+	if rec.Key == "" {
+		return errors.New("key is required")
+	}
+
+	switch rec.Type {
+	case "upload":
+		if rec.URL == "" {
+			return errors.New("url is required")
+		}
+		if rec.Bucket == "" {
+			return errors.New("bucket is required")
+		}
+		if rec.Bytes <= 0 {
+			return errors.New("bytes must be positive")
+		}
+	case "delete":
+		// The common time and key fields are the complete tombstone shape.
+	default:
+		return fmt.Errorf("unsupported type %q", rec.Type)
+	}
+
+	return nil
 }
 
 // readManifestLine reads one logical line while retaining at most max

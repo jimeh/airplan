@@ -858,6 +858,8 @@ func TestParseTimeout(t *testing.T) {
 		{"-5s", 0, true},
 		{"bogus", 0, true},
 		{"", 0, true},
+		{"18446744074", 0, true},
+		{"9223372036854775807", 0, true},
 	}
 	for _, tt := range tests {
 		got, err := parseTimeout(tt.in)

@@ -126,6 +126,9 @@ func TestAppendManifestRecordConcurrentWritesStayIntact(t *testing.T) {
 				Time: time.Date(2026, 7, 8, 14, 3, i%60, 0,
 					time.UTC),
 				Key:           fmt.Sprintf("key-%02d/plan.html", i),
+				URL:           fmt.Sprintf("https://plans.example.com/key-%02d/plan.html", i),
+				Bucket:        "plans",
+				Bytes:         1,
 				MarkerVersion: MarkerVersion,
 			}
 			errs <- appendManifestRecord(context.Background(), path, rec)
@@ -203,7 +206,9 @@ func TestReadManifestSkipsUnsupportedMarkerVersion(t *testing.T) {
 	data := strings.Join([]string{
 		`{"type":"upload","key":"missing.html"}`,
 		`{"type":"upload","key":"future.html","marker_version":2}`,
-		`{"type":"upload","key":"current.html","marker_version":1}`,
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+			`"key":"current.html","url":"https://plans.example.com/current.html",` +
+			`"bucket":"plans","bytes":1,"marker_version":1}`,
 	}, "\n") + "\n"
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
@@ -223,7 +228,8 @@ func TestReadManifestSkipsMalformedAndUnknownType(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.jsonl")
 	data := strings.Join([]string{
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
-			`"key":"upload.html","marker_version":1,"extra":"ignored"}`,
+			`"key":"upload.html","url":"https://plans.example.com/upload.html",` +
+			`"bucket":"plans","bytes":1,"marker_version":1,"extra":"ignored"}`,
 		`not json`,
 		`{"type":"future","time":"2026-07-08T14:03:12Z",` +
 			`"key":"future.html"}`,
@@ -249,6 +255,9 @@ func TestReadManifestSkipsMalformedAndUnknownType(t *testing.T) {
 			Type:          "upload",
 			Time:          time.Date(2026, 7, 8, 14, 3, 11, 0, time.UTC),
 			Key:           "upload.html",
+			URL:           "https://plans.example.com/upload.html",
+			Bucket:        "plans",
+			Bytes:         1,
 			MarkerVersion: MarkerVersion,
 		},
 		{
@@ -265,9 +274,12 @@ func TestReadManifestSkipsMalformedAndUnknownType(t *testing.T) {
 func TestReadManifestSkipsOversizedLineAndContinues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.jsonl")
 	oversized := strings.Repeat("x", 10*1024*1024+1)
-	data := `{"type":"upload","key":"before.html","marker_version":1}` + "\n" +
+	data := `{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+		`"key":"before.html","url":"https://plans.example.com/before.html",` +
+		`"bucket":"plans","bytes":1,"marker_version":1}` + "\n" +
 		oversized + "\n" +
-		`{"type":"delete","key":"after.html"}` + "\n"
+		`{"type":"delete","time":"2026-07-08T14:03:12Z",` +
+		`"key":"after.html"}` + "\n"
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -283,6 +295,51 @@ func TestReadManifestSkipsOversizedLineAndContinues(t *testing.T) {
 	if len(warnings) != 1 || warnings[0] !=
 		"skipping oversized manifest line 2" {
 		t.Fatalf("warnings = %#v", warnings)
+	}
+}
+
+func TestReadManifestSkipsInvalidRecordsAndBlankLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.jsonl")
+	data := strings.Join([]string{
+		"",
+		`{"type":"upload","marker_version":1}`,
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+			`"url":"https://plans.example.com/no-key.html",` +
+			`"bucket":"plans","bytes":1,"marker_version":1}`,
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+			`"key":"no-url.html","bucket":"plans","bytes":1,"marker_version":1}`,
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+			`"key":"no-bucket.html","url":"https://plans.example.com/no-bucket.html",` +
+			`"bytes":1,"marker_version":1}`,
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+			`"key":"no-bytes.html","url":"https://plans.example.com/no-bytes.html",` +
+			`"bucket":"plans","marker_version":1}`,
+		`{"type":"delete","time":"2026-07-08T15:03:11+01:00",` +
+			`"key":"offset.html"}`,
+		`{"type":"delete","time":"2026-07-08T14:03:11Z"}`,
+		"   ",
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+			`"key":"valid.html","url":"https://plans.example.com/valid.html",` +
+			`"bucket":"plans","bytes":1,"marker_version":1}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	records, warnings, err := readManifest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Key != "valid.html" {
+		t.Fatalf("records = %+v", records)
+	}
+	if len(warnings) != 7 {
+		t.Fatalf("warnings = %v, want seven invalid-record warnings", warnings)
+	}
+	for _, warning := range warnings {
+		if !strings.Contains(warning, "skipping invalid manifest line") {
+			t.Fatalf("warning = %q", warning)
+		}
 	}
 }
 
