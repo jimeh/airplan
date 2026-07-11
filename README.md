@@ -163,6 +163,7 @@ airplan preview --output plan.html plan.md
 ```sh
 airplan list                     # uploads recorded on this machine
 airplan list --remote            # airplan uploads currently in the bucket
+airplan show <url-or-key>         # validate and inspect one remote upload
 airplan delete <url-or-key>      # delete one upload
 airplan purge --older-than 30d   # review and delete older uploads
 ```
@@ -170,8 +171,10 @@ airplan purge --older-than 30d   # review and delete older uploads
 Each successful upload is recorded in
 `~/.local/state/airplan/manifest.jsonl`. Local commands use that history by
 default. `--remote` reads the bucket instead, so it can find uploads from other
-machines. Remote discovery recognizes airplan's key shape and leaves unrelated
-objects in a shared bucket alone.
+machines. Remote discovery recognizes exact `.airplan.json` ownership markers
+with one bucket listing; it does not fetch each marker. Markerless directories
+are invisible to airplan and cannot be deleted or purged through it. Use
+`airplan show` when you need validated marker details and completeness state.
 
 ## Pages airplan creates
 

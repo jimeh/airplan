@@ -102,7 +102,6 @@ func TestListRemoteIndexesMarkerDirectories(t *testing.T) {
 	if first.Dir != dirA ||
 		first.MarkerKey != prefix+dirA+"/"+MarkerFilename ||
 		first.Slug != "plan" ||
-		first.PageKey != prefix+dirA+"/plan.html" ||
 		first.Objects != 4 || first.Bytes != 132 ||
 		!first.LastModified.Equal(markerA) {
 		t.Fatalf("first upload = %+v", first)
@@ -117,7 +116,7 @@ func TestListRemoteIndexesMarkerDirectories(t *testing.T) {
 		t.Fatalf("keys = %v, want %v", first.Keys, wantKeys)
 	}
 	if uploads[1].Dir != dirB || uploads[1].Slug != "" ||
-		uploads[1].PageKey != "" || uploads[1].Objects != 3 ||
+		uploads[1].Objects != 3 ||
 		uploads[1].Bytes != 130 {
 		t.Fatalf("ambiguous upload = %+v", uploads[1])
 	}

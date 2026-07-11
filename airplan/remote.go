@@ -30,19 +30,14 @@ type RemoteUpload struct {
 
 	// LastModified is the marker object's storage timestamp.
 	LastModified time.Time
-
-	// PageKey is the unambiguous inferred HTML key, when Slug is set. It is
-	// retained for library compatibility but grants no management authority.
-	PageKey string
 }
 
 type remoteGroup struct {
-	dir        string
-	marker     *objectInfo
-	keys       []string
-	bytes      int64
-	pageSlugs  []string
-	fullPrefix string
+	dir       string
+	marker    *objectInfo
+	keys      []string
+	bytes     int64
+	pageSlugs []string
 }
 
 // ListRemote discovers exact marker-key candidates under key_prefix using
@@ -73,8 +68,7 @@ func (c *Client) ListRemote(ctx context.Context) ([]RemoteUpload, error) {
 		group := groups[dir]
 		if group == nil {
 			group = &remoteGroup{
-				dir:        dir,
-				fullPrefix: BuildKey(c.cfg.KeyPrefix, dir, "") + "/",
+				dir: dir,
 			}
 			groups[dir] = group
 		}
@@ -111,7 +105,6 @@ func (c *Client) ListRemote(ctx context.Context) ([]RemoteUpload, error) {
 		}
 		if len(group.pageSlugs) == 1 {
 			upload.Slug = group.pageSlugs[0]
-			upload.PageKey = group.fullPrefix + upload.Slug + ".html"
 		}
 		uploads = append(uploads, upload)
 	}

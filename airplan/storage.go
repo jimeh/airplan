@@ -100,8 +100,7 @@ type object struct {
 	Key         string
 	Body        []byte
 	ContentType string
-	// Metadata becomes x-amz-meta-* headers (e.g. "title" for
-	// list --remote titles, SPEC.md §5).
+	// Metadata becomes x-amz-meta-* headers.
 	Metadata map[string]string
 }
 
