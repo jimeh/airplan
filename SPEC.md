@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.7.0**
+**Spec version: 0.8.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -319,8 +319,7 @@ file.
   - `Cache-Control: no-store` — capability documents must remain
     revocable by deletion; neither browsers nor shared caches should
     retain a reusable response.
-  - `x-amz-meta-title`: the resolved title, so `list --remote` can
-    read it without fetching the page. The marker's `title` is
+  - `x-amz-meta-title`: the resolved title. The marker's `title` is
     authoritative for remote management; this metadata remains a
     convenience for direct object inspection.
 - Markdown input additionally uploads the original source as
@@ -438,6 +437,7 @@ airplan template
 airplan preview [flags] [file]
 airplan completion bash|zsh|fish
 airplan list [--remote] [--json]
+airplan show [--json] <url|key>
 airplan delete <url|key>
 airplan purge [--remote] [--older-than 30d]
               [--all] [--dry-run] [--yes]
@@ -457,11 +457,11 @@ noindex injection as an upload. `file` omitted or `-` reads stdin;
 `--output -` is equivalent to the stdout default. An output path that
 resolves to the input file is rejected without modifying the input.
 `list`/`purge` operate on the local upload manifest by default, or
-on a live bucket listing with `--remote`. `delete` takes an explicit
-URL or key, but it only operates on a directory carrying a valid
-airplan ownership marker; it therefore works on marker-managed
-uploads from any machine without becoming a general-purpose bucket
-deletion command. See §9.
+on a live bucket listing with `--remote`. `show` inspects one remote
+marker directory. `delete` takes an explicit URL or key, but it only
+operates on a directory carrying a valid airplan ownership marker; it
+therefore works on marker-managed uploads from any machine without
+becoming a general-purpose bucket deletion command. See §9.
 
 ---
 
@@ -743,6 +743,58 @@ machine) and must be safe:
   human-readable binary size, URL); `--json` for scripting with exact
   byte counts. Only valid upload records with the supported
   `marker_version` appear in list output.
+- `airplan list --remote`: cheaply discovers marker directories made
+  from any machine. It performs only paginated bucket LIST operations
+  beneath the active profile's `key_prefix`; it does not GET markers,
+  HEAD pages, or trust marker content. It groups every returned object
+  beneath an exact
+  `[key_prefix/]<26-char lowercase base32>/` directory, then emits only
+  groups containing the exact `.airplan.json` marker key. Page/source
+  filename shape without that marker is never evidence of visibility.
+  Unmarked directories are invisible.
+- Remote list rows have `DATE`, `OBJECTS`, `SIZE`, `SLUG`, and
+  `DIRECTORY` columns. `DATE` is the marker object's storage
+  last-modified time. `OBJECTS` and `SIZE` count every object and byte
+  recursively beneath the random directory, including the marker,
+  nested keys, and unrecognized extras. `SLUG` is inferred only when
+  exactly one direct-child object matches the §8 page filename shape
+  (`[a-z0-9-]{1,64}.html`): it is that object's basename without
+  `.html`. With zero or multiple matching objects, `SLUG` is `-`.
+  `DIRECTORY` is the 26-character random directory without
+  `key_prefix`. Rows sort by marker last-modified time, then marker
+  key.
+- `list --remote --json` prints an array with one object per row. Its
+  stable fields are `time` (RFC 3339 marker last-modified time), `dir`,
+  `marker_key` (the full storage key), `objects`, and `bytes`; `slug`
+  is present only when inferred unambiguously. These entries describe
+  marker-key presence and directory occupancy, not validated uploads.
+  A malformed, oversized, or unsupported marker remains visible here
+  because ordinary remote listing never reads it.
+- `airplan show <url|key>` performs targeted inspection of one remote
+  marker directory. The target may be its random directory, marker,
+  or any direct child; full URLs and path-style endpoint URLs obey the
+  same connection, bucket, and prefix checks as `delete`. `show`
+  fetches and validates the marker, lists every object recursively
+  beneath the directory, and reports marker fields, declared page and
+  source existence and sizes, total object count and bytes, and a
+  state of `complete`, `incomplete`, or `invalid`. A valid marker is
+  `complete` when its declared page and optional source both exist;
+  otherwise it is `incomplete`. Extra objects do not affect state. A
+  present marker whose bytes cannot be validated is `invalid`; this is
+  a successful inspection result but grants no deletion authority. A
+  missing marker is an error. Storage, authentication, timeout,
+  cancellation, and other request failures fail the command; they are
+  never reported as marker states.
+- `show --json` emits one object. All states contain `state`, `dir`,
+  `marker_key`, `objects`, and `bytes`. Valid states additionally
+  contain `time` (marker `created_at`), `format`, `page`, and `title`
+  when non-empty; `source` is present when declared. `page` and
+  `source` are objects containing `key`, `url`, `exists`, and `bytes`,
+  with `bytes` omitted when the object is missing. An invalid result
+  additionally contains `error`, a stable coarse code:
+  `oversized`, `malformed_json`, `unsupported_version`, or
+  `invalid_fields`; it never exposes untrusted marker fields. Human
+  output presents the same information as a labeled detail block.
 - `airplan delete <url|key>` only deletes a marker-managed upload.
   The target may be the random directory, its `.airplan.json` marker,
   or the page/source named by a valid marker. Any other sibling key is
@@ -790,36 +842,21 @@ machine) and must be safe:
   Every selected deletion still requires the marker, except for the
   local-only ensure-gone reconciliation above. Suitable for cron
   (`purge --older-than 30d --yes`).
-- `--remote` (on `list` and `purge`): operate on a bucket listing
-  instead of the manifest, discovering marker-managed uploads made
-  from any machine. Discovery looks only for exact
-  `[key_prefix/]<26-char lowercase base32>/.airplan.json` marker keys
-  under the active profile's `key_prefix`, then fetches and validates
-  those small marker objects. Page/source filename shape without the
-  marker is never evidence of ownership. Unmarked directories are
-  invisible to both remote commands.
-- `list --remote` reports a `STATE` column; each JSON entry likewise
-  has a `state` field. A valid marker is `complete` when its declared
-  page and optional source objects exist, or `incomplete` when any are
-  missing. Extra siblings do not change either state because the
-  marker owns the whole directory. A present marker that cannot be
-  validated is `invalid`: it is shown with an actionable warning and
-  whatever safe identifying fields are available, but its contents
-  are not trusted. Marker `created_at` supplies the list date and
-  `--older-than` time; marker `title` supplies the remote title; page
-  size is reported when the page exists.
-- `purge --remote` may select both `complete` and `incomplete`
-  uploads, using the marker's declared page slug for `--slug` even if
-  the page is missing. It never selects an `invalid` marker. Such a
-  directory cannot be deleted by airplan; native storage tooling must
-  inspect and clean it. Marker-last deletion keeps an interrupted
+- `purge --remote` starts from the same marker-key candidates as
+  `list --remote`, but fetches and validates markers because it is a
+  destructive operation. It may select both `complete` and
+  `incomplete` uploads, using marker `created_at` for `--older-than`
+  and the marker-declared page slug for `--slug` even if the page is
+  missing. It never selects an invalid marker. Such a directory cannot
+  be deleted by airplan; `show` can inspect it and native storage
+  tooling must clean it. Marker-last deletion keeps an interrupted
   purge discoverable and retryable.
   In a team bucket, each person sets their own `key_prefix`, which
   keeps `--remote` scoped to their own uploads.
 - The local manifest still matters: it remembers titles and profile
-  context, and works offline. `--remote` reads marker state from the
-  bucket and is the source of truth for marker-managed uploads that
-  actually exist.
+  context, and works offline. Remote listing is the cheap storage view;
+  `show`, `delete`, and `purge --remote` read marker state when they
+  need validated upload details or deletion authority.
 
 ---
 
