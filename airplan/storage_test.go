@@ -2,6 +2,7 @@ package airplan
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -148,6 +149,62 @@ func TestStoragePutErrorMentionsKey(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "random/error.html") {
 		t.Fatalf("error = %q, want it to mention key", err)
+	}
+}
+
+func TestStorageGetBytesIsBounded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, "1234567890")
+		},
+	))
+	t.Cleanup(server.Close)
+
+	st := newTestStorage(t, server.URL)
+	body, err := st.getBytes(context.Background(), "random/.airplan.json", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "12345" {
+		t.Fatalf("body = %q, want one byte past limit", body)
+	}
+}
+
+func TestStorageGetBytesNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w,
+				`<Error><Code>NoSuchKey</Code><Message>missing</Message></Error>`)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	st := newTestStorage(t, server.URL)
+	_, err := st.getBytes(context.Background(), "random/missing", 4)
+	if !errors.Is(err, errObjectNotFound) {
+		t.Fatalf("error = %v, want errObjectNotFound", err)
+	}
+}
+
+func TestStorageDeleteMarkerUsesSingleObjectRequest(t *testing.T) {
+	var method, path string
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			method, path = r.Method, r.URL.Path
+			w.WriteHeader(http.StatusNoContent)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	st := newTestStorage(t, server.URL)
+	err := st.deleteMarker(context.Background(), "random/.airplan.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if method != http.MethodDelete || path != "/plans/random/.airplan.json" {
+		t.Fatalf("request = %s %s", method, path)
 	}
 }
 

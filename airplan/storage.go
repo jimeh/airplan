@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	neturl "net/url"
 	"strings"
@@ -24,6 +25,8 @@ type storage struct {
 	client *s3.Client
 	creds  aws.CredentialsProvider
 }
+
+var errObjectNotFound = errors.New("object not found")
 
 // newStorage builds the S3 client from cfg: custom endpoint support,
 // path-style addressing when a custom endpoint is set (R2, MinIO),
@@ -115,6 +118,48 @@ func (s *storage) put(ctx context.Context, obj object) error {
 	})
 	if err != nil {
 		return fmt.Errorf("airplan: put object %q: %w", obj.Key, err)
+	}
+	return nil
+}
+
+// getBytes fetches an object while retaining at most limit+1 bytes when limit
+// is positive. The extra byte lets strict callers identify oversized bodies.
+func (s *storage) getBytes(
+	ctx context.Context, key string, limit int64,
+) ([]byte, error) {
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		var noSuchKey *types.NoSuchKey
+		if errors.As(err, &noSuchKey) {
+			return nil, fmt.Errorf("airplan: get object %q: %w",
+				key, errObjectNotFound)
+		}
+		return nil, fmt.Errorf("airplan: get object %q: %w", key, err)
+	}
+	defer func() { _ = out.Body.Close() }()
+
+	var reader io.Reader = out.Body
+	if limit > 0 {
+		reader = io.LimitReader(reader, limit+1)
+	}
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("airplan: read object %q: %w", key, err)
+	}
+	return body, nil
+}
+
+// deleteMarker removes the ownership marker in a dedicated final request.
+func (s *storage) deleteMarker(ctx context.Context, key string) error {
+	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("airplan: delete marker %q: %w", key, err)
 	}
 	return nil
 }
