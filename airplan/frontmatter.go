@@ -95,12 +95,23 @@ func parseFrontMatter(src []byte) (frontMatter, error) {
 		}
 		mapping := node.Content[0]
 		for i := 0; i+1 < len(mapping.Content); i += 2 {
-			if mapping.Content[i].Value == "title" {
+			for j := i + 2; j+1 < len(mapping.Content); j += 2 {
+				left, right := mapping.Content[i], mapping.Content[j]
+				if left.Kind == right.Kind && left.Value == right.Value {
+					return frontMatter{}, fmt.Errorf(
+						"airplan: parse YAML frontmatter: duplicate key %q",
+						right.Value,
+					)
+				}
+			}
+		}
+		for i := 0; i+1 < len(mapping.Content); i += 2 {
+			key := mapping.Content[i]
+			if key.Value == "title" && title == nil {
 				var value any
 				if err := mapping.Content[i+1].Decode(&value); err == nil {
 					title = value
 				}
-				break
 			}
 		}
 	case "toml":

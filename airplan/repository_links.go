@@ -1,6 +1,7 @@
 package airplan
 
 import (
+	"bytes"
 	"net/url"
 	"regexp"
 	"strings"
@@ -108,6 +109,12 @@ func containsRawHTML(node ast.Node) bool {
 }
 
 func repositoryReferenceBoundary(value []byte, start, end int) bool {
+	reference := value[start:end]
+	if start > 0 && value[start-1] == '/' &&
+		bytes.IndexByte(reference, '/') >= 0 &&
+		bytes.IndexByte(reference, '#') >= 0 {
+		return false
+	}
 	if value[start] == '#' {
 		backslashes := 0
 		for i := start - 1; i >= 0 && value[i] == '\\'; i-- {

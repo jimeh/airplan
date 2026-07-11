@@ -97,6 +97,24 @@ func resolveRepository(
 	name string,
 	workingDirectory string,
 ) (string, error) {
+	return resolveRepositoryWithGit(
+		ctx, setting, name, workingDirectory, gitOutput,
+	)
+}
+
+type gitCommand func(
+	context.Context,
+	string,
+	...string,
+) (string, error)
+
+func resolveRepositoryWithGit(
+	ctx context.Context,
+	setting string,
+	name string,
+	workingDirectory string,
+	runGit gitCommand,
+) (string, error) {
 	if setting == "" || setting == "none" {
 		return "", nil
 	}
@@ -118,16 +136,20 @@ func resolveRepository(
 			absolute = filepath.Join(workingDirectory, absolute)
 		}
 		dir = filepath.Dir(filepath.Clean(absolute))
-		inside, err := gitOutput(ctx, dir, "rev-parse", "--is-inside-work-tree")
+		inside, err := runGit(ctx, dir, "rev-parse", "--is-inside-work-tree")
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		if err != nil || inside != "true" {
+		switch {
+		case err == nil && inside == "true":
+		case err != nil && strings.Contains(inside, "not a git repository"):
 			dir = workingDirectory
+		default:
+			return "", nil
 		}
 	}
 
-	remote, err := gitOutput(ctx, dir, "remote", "get-url", "origin")
+	remote, err := runGit(ctx, dir, "remote", "get-url", "origin")
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
@@ -148,7 +170,7 @@ func resolveRepository(
 func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
-	cmd.Stderr = nil
-	out, err := cmd.Output()
+	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
+	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }

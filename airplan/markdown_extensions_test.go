@@ -2,6 +2,7 @@ package airplan
 
 import (
 	"context"
+	"errors"
 	"html/template"
 	"os/exec"
 	"path/filepath"
@@ -76,13 +77,14 @@ func TestRenderInputFrontMatter(t *testing.T) {
 	})
 
 	for name, source := range map[string]string{
-		"unclosed YAML":    "---\ntitle: nope\n",
-		"invalid YAML":     "---\nkey: [\n---\nbody\n",
-		"non-map YAML":     "---\n- item\n---\nbody\n",
-		"unclosed TOML":    "+++\ntitle = \"nope\"\n",
-		"invalid TOML":     "+++\ntitle = [\n+++\nbody\n",
-		"opener-only YAML": "---",
-		"opener-only TOML": "+++",
+		"unclosed YAML":      "---\ntitle: nope\n",
+		"invalid YAML":       "---\nkey: [\n---\nbody\n",
+		"non-map YAML":       "---\n- item\n---\nbody\n",
+		"unclosed TOML":      "+++\ntitle = \"nope\"\n",
+		"invalid TOML":       "+++\ntitle = [\n+++\nbody\n",
+		"opener-only YAML":   "---",
+		"opener-only TOML":   "+++",
+		"duplicate YAML key": "---\ntitle: First\ntitle: Second\n---\nbody\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := RenderInput(context.Background(), Input{
@@ -165,6 +167,7 @@ func TestRenderMarkdownRepositoryReferences(t *testing.T) {
 		"See #12, owner/other#34, and " + sha + ".",
 		"Next #13  ", "new line",
 		"", "> [!NOTE]", "> Review #14.",
+		"", "Do not link docs/acme/repo#15; do link (acme/repo#16).",
 		"", "`#99` [#98](https://example.com) https://example.com/#97",
 		"", "Escaped \\#93.",
 		"", "```", "#96", "```", "", "<span>#95</span>", "",
@@ -180,6 +183,7 @@ func TestRenderMarkdownRepositoryReferences(t *testing.T) {
 		`href="https://github.example/acme/current/commit/` + sha + `"`,
 		`href="https://github.example/acme/current/issues/13"`,
 		`href="https://github.example/acme/current/issues/14"`,
+		`href="https://github.example/acme/repo/issues/16"`,
 	} {
 		if !strings.Contains(rendered, destination) {
 			t.Errorf("missing repository link %q: %s", destination, rendered)
@@ -189,11 +193,33 @@ func TestRenderMarkdownRepositoryReferences(t *testing.T) {
 		t.Errorf("repository transformation lost a hard line break: %s", rendered)
 	}
 	for _, protected := range []string{
-		"#99", "#98", "#96", "#95", "#94", "#93",
+		"#99", "#98", "#96", "#95", "#94", "#93", "#15",
 	} {
 		if strings.Contains(rendered, "/issues/"+protected[1:]+`"`) {
 			t.Errorf("protected reference %s was linked: %s", protected, rendered)
 		}
+	}
+}
+
+func TestRepositoryLinksPreserveHeadingText(t *testing.T) {
+	tmpl, err := template.New("headings").Parse(
+		`{{range .TOC}}{{.Text}}|{{end}}`,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := RenderMarkdown(
+		[]byte("# Plan\n\n## Fix #123 now\n\n## Verify\n"),
+		RenderOptions{
+			Title: "Plan", RepositoryURL: "https://github.com/acme/project",
+			Template: tmpl,
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := string(page), "Fix #123 now|Verify|"; got != want {
+		t.Fatalf("TOC heading text = %q, want %q", got, want)
 	}
 }
 
@@ -367,6 +393,40 @@ func TestRepositoryDiscovery(t *testing.T) {
 		got, err := resolveRepository(ctx, "none", "", "/does/not/exist")
 		if err != nil || got != "" {
 			t.Fatalf("repository = %q, %v", got, err)
+		}
+	})
+
+	t.Run("confirmed outside falls back", func(t *testing.T) {
+		runner := func(
+			_ context.Context, dir string, args ...string,
+		) (string, error) {
+			if args[0] == "rev-parse" {
+				return "fatal: not a git repository", errors.New("exit 128")
+			}
+			if dir != "/cwd" {
+				t.Fatalf("remote lookup dir = %q, want /cwd", dir)
+			}
+			return "git@github.com:acme/cwd.git", nil
+		}
+		got, err := resolveRepositoryWithGit(context.Background(),
+			"auto", "/file/plan.md", "/cwd", runner)
+		if err != nil || got != "https://github.com/acme/cwd" {
+			t.Fatalf("repository = %q, %v", got, err)
+		}
+	})
+
+	t.Run("uncertain file probe does not fall back", func(t *testing.T) {
+		calls := 0
+		runner := func(
+			_ context.Context, _ string, _ ...string,
+		) (string, error) {
+			calls++
+			return "fatal: detected dubious ownership", errors.New("exit 128")
+		}
+		got, err := resolveRepositoryWithGit(context.Background(),
+			"auto", "/file/plan.md", "/cwd", runner)
+		if err != nil || got != "" || calls != 1 {
+			t.Fatalf("repository = %q, error = %v, calls = %d", got, err, calls)
 		}
 	})
 }

@@ -466,8 +466,11 @@ func nodeText(node ast.Node, src []byte) string {
 		if !enter {
 			return ast.WalkContinue, nil
 		}
-		if t, ok := n.(*ast.Text); ok {
-			b.Write(t.Segment.Value(src))
+		switch value := n.(type) {
+		case *ast.Text:
+			b.Write(value.Segment.Value(src))
+		case *ast.String:
+			b.Write(value.Value)
 		}
 		return ast.WalkContinue, nil
 	})
