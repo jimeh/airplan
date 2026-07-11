@@ -681,6 +681,26 @@ pre code {
   background: var(--code-bg) !important;
 }
 
+pre.mermaid {
+  max-width: 100%;
+  white-space: pre-wrap;
+}
+
+pre.mermaid.mermaid-rendered {
+  display: flex;
+  justify-content: center;
+}
+
+pre.mermaid.mermaid-rendered svg {
+  height: auto;
+  max-width: 100%;
+}
+
+pre.mermaid.mermaid-failed {
+  display: block;
+  color: var(--muted);
+}
+
 .filehead {
   font-size: 0.8rem;
   color: var(--muted);
@@ -1038,6 +1058,9 @@ mark {
 </span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
 </span></span></span></code></pre><pre><code>plain block, no language
 </code></pre>
+<pre class="mermaid">flowchart LR
+    Plan --&gt; Review --&gt; Ship
+</pre>
 <h2 id="matrix">Matrix</h2>
 <table>
 <thead>
@@ -1099,6 +1122,11 @@ mark {
 </span></span><span class="line"><span class="cl">
 </span></span><span class="line"><span class="cl"><span class="s">```
 </span></span></span><span class="line"><span class="cl">plain block, no language
+</span></span><span class="line"><span class="cl"><span class="s">```</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="s">```mermaid
+</span></span></span><span class="line"><span class="cl">flowchart LR
+</span></span><span class="line"><span class="cl">    Plan --&gt; Review --&gt; Ship
 </span></span><span class="line"><span class="cl"><span class="s">```</span>
 </span></span><span class="line"><span class="cl">
 </span></span><span class="line"><span class="cl"><span class="gu">## Matrix
@@ -1366,6 +1394,7 @@ mark {
   }
 
   rendered.querySelectorAll('pre').forEach(function (pre) {
+    if (pre.classList.contains('mermaid')) return;
     var wrap = d.createElement('div');
     wrap.className = 'codewrap';
     pre.parentNode.insertBefore(wrap, pre);
@@ -1385,6 +1414,35 @@ mark {
   });
 })();
 
+</script>
+<script type="module" referrerpolicy="no-referrer">
+const diagrams = Array.from(document.querySelectorAll('pre.mermaid'));
+const sources = diagrams.map((diagram) => diagram.textContent);
+try {
+  const {default: mermaid} = await import("https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.esm.min.mjs");
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    theme: dark ? 'dark' : 'default'
+  });
+  for (const [index, diagram] of diagrams.entries()) {
+    try {
+      await mermaid.run({nodes: [diagram]});
+      diagram.classList.add('mermaid-rendered');
+    } catch (error) {
+      diagram.textContent = sources[index];
+      diagram.classList.add('mermaid-failed');
+      console.warn('airplan: Mermaid diagram rendering failed', error);
+    }
+  }
+} catch (error) {
+  diagrams.forEach((diagram, index) => {
+    diagram.textContent = sources[index];
+    diagram.classList.add('mermaid-failed');
+  });
+  console.warn('airplan: Mermaid rendering failed', error);
+}
 </script>
 </body>
 </html>

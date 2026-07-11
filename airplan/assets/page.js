@@ -263,6 +263,7 @@
 
   // Per-code-block copy buttons in the rendered view.
   rendered.querySelectorAll('pre').forEach(function (pre) {
+    if (pre.classList.contains('mermaid')) return;
     var wrap = d.createElement('div');
     wrap.className = 'codewrap';
     pre.parentNode.insertBefore(wrap, pre);

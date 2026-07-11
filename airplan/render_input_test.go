@@ -61,6 +61,19 @@ func TestRenderInputRejectsTemplateAndTemplatePath(t *testing.T) {
 	}
 }
 
+func TestRenderInputValidatesMermaidURLEvenWhenUnused(t *testing.T) {
+	_, err := RenderInput(context.Background(), Input{
+		Reader: strings.NewReader("<!doctype html><html></html>"),
+		Format: "html",
+	}, RenderInputOptions{
+		NoExternalAssets: true,
+		MermaidURL:       "http://example.com/mermaid.mjs",
+	})
+	if err == nil || !strings.Contains(err.Error(), "mermaid_url") {
+		t.Fatalf("invalid unused Mermaid URL error = %v", err)
+	}
+}
+
 func TestRenderInputAcceptsValidNonASCII(t *testing.T) {
 	_, err := RenderInput(context.Background(), Input{
 		Reader: strings.NewReader("# Héllo 👋\n"), Format: "md",

@@ -112,6 +112,12 @@ type RenderOptions struct {
 	// Indexable omits the robots noindex meta tag when true.
 	Indexable bool
 
+	// NoExternalAssets disables airplan-managed view-time asset loading.
+	NoExternalAssets bool
+
+	// MermaidURL overrides the Mermaid module URL. Empty uses the default.
+	MermaidURL string
+
 	// Lang overrides the highlight language for text input
 	// (SPEC.md §3). "" derives it from the filename.
 	Lang string
@@ -133,6 +139,7 @@ func newMarkdown() goldmark.Markdown {
 			extension.GFM,
 			extension.Footnote,
 			alertExtension{},
+			mermaidExtension{},
 			highlighting.NewHighlighting(
 				highlighting.WithFormatOptions(
 					chromahtml.WithClasses(true),
@@ -177,9 +184,9 @@ var syntaxCSS = sync.OnceValues(func() (string, error) {
 	return b.String(), nil
 })
 
-// RenderMarkdown renders markdown source to a fully standalone HTML
-// page: embedded CSS, no external assets, dark/light aware, syntax
-// highlighted code blocks (SPEC.md §3).
+// RenderMarkdown renders markdown source to an HTML page with embedded CSS,
+// dark/light-aware syntax highlighting, and conditional Mermaid support
+// (SPEC.md §3).
 func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
 	md := newMarkdown()
 	doc := md.Parser().Parse(text.NewReader(src))
@@ -205,6 +212,7 @@ func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
 		TOC:                   tocHeadings(headings),
 		Format:                FormatMarkdown.String(),
 		Language:              language,
+		HasMermaid:            hasMermaid(doc, src),
 	}, opts)
 }
 
@@ -236,6 +244,11 @@ func RenderText(src []byte, name string, opts RenderOptions) ([]byte, error) {
 // renderPage supplies the shared fields before executing either a custom or
 // the built-in standalone page template.
 func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
+	mermaidURL, err := resolveMermaidURL(opts.MermaidURL)
+	if err != nil {
+		return nil, err
+	}
+	opts.MermaidURL = mermaidURL
 	syntax, err := syntaxCSS()
 	if err != nil {
 		return nil, err
@@ -245,6 +258,8 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 	data.SourcePath = opts.SourcePath
 	data.Slug = opts.Slug
 	data.Indexable = opts.Indexable
+	data.NoExternalAssets = opts.NoExternalAssets
+	data.MermaidURL = opts.MermaidURL
 	if data.SourceName == "" {
 		data.SourceName = opts.SourceName
 	}

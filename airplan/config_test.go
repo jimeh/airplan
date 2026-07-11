@@ -20,6 +20,8 @@ secret_access_key = "root-secret"
 public_base_url = "root-public"
 key_prefix = "root-prefix"
 template = "root-template"
+mermaid_url = "https://root.example/mermaid.mjs"
+no_external_assets = false
 no_source = false
 indexable = true
 
@@ -33,17 +35,21 @@ public_base_url = "profile-public"
 template = "profile-template"
 no_source = true
 indexable = false
+mermaid_url = "https://profile.example/mermaid.mjs"
+no_external_assets = true
 `, 0o600)
 
 	cfg, err := LoadConfig(ConfigOptions{
 		Path:    path,
 		Profile: "work",
 		Getenv: envMap(map[string]string{
-			"AIRPLAN_BUCKET":            "env-bucket",
-			"AIRPLAN_REGION":            "env-region",
-			"AIRPLAN_SECRET_ACCESS_KEY": "env-secret",
-			"AIRPLAN_PUBLIC_BASE_URL":   "env-public",
-			"AIRPLAN_TEMPLATE":          "env-template",
+			"AIRPLAN_BUCKET":             "env-bucket",
+			"AIRPLAN_REGION":             "env-region",
+			"AIRPLAN_SECRET_ACCESS_KEY":  "env-secret",
+			"AIRPLAN_PUBLIC_BASE_URL":    "env-public",
+			"AIRPLAN_TEMPLATE":           "env-template",
+			"AIRPLAN_MERMAID_URL":        "https://env.example/mermaid.mjs",
+			"AIRPLAN_NO_EXTERNAL_ASSETS": "false",
 		}),
 	})
 	if err != nil {
@@ -61,6 +67,102 @@ indexable = false
 	assertEqual(t, cfg.Template, "env-template")
 	assertEqual(t, cfg.NoSource, true)
 	assertEqual(t, cfg.Indexable, false)
+	assertEqual(t, cfg.MermaidURL, "https://env.example/mermaid.mjs")
+	assertEqual(t, cfg.NoExternalAssets, false)
+}
+
+func TestLoadConfigMermaidDefaultsAndValidation(t *testing.T) {
+	cfg, err := LoadConfig(ConfigOptions{
+		Path:   missingPath(t),
+		Getenv: envMap(nil),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertEqual(t, cfg.MermaidURL, DefaultMermaidURL)
+
+	_, err = LoadConfig(ConfigOptions{
+		Path: missingPath(t),
+		Getenv: envMap(map[string]string{
+			"AIRPLAN_NO_EXTERNAL_ASSETS": "sometimes",
+		}),
+	})
+	if err == nil {
+		t.Fatal("invalid external-assets environment boolean accepted")
+	}
+
+	for _, raw := range []string{
+		"http://example.com/mermaid.mjs",
+		"https://user@example.com/mermaid.mjs",
+		"https://example.com/mermaid.mjs#fragment",
+	} {
+		cfg := &Config{
+			Endpoint: "https://s3.example.com", Bucket: "b",
+			MermaidURL: raw,
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Fatalf("invalid Mermaid URL %q accepted", raw)
+		}
+	}
+}
+
+func TestLoadConfigEmptyMermaidURLResetsInheritedValue(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		config  string
+		profile string
+	}{
+		{
+			name: "empty root value",
+			config: `
+mermaid_url = ""
+`,
+		},
+		{
+			name: "empty profile value",
+			config: `
+mermaid_url = "https://assets.example.test/mermaid.mjs"
+
+[profiles.work]
+mermaid_url = ""
+`,
+			profile: "work",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := LoadConfig(ConfigOptions{
+				Path: writeConfig(t, tc.config, 0o600), Profile: tc.profile,
+				Getenv: envMap(nil),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertEqual(t, cfg.MermaidURL, DefaultMermaidURL)
+		})
+	}
+}
+
+func TestResolveMermaidURLOverride(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		value    string
+		explicit bool
+		want     string
+	}{
+		{"unset empty", "", false, ""},
+		{"explicit empty", "", true, DefaultMermaidURL},
+		{
+			"explicit custom",
+			"https://assets.example.test/mermaid.mjs",
+			true,
+			"https://assets.example.test/mermaid.mjs",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ResolveMermaidURLOverride(tc.value, tc.explicit)
+			assertEqual(t, got, tc.want)
+		})
+	}
 }
 
 func TestLoadConfigDefaultRegion(t *testing.T) {

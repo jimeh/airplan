@@ -44,6 +44,14 @@
           "type": "boolean",
           "description": "Allow search indexing by omitting the noindex robots meta tag."
         },
+        "no_external_assets": {
+          "type": "boolean",
+          "description": "Disable airplan-managed features that load external assets when a page is viewed."
+        },
+        "mermaid_url": {
+          "type": "string",
+          "description": "Absolute HTTPS URL of the Mermaid ECMAScript module."
+        },
         "timeout": {
           "type": "string",
           "description": "Operation timeout as a Go duration or seconds; 0 disables it."
@@ -93,6 +101,14 @@
     "indexable": {
       "type": "boolean",
       "description": "Allow search indexing by omitting the noindex robots meta tag."
+    },
+    "no_external_assets": {
+      "type": "boolean",
+      "description": "Disable airplan-managed features that load external assets when a page is viewed."
+    },
+    "mermaid_url": {
+      "type": "string",
+      "description": "Absolute HTTPS URL of the Mermaid ECMAScript module."
     },
     "timeout": {
       "type": "string",

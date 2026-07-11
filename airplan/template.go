@@ -73,6 +73,15 @@ type TemplateData struct {
 
 	// Slug is the resolved slug.
 	Slug string
+
+	// HasMermaid reports whether rendered markdown contains Mermaid diagrams.
+	HasMermaid bool
+
+	// NoExternalAssets disables airplan-managed view-time asset loading.
+	NoExternalAssets bool
+
+	// MermaidURL is the configured Mermaid ECMAScript module URL.
+	MermaidURL string
 }
 
 // LoadTemplate parses a custom page template from path. The template

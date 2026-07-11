@@ -87,7 +87,7 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		}
 	})
 
-	t.Run("standalone: no external refs", func(t *testing.T) {
+	t.Run("document without Mermaid has no external refs", func(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "Hi"})
 		for _, frag := range []string{"<link", "<script src", "@import"} {
 			if strings.Contains(out, frag) {
@@ -102,6 +102,61 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 			t.Error("expected dark palettes for page and syntax CSS")
 		}
 	})
+}
+
+func TestRenderMarkdownMermaid(t *testing.T) {
+	src := []byte("```mermaid\ngraph TD\n  A[<unsafe>] --> B\n```\n")
+	out := render(t, src, RenderOptions{Title: "Diagram"})
+	if !strings.Contains(out,
+		`<pre class="mermaid">graph TD`) {
+		t.Fatal("Mermaid fence was not rendered as a diagram container")
+	}
+	if strings.Contains(out, `<pre class="mermaid"><code>`) {
+		t.Fatal("Mermaid source must not be nested in a code element")
+	}
+	if !strings.Contains(out, `A[&lt;unsafe&gt;]`) {
+		t.Fatal("Mermaid source was not HTML escaped")
+	}
+	if !strings.Contains(out, "await import(\""+DefaultMermaidURL+"\")") {
+		t.Fatal("pinned Mermaid module import missing")
+	}
+	if !strings.Contains(out, "mermaid.run({nodes: [diagram]})") ||
+		strings.Contains(out, "mermaid.run({nodes: diagrams})") {
+		t.Fatal("Mermaid diagrams are not rendered independently")
+	}
+	if !strings.Contains(out,
+		"diagram.classList.add('mermaid-rendered')") {
+		t.Fatal("successful Mermaid diagrams are not marked as rendered")
+	}
+	if !strings.Contains(out, "pre.mermaid.mermaid-rendered {") {
+		t.Fatal("rendered Mermaid layout is not state-scoped")
+	}
+	if strings.Contains(out, `class="codewrap"><pre class="mermaid"`) {
+		t.Fatal("Mermaid block received code-copy wrapper")
+	}
+
+	disabled := render(t, src, RenderOptions{
+		Title: "Diagram", NoExternalAssets: true,
+	})
+	if strings.Contains(disabled, DefaultMermaidURL) {
+		t.Fatal("Mermaid module loaded with external assets disabled")
+	}
+	if !strings.Contains(disabled, `<pre class="mermaid">`) {
+		t.Fatal("readable Mermaid source fallback missing")
+	}
+}
+
+func TestRenderMarkdownMermaidRequiresExactFenceLanguage(t *testing.T) {
+	for _, language := range []string{"Mermaid", "mermaid-js", "mermaid extra"} {
+		out := render(t, []byte("```"+language+"\ngraph TD\n```\n"),
+			RenderOptions{Title: "Diagram"})
+		if strings.Contains(out, `<pre class="mermaid">`) {
+			t.Fatalf("language %q unexpectedly treated as Mermaid", language)
+		}
+		if strings.Contains(out, DefaultMermaidURL) {
+			t.Fatalf("language %q unexpectedly loaded Mermaid", language)
+		}
+	}
 }
 
 func TestRenderMarkdownPreservesTrustedContent(t *testing.T) {

@@ -77,5 +77,36 @@
 <script>
 /* airplan:page-js */
 </script>
+{{- if and .HasMermaid (not .NoExternalAssets)}}
+<script type="module" referrerpolicy="no-referrer">
+const diagrams = Array.from(document.querySelectorAll('pre.mermaid'));
+const sources = diagrams.map((diagram) => diagram.textContent);
+try {
+  const {default: mermaid} = await import({{.MermaidURL}});
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    theme: dark ? 'dark' : 'default'
+  });
+  for (const [index, diagram] of diagrams.entries()) {
+    try {
+      await mermaid.run({nodes: [diagram]});
+      diagram.classList.add('mermaid-rendered');
+    } catch (error) {
+      diagram.textContent = sources[index];
+      diagram.classList.add('mermaid-failed');
+      console.warn('airplan: Mermaid diagram rendering failed', error);
+    }
+  }
+} catch (error) {
+  diagrams.forEach((diagram, index) => {
+    diagram.textContent = sources[index];
+    diagram.classList.add('mermaid-failed');
+  });
+  console.warn('airplan: Mermaid rendering failed', error);
+}
+</script>
+{{- end}}
 </body>
 </html>

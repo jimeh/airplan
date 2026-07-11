@@ -221,6 +221,40 @@ func TestRootLangReachesRenderedPage(t *testing.T) {
 	}
 }
 
+func TestRootEmptyMermaidURLFlagResetsEnvironment(t *testing.T) {
+	fake := newFakeS3(t)
+	isolateEnv(t)
+	customURL := "https://assets.example.test/custom-mermaid.mjs"
+	t.Setenv("AIRPLAN_MERMAID_URL", customURL)
+
+	cmd := newRootCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetIn(strings.NewReader("```mermaid\ngraph TD\n  A --> B\n```\n"))
+	cmd.SetArgs([]string{
+		"--endpoint", fake.server.URL,
+		"--bucket", "plans",
+		"--public-base-url", "https://plans.example.com",
+		"--mermaid-url", "",
+		"--no-source",
+		"-",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	uploads := fake.uploads()
+	if len(uploads) != 2 {
+		t.Fatalf("got %d uploads, want marker and page", len(uploads))
+	}
+	page := string(uploads[1].body)
+	if strings.Contains(page, customURL) {
+		t.Fatal("empty Mermaid URL flag retained inherited custom URL")
+	}
+	if !strings.Contains(page, "cdn.jsdelivr.net/npm/mermaid@") {
+		t.Fatal("empty Mermaid URL flag did not restore built-in default")
+	}
+}
+
 func TestRootOpenFlagInvokesLauncher(t *testing.T) {
 	var opened string
 	oldOpenBrowser := openBrowser
@@ -366,6 +400,8 @@ func isolateEnv(t *testing.T) {
 	t.Setenv("AIRPLAN_PUBLIC_BASE_URL", "")
 	t.Setenv("AIRPLAN_KEY_PREFIX", "")
 	t.Setenv("AIRPLAN_TEMPLATE", "")
+	t.Setenv("AIRPLAN_MERMAID_URL", "")
+	t.Setenv("AIRPLAN_NO_EXTERNAL_ASSETS", "")
 	t.Setenv("AIRPLAN_ACCESS_KEY_ID", "test-access-key-id")
 	t.Setenv("AIRPLAN_SECRET_ACCESS_KEY", "test-secret-access-key")
 	t.Setenv("XDG_STATE_HOME", t.TempDir())

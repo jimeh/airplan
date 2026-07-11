@@ -14,6 +14,12 @@ type RenderInputOptions struct {
 	// Indexable omits the robots noindex directive when true.
 	Indexable bool
 
+	// NoExternalAssets disables airplan-managed view-time asset loading.
+	NoExternalAssets bool
+
+	// MermaidURL overrides the Mermaid module URL. Empty uses the default.
+	MermaidURL string
+
 	// IncludeSource gives rendered pages the relative source path they
 	// will use after upload. Local previews leave this false.
 	IncludeSource bool
@@ -69,6 +75,11 @@ func RenderInput(
 				"mutually exclusive",
 		)
 	}
+	mermaidURL, err := resolveMermaidURL(opts.MermaidURL)
+	if err != nil {
+		return nil, err
+	}
+	opts.MermaidURL = mermaidURL
 
 	tmpl := opts.Template
 	var tmplErr error
@@ -148,12 +159,14 @@ func renderInput(
 			doc.SourcePath = "./" + doc.sourceObjectName
 		}
 		doc.HTML, err = RenderMarkdown(data, RenderOptions{
-			Title:      doc.Title,
-			Slug:       slug,
-			SourceName: sourceName,
-			SourcePath: doc.SourcePath,
-			Indexable:  opts.Indexable,
-			Template:   tmpl,
+			Title:            doc.Title,
+			Slug:             slug,
+			SourceName:       sourceName,
+			SourcePath:       doc.SourcePath,
+			Indexable:        opts.Indexable,
+			NoExternalAssets: opts.NoExternalAssets,
+			MermaidURL:       opts.MermaidURL,
+			Template:         tmpl,
 		})
 
 	case FormatText:
@@ -169,13 +182,15 @@ func renderInput(
 			doc.SourcePath = "./" + doc.sourceObjectName
 		}
 		doc.HTML, err = RenderText(data, in.Name, RenderOptions{
-			Title:      doc.Title,
-			Slug:       slug,
-			SourceName: sourceName,
-			SourcePath: doc.SourcePath,
-			Indexable:  opts.Indexable,
-			Lang:       in.Lang,
-			Template:   tmpl,
+			Title:            doc.Title,
+			Slug:             slug,
+			SourceName:       sourceName,
+			SourcePath:       doc.SourcePath,
+			Indexable:        opts.Indexable,
+			NoExternalAssets: opts.NoExternalAssets,
+			MermaidURL:       opts.MermaidURL,
+			Lang:             in.Lang,
+			Template:         tmpl,
 		})
 
 	case FormatHTML:

@@ -57,6 +57,8 @@ func TestConfigSchemaShape(t *testing.T) {
 		"endpoint",
 		"indexable",
 		"key_prefix",
+		"mermaid_url",
+		"no_external_assets",
 		"no_source",
 		"profiles",
 		"public_base_url",
