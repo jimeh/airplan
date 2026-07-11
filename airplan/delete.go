@@ -26,6 +26,9 @@ type DeleteResult struct {
 func (c *Client) DeleteUpload(
 	ctx context.Context, urlOrKey string,
 ) (*DeleteResult, error) {
+	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
 	key, err := KeyFromURLOrKey(c.cfg, urlOrKey)
 	if err != nil {
 		return nil, err

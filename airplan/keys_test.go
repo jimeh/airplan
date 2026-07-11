@@ -126,13 +126,19 @@ func TestKeyFromURLOrKeyPrefixAndEncodedPaths(t *testing.T) {
 		KeyPrefix:     "team/Jiméh plans",
 	}
 	key := "team/Jiméh plans/" + testDir + "/plan #1.html"
-	public, _ := PublicURL(cfg, key)
+	public, _, err := PublicURL(cfg, key)
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, err := KeyFromURLOrKey(cfg, public)
 	if err != nil || got != key {
 		t.Fatalf("public round trip = %q, %v", got, err)
 	}
 	cfg.PublicBaseURL = ""
-	fallback, _ := PublicURL(cfg, key)
+	fallback, _, err := PublicURL(cfg, key)
+	if err != nil {
+		t.Fatal(err)
+	}
 	got, err = KeyFromURLOrKey(cfg, fallback)
 	if err != nil || got != key {
 		t.Fatalf("fallback round trip = %q, %v", got, err)

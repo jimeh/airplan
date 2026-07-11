@@ -148,6 +148,11 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
   in-head robots metadata. Injection splices only the original byte slice and
   never serializes the token stream. `Client.Upload` adds source/page storage,
   URLs, and manifest recording; `airplan preview` stops after `RenderInput`.
+- Public API boundaries: `New`, `RenderInput`, and every `Client` operation
+  reject nil contexts; zero-value or nil clients return
+  `ErrUninitializedClient`; and `PublicURL` reports a nil config as an error.
+  Cancellation stops waiting for arbitrary input readers, but callers must
+  still unblock or close a retained reader because Go cannot interrupt it.
 - Key randomness: `crypto/rand` — never `math/rand` (spec requires a
   CSPRNG).
 - Public URL assembly percent-encodes each object-key path segment;

@@ -67,6 +67,12 @@ var ErrInvalidUTF8 = errors.New(
 // document. Whitespace-only input remains valid (SPEC.md §2).
 var ErrEmptyInput = errors.New("airplan: input is empty")
 
+// ErrUninitializedClient is returned when a Client method is called on a nil
+// or zero-value Client. Construct clients with New before use.
+var ErrUninitializedClient = errors.New(
+	"airplan: client is not initialized; construct it with airplan.New",
+)
+
 // Client uploads plan documents per the pipeline in SPEC.md §1:
 // detect format → render (markdown) or noindex-splice (HTML) →
 // generate key → upload marker → upload page (+ source) → assemble URL.
@@ -84,6 +90,9 @@ type Client struct {
 func New(ctx context.Context, cfg *Config) (*Client, error) {
 	if cfg == nil {
 		return nil, errors.New("airplan: nil config")
+	}
+	if ctx == nil {
+		return nil, errors.New("airplan: nil context")
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -117,7 +126,9 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 
 // Input describes one document to upload.
 type Input struct {
-	// Reader supplies the document bytes.
+	// Reader supplies the document bytes. Context cancellation stops waiting
+	// for a blocked Reader, but cannot interrupt an arbitrary Reader itself;
+	// callers retaining a long-lived reader must unblock or close it.
 	Reader io.Reader
 
 	// Name is the source filename ("" for stdin). Used for format
@@ -169,6 +180,9 @@ type Result struct {
 // uploaded. The ownership marker uploads before the optional source
 // and page; failure of any PUT fails the whole call (SPEC.md §1, §5).
 func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
+	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
 	doc, err := renderInput(ctx, in, RenderInputOptions{
 		Indexable:     c.cfg.Indexable,
 		IncludeSource: !c.cfg.NoSource,
@@ -252,19 +266,35 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 	res.Bytes = int64(len(doc.HTML))
 	res.ContentType = pageContentType
 
-	url, fallback := PublicURL(c.cfg, pageKey)
+	url, fallback, err := PublicURL(c.cfg, pageKey)
+	if err != nil {
+		return nil, err
+	}
 	if fallback {
 		res.Warnings = append(res.Warnings, publicURLFallbackWarning)
 	}
 	res.URL = url
 
 	if res.SourceKey != "" {
-		res.SourceURL, _ = PublicURL(c.cfg, res.SourceKey)
+		res.SourceURL, _, err = PublicURL(c.cfg, res.SourceKey)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	c.recordUpload(ctx, res)
 
 	return res, nil
+}
+
+func (c *Client) validate(ctx context.Context) error {
+	if c == nil || c.cfg == nil {
+		return ErrUninitializedClient
+	}
+	if ctx == nil {
+		return errors.New("airplan: nil context")
+	}
+	return nil
 }
 
 // titleMetadata builds the x-amz-meta-title metadata map (SPEC.md §5),
@@ -284,7 +314,7 @@ func titleMetadata(title string) map[string]string {
 // readInput reads r fully, enforcing limit (in bytes; <= 0 means
 // unlimited). It buffers at most one byte past the limit before
 // returning ErrInputTooLarge (SPEC.md §2). Cancelling ctx aborts the
-// wait — so a stalled stdin can't outlive the invocation timeout —
+// wait — so stalled input cannot outlive its operation timeout —
 // though the reading goroutine itself stays blocked until the
 // underlying reader unblocks or the process exits.
 func readInput(ctx context.Context, r io.Reader, limit int64) ([]byte, error) {

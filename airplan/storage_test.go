@@ -67,7 +67,10 @@ func TestPublicURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotURL, gotFallback := PublicURL(&tt.cfg, tt.key)
+			gotURL, gotFallback, err := PublicURL(&tt.cfg, tt.key)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if gotURL != tt.wantURL {
 				t.Fatalf("url = %q, want %q", gotURL, tt.wantURL)
 			}
@@ -75,6 +78,13 @@ func TestPublicURL(t *testing.T) {
 				t.Fatalf("fallback = %v, want %v", gotFallback, tt.wantFallback)
 			}
 		})
+	}
+}
+
+func TestPublicURLRejectsNilConfig(t *testing.T) {
+	url, fallback, err := PublicURL(nil, "plan.html")
+	if err == nil || url != "" || fallback {
+		t.Fatalf("PublicURL(nil) = %q, %v, %v", url, fallback, err)
 	}
 }
 

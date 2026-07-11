@@ -165,13 +165,19 @@ func (s *storage) deleteMarker(ctx context.Context, key string) error {
 // PublicURL assembles the public URL for an object key:
 // <public_base_url>/<key> when public_base_url is set, else path-style
 // <endpoint>/<bucket>/<key> with fallback=true so the caller can warn
-// that the URL may not be publicly reachable (SPEC.md §7, §8).
-func PublicURL(cfg *Config, key string) (url string, fallback bool) {
+// that the URL may not be publicly reachable (SPEC.md §7, §8). A nil
+// configuration returns an error.
+func PublicURL(
+	cfg *Config, key string,
+) (url string, fallback bool, err error) {
+	if cfg == nil {
+		return "", false, errors.New("airplan: public URL: nil config")
+	}
 	if cfg.PublicBaseURL != "" {
-		return appendURLPath(cfg.PublicBaseURL, key), false
+		return appendURLPath(cfg.PublicBaseURL, key), false, nil
 	}
 
-	return appendURLPath(cfg.Endpoint, cfg.Bucket+"/"+key), true
+	return appendURLPath(cfg.Endpoint, cfg.Bucket+"/"+key), true, nil
 }
 
 const publicURLFallbackWarning = "public_base_url is not set; " +

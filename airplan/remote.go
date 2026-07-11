@@ -43,6 +43,9 @@ type remoteGroup struct {
 // ListRemote discovers exact marker-key candidates under key_prefix using
 // LIST operations only. It never fetches markers or heads payload objects.
 func (c *Client) ListRemote(ctx context.Context) ([]RemoteUpload, error) {
+	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
 	prefix := strings.Trim(c.cfg.KeyPrefix, "/")
 	if prefix != "" {
 		prefix += "/"

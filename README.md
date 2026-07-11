@@ -275,6 +275,10 @@ func upload(ctx context.Context, f io.Reader) error {
 The library exposes the same behavior as the CLI. See the
 [Go reference](https://pkg.go.dev/github.com/jimeh/airplan/airplan) for its API
 and [IMPLEMENTATION.md](IMPLEMENTATION.md) for the repository architecture.
+Construct clients with `airplan.New`; nil contexts, nil configuration, and
+zero-value clients return errors. Canceling a context stops waiting for a
+blocked input reader, but callers that retain one must still unblock or close
+it because Go cannot interrupt an arbitrary `io.Reader`.
 
 ## Development
 

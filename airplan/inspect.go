@@ -52,6 +52,9 @@ type UploadInspection struct {
 func (c *Client) InspectUpload(
 	ctx context.Context, urlOrKey string,
 ) (*UploadInspection, error) {
+	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
 	key, err := KeyFromURLOrKey(c.cfg, urlOrKey)
 	if err != nil {
 		return nil, err
@@ -144,7 +147,7 @@ func (c *Client) inspectedObject(
 	key string, objects map[string]objectInfo,
 ) (*InspectedObject, bool) {
 	object, exists := objects[key]
-	url, fallback := PublicURL(c.cfg, key)
+	url, fallback, _ := PublicURL(c.cfg, key)
 	return &InspectedObject{
 		Key:    key,
 		URL:    url,
