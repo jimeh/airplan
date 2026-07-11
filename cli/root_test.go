@@ -174,10 +174,10 @@ func TestRootLangReachesRenderedPage(t *testing.T) {
 	}
 
 	uploads := fake.uploads()
-	if len(uploads) != 1 {
-		t.Fatalf("got %d uploads, want 1", len(uploads))
+	if len(uploads) != 2 {
+		t.Fatalf("got %d uploads, want marker and page", len(uploads))
 	}
-	page := string(uploads[0].body)
+	page := string(uploads[1].body)
 	if !strings.Contains(page, `class="chroma"`) {
 		t.Fatal("rendered page body missing chroma class")
 	}

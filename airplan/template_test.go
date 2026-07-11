@@ -171,10 +171,10 @@ func TestUploadMarkdownUsesCustomTemplate(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(puts) != 2 {
-		t.Fatalf("got %d puts, want 2 (source first, then page)", len(puts))
+	if len(puts) != 3 {
+		t.Fatalf("got %d puts, want 3 (marker, source, page)", len(puts))
 	}
-	page := string(puts[1].body)
+	page := string(puts[2].body)
 	for _, want := range []string{
 		`<title>Custom Title</title>`,
 		`data-slug="custom-slug"`,
@@ -255,10 +255,10 @@ func TestUploadHTMLWarnsCustomTemplateIgnored(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(puts) != 1 {
-		t.Fatalf("got %d puts, want 1", len(puts))
+	if len(puts) != 2 {
+		t.Fatalf("got %d puts, want 2 (marker, page)", len(puts))
 	}
-	if got := string(puts[0].body); got != src {
+	if got := string(puts[1].body); got != src {
 		t.Errorf("uploaded HTML = %q, want %q", got, src)
 	}
 }
@@ -331,7 +331,7 @@ func TestUploadHTMLProceedsDespiteBrokenTemplate(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(puts) != 1 {
-		t.Errorf("got %d puts, want 1 (HTML page only)", len(puts))
+	if len(puts) != 2 {
+		t.Errorf("got %d puts, want 2 (HTML marker and page)", len(puts))
 	}
 }

@@ -36,6 +36,10 @@ type ManifestRecord struct {
 	Profile   string `json:"profile,omitempty"`
 	Title     string `json:"title,omitempty"`
 	Bytes     int64  `json:"bytes,omitempty"`
+
+	// MarkerVersion is the remote ownership-marker version written for an
+	// upload. Delete records omit it.
+	MarkerVersion int `json:"marker_version,omitempty"`
 }
 
 // DefaultManifestPath returns the platform default manifest location
@@ -205,15 +209,16 @@ func (c *Client) recordUpload(res *Result) {
 	}
 
 	rec := ManifestRecord{
-		Type:      "upload",
-		Time:      time.Now().UTC().Truncate(time.Second),
-		Key:       res.Key,
-		SourceKey: res.SourceKey,
-		URL:       res.URL,
-		Bucket:    res.Bucket,
-		Profile:   c.cfg.Profile,
-		Title:     res.Title,
-		Bytes:     res.Bytes,
+		Type:          "upload",
+		Time:          res.CreatedAt,
+		Key:           res.Key,
+		SourceKey:     res.SourceKey,
+		URL:           res.URL,
+		Bucket:        res.Bucket,
+		Profile:       c.cfg.Profile,
+		Title:         res.Title,
+		Bytes:         res.Bytes,
+		MarkerVersion: res.MarkerVersion,
 	}
 	if err := appendManifestRecord(path, rec); err != nil {
 		res.Warnings = append(res.Warnings,

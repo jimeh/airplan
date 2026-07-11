@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // pageContentType is the Content-Type of every uploaded page object
@@ -28,6 +29,9 @@ const sourceContentType = "text/markdown; charset=utf-8"
 // textContentType is the Content-Type of text input's uploaded
 // original file (SPEC.md §3, §5).
 const textContentType = "text/plain; charset=utf-8"
+
+// markerContentType is the Content-Type of ownership markers (SPEC.md §5).
+const markerContentType = "application/json"
 
 // DefaultMaxInputSize is the default input size limit (SPEC.md §2).
 // Documents are loaded whole into memory for rendering or splicing;
@@ -60,7 +64,7 @@ var ErrInvalidUTF8 = errors.New(
 
 // Client uploads plan documents per the pipeline in SPEC.md §1:
 // detect format → render (markdown) or noindex-splice (HTML) →
-// generate key → upload page (+ markdown source) → assemble URL.
+// generate key → upload marker → upload page (+ source) → assemble URL.
 type Client struct {
 	cfg      *Config
 	st       *storage
@@ -138,14 +142,16 @@ type Input struct {
 // the uploaded page object — the one URL points at — not the markdown
 // source (SPEC.md §6).
 type Result struct {
-	URL         string
-	Key         string
-	SourceURL   string // "" for HTML input or under no-source
-	SourceKey   string // "" likewise
-	Bucket      string
-	Bytes       int64
-	ContentType string
-	Title       string
+	URL           string
+	Key           string
+	SourceURL     string // "" for HTML input or under no-source
+	SourceKey     string // "" likewise
+	Bucket        string
+	Bytes         int64
+	ContentType   string
+	Title         string
+	CreatedAt     time.Time
+	MarkerVersion int
 
 	// Warnings collects non-fatal issues (e.g. HTML input with no
 	// <head> tag, public URL assembled without public_base_url) for
@@ -155,9 +161,8 @@ type Result struct {
 
 // Upload runs the full pipeline for one document and returns the
 // public URL(s). It never returns a URL that was not successfully
-// uploaded (SPEC.md §1). For markdown input the original source
-// uploads first; failure of either upload fails the whole call
-// (SPEC.md §5).
+// uploaded. The ownership marker uploads before the optional source
+// and page; failure of any PUT fails the whole call (SPEC.md §1, §5).
 func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 	doc, err := renderInput(ctx, in, RenderInputOptions{
 		Indexable:     c.cfg.Indexable,
@@ -172,15 +177,46 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		return nil, fmt.Errorf("airplan: generate key: %w", err)
 	}
 
-	res := &Result{
-		Bucket:   c.cfg.Bucket,
-		Title:    doc.Title,
-		Warnings: append([]string(nil), doc.Warnings...),
+	createdAt := time.Now().UTC().Truncate(time.Second)
+	pageName := doc.Slug + ".html"
+	pageKey := BuildKey(c.cfg.KeyPrefix, dir, pageName)
+	sourceName := ""
+	if doc.sourceObjectName != "" && doc.SourcePath != "" {
+		sourceName = doc.sourceObjectName
+	}
+	marker := UploadMarker{
+		Schema:    MarkerSchema,
+		Version:   MarkerVersion,
+		Directory: dir,
+		CreatedAt: createdAt,
+		Format:    doc.Format.String(),
+		Page:      pageName,
+		Source:    sourceName,
+		Title:     doc.Title,
+	}
+	markerBody, err := EncodeUploadMarker(marker)
+	if err != nil {
+		return nil, err
+	}
+	markerKey := BuildKey(c.cfg.KeyPrefix, dir, MarkerFilename)
+	if err := c.st.put(ctx, object{
+		Key:         markerKey,
+		Body:        markerBody,
+		ContentType: markerContentType,
+	}); err != nil {
+		return nil, err
 	}
 
-	// The source uploads first: an orphaned source object is harmless,
-	// while an orphaned page URL would contain a broken download link
-	// (SPEC.md §5).
+	res := &Result{
+		Bucket:        c.cfg.Bucket,
+		Title:         doc.Title,
+		CreatedAt:     createdAt,
+		MarkerVersion: MarkerVersion,
+		Warnings:      append([]string(nil), doc.Warnings...),
+	}
+
+	// The marker uploads first so any later failure remains visibly owned and
+	// recoverable through remote management (SPEC.md §5).
 	if doc.sourceObjectName != "" && doc.SourcePath != "" {
 		sourceKey := BuildKey(
 			c.cfg.KeyPrefix, dir, doc.sourceObjectName,
@@ -197,7 +233,6 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		res.SourceKey = sourceKey
 	}
 
-	pageKey := BuildKey(c.cfg.KeyPrefix, dir, doc.Slug+".html")
 	err = c.st.put(ctx, object{
 		Key:         pageKey,
 		Body:        doc.HTML,
