@@ -94,16 +94,11 @@ func parseFrontMatter(src []byte) (frontMatter, error) {
 			)
 		}
 		mapping := node.Content[0]
-		for i := 0; i+1 < len(mapping.Content); i += 2 {
-			for j := i + 2; j+1 < len(mapping.Content); j += 2 {
-				left, right := mapping.Content[i], mapping.Content[j]
-				if left.Kind == right.Kind && left.Value == right.Value {
-					return frontMatter{}, fmt.Errorf(
-						"airplan: parse YAML frontmatter: duplicate key %q",
-						right.Value,
-					)
-				}
-			}
+		var validated any
+		if err := mapping.Decode(&validated); err != nil {
+			return frontMatter{}, fmt.Errorf(
+				"airplan: parse YAML frontmatter: %w", err,
+			)
 		}
 		for i := 0; i+1 < len(mapping.Content); i += 2 {
 			key := mapping.Content[i]

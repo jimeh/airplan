@@ -42,6 +42,7 @@ func TestRenderInputFrontMatter(t *testing.T) {
 		{"toml", "+++\ntitle = \"TOML title\"\n+++\n# Body title\n", "TOML title", "toml"},
 		{"bom", "\ufeff---\ntitle: BOM title\n---\nBody\n", "BOM title", "yaml"},
 		{"non-string title", "---\ntitle: 42\n---\n# Body title\n", "Body title", "yaml"},
+		{"nested mapping", "---\nmeta:\n  owner: team\n  priority: high\n---\n# Body title\n", "Body title", "yaml"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -77,14 +78,15 @@ func TestRenderInputFrontMatter(t *testing.T) {
 	})
 
 	for name, source := range map[string]string{
-		"unclosed YAML":      "---\ntitle: nope\n",
-		"invalid YAML":       "---\nkey: [\n---\nbody\n",
-		"non-map YAML":       "---\n- item\n---\nbody\n",
-		"unclosed TOML":      "+++\ntitle = \"nope\"\n",
-		"invalid TOML":       "+++\ntitle = [\n+++\nbody\n",
-		"opener-only YAML":   "---",
-		"opener-only TOML":   "+++",
-		"duplicate YAML key": "---\ntitle: First\ntitle: Second\n---\nbody\n",
+		"unclosed YAML":             "---\ntitle: nope\n",
+		"invalid YAML":              "---\nkey: [\n---\nbody\n",
+		"non-map YAML":              "---\n- item\n---\nbody\n",
+		"unclosed TOML":             "+++\ntitle = \"nope\"\n",
+		"invalid TOML":              "+++\ntitle = [\n+++\nbody\n",
+		"opener-only YAML":          "---",
+		"opener-only TOML":          "+++",
+		"duplicate YAML key":        "---\ntitle: First\ntitle: Second\n---\nbody\n",
+		"nested duplicate YAML key": "---\nmeta:\n  owner: one\n  owner: two\n---\nbody\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := RenderInput(context.Background(), Input{
