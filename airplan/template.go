@@ -82,6 +82,23 @@ type TemplateData struct {
 
 	// MermaidURL is the configured Mermaid ECMAScript module URL.
 	MermaidURL string
+
+	// FrontMatterText is the original complete frontmatter block,
+	// including delimiters. It is empty when no frontmatter exists.
+	FrontMatterText string
+
+	// FrontMatterFormat is "yaml" or "toml", or empty when absent.
+	FrontMatterFormat string
+
+	// FrontMatterTitle is the non-empty string title found in frontmatter.
+	FrontMatterTitle string
+
+	// HighlightedFrontMatterHTML is the server-side highlighted
+	// frontmatter block.
+	HighlightedFrontMatterHTML template.HTML
+
+	// RepositoryURL is the resolved canonical repository context.
+	RepositoryURL string
 }
 
 // LoadTemplate parses a custom page template from path. The template

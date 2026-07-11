@@ -51,6 +51,7 @@ type rootOptions struct {
 	indexable        bool
 	noExternalAssets bool
 	mermaidURL       string
+	repository       string
 	maxSize          string
 	template         string
 	timeout          string
@@ -103,6 +104,8 @@ func newRootCmd() *cobra.Command {
 		"disable airplan-managed external assets in rendered pages")
 	f.StringVar(&opts.mermaidURL, "mermaid-url", "",
 		"Mermaid ECMAScript module URL")
+	f.StringVar(&opts.repository, "repo", "",
+		"repository context: auto, none, or URL (default: auto)")
 	f.StringVar(&opts.maxSize, "max-size", "10MiB",
 		"input size limit, e.g. 10MiB, 512k, 1048576; 0 = no limit")
 	f.StringVar(&opts.timeout, "timeout", "",
@@ -309,6 +312,7 @@ func flagOverrides(cmd *cobra.Command, opts *rootOptions) airplan.Settings {
 			opts.mermaidURL,
 			cmd.Flags().Changed("mermaid-url"),
 		),
+		Repository: opts.repository,
 	}
 	f := cmd.Flags()
 	if f.Changed("no-source") {

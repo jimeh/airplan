@@ -118,6 +118,10 @@ type RenderOptions struct {
 	// MermaidURL overrides the Mermaid module URL. Empty uses the default.
 	MermaidURL string
 
+	// RepositoryURL is the resolved canonical repository context used to
+	// link repository references in Markdown. Empty disables the feature.
+	RepositoryURL string
+
 	// Lang overrides the highlight language for text input
 	// (SPEC.md §3). "" derives it from the filename.
 	Lang string
@@ -134,18 +138,28 @@ type RenderOptions struct {
 // autolinks) + footnotes + heading anchors, with class-based chroma
 // highlighting so CSS can switch palettes on prefers-color-scheme.
 func newMarkdown() goldmark.Markdown {
-	return goldmark.New(
-		goldmark.WithExtensions(
-			extension.GFM,
-			extension.Footnote,
-			alertExtension{},
-			mermaidExtension{},
-			highlighting.NewHighlighting(
-				highlighting.WithFormatOptions(
-					chromahtml.WithClasses(true),
-				),
+	return newMarkdownWithRepository("", nil)
+}
+
+func newMarkdownWithRepository(repository string, source []byte) goldmark.Markdown {
+	extensions := []goldmark.Extender{
+		extension.GFM,
+		extension.DefinitionList,
+		newColumnsExtension(source),
+		extension.Footnote,
+		alertExtension{},
+		mermaidExtension{},
+		highlighting.NewHighlighting(
+			highlighting.WithFormatOptions(
+				chromahtml.WithClasses(true),
 			),
 		),
+	}
+	if repository != "" {
+		extensions = append(extensions, newRepositoryLinkExtension(repository))
+	}
+	return goldmark.New(
+		goldmark.WithExtensions(extensions...),
 		goldmark.WithParserOptions(
 			parser.WithAutoHeadingID(),
 		),
@@ -188,12 +202,23 @@ var syntaxCSS = sync.OnceValues(func() (string, error) {
 // dark/light-aware syntax highlighting, and conditional Mermaid support
 // (SPEC.md §3).
 func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
-	md := newMarkdown()
-	doc := md.Parser().Parse(text.NewReader(src))
-	headings := extractHeadings(doc, src)
+	frontMatter, err := parseFrontMatter(src)
+	if err != nil {
+		return nil, err
+	}
+	return renderMarkdown(src, frontMatter, opts)
+}
+
+func renderMarkdown(
+	src []byte, frontMatter frontMatter, opts RenderOptions,
+) ([]byte, error) {
+	bodySource := frontMatter.body
+	md := newMarkdownWithRepository(opts.RepositoryURL, bodySource)
+	doc := md.Parser().Parse(text.NewReader(bodySource))
+	headings := extractHeadings(doc, bodySource)
 
 	var body bytes.Buffer
-	if err := md.Renderer().Render(&body, src, doc); err != nil {
+	if err := md.Renderer().Render(&body, bodySource, doc); err != nil {
 		return nil, fmt.Errorf("render markdown: %w", err)
 	}
 
@@ -203,16 +228,30 @@ func RenderMarkdown(src []byte, opts RenderOptions) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	var highlightedFrontMatter template.HTML
+	if len(frontMatter.text) > 0 {
+		highlightedFrontMatter, _, err = highlightSource(
+			frontMatter.text, "", frontMatter.format,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	return renderPage(TemplateData{
-		RenderedHTML:          template.HTML(body.String()),
-		SourceText:            string(src),
-		HighlightedSourceHTML: sourceHTML,
-		Headings:              headings,
-		TOC:                   tocHeadings(headings),
-		Format:                FormatMarkdown.String(),
-		Language:              language,
-		HasMermaid:            hasMermaid(doc, src),
+		RenderedHTML:               template.HTML(body.String()),
+		SourceText:                 string(src),
+		HighlightedSourceHTML:      sourceHTML,
+		Headings:                   headings,
+		TOC:                        tocHeadings(headings),
+		Format:                     FormatMarkdown.String(),
+		Language:                   language,
+		HasMermaid:                 hasMermaid(doc, bodySource),
+		FrontMatterText:            string(frontMatter.text),
+		FrontMatterFormat:          frontMatter.format,
+		FrontMatterTitle:           frontMatter.title,
+		HighlightedFrontMatterHTML: highlightedFrontMatter,
+		RepositoryURL:              opts.RepositoryURL,
 	}, opts)
 }
 
@@ -408,7 +447,7 @@ func tocHeadings(headings []Heading) []Heading {
 // ExtractTitle returns the text of the first level-1 heading in the
 // markdown source, or "" if there is none.
 func ExtractTitle(src []byte) string {
-	doc := newMarkdown().Parser().Parse(text.NewReader(src))
+	doc := newMarkdownWithRepository("", src).Parser().Parse(text.NewReader(src))
 
 	var title string
 	_ = ast.Walk(doc, func(n ast.Node, enter bool) (ast.WalkStatus, error) {
@@ -433,8 +472,11 @@ func nodeText(node ast.Node, src []byte) string {
 		if !enter {
 			return ast.WalkContinue, nil
 		}
-		if t, ok := n.(*ast.Text); ok {
-			b.Write(t.Segment.Value(src))
+		switch value := n.(type) {
+		case *ast.Text:
+			b.Write(value.Segment.Value(src))
+		case *ast.String:
+			b.Write(value.Value)
 		}
 		return ast.WalkContinue, nil
 	})

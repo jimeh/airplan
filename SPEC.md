@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.12.0**
+**Spec version: 0.13.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -106,12 +106,36 @@ stack. Airplan-managed external loading is limited to optional features
 described below.
 
 - Markdown dialect: CommonMark plus GitHub Flavored Markdown
-  extensions — tables, strikethrough, task lists, autolinks — plus
-  footnotes, heading anchors, and GitHub-style alerts. Alerts use the
+  extensions — tables, strikethrough, task lists, URL/email autolinks — plus
+  definition lists, footnotes, heading anchors, and GitHub-style alerts.
+  GFM autolinks retain balanced parentheses and exclude trailing punctuation.
+  Alerts use the
   standard blockquote markers `NOTE`, `TIP`, `IMPORTANT`, `WARNING`,
   and `CAUTION`; they are converted to static HTML during
   rendering and may contain normal block Markdown. Unrecognized alert
   markers remain ordinary blockquotes.
+- YAML frontmatter delimited by exact `---` lines and TOML frontmatter
+  delimited by exact `+++` lines are recognized only at byte zero, after an
+  optional UTF-8 BOM. The closing delimiter must match. Invalid, unclosed, or
+  non-mapping frontmatter is an error; a missing, empty, or non-string `title`
+  is ignored. Frontmatter is excluded from the rendered body, headings, and
+  table of contents. The built-in page displays the exact block in a collapsed
+  native details element with server-side syntax highlighting. Source view and
+  the uploaded source remain byte-exact.
+- A narrow subset of Pandoc fenced divs provides responsive columns. An outer
+  delimiter is at least four colons followed only by `{.columns}`. It contains
+  at least two direct child divs whose delimiter is at least three colons and
+  shorter than the outer delimiter, followed by `{.column}` or a `width`
+  attribute containing an integer or decimal percentage greater than zero and
+  at most 100. Normal block Markdown is supported within each child. Unknown
+  attributes, nesting, orphaned/unterminated delimiters, and invalid widths
+  remain ordinary Markdown. Columns share available width equally unless
+  weighted, prevent content overflow, and stack at narrow and print layouts.
+- With repository context, plain-text references `#123`,
+  `owner/other-repo#456`, and full 40-character hexadecimal commit IDs become
+  links to the corresponding GitHub-compatible issue or commit. Matching uses
+  strict token boundaries and never changes inline or fenced code, Mermaid
+  source, existing links or images, raw HTML, or GFM URL/email autolinks.
 - Trust boundary: raw inline/block HTML and link/image destinations are
   rendered as authored. Markdown and HTML input are trusted content and
   may execute active content when someone opens the resulting page.
@@ -150,8 +174,9 @@ described below.
   - Scroll position highlighting is a progressive enhancement and
     respects `prefers-reduced-motion`. The table of contents is hidden
     in source view and omitted when fewer than two entries remain.
-- `<title>` from `--title`, else first `<h1>`, else source filename,
-  else the resolved slug (covers stdin input with no `<h1>`).
+- `<title>` from `--title`, else a non-empty string frontmatter `title`, else
+  first `<h1>`, else source filename, else the resolved slug (covers stdin
+  input with no `<h1>`).
 - `<meta name="robots" content="noindex, nofollow">` — belt and
   braces on top of URL unguessability; works regardless of what
   headers the CDN/domain serves. Omitted under `--indexable`.
@@ -224,24 +249,29 @@ as-is (warn if combined).
 Template data contract (the stable API custom templates code
 against):
 
-| Field                    | Type      | Meaning                              |
-| ------------------------ | --------- | ------------------------------------ |
-| `.Title`                 | string    | resolved title                       |
-| `.RenderedHTML`          | raw HTML  | rendered markdown or text page body  |
-| `.SourceText`            | string    | original unmodified source           |
-| `.HighlightedSourceHTML` | raw HTML  | syntax-highlighted original source   |
-| `.SyntaxCSS`             | raw CSS   | styles required by highlighted HTML  |
-| `.Headings`              | heading[] | all markdown headings                |
-| `.TOC`                   | heading[] | built-in H1-H3 ToC entries           |
-| `.Format`                | string    | `md` or `txt`                        |
-| `.Language`              | string    | resolved source-highlight language   |
-| `.SourceName`            | string    | original basename; empty for stdin   |
-| `.SourcePath`            | string    | relative path to the uploaded source |
-| `.Slug`                  | string    | resolved slug                        |
-| `.Indexable`             | boolean   | whether indexing is allowed          |
-| `.HasMermaid`            | boolean   | exact Mermaid fence was rendered     |
-| `.NoExternalAssets`      | boolean   | managed external loads are disabled  |
-| `.MermaidURL`            | string    | resolved Mermaid module URL          |
+| Field                         | Type      | Meaning                              |
+| ----------------------------- | --------- | ------------------------------------ |
+| `.Title`                      | string    | resolved title                       |
+| `.RenderedHTML`               | raw HTML  | rendered markdown or text page body  |
+| `.SourceText`                 | string    | original unmodified source           |
+| `.HighlightedSourceHTML`      | raw HTML  | syntax-highlighted original source   |
+| `.SyntaxCSS`                  | raw CSS   | styles required by highlighted HTML  |
+| `.Headings`                   | heading[] | all markdown headings                |
+| `.TOC`                        | heading[] | built-in H1-H3 ToC entries           |
+| `.Format`                     | string    | `md` or `txt`                        |
+| `.Language`                   | string    | resolved source-highlight language   |
+| `.SourceName`                 | string    | original basename; empty for stdin   |
+| `.SourcePath`                 | string    | relative path to the uploaded source |
+| `.Slug`                       | string    | resolved slug                        |
+| `.Indexable`                  | boolean   | whether indexing is allowed          |
+| `.HasMermaid`                 | boolean   | exact Mermaid fence was rendered     |
+| `.NoExternalAssets`           | boolean   | managed external loads are disabled  |
+| `.MermaidURL`                 | string    | resolved Mermaid module URL          |
+| `.FrontMatterText`            | string    | exact complete frontmatter block     |
+| `.FrontMatterFormat`          | string    | `yaml`, `toml`, or empty             |
+| `.FrontMatterTitle`           | string    | usable frontmatter title or empty    |
+| `.HighlightedFrontMatterHTML` | raw HTML  | highlighted frontmatter block        |
+| `.RepositoryURL`              | string    | resolved canonical repository URL    |
 
 Each heading has `.Level` (1–6), `.ID`, `.Text`, and `.IsTitle`.
 `.IsTitle` is true only for a leading H1 that the built-in table of
@@ -384,6 +414,7 @@ airplan [flags] [file]
 | `--indexable`          | off            | no noindex meta (md and html, §3–4) |
 | `--no-external-assets` | off            | disable managed view-time loads     |
 | `--mermaid-url URL`    | pinned URL     | alternate HTTPS Mermaid module      |
+| `--repo VALUE`         | `auto`         | `auto`, `none`, or repository URL   |
 | `--max-size N`         | 10MiB          | input size limit; 0 = no limit (§2) |
 | `--timeout D`          | 30s            | operation timeout; 0 = none         |
 | `--lang L`             | from filename  | highlight language, text only (§3)  |
@@ -483,7 +514,8 @@ airplan purge [--remote] [--older-than 30d]
 `preview` runs input detection and page rendering locally, writing the
 resulting HTML to stdout or to `--output PATH`. It supports the rendering
 flags `--format`, `--lang`, `--slug`, `--title`, `--template`,
-`--indexable`, `--no-external-assets`, `--mermaid-url`, and `--max-size`,
+`--indexable`, `--no-external-assets`, `--mermaid-url`, `--repo`, and
+`--max-size`,
 plus `--config` and `--profile` for
 resolving template settings. It does not validate S3 connection fields,
 access the network, upload source, or write the manifest. Consequently
@@ -542,6 +574,7 @@ the first `[profiles.*]` header):
 endpoint        = "https://<account-id>.r2.cloudflarestorage.com"
 region          = "auto"
 # template = "~/.config/airplan/my-template.html"  # optional
+# repo = "auto"       # GitHub context: auto, none, or explicit URL
 # no_source = true    # behavior defaults; flags override
 # timeout = "30s"     # operation timeout; 0 = none
 # indexable = true
@@ -597,6 +630,7 @@ AIRPLAN_KEY_PREFIX
 AIRPLAN_TEMPLATE
 AIRPLAN_NO_EXTERNAL_ASSETS
 AIRPLAN_MERMAID_URL
+AIRPLAN_REPO
 AIRPLAN_TIMEOUT
 AIRPLAN_CONFIG
 ```
@@ -621,6 +655,31 @@ without user information or a fragment; paths and query strings are allowed.
 It is validated even when external assets are disabled or a custom template is
 used.
 
+`repo` / `AIRPLAN_REPO` / `--repo` accepts `auto`, `none`, or an
+explicit repository URL. Explicit HTTPS, `ssh://git@host/owner/repo`,
+`ssh://git@host:PORT/owner/repo`, and `git@host:owner/repo` forms normalize to
+`https://host/owner/repo`; an optional `.git` suffix is removed and an SSH
+transport port is dropped. Credentials, HTTPS ports, query strings, fragments,
+extra path segments, local paths, `file:` URLs, and `git:` URLs are rejected.
+SSH URL user information must be exactly the username `git` with no password;
+the SCP-like form likewise requires the `git@` prefix.
+An explicit URL may name a GitHub Enterprise-compatible host and an invalid
+value is an error.
+
+`auto` performs quiet, local-only Git discovery of the `origin` remote and
+accepts only `github.com`; it never contacts the remote. For a Markdown file,
+the file's repository wins. Only when the file directory is not within any Git
+repository does discovery fall back to the invocation working directory. A
+file inside a repository whose origin is absent, invalid, or unsupported does
+not fall back. Markdown from stdin uses the invocation working directory.
+Discovery failure is non-fatal. `none` performs no discovery. HTML and text
+inputs perform no discovery or reference linking.
+
+The CLI and upload client default repository context to `auto`. The direct
+local-rendering API's zero-value repository option performs no discovery;
+library callers opt in by passing `auto`. The lower-level renderer receives
+only an already resolved canonical URL and never runs Git itself.
+
 Unknown keys in the config file are an error naming the offending
 key — typo protection, and it keeps the parser exactly in sync with
 the published schema's `additionalProperties: false`.
@@ -629,7 +688,7 @@ If the config file contains credentials and is group- or
 world-readable, a warning is printed to stderr.
 
 Behavioral defaults: `no_source`, `indexable`, `no_external_assets`,
-`mermaid_url`, and `timeout` may be
+`mermaid_url`, `repo`, and `timeout` may be
 set at the root or profile level; their flags override the config
 values.
 

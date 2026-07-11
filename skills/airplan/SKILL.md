@@ -31,6 +31,10 @@ Upload only the referenced file. Anyone with the resulting link can read it,
 and the upload persists until deleted. Markdown preserves authored raw HTML and
 link destinations, while HTML is uploaded as authored. Both may execute active
 content when opened, so only upload the exact trusted file the user requested.
+For Markdown, airplan recognizes YAML/TOML frontmatter titles and automatically
+links issue and commit references using the file's GitHub origin. If the file
+is outside Git, it falls back to the invocation directory, so keep the command
+rooted in the relevant project when uploading a temporary plan file.
 
 ## Failure handling
 

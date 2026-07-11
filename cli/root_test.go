@@ -159,6 +159,28 @@ func TestRootUploadsFileWithFilenameInference(t *testing.T) {
 	}
 }
 
+func TestRootUsesFrontMatterTitle(t *testing.T) {
+	fake := newFakeS3(t)
+	stdout, stderr, err := executeRoot(t, fake,
+		"---\ntitle: Release plan\n---\n# Draft heading\n",
+		"--repo", "none", "-",
+	)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if !strings.HasPrefix(stdout, "https://plans.example.com/") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	uploads := fake.uploads()
+	if len(uploads) != 3 {
+		t.Fatalf("uploads = %d, want marker, source, page", len(uploads))
+	}
+	if !bytes.Contains(uploads[0].body, []byte(`"title":"Release plan"`)) ||
+		!bytes.Contains(uploads[2].body, []byte(`<title>Release plan</title>`)) {
+		t.Fatalf("frontmatter title missing from marker/page: %#v", uploads)
+	}
+}
+
 func TestRootNonexistentFileFailsBeforeUpload(t *testing.T) {
 	fake := newFakeS3(t)
 	missing := filepath.Join(t.TempDir(), "missing.md")
@@ -401,6 +423,7 @@ func isolateEnv(t *testing.T) {
 	t.Setenv("AIRPLAN_KEY_PREFIX", "")
 	t.Setenv("AIRPLAN_TEMPLATE", "")
 	t.Setenv("AIRPLAN_MERMAID_URL", "")
+	t.Setenv("AIRPLAN_REPO", "")
 	t.Setenv("AIRPLAN_NO_EXTERNAL_ASSETS", "")
 	t.Setenv("AIRPLAN_ACCESS_KEY_ID", "test-access-key-id")
 	t.Setenv("AIRPLAN_SECRET_ACCESS_KEY", "test-secret-access-key")

@@ -64,6 +64,12 @@
 {{- if and (eq .Format "txt") .SourceName}}
 <div class="filehead"><code>{{.SourceName}}</code></div>
 {{- end}}
+{{- if and (eq .Format "md") .HighlightedFrontMatterHTML}}
+<details class="frontmatter">
+  <summary>Frontmatter <span>{{.FrontMatterFormat}}</span></summary>
+  {{.HighlightedFrontMatterHTML}}
+</details>
+{{- end}}
 {{.RenderedHTML}}
 </main>
 {{- if and (eq .Format "md") .HighlightedSourceHTML}}

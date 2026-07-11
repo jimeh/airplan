@@ -94,6 +94,7 @@ region            = "auto"
 public_base_url   = "https://plans.example.com"
 access_key_id     = "..." # or AIRPLAN_ACCESS_KEY_ID
 secret_access_key = "..." # or AIRPLAN_SECRET_ACCESS_KEY
+# repo = "auto"           # infer GitHub origin for Markdown links
 ```
 
 Explicit access and secret keys must be configured as a pair. Omit both to use
@@ -180,8 +181,23 @@ are invisible to airplan and cannot be deleted or purged through it. Use
 
 Markdown pages include syntax highlighting, Mermaid diagrams from exact
 `mermaid` fences, a responsive table of contents, GitHub-style alerts,
-rendered/source views, copy buttons, and links to the original Markdown. Use
-`--no-source` if the original should not be uploaded.
+definition lists, YAML/TOML frontmatter, responsive Pandoc columns,
+rendered/source views, copy buttons, and links to the original Markdown.
+Frontmatter is shown collapsed at the top, and its string `title` sets the page
+title unless `--title` is given. Use `--no-source` if the original should not
+be uploaded.
+
+By default, Markdown references such as `#123`, `owner/repo#456`, and full
+commit IDs link against a locally discovered GitHub `origin`. File repository
+context wins; a file outside Git falls back to the current working directory,
+which supports plans written to temporary directories. Use `--repo none` to
+disable this or `--repo https://github.example/owner/repo` to supply explicit
+GitHub Enterprise-compatible context. Discovery is local and never contacts
+the remote.
+
+Pandoc columns use an outer `{.columns}` fenced div containing two or more
+`{.column}` children; optional validated `width="40%"` attributes weight them.
+Columns stack on narrow screens and when printed.
 
 Plain-text and source files use the same standalone page shell and infer their
 highlight language from the filename. Use `--lang` to override it, especially

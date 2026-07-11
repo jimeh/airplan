@@ -89,6 +89,37 @@ func TestPreviewEmptyMermaidURLFlagResetsEnvironment(t *testing.T) {
 	}
 }
 
+func TestPreviewRepositoryFlagLinksReferences(t *testing.T) {
+	isolateEnv(t)
+
+	cmd := newRootCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetIn(strings.NewReader("See #42.\n"))
+	cmd.SetArgs([]string{
+		"preview", "--repo", "git@github.example:acme/project.git", "-",
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(),
+		`href="https://github.example/acme/project/issues/42"`) {
+		t.Fatalf("repository reference was not linked: %s", stdout.String())
+	}
+
+	cmd = newRootCmd()
+	stdout.Reset()
+	cmd.SetOut(&stdout)
+	cmd.SetIn(strings.NewReader("See #42.\n"))
+	cmd.SetArgs([]string{"preview", "--repo", "none", "-"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(stdout.String(), "/issues/42") {
+		t.Fatal("--repo none linked a repository reference")
+	}
+}
+
 func TestPreviewWritesOutputFile(t *testing.T) {
 	isolateEnv(t)
 

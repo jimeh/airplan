@@ -511,6 +511,68 @@ p, ul, ol, blockquote, table, pre {
   margin: 0 0 1.25em;
 }
 
+dl {
+  margin: 1.25rem 0;
+}
+
+dt {
+  font-weight: 650;
+  margin-top: 0.8rem;
+}
+
+dd {
+  color: var(--muted);
+  margin: 0.25rem 0 0 1.25rem;
+}
+
+.frontmatter {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  margin: 0 0 1.75rem;
+  overflow: hidden;
+}
+
+.frontmatter summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.55rem 0.75rem;
+  user-select: none;
+}
+
+.frontmatter summary span {
+  font-weight: 400;
+  margin-left: 0.35rem;
+  text-transform: uppercase;
+}
+
+.frontmatter .chroma {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+}
+
+.columns {
+  display: flex;
+  gap: 1.5rem;
+  margin: 1.5rem 0;
+  min-width: 0;
+}
+
+.column {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.column[style] {
+  flex: 0 1 var(--column-width);
+}
+
+.column > :first-child { margin-top: 0; }
+.column > :last-child { margin-bottom: 0; }
+
 a {
   color: var(--link);
 }
@@ -816,6 +878,16 @@ mark {
   .toc,
   .content {
     padding-inline: 1.25rem;
+  }
+}
+
+@media (max-width: 48rem), print {
+  .columns {
+    display: block;
+  }
+
+  .column + .column {
+    margin-top: 1.5rem;
   }
 }
 

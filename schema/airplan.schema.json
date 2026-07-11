@@ -52,6 +52,10 @@
           "type": "string",
           "description": "Absolute HTTPS URL of the Mermaid ECMAScript module."
         },
+        "repo": {
+          "type": "string",
+          "description": "Repository context: auto, none, or an explicit GitHub-compatible repository URL."
+        },
         "timeout": {
           "type": "string",
           "description": "Operation timeout as a Go duration or seconds; 0 disables it."
@@ -109,6 +113,10 @@
     "mermaid_url": {
       "type": "string",
       "description": "Absolute HTTPS URL of the Mermaid ECMAScript module."
+    },
+    "repo": {
+      "type": "string",
+      "description": "Repository context: auto, none, or an explicit GitHub-compatible repository URL."
     },
     "timeout": {
       "type": "string",

@@ -94,6 +94,17 @@ func TestUploadRejectsEmptyInputBeforeStorage(t *testing.T) {
 	}
 }
 
+func TestUploadRejectsFrontMatterBeforeStorage(t *testing.T) {
+	c := &Client{cfg: &Config{Bucket: "b", Repository: "none"}}
+	res, err := c.Upload(context.Background(), Input{
+		Reader: strings.NewReader("---\ntitle: [\n---\nbody\n"),
+		Format: "md",
+	})
+	if res != nil || err == nil || !strings.Contains(err.Error(), "frontmatter") {
+		t.Fatalf("result = %+v, error = %v", res, err)
+	}
+}
+
 func TestParseSize(t *testing.T) {
 	tests := []struct {
 		in      string

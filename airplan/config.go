@@ -40,6 +40,7 @@ type Settings struct {
 	// explicit empty override must use ResolveMermaidURLOverride; a bare empty
 	// value is treated as unset when Settings are overlaid.
 	MermaidURL string `toml:"mermaid_url" json:"mermaid_url,omitempty" jsonschema_description:"Absolute HTTPS URL of the Mermaid ECMAScript module."`
+	Repository string `toml:"repo" json:"repo,omitempty" jsonschema_description:"Repository context: auto, none, or an explicit GitHub-compatible repository URL."`
 	Timeout    string `toml:"timeout" json:"timeout,omitempty" jsonschema_description:"Operation timeout as a Go duration or seconds; 0 disables it."`
 }
 
@@ -69,6 +70,7 @@ type Config struct {
 	Indexable        bool
 	NoExternalAssets bool
 	MermaidURL       string
+	Repository       string
 
 	// Timeout bounds one context-aware operation or phase (SPEC.md §6):
 	// default 30 seconds, 0 means no timeout. The CLI applies it to its
@@ -162,6 +164,7 @@ func LoadConfig(opts ConfigOptions) (*Config, error) {
 		Region:     "auto",
 		Profile:    profile,
 		MermaidURL: DefaultMermaidURL,
+		Repository: "auto",
 	}
 	applySettings(cfg, fileConfig.Settings, rootKeyDefined(meta, loaded))
 	if profile != "" {
@@ -311,6 +314,12 @@ func (c *Config) Validate() error {
 	}
 	if c.MermaidURL != "" {
 		if err := validateMermaidURL(c.MermaidURL); err != nil {
+			return err
+		}
+	}
+	if c.Repository != "" && c.Repository != "auto" &&
+		c.Repository != "none" {
+		if _, err := NormalizeRepositoryURL(c.Repository); err != nil {
 			return err
 		}
 	}
@@ -616,6 +625,12 @@ func applySettings(
 			cfg.MermaidURL = DefaultMermaidURL
 		}
 	}
+	if defined("repo") {
+		cfg.Repository = settings.Repository
+		if cfg.Repository == "" {
+			cfg.Repository = "auto"
+		}
+	}
 }
 
 func applyEnv(cfg *Config, getenv func(string) string) error {
@@ -628,6 +643,7 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 	applyEnvString(&cfg.KeyPrefix, getenv, "AIRPLAN_KEY_PREFIX")
 	applyEnvString(&cfg.Template, getenv, "AIRPLAN_TEMPLATE")
 	applyEnvString(&cfg.MermaidURL, getenv, "AIRPLAN_MERMAID_URL")
+	applyEnvString(&cfg.Repository, getenv, "AIRPLAN_REPO")
 	return applyEnvBool(
 		&cfg.NoExternalAssets,
 		getenv,
@@ -673,6 +689,7 @@ func applyOverrides(cfg *Config, s Settings) {
 		&cfg.KeyPrefix:       s.KeyPrefix,
 		&cfg.Template:        s.Template,
 		&cfg.MermaidURL:      s.MermaidURL,
+		&cfg.Repository:      s.Repository,
 	} {
 		if value != "" {
 			*field = value
