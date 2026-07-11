@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -207,6 +208,8 @@ func TestUploadRejectsBinaryInput(t *testing.T) {
 // endpoint: highlighted page plus original source sibling with the
 // real extension.
 func TestUploadTextInput(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
 	var (
 		mu   sync.Mutex
 		puts []capturedRequest
@@ -230,6 +233,7 @@ func TestUploadTextInput(t *testing.T) {
 		AccessKeyID:     "test",
 		SecretAccessKey: "test",
 		PublicBaseURL:   "https://plans.example.com",
+		DisableManifest: true,
 	}
 	client, err := New(context.Background(), cfg)
 	if err != nil {
@@ -280,6 +284,14 @@ func TestUploadTextInput(t *testing.T) {
 	if !strings.Contains(page,
 		`<div class="filehead"><code>main.go</code></div>`) {
 		t.Error("page missing filename header bar")
+	}
+
+	manifest, err := DefaultManifestPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(manifest); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("default manifest was touched: %v", err)
 	}
 }
 
