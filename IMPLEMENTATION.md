@@ -148,6 +148,9 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
   in-head robots metadata. Injection splices only the original byte slice and
   never serializes the token stream. `Client.Upload` adds source/page storage,
   URLs, and manifest recording; `airplan preview` stops after `RenderInput`.
+  Preview file output renames a same-directory temporary file on Unix and uses
+  Windows `ReplaceFileW` (falling back to `MoveFileEx` for a new destination)
+  so replacement matches the spec's atomicity contract on both families.
 - Public API boundaries: `New`, `RenderInput`, and every `Client` operation
   reject nil contexts; zero-value or nil clients return
   `ErrUninitializedClient`; and `PublicURL` reports a nil config as an error.

@@ -86,6 +86,30 @@ func TestPreviewWritesOutputFile(t *testing.T) {
 	}
 }
 
+func TestWritePreviewAtomicLeavesDestinationOnRenameFailure(t *testing.T) {
+	dir := t.TempDir()
+	destination := filepath.Join(dir, "existing")
+	if err := os.Mkdir(destination, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(destination, "keep")
+	if err := os.WriteFile(sentinel, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writePreviewAtomic(destination, []byte("new")); err == nil {
+		t.Fatal("writePreviewAtomic error = nil, want rename failure")
+	}
+	got, err := os.ReadFile(sentinel)
+	if err != nil || string(got) != "old" {
+		t.Fatalf("sentinel = %q, error = %v", got, err)
+	}
+	temps, err := filepath.Glob(filepath.Join(dir, ".existing.tmp-*"))
+	if err != nil || len(temps) != 0 {
+		t.Fatalf("temporary files = %v, error = %v", temps, err)
+	}
+}
+
 func TestPreviewAppliesConfiguredTimeout(t *testing.T) {
 	isolateEnv(t)
 	t.Setenv("AIRPLAN_TIMEOUT", "20ms")
@@ -147,6 +171,36 @@ func TestPreviewRefusesToOverwriteInput(t *testing.T) {
 	}
 	if string(got) != want {
 		t.Fatalf("input was changed: %q", got)
+	}
+}
+
+func TestPreviewRefusesInputAliases(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		link func(string, string) error
+	}{
+		{"hardlink", os.Link},
+		{"symlink", os.Symlink},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			isolateEnv(t)
+			dir := t.TempDir()
+			input := filepath.Join(dir, "plan.md")
+			alias := filepath.Join(dir, "alias.md")
+			if err := os.WriteFile(input, []byte("# Keep me\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := tt.link(input, alias); err != nil {
+				t.Skipf("create %s: %v", tt.name, err)
+			}
+
+			cmd := newRootCmd()
+			cmd.SetArgs([]string{"preview", "--output", alias, input})
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(err.Error(), "must not overwrite") {
+				t.Fatalf("error = %v, want overwrite refusal", err)
+			}
+		})
 	}
 }
 

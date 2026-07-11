@@ -167,7 +167,7 @@ func writePreviewAtomic(path string, contents []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmpPath, path)
+	return renamePreviewAtomic(tmpPath, path)
 }
 
 func samePreviewPath(input, output string) (bool, error) {
