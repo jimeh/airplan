@@ -7,6 +7,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/net/html"
 )
 
 // Format identifies the input document format (SPEC.md §2).
@@ -99,37 +101,117 @@ type NoindexResult int
 const (
 	// NoindexInjected: the meta tag was spliced in after <head>.
 	NoindexInjected NoindexResult = iota
-	// NoindexAlreadyPresent: the document has a robots meta tag;
-	// author intent wins and nothing was changed.
+	// NoindexAlreadyPresent: the effective head has a robots meta
+	// tag; author intent wins and nothing was changed.
 	NoindexAlreadyPresent
-	// NoindexNoHead: no <head> tag was found; nothing was changed and
-	// the caller should warn on stderr.
+	// NoindexNoHead: no explicit effective head start token was found;
+	// nothing was changed and the caller should warn on stderr.
 	NoindexNoHead
 )
 
-// InjectNoindex splices a
-// <meta name="robots" content="noindex, nofollow"> tag immediately
-// after the first <head …> tag, found by a case-insensitive scan. It
-// is a byte-level splice: the document is never parsed or
-// re-serialized, and every other byte is returned exactly as given
-// (SPEC.md §4).
+const noindexMetaTag = `<meta name="robots" content="noindex, nofollow">`
+
+// InjectNoindex splices a robots noindex meta tag immediately after
+// the first explicit head start token. It is a byte-level splice: the
+// document is tokenized but never re-serialized, and every other byte
+// is returned exactly as given (SPEC.md §4).
 func InjectNoindex(doc []byte) ([]byte, NoindexResult) {
-	if hasRobotsMeta(doc) {
+	scan := scanHTMLHead(doc)
+	if scan.headEnd == -1 {
+		return doc, NoindexNoHead
+	}
+	if scan.hasRobotsMeta {
 		return doc, NoindexAlreadyPresent
 	}
 
-	end := findHeadTagEnd(doc)
-	if end == -1 {
-		return doc, NoindexNoHead
-	}
-
-	const tag = `<meta name="robots" content="noindex, nofollow">`
-	out := make([]byte, 0, len(doc)+len(tag))
-	out = append(out, doc[:end]...)
-	out = append(out, tag...)
-	out = append(out, doc[end:]...)
+	out := make([]byte, 0, len(doc)+len(noindexMetaTag))
+	out = append(out, doc[:scan.headEnd]...)
+	out = append(out, noindexMetaTag...)
+	out = append(out, doc[scan.headEnd:]...)
 
 	return out, NoindexInjected
+}
+
+type htmlHeadScan struct {
+	headEnd       int
+	hasRobotsMeta bool
+}
+
+func scanHTMLHead(doc []byte) htmlHeadScan {
+	result := htmlHeadScan{headEnd: -1}
+	tokenizer := html.NewTokenizer(bytes.NewReader(doc))
+	offset := 0
+	templateDepth := 0
+
+	for {
+		tokenType := tokenizer.Next()
+		// Raw must be measured before Token, which may normalize the
+		// tokenizer's internal buffer. Raw token lengths partition the
+		// original input and therefore give an exact splice offset.
+		offset += len(tokenizer.Raw())
+		if tokenType == html.ErrorToken {
+			return result
+		}
+		if tokenType != html.StartTagToken &&
+			tokenType != html.SelfClosingTagToken &&
+			tokenType != html.EndTagToken {
+			continue
+		}
+
+		token := tokenizer.Token()
+		switch tokenType {
+		case html.StartTagToken, html.SelfClosingTagToken:
+			if token.Data == "template" {
+				if tokenType == html.StartTagToken {
+					templateDepth++
+				}
+				continue
+			}
+
+			if result.headEnd == -1 {
+				if templateDepth == 0 && token.Data == "head" {
+					result.headEnd = offset
+				}
+				continue
+			}
+			if templateDepth != 0 {
+				continue
+			}
+
+			switch token.Data {
+			case "body":
+				return result
+			case "meta":
+				if tokenHasRobotsName(token) {
+					result.hasRobotsMeta = true
+					return result
+				}
+			}
+
+		case html.EndTagToken:
+			if token.Data == "template" {
+				if templateDepth > 0 {
+					templateDepth--
+				}
+				continue
+			}
+			if result.headEnd != -1 && templateDepth == 0 &&
+				token.Data == "head" {
+				return result
+			}
+		}
+	}
+}
+
+func tokenHasRobotsName(token html.Token) bool {
+	for _, attr := range token.Attr {
+		if attr.Key == "name" &&
+			asciiEqualFold([]byte(attr.Val), "robots") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func trimSniffPrefix(data []byte) []byte {
@@ -149,167 +231,6 @@ func trimSniffPrefix(data []byte) []byte {
 	}
 
 	return data
-}
-
-func findHeadTagEnd(doc []byte) int {
-	for i := 0; i < len(doc); i++ {
-		if !asciiHasPrefixFold(doc[i:], "<head") {
-			continue
-		}
-
-		next := i + len("<head")
-		if next < len(doc) && !isTagBoundary(doc[next]) {
-			continue
-		}
-
-		return findTagEnd(doc, next)
-	}
-
-	return -1
-}
-
-func hasRobotsMeta(doc []byte) bool {
-	for i := 0; i < len(doc); i++ {
-		if !asciiHasPrefixFold(doc[i:], "<meta") {
-			continue
-		}
-
-		next := i + len("<meta")
-		if next < len(doc) && !isTagBoundary(doc[next]) {
-			continue
-		}
-
-		end := findTagEnd(doc, next)
-		if end == -1 {
-			return false
-		}
-
-		if metaTagHasRobotsName(doc[next : end-1]) {
-			return true
-		}
-
-		i = end - 1
-	}
-
-	return false
-}
-
-// findTagEnd returns the index just past the '>' that closes the tag
-// being scanned from start, honoring single- and double-quoted
-// attribute values so a '>' inside a quoted attribute doesn't end the
-// tag early. Returns -1 when the tag never closes.
-func findTagEnd(doc []byte, start int) int {
-	var quote byte
-	for i := start; i < len(doc); i++ {
-		b := doc[i]
-		switch {
-		case quote != 0:
-			if b == quote {
-				quote = 0
-			}
-		case b == '"' || b == '\'':
-			quote = b
-		case b == '>':
-			return i + 1
-		}
-	}
-
-	return -1
-}
-
-func metaTagHasRobotsName(attrs []byte) bool {
-	for i := 0; i < len(attrs); {
-		i = skipHTMLSpace(attrs, i)
-		if i >= len(attrs) {
-			return false
-		}
-
-		if attrs[i] == '/' {
-			i++
-			continue
-		}
-
-		nameStart := i
-		for i < len(attrs) && isAttrNameByte(attrs[i]) {
-			i++
-		}
-		if nameStart == i {
-			i++
-			continue
-		}
-
-		attrName := attrs[nameStart:i]
-		i = skipHTMLSpace(attrs, i)
-		if i >= len(attrs) || attrs[i] != '=' {
-			continue
-		}
-
-		i++
-		i = skipHTMLSpace(attrs, i)
-		value, next := readAttrValue(attrs, i)
-		i = next
-
-		if asciiEqualFold(attrName, "name") &&
-			asciiEqualFold(value, "robots") {
-			return true
-		}
-	}
-
-	return false
-}
-
-func readAttrValue(attrs []byte, start int) ([]byte, int) {
-	if start >= len(attrs) {
-		return nil, start
-	}
-
-	switch attrs[start] {
-	case '\'', '"':
-		quote := attrs[start]
-		valueStart := start + 1
-		i := valueStart
-		for i < len(attrs) && attrs[i] != quote {
-			i++
-		}
-		if i >= len(attrs) {
-			return attrs[valueStart:], i
-		}
-		return attrs[valueStart:i], i + 1
-	default:
-		i := start
-		for i < len(attrs) && !isHTMLSpace(attrs[i]) && attrs[i] != '/' {
-			i++
-		}
-		return attrs[start:i], i
-	}
-}
-
-func skipHTMLSpace(data []byte, start int) int {
-	for start < len(data) && isHTMLSpace(data[start]) {
-		start++
-	}
-
-	return start
-}
-
-func isTagBoundary(b byte) bool {
-	return b == '>' || b == '/' || isHTMLSpace(b)
-}
-
-func isHTMLSpace(b byte) bool {
-	switch b {
-	case ' ', '\t', '\n', '\r', '\f':
-		return true
-	default:
-		return false
-	}
-}
-
-func isAttrNameByte(b byte) bool {
-	return (b >= 'a' && b <= 'z') ||
-		(b >= 'A' && b <= 'Z') ||
-		(b >= '0' && b <= '9') ||
-		b == '-' || b == '_' || b == ':'
 }
 
 func asciiHasPrefixFold(data []byte, prefix string) bool {

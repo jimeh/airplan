@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.8.0**
+**Spec version: 0.9.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -264,19 +264,30 @@ markdown pages.
 
 Injection rules (privacy by default, applied conservatively):
 
-- The tag is spliced in immediately after the first `<head …>` tag,
-  found by a case-insensitive scan. This is a byte-level splice —
-  the document is never parsed or re-serialized, and every other
-  byte is served exactly as uploaded.
-- If the document already contains a robots `<meta>` tag, nothing
-  is injected — author intent wins.
-- If no `<head>` tag is found, a warning is printed to stderr and
-  the file is uploaded unmodified.
+- The tag is spliced immediately after the first explicit `<head …>`
+  start token emitted by HTML tokenization outside inert `template`
+  and `noscript` content. Head lookalikes in comments, raw-text, or
+  RCDATA content do not count. This is a byte-level splice at the
+  original token boundary: the document is never re-serialized, and
+  every other byte is served exactly as uploaded.
+- That head's metadata scope ends at the first effective `</head>` or
+  `<body …>` token outside inert content, or at EOF. Only an effective
+  `<meta>` start token in that scope, outside `template` and `noscript`
+  content, whose parsed `name` attribute equals `robots` ASCII
+  case-insensitively prevents injection. Normal HTML attribute parsing,
+  including character-reference decoding, applies. Author intent in
+  the effective head wins; meta lookalikes and metadata elsewhere do
+  not weaken the privacy default.
+- If tokenization finds no complete explicit effective head start
+  token, a warning is printed to stderr and the file is uploaded
+  unmodified. Once a valid splice point exists, malformed later markup
+  does not prevent injection unless an effective robots meta was
+  already recognized.
 - `--indexable` disables injection entirely.
 
-No other parsing or modification, ever. HTML input never uploads a
-sibling source object: the uploaded object already is the original
-file.
+No DOM tree is built or repaired, and no other modification occurs.
+HTML input never uploads a sibling source object: the uploaded object
+already is the original file.
 
 ---
 

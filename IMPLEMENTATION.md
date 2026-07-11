@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.8.0.
+may contradict it. Targets spec version 0.9.0.
 
 ---
 
@@ -33,15 +33,16 @@ Considered alternatives:
 
 ## 2. Dependencies (deliberately few)
 
-| Dependency                  | Purpose                              |
-| --------------------------- | ------------------------------------ |
-| `yuin/goldmark` (+ GFM ext) | markdown → HTML body                 |
-| `alecthomas/chroma/v2`      | code block syntax highlighting       |
-| `aws/aws-sdk-go-v2` (s3)    | uploads (SigV4, retries, checksums)  |
-| `BurntSushi/toml`           | config file parsing                  |
-| `spf13/cobra`               | CLI: subcommands, flags, completion  |
-| `invopop/jsonschema`        | config JSON Schema from Go structs   |
-| `gofrs/flock`               | cross-platform manifest file locking |
+| Dependency                  | Purpose                               |
+| --------------------------- | ------------------------------------- |
+| `yuin/goldmark` (+ GFM ext) | markdown → HTML body                  |
+| `alecthomas/chroma/v2`      | code block syntax highlighting        |
+| `aws/aws-sdk-go-v2` (s3)    | uploads (SigV4, retries, checksums)   |
+| `BurntSushi/toml`           | config file parsing                   |
+| `spf13/cobra`               | CLI: subcommands, flags, completion   |
+| `invopop/jsonschema`        | config JSON Schema from Go structs    |
+| `gofrs/flock`               | cross-platform manifest file locking  |
+| `golang.org/x/net/html`     | HTML5 tokenization for noindex splice |
 
 Notes:
 
@@ -142,8 +143,11 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
 - Local rendering: `RenderInput` owns read limits, binary and invalid
   UTF-8 rejection,
   format detection, title/slug resolution, template execution, and
-  noindex handling. `Client.Upload` adds source/page storage, URLs, and
-  manifest recording; `airplan preview` stops after `RenderInput`.
+  noindex handling. Explicit HTML is tokenized with `x/net/html`; raw token
+  lengths locate the original head boundary while normalized tokens identify
+  in-head robots metadata. Injection splices only the original byte slice and
+  never serializes the token stream. `Client.Upload` adds source/page storage,
+  URLs, and manifest recording; `airplan preview` stops after `RenderInput`.
 - Key randomness: `crypto/rand` — never `math/rand` (spec requires a
   CSPRNG).
 - Public URL assembly percent-encodes each object-key path segment;

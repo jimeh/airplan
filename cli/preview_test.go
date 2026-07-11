@@ -152,7 +152,10 @@ func TestPreviewHTMLAppliesNoindexWithoutNetwork(t *testing.T) {
 	cmd := newRootCmd()
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetIn(strings.NewReader("<!doctype html><html><head></head></html>"))
+	cmd.SetIn(strings.NewReader(
+		"<!doctype html><!-- <meta name=robots> -->" +
+			"<html><head></head></html>",
+	))
 	cmd.SetArgs([]string{"preview", "--format", "html", "-"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
@@ -160,5 +163,8 @@ func TestPreviewHTMLAppliesNoindexWithoutNetwork(t *testing.T) {
 	if !strings.Contains(stdout.String(),
 		`<head><meta name="robots" content="noindex, nofollow">`) {
 		t.Fatalf("preview did not inject noindex: %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "<!-- <meta name=robots> -->") {
+		t.Fatalf("preview changed the comment: %s", stdout.String())
 	}
 }
