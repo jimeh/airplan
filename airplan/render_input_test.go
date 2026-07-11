@@ -32,6 +32,35 @@ func TestRenderInputRejectsInvalidUTF8(t *testing.T) {
 	}
 }
 
+func TestRenderInputRejectsEmptyButAcceptsWhitespace(t *testing.T) {
+	_, err := RenderInput(context.Background(), Input{
+		Reader: strings.NewReader(""),
+	}, RenderInputOptions{})
+	if !errors.Is(err, ErrEmptyInput) {
+		t.Fatalf("empty input error = %v, want ErrEmptyInput", err)
+	}
+
+	if _, err := RenderInput(context.Background(), Input{
+		Reader: strings.NewReader(" \n"),
+	}, RenderInputOptions{}); err != nil {
+		t.Fatalf("whitespace input: %v", err)
+	}
+}
+
+func TestRenderInputRejectsTemplateAndTemplatePath(t *testing.T) {
+	path := writeTemplate(t, `{{.Title}}`)
+	tmpl, err := LoadTemplate(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = RenderInput(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n"),
+	}, RenderInputOptions{Template: tmpl, TemplatePath: path})
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestRenderInputAcceptsValidNonASCII(t *testing.T) {
 	_, err := RenderInput(context.Background(), Input{
 		Reader: strings.NewReader("# Héllo 👋\n"), Format: "md",
@@ -89,7 +118,6 @@ func TestRenderInputTextExposesCanonicalSourceData(t *testing.T) {
 	tmpl, err := LoadTemplate(writeTemplate(t, strings.Join([]string{
 		`{{.Format}}|{{.Language}}|{{.SourceName}}|`,
 		`{{.SourceText}}|{{if .HighlightedSourceHTML}}highlighted{{end}}|`,
-		`{{if .SourceHTML}}legacy{{end}}`,
 	}, "")))
 	if err != nil {
 		t.Fatal(err)
@@ -105,9 +133,6 @@ func TestRenderInputTextExposesCanonicalSourceData(t *testing.T) {
 	got := string(doc.HTML)
 	if !strings.Contains(got, "txt|go|main.go|package main\n|highlighted|") {
 		t.Fatalf("canonical template data = %q", got)
-	}
-	if strings.Contains(got, "legacy") {
-		t.Fatalf("legacy SourceHTML must stay empty for text: %q", got)
 	}
 }
 

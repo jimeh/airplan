@@ -14,6 +14,7 @@ func newConfigCmd() *cobra.Command {
 	cmd.AddCommand(&cobra.Command{
 		Use:   "schema",
 		Short: "Print the config file JSON Schema",
+		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out, err := airplan.ConfigSchema()
 			if err != nil {

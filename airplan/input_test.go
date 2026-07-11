@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"golang.org/x/net/html"
 )
 
 func TestParseFormat(t *testing.T) {
@@ -260,6 +262,130 @@ func TestInjectNoindex(t *testing.T) {
 				tag + `<body>x</body></html>`,
 			wantResult: NoindexInjected,
 		},
+		{
+			name: "commented robots does not suppress injection",
+			input: `<!-- <meta name="robots" content="index"> -->` +
+				`<html><head><title>x</title></head></html>`,
+			want: `<!-- <meta name="robots" content="index"> -->` +
+				`<html><head>` + tag + `<title>x</title></head></html>`,
+			wantResult: NoindexInjected,
+		},
+		{
+			name: "commented head is not splice target",
+			input: `<!-- <head data-fake=">"> -->` +
+				`<html><head lang=en><title>x</title></head></html>`,
+			want: `<!-- <head data-fake=">"> -->` +
+				`<html><head lang=en>` + tag +
+				`<title>x</title></head></html>`,
+			wantResult: NoindexInjected,
+		},
+		{
+			name: "script lookalikes before head are inert",
+			input: `<script>"<head><meta name='robots'>"</script>` +
+				`<HEAD data-x=1></HEAD>`,
+			want: `<script>"<head><meta name='robots'>"</script>` +
+				`<HEAD data-x=1>` + tag + `</HEAD>`,
+			wantResult: NoindexInjected,
+		},
+		{
+			name: "template head before real head is inert",
+			input: `<template><head><meta name=robots></head></template>` +
+				`<head><title>x</title></head>`,
+			want: `<template><head><meta name=robots></head></template>` +
+				`<head>` + tag + `<title>x</title></head>`,
+			wantResult: NoindexInjected,
+		},
+		{
+			name: "noscript head before real head is inert",
+			input: `<noscript><head><meta name=robots></head></noscript>` +
+				`<head></head>`,
+			want: `<noscript><head><meta name=robots></head></noscript>` +
+				`<head>` + tag + `</head>`,
+			wantResult: NoindexInjected,
+		},
+		{
+			name: "style lookalike in head is inert",
+			input: `<head><style>x::after{content:"<meta name=robots>"}` +
+				`</style></head>`,
+			want: `<head>` + tag +
+				`<style>x::after{content:"<meta name=robots>"}</style></head>`,
+			wantResult: NoindexInjected,
+		},
+		{
+			name: "rcdata lookalikes in head are inert",
+			input: `<head><title><meta name=robots></title>` +
+				`<textarea><meta name=robots></textarea></head>`,
+			want: `<head>` + tag + `<title><meta name=robots></title>` +
+				`<textarea><meta name=robots></textarea></head>`,
+			wantResult: NoindexInjected,
+		},
+		{
+			name: "nested template robots meta is inert",
+			input: `<head><template><template><meta name=robots>` +
+				`</template></template></head>`,
+			want: `<head>` + tag +
+				`<template><template><meta name=robots>` +
+				`</template></template></head>`,
+			wantResult: NoindexInjected,
+		},
+		{
+			name:  "noscript robots meta is inert",
+			input: `<head><noscript><meta name=robots></noscript></head>`,
+			want: `<head>` + tag +
+				`<noscript><meta name=robots></noscript></head>`,
+			wantResult: NoindexInjected,
+		},
+		{
+			name:  "robots meta after head does not suppress injection",
+			input: `<head></head><meta name=robots><body>x</body>`,
+			want: `<head>` + tag +
+				`</head><meta name=robots><body>x</body>`,
+			wantResult: NoindexInjected,
+		},
+		{
+			name:       "robots meta after body does not suppress injection",
+			input:      `<head><body><meta name=robots></body>`,
+			want:       `<head>` + tag + `<body><meta name=robots></body>`,
+			wantResult: NoindexInjected,
+		},
+		{
+			name: "entity encoded robots name is recognized",
+			input: `<head><META content="all > none" NAME="ro&#98;ots">` +
+				`</head>`,
+			want: `<head><META content="all > none" NAME="ro&#98;ots">` +
+				`</head>`,
+			wantResult: NoindexAlreadyPresent,
+		},
+		{
+			name:       "unclosed comment hides head lookalike",
+			input:      `<!-- <head><meta name=robots>`,
+			want:       `<!-- <head><meta name=robots>`,
+			wantResult: NoindexNoHead,
+		},
+		{
+			name:       "unclosed raw text hides head lookalike",
+			input:      `<script><head><meta name=robots>`,
+			want:       `<script><head><meta name=robots>`,
+			wantResult: NoindexNoHead,
+		},
+		{
+			name:       "unclosed quoted head has no splice point",
+			input:      `<html><head data-x="oops<title>x</title>`,
+			want:       `<html><head data-x="oops<title>x</title>`,
+			wantResult: NoindexNoHead,
+		},
+		{
+			name:       "unclosed head has no splice point",
+			input:      `<html><head`,
+			want:       `<html><head`,
+			wantResult: NoindexNoHead,
+		},
+		{
+			name:       "malformed content after head still injects",
+			input:      `<html><head><script>"unterminated`,
+			want:       `<html><head>` + tag + `<script>"unterminated`,
+			wantResult: NoindexInjected,
+		},
 	}
 
 	for _, tt := range tests {
@@ -303,6 +429,109 @@ func TestInjectNoindexByteExactness(t *testing.T) {
 		t.Fatalf("suffix changed: got %q, want %q",
 			got[len(prefix)+len(tag):], suffix)
 	}
+}
+
+func TestInjectNoindexPreservesBOMAndUnicode(t *testing.T) {
+	t.Parallel()
+
+	input := []byte("\xef\xbb\xbf<!doctype html>\r\n<head data-city=\"Malmö\">" +
+		"\r\n<title>設計</title></head>")
+	scan := scanHTMLHead(input)
+	if scan.headEnd < 0 {
+		t.Fatal("scanHTMLHead did not find head")
+	}
+
+	got, result := InjectNoindex(input)
+	if result != NoindexInjected {
+		t.Fatalf("InjectNoindex result = %v, want %v",
+			result, NoindexInjected)
+	}
+	if !bytes.Equal(got[:scan.headEnd], input[:scan.headEnd]) {
+		t.Fatal("bytes before insertion changed")
+	}
+	if !bytes.Equal(got[scan.headEnd+len(noindexMetaTag):],
+		input[scan.headEnd:]) {
+		t.Fatal("bytes after insertion changed")
+	}
+}
+
+func TestHTMLTokenizerRawOffsetsPartitionInput(t *testing.T) {
+	t.Parallel()
+
+	inputs := [][]byte{
+		[]byte(`<!doctype html><HEAD data-x=">"><title>x</title></HEAD>`),
+		[]byte("<!-- fake <head> -->\r\n<head lang=\"en\">\r\n</head>"),
+		[]byte(`<script>"<head>"</script><head><meta name=robots></head>`),
+	}
+	for _, input := range inputs {
+		tokenizer := html.NewTokenizer(bytes.NewReader(input))
+		offset := 0
+		for {
+			tokenType := tokenizer.Next()
+			rawLen := len(tokenizer.Raw())
+			if offset+rawLen > len(input) {
+				t.Fatalf("raw offset %d exceeds input length %d",
+					offset+rawLen, len(input))
+			}
+			offset += rawLen
+			if tokenType == html.ErrorToken {
+				break
+			}
+			if tokenType == html.StartTagToken ||
+				tokenType == html.SelfClosingTagToken ||
+				tokenType == html.EndTagToken {
+				_ = tokenizer.Token()
+			}
+		}
+		if offset != len(input) {
+			t.Fatalf("raw tokens cover %d bytes, want %d", offset, len(input))
+		}
+	}
+}
+
+func FuzzInjectNoindex(f *testing.F) {
+	for _, seed := range [][]byte{
+		[]byte(`<html><head></head><body>x</body></html>`),
+		[]byte(`<!-- <head> --><head><meta name=robots></head>`),
+		[]byte(`<script>"<head>"</script><head>`),
+		[]byte(`<head><template><meta name=robots></template></head>`),
+		[]byte("\xef\xbb\xbf\r\n<head data-x=\"é\">\x00\xff"),
+	} {
+		f.Add(seed)
+	}
+
+	f.Fuzz(func(t *testing.T, input []byte) {
+		original := bytes.Clone(input)
+		output, result := InjectNoindex(input)
+		if !bytes.Equal(input, original) {
+			t.Fatal("InjectNoindex mutated its input")
+		}
+
+		switch result {
+		case NoindexNoHead, NoindexAlreadyPresent:
+			if !bytes.Equal(output, original) {
+				t.Fatalf("unchanged result %v modified input", result)
+			}
+		case NoindexInjected:
+			scan := scanHTMLHead(original)
+			if scan.headEnd < 0 || scan.headEnd > len(original) {
+				t.Fatalf("invalid insertion offset %d", scan.headEnd)
+			}
+			if len(output) != len(original)+len(noindexMetaTag) {
+				t.Fatalf("output length = %d, want %d",
+					len(output), len(original)+len(noindexMetaTag))
+			}
+			if !bytes.Equal(output[:scan.headEnd], original[:scan.headEnd]) ||
+				!bytes.Equal(output[scan.headEnd:scan.headEnd+len(noindexMetaTag)],
+					[]byte(noindexMetaTag)) ||
+				!bytes.Equal(output[scan.headEnd+len(noindexMetaTag):],
+					original[scan.headEnd:]) {
+				t.Fatal("injection did not preserve original bytes")
+			}
+		default:
+			t.Fatalf("unknown NoindexResult %d", result)
+		}
+	})
 }
 
 func TestInjectNoindexQuotedTagEnd(t *testing.T) {

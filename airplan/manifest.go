@@ -3,6 +3,7 @@ package airplan
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -36,6 +37,10 @@ type ManifestRecord struct {
 	Profile   string `json:"profile,omitempty"`
 	Title     string `json:"title,omitempty"`
 	Bytes     int64  `json:"bytes,omitempty"`
+
+	// MarkerVersion is the remote ownership-marker version written for an
+	// upload. Delete records omit it.
+	MarkerVersion int `json:"marker_version,omitempty"`
 }
 
 // DefaultManifestPath returns the platform default manifest location
@@ -73,7 +78,9 @@ func DefaultManifestPath() (string, error) {
 // per SPEC.md §9: the file is opened in append mode, the full line —
 // trailing newline included — goes out in a single write, and the
 // write is wrapped in an advisory file lock (gofrs/flock).
-func appendManifestRecord(path string, rec ManifestRecord) error {
+func appendManifestRecord(
+	ctx context.Context, path string, rec ManifestRecord,
+) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create manifest directory: %w", err)
 	}
@@ -85,8 +92,12 @@ func appendManifestRecord(path string, rec ManifestRecord) error {
 	line = append(line, '\n')
 
 	lock := flock.New(path+".lock", flock.SetPermissions(0o600))
-	if err := lock.Lock(); err != nil {
+	locked, err := lock.TryLockContext(ctx, 10*time.Millisecond)
+	if err != nil {
 		return fmt.Errorf("lock manifest: %w", err)
+	}
+	if !locked {
+		return fmt.Errorf("lock manifest: %w", ctx.Err())
 	}
 	defer func() { _ = lock.Unlock() }()
 
@@ -145,13 +156,38 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 		} else {
 			line = bytes.TrimSuffix(line, []byte{'\n'})
 			line = bytes.TrimSuffix(line, []byte{'\r'})
+			if len(bytes.TrimSpace(line)) == 0 {
+				if readErr == io.EOF {
+					break
+				}
+				continue
+			}
 
 			var rec ManifestRecord
 			if err := json.Unmarshal(line, &rec); err != nil {
 				warnings = append(warnings,
 					fmt.Sprintf("skipping malformed manifest line %d", lineNo))
-			} else if rec.Type == "upload" || rec.Type == "delete" {
-				records = append(records, rec)
+			} else if rec.Type == "upload" {
+				if rec.MarkerVersion != MarkerVersion {
+					warnings = append(warnings, fmt.Sprintf(
+						"skipping manifest line %d with unsupported marker_version %d",
+						lineNo, rec.MarkerVersion,
+					))
+				} else if err := validateManifestRecord(rec); err != nil {
+					warnings = append(warnings, fmt.Sprintf(
+						"skipping invalid manifest line %d: %s", lineNo, err,
+					))
+				} else {
+					records = append(records, rec)
+				}
+			} else if rec.Type == "delete" {
+				if err := validateManifestRecord(rec); err != nil {
+					warnings = append(warnings, fmt.Sprintf(
+						"skipping invalid manifest line %d: %s", lineNo, err,
+					))
+				} else {
+					records = append(records, rec)
+				}
 			}
 		}
 		if readErr != nil {
@@ -163,6 +199,37 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 	}
 
 	return records, warnings, nil
+}
+
+func validateManifestRecord(rec ManifestRecord) error {
+	if rec.Time.IsZero() {
+		return errors.New("time is required")
+	}
+	if _, offset := rec.Time.Zone(); offset != 0 {
+		return errors.New("time must be UTC")
+	}
+	if rec.Key == "" {
+		return errors.New("key is required")
+	}
+
+	switch rec.Type {
+	case "upload":
+		if rec.URL == "" {
+			return errors.New("url is required")
+		}
+		if rec.Bucket == "" {
+			return errors.New("bucket is required")
+		}
+		if rec.Bytes <= 0 {
+			return errors.New("bytes must be positive")
+		}
+	case "delete":
+		// The common time and key fields are the complete tombstone shape.
+	default:
+		return fmt.Errorf("unsupported type %q", rec.Type)
+	}
+
+	return nil
 }
 
 // readManifestLine reads one logical line while retaining at most max
@@ -188,7 +255,7 @@ func readManifestLine(r *bufio.Reader, max int) ([]byte, bool, error) {
 // recordUpload appends an upload record for res, best-effort: manifest
 // failures degrade to a warning on the result, never a failed upload
 // (SPEC.md §9 — the manifest is convenience, not a source of truth).
-func (c *Client) recordUpload(res *Result) {
+func (c *Client) recordUpload(ctx context.Context, res *Result) {
 	if c.cfg.DisableManifest {
 		return
 	}
@@ -205,17 +272,18 @@ func (c *Client) recordUpload(res *Result) {
 	}
 
 	rec := ManifestRecord{
-		Type:      "upload",
-		Time:      time.Now().UTC().Truncate(time.Second),
-		Key:       res.Key,
-		SourceKey: res.SourceKey,
-		URL:       res.URL,
-		Bucket:    res.Bucket,
-		Profile:   c.cfg.Profile,
-		Title:     res.Title,
-		Bytes:     res.Bytes,
+		Type:          "upload",
+		Time:          res.CreatedAt,
+		Key:           res.Key,
+		SourceKey:     res.SourceKey,
+		URL:           res.URL,
+		Bucket:        res.Bucket,
+		Profile:       c.cfg.Profile,
+		Title:         res.Title,
+		Bytes:         res.Bytes,
+		MarkerVersion: res.MarkerVersion,
 	}
-	if err := appendManifestRecord(path, rec); err != nil {
+	if err := appendManifestRecord(ctx, path, rec); err != nil {
 		res.Warnings = append(res.Warnings,
 			"manifest not recorded: "+err.Error())
 	}
@@ -247,7 +315,8 @@ func ActiveUploads(records []ManifestRecord) []ManifestRecord {
 
 	var out []ManifestRecord
 	for _, r := range records {
-		if r.Type == "upload" && !deleted[r.Key] {
+		if r.Type == "upload" && r.MarkerVersion == MarkerVersion &&
+			!deleted[r.Key] {
 			out = append(out, r)
 		}
 	}

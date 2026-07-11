@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/jimeh/airplan/airplan"
 )
@@ -44,12 +45,15 @@ func TestDeleteCommand(t *testing.T) {
 	if stdout != "" {
 		t.Fatalf("stdout = %q, want empty", stdout)
 	}
-	if !strings.Contains(stderr, "deleted 2 objects") ||
+	if !strings.Contains(stderr, "deleted 3 objects") ||
 		!strings.Contains(stderr, "key "+deleteDirA+"/plan.html") {
 		t.Fatalf("stderr = %q, want delete summary", stderr)
 	}
 	if fake.deleteCalls() != 1 {
 		t.Fatalf("delete calls = %d, want 1", fake.deleteCalls())
+	}
+	if fake.markerDeleteCalls() != 1 {
+		t.Fatalf("marker delete calls = %d, want 1", fake.markerDeleteCalls())
 	}
 
 	manifest := filepath.Join(stateHome, "airplan", "manifest.jsonl")
@@ -64,11 +68,12 @@ func TestDeleteCommand(t *testing.T) {
 }
 
 type fakeDeleteS3 struct {
-	server *httptest.Server
-	mu     sync.Mutex
-	keys   map[string][]string
-	fail   map[string]bool
-	posts  int
+	server        *httptest.Server
+	mu            sync.Mutex
+	keys          map[string][]string
+	fail          map[string]bool
+	posts         int
+	markerDeletes int
 }
 
 func newFakeDeleteS3(
@@ -87,9 +92,18 @@ func newFakeDeleteS3(
 			body, _ := io.ReadAll(r.Body)
 			switch r.Method {
 			case "GET":
-				fake.handleList(w, r)
+				if r.URL.Query().Get("list-type") == "2" {
+					fake.handleList(w, r)
+				} else {
+					fake.handleMarker(w, r)
+				}
 			case "POST":
 				fake.handleDelete(w, string(body))
+			case "DELETE":
+				fake.mu.Lock()
+				fake.markerDeletes++
+				fake.mu.Unlock()
+				w.WriteHeader(http.StatusNoContent)
 			default:
 				w.WriteHeader(http.StatusOK)
 			}
@@ -109,12 +123,49 @@ func (f *fakeDeleteS3) handleList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/xml")
 	fmt.Fprintln(w, `<?xml version="1.0" encoding="UTF-8"?>`)
 	fmt.Fprintln(w, `<ListBucketResult><IsTruncated>false</IsTruncated>`)
+	if len(keys) > 0 {
+		fmt.Fprintf(w, "<Contents><Key>%s%s</Key><Size>100</Size>",
+			prefix, airplan.MarkerFilename)
+		fmt.Fprint(w, "<LastModified>2026-07-01T00:00:00Z</LastModified>")
+		fmt.Fprintln(w, "</Contents>")
+	}
 	for _, key := range keys {
 		fmt.Fprintf(w, "<Contents><Key>%s</Key><Size>10</Size>", key)
 		fmt.Fprint(w, "<LastModified>2026-07-01T00:00:00Z</LastModified>")
 		fmt.Fprintln(w, "</Contents>")
 	}
 	fmt.Fprintln(w, `</ListBucketResult>`)
+}
+
+func (f *fakeDeleteS3) handleMarker(w http.ResponseWriter, r *http.Request) {
+	key := strings.TrimPrefix(r.URL.Path, "/plans/")
+	dir := strings.TrimSuffix(key, "/"+airplan.MarkerFilename)
+	prefix := dir + "/"
+
+	f.mu.Lock()
+	keys := append([]string(nil), f.keys[prefix]...)
+	f.mu.Unlock()
+	page := ""
+	for _, candidate := range keys {
+		if strings.HasSuffix(candidate, ".html") {
+			page = strings.TrimPrefix(candidate, prefix)
+			break
+		}
+	}
+	if page == "" {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	body, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
+		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Directory: dir, CreatedAt: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
+		Format: "html", Page: page,
+	})
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	_, _ = w.Write(body)
 }
 
 func (f *fakeDeleteS3) handleDelete(w http.ResponseWriter, body string) {
@@ -136,6 +187,12 @@ func (f *fakeDeleteS3) deleteCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.posts
+}
+
+func (f *fakeDeleteS3) markerDeleteCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.markerDeletes
 }
 
 func writeCLIConfig(t *testing.T, endpoint string) string {

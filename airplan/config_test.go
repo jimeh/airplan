@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -118,6 +119,24 @@ bucket = "env-bucket"
 		}
 		assertEqual(t, cfg.Endpoint, "env-endpoint")
 		assertEqual(t, cfg.Bucket, "env-bucket")
+	})
+
+	t.Run("explicit missing option path errors", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "missing.toml")
+		_, err := LoadConfig(ConfigOptions{
+			Path: path, Getenv: envMap(nil),
+		})
+		assertErrorContains(t, err, "config file", strconv.Quote(path),
+			"does not exist")
+	})
+
+	t.Run("explicit missing environment path errors", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "missing.toml")
+		_, err := LoadConfig(ConfigOptions{Getenv: envMap(map[string]string{
+			"AIRPLAN_CONFIG": path,
+		})})
+		assertErrorContains(t, err, "config file", strconv.Quote(path),
+			"does not exist")
 	})
 }
 
@@ -681,7 +700,8 @@ func writeConfig(t *testing.T, body string, mode os.FileMode) string {
 
 func missingPath(t *testing.T) string {
 	t.Helper()
-	return filepath.Join(t.TempDir(), "missing.toml")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	return ""
 }
 
 func envMap(values map[string]string) func(string) string {
@@ -751,7 +771,7 @@ func TestLoadConfigEnvProfileWithoutConfigFile(t *testing.T) {
 	env := map[string]string{"AIRPLAN_PROFILE": "work"}
 
 	_, err := LoadConfig(ConfigOptions{
-		Path:   filepath.Join(t.TempDir(), "missing.toml"),
+		Path:   missingPath(t),
 		Getenv: func(k string) string { return env[k] },
 	})
 	if err == nil {
@@ -858,6 +878,8 @@ func TestParseTimeout(t *testing.T) {
 		{"-5s", 0, true},
 		{"bogus", 0, true},
 		{"", 0, true},
+		{"18446744074", 0, true},
+		{"9223372036854775807", 0, true},
 	}
 	for _, tt := range tests {
 		got, err := parseTimeout(tt.in)

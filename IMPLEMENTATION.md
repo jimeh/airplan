@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.6.0.
+may contradict it. Targets spec version 0.11.0.
 
 ---
 
@@ -33,15 +33,16 @@ Considered alternatives:
 
 ## 2. Dependencies (deliberately few)
 
-| Dependency                  | Purpose                              |
-| --------------------------- | ------------------------------------ |
-| `yuin/goldmark` (+ GFM ext) | markdown → HTML body                 |
-| `alecthomas/chroma/v2`      | code block syntax highlighting       |
-| `aws/aws-sdk-go-v2` (s3)    | uploads (SigV4, retries, checksums)  |
-| `BurntSushi/toml`           | config file parsing                  |
-| `spf13/cobra`               | CLI: subcommands, flags, completion  |
-| `invopop/jsonschema`        | config JSON Schema from Go structs   |
-| `gofrs/flock`               | cross-platform manifest file locking |
+| Dependency                  | Purpose                               |
+| --------------------------- | ------------------------------------- |
+| `yuin/goldmark` (+ GFM ext) | markdown → HTML body                  |
+| `alecthomas/chroma/v2`      | code block syntax highlighting        |
+| `aws/aws-sdk-go-v2` (s3)    | uploads (SigV4, retries, checksums)   |
+| `BurntSushi/toml`           | config file parsing                   |
+| `spf13/cobra`               | CLI: subcommands, flags, completion   |
+| `invopop/jsonschema`        | config JSON Schema from Go structs    |
+| `gofrs/flock`               | cross-platform manifest file locking  |
+| `golang.org/x/net/html`     | HTML5 tokenization for noindex splice |
 
 Notes:
 
@@ -77,8 +78,9 @@ cli/                    cobra command constructors (root, list, …);
 airplan/                core library (public Go API): config
                         load/merge/validate, input reading + format
                         detection + noindex splice, markdown
-                        rendering, key/slug generation, S3 upload,
-                        URL assembly; embeds template/CSS assets
+                        rendering, ownership markers, key/slug
+                        generation, S3 upload/list/show/delete,
+                        manifest history, URL assembly; embeds assets
                         via go:embed — no external assets at
                         runtime, ever
 schema/airplan.schema.json   generated config schema (committed)
@@ -109,6 +111,10 @@ res, err := client.Upload(ctx, airplan.Input{
     Name:   "plan.md", // "" for stdin
 })
 // res.URL, res.Key, res.SourceURL, res.Bytes, res.ContentType
+
+uploads, err := client.ListRemote(ctx) // one LIST traversal, no marker GETs
+inspection, err := client.InspectUpload(ctx, uploads[0].MarkerKey)
+deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
 ```
 
 ## 4. Spec Requirements → Mechanisms
@@ -129,26 +135,57 @@ res, err := client.Upload(ctx, airplan.Input{
 - Templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, structured headings/ToC entries, format metadata,
-  title, slug, indexing intent, and source names/paths. Legacy
-  `Body`/`SourceHTML`/`FileName` aliases remain. The built-in page CSS
-  and JS are expanded into the embedded template source before parsing,
-  so `airplan template` prints an exact reusable template containing
-  only public data fields.
+  title, slug, indexing intent, and source names/paths. The built-in page CSS
+  and JS are expanded into the embedded template source before parsing, so
+  `airplan template` prints an exact reusable template containing only public
+  data fields.
 - Local rendering: `RenderInput` owns read limits, binary and invalid
   UTF-8 rejection,
   format detection, title/slug resolution, template execution, and
-  noindex handling. `Client.Upload` adds source/page storage, URLs, and
-  manifest recording; `airplan preview` stops after `RenderInput`.
+  noindex handling. Explicit HTML is tokenized with `x/net/html`; raw token
+  lengths locate the original head boundary while normalized tokens identify
+  in-head robots metadata. Injection splices only the original byte slice and
+  never serializes the token stream. `Client.Upload` adds source/page storage,
+  URLs, and manifest recording; `airplan preview` stops after `RenderInput`.
+  Preview file output renames a same-directory temporary file on Unix and uses
+  Windows `ReplaceFileW` (falling back to `MoveFileEx` for a new destination)
+  so replacement matches the spec's atomicity contract on both families.
+- Public API boundaries: `New`, `RenderInput`, and every `Client` operation
+  reject nil contexts; zero-value or nil clients return
+  `ErrUninitializedClient`; and `PublicURL` reports a nil config as an error.
+  Cancellation stops waiting for arbitrary input readers, but callers must
+  still unblock or close a retained reader because Go cannot interrupt it.
 - Key randomness: `crypto/rand` — never `math/rand` (spec requires a
   CSPRNG).
 - Public URL assembly percent-encodes each object-key path segment;
   delete parsing uses `net/url` to recover the original UTF-8 key.
+- Ownership markers: every managed directory starts with an exact
+  `.airplan.json` direct child. The strict, versioned marker declares the
+  page and optional source. Upload writes it first, so an interrupted upload
+  remains visible; delete validates it before mutation and removes it last,
+  so marker presence remains the remote ownership boundary.
+- Remote discovery: `ListRemote` makes a paginated LIST traversal under the
+  active `key_prefix`, includes only random directories with an exact marker
+  key, and derives object count, total bytes, marker modification time, and an
+  unambiguous HTML slug hint from that response. It never fetches markers or
+  heads payload objects. `InspectUpload` is the targeted GET + directory LIST
+  path that validates marker content and reports `complete`, `incomplete`, or
+  `invalid`.
+- Remote deletion: the marker must decode and authorize the supplied direct
+  target. Payload objects are removed with batched `DeleteObjects`, then the
+  marker is removed in a separate final `DeleteObject`. Invalid and markerless
+  directories are outside airplan's remote management authority.
 - `--older-than` durations: small custom parser for `d`/`w` units —
   Go's stdlib `time.ParseDuration` has no days.
 - Manifest appends: `O_APPEND` open, whole line in one `Write` call,
-  wrapped in `gofrs/flock` (flock on Unix, LockFileEx on Windows)
-  per spec §9's concurrency rules. Readers discard malformed or
-  oversized lines completely and resume at the following newline.
+  wrapped in context-aware `gofrs/flock` acquisition (flock on Unix,
+  LockFileEx on Windows) per spec §9's concurrency and timeout rules.
+  Records carry the marker version; readers discard malformed, oversized,
+  and unsupported records completely and resume at the following newline.
+- Purge: local candidates are constrained to the active bucket and key
+  prefix before deletion. Remote candidates come from LIST, then marker
+  inspection runs with a fixed concurrency limit; only valid markers grant
+  deletion authority and marker `created_at` drives age filtering.
 - Config/state paths: `os.UserConfigDir` for config; a small helper
   for the state dir (`XDG_STATE_HOME` → `~/.local/state`,
   `%LocalAppData%` on Windows — Go stdlib has no state-dir
@@ -200,75 +237,35 @@ SLSA provenance attestations for every checksum-listed artifact.
 `go install` works as a fallback and derives its version from Go build
 information.
 
-## 8. Phased Plan
+## 8. Upload Lifecycle
 
-### Phase 1 — MVP (usable end-to-end)
+1. Render and validate the complete input locally before storage mutation.
+2. Generate and encode the ownership marker from the final object names.
+3. Put `.airplan.json` first, then the optional source, then the HTML page.
+4. Print the page URL only after all required puts succeed; record the
+   marker-versioned manifest entry afterward as a best-effort local aid.
+5. Discover remote uploads with LIST-only marker-key filtering. Use `show`
+   when trusted metadata or completeness state is needed.
+6. Validate the marker before delete or purge. Delete all payload and extra
+   objects first, remove the marker last, then append the local tombstone.
 
-1. Repo scaffolding: module, root `main.go` + `cli/` + `airplan/`,
-   CI (lint + test), Makefile with `build`, `test`, `lint` targets.
-2. Core config: TOML file + env + flags, single profile,
-   precedence, validation errors.
-3. Core input: file/stdin reading, format detection, noindex
-   splice for HTML input (spec §4).
-4. Core render: goldmark + GFM + chroma, embedded template/CSS,
-   dark/light, title resolution, noindex meta, download-markdown
-   anchor (plain link — no JS in phase 1).
-5. Core keygen: 128-bit base32 keys, slug sanitization.
-6. Core storage: aws-sdk-go-v2 client (custom endpoint,
-   path-style toggle), PutObject with content-type/cache headers —
-   page plus sibling `.md` (and `--no-source` opt-out), URL
-   assembly.
-7. Wire-up: `cli` calling the core's public API only (dogfoods the
-   Go surface), stdout/stderr contract, exit codes.
-8. Verified manually against R2 with a custom domain, and against
-   MinIO locally.
-
-Exit criteria: `airplan plan.md` prints a working R2 URL; rendered
-page is readable on desktop + mobile, light + dark.
-
-### Phase 2 — Agent & daily-driver ergonomics
-
-- Named profiles + `default_profile` + `--profile`.
-- `--json` output mode.
-- `--slug`, `--title`, `--open`.
-- `--format` override; stdin sniffing hardening (BOM, whitespace).
-- Record every upload in the local manifest (spec §9) so history
-  already exists when the phase-3 commands ship; set
-  `x-amz-meta-title` on upload.
-- Default template interactivity: rendered/source toggle, "copy
-  markdown", raw/download source links, per-code-block copy buttons —
-  embedded vanilla JS with no-JS and print fallbacks (spec §3). Phase 1
-  ships the template static, without JS.
-- Custom template support (`--template` / `AIRPLAN_TEMPLATE` /
-  profile `template`) with the documented data contract, plus
-  `airplan template` to dump the built-in as a starting point.
-- Config JSON Schema: `airplan config schema` subcommand, committed
-  `schema/airplan.schema.json` with CI staleness check (see §5).
-- Agent skill shipped in-repo (see §6).
-- GoReleaser distribution (see §7).
-- README (see §6).
-
-### Phase 3 — History & cleanup (each independently optional)
-
-- `airplan list` (manifest-driven; `--json`).
-- `airplan delete <url|key>` (directory-unit deletion, manifest
-  tombstones).
-- `airplan purge` with filters, `--dry-run`, `--yes`, custom
-  duration parser.
-- `--remote` on `list`/`purge`: bucket listing, key-shape
-  recognition, `key_prefix` scoping, `HeadObject` titles.
-
-All behavior per spec §9.
+This ordering intentionally exposes interrupted creation as incomplete and
+removes a directory from airplan's management surface only after payload
+deletion has succeeded.
 
 ## 9. Testing Strategy
 
-- Unit: config precedence matrix, slug sanitization, format
-  sniffing, key entropy/encoding properties, URL assembly.
+- Unit: config precedence matrix, slug sanitization, format sniffing, key
+  entropy/encoding properties, URL assembly, strict marker validation,
+  LIST-only grouping, inspection states, delete request ordering, manifest
+  lock cancellation, and purge safety filters.
 - Golden files: markdown fixtures → rendered HTML snapshots
   (`testdata/`, `-update` flag convention).
 - Integration: MinIO in a container (CI service / testcontainers);
-  round-trip upload, then GET and compare bytes + headers. The image
-  release tag and multi-platform digest are immutable-pinned together
-  in `airplan/integration_test.go`.
+  round-trip upload, marker bytes and headers, remote indexing, complete /
+  incomplete / invalid inspection states, markerless invisibility, invalid
+  delete rejection, and successful marker-last deletion. The image release
+  tag and multi-platform digest are immutable-pinned together in
+  `airplan/integration_test.go`.
 - Smoke (manual or tagged, needs creds): real R2 upload via a
   scoped token, fetched through the custom domain.

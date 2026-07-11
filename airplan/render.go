@@ -233,8 +233,8 @@ func RenderText(src []byte, name string, opts RenderOptions) ([]byte, error) {
 	}, opts)
 }
 
-// renderPage supplies the shared fields and compatibility aliases before
-// executing either a custom or the built-in standalone page template.
+// renderPage supplies the shared fields before executing either a custom or
+// the built-in standalone page template.
 func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 	syntax, err := syntaxCSS()
 	if err != nil {
@@ -249,14 +249,6 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 		data.SourceName = opts.SourceName
 	}
 	data.SyntaxCSS = template.CSS(syntax)
-	data.Body = data.RenderedHTML
-	data.SourceHTML = data.HighlightedSourceHTML
-	if data.Format == FormatText.String() {
-		// Preserve the legacy contract: SourceHTML was markdown-only.
-		// HighlightedSourceHTML is the canonical field for text input.
-		data.SourceHTML = ""
-		data.FileName = data.SourceName
-	}
 
 	var out bytes.Buffer
 	tmpl := pageTmpl

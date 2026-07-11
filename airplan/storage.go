@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"mime"
+	"io"
 	neturl "net/url"
 	"strings"
 	"time"
@@ -24,6 +24,8 @@ type storage struct {
 	client *s3.Client
 	creds  aws.CredentialsProvider
 }
+
+var errObjectNotFound = errors.New("object not found")
 
 // newStorage builds the S3 client from cfg: custom endpoint support,
 // path-style addressing when a custom endpoint is set (R2, MinIO),
@@ -98,8 +100,7 @@ type object struct {
 	Key         string
 	Body        []byte
 	ContentType string
-	// Metadata becomes x-amz-meta-* headers (e.g. "title" for
-	// list --remote titles, SPEC.md §5).
+	// Metadata becomes x-amz-meta-* headers.
 	Metadata map[string]string
 }
 
@@ -119,17 +120,69 @@ func (s *storage) put(ctx context.Context, obj object) error {
 	return nil
 }
 
+// getBytes fetches an object while retaining at most limit+1 bytes when limit
+// is positive. The extra byte lets strict callers identify oversized bodies.
+func (s *storage) getBytes(
+	ctx context.Context, key string, limit int64,
+) ([]byte, error) {
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		var noSuchKey *types.NoSuchKey
+		if errors.As(err, &noSuchKey) {
+			return nil, fmt.Errorf("airplan: get object %q: %w",
+				key, errObjectNotFound)
+		}
+		return nil, fmt.Errorf("airplan: get object %q: %w", key, err)
+	}
+	defer func() { _ = out.Body.Close() }()
+
+	var reader io.Reader = out.Body
+	if limit > 0 {
+		reader = io.LimitReader(reader, limit+1)
+	}
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("airplan: read object %q: %w", key, err)
+	}
+	return body, nil
+}
+
+// deleteMarker removes the ownership marker in a dedicated final request.
+func (s *storage) deleteMarker(ctx context.Context, key string) error {
+	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("airplan: delete marker %q: %w", key, err)
+	}
+	return nil
+}
+
 // PublicURL assembles the public URL for an object key:
 // <public_base_url>/<key> when public_base_url is set, else path-style
 // <endpoint>/<bucket>/<key> with fallback=true so the caller can warn
-// that the URL may not be publicly reachable (SPEC.md §7, §8).
-func PublicURL(cfg *Config, key string) (url string, fallback bool) {
+// that the URL may not be publicly reachable (SPEC.md §7, §8). A nil
+// configuration returns an error.
+func PublicURL(
+	cfg *Config, key string,
+) (url string, fallback bool, err error) {
+	if cfg == nil {
+		return "", false, errors.New("airplan: public URL: nil config")
+	}
 	if cfg.PublicBaseURL != "" {
-		return appendURLPath(cfg.PublicBaseURL, key), false
+		return appendURLPath(cfg.PublicBaseURL, key), false, nil
 	}
 
-	return appendURLPath(cfg.Endpoint, cfg.Bucket+"/"+key), true
+	return appendURLPath(cfg.Endpoint, cfg.Bucket+"/"+key), true, nil
 }
+
+const publicURLFallbackWarning = "public_base_url is not set; " +
+	"assembled the URL from the endpoint and bucket — it may not be " +
+	"publicly reachable"
 
 func appendURLPath(base, path string) string {
 	u, err := neturl.Parse(base)
@@ -211,28 +264,4 @@ func (s *storage) deleteKeys(ctx context.Context, keys []string) error {
 		}
 	}
 	return nil
-}
-
-// headTitle fetches an object's x-amz-meta-title, reversing the
-// RFC 2047 encoding applied at upload; "" when absent (SPEC.md §9).
-func (s *storage) headTitle(
-	ctx context.Context, key string,
-) (string, error) {
-	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(key),
-	})
-	if err != nil {
-		return "", fmt.Errorf("airplan: head %q: %w", key, err)
-	}
-
-	raw := out.Metadata["title"]
-	if raw == "" {
-		return "", nil
-	}
-	dec := new(mime.WordDecoder)
-	if title, err := dec.DecodeHeader(raw); err == nil {
-		return title, nil
-	}
-	return raw, nil
 }

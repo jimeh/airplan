@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"math"
 	"mime"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // pageContentType is the Content-Type of every uploaded page object
@@ -28,6 +30,9 @@ const sourceContentType = "text/markdown; charset=utf-8"
 // textContentType is the Content-Type of text input's uploaded
 // original file (SPEC.md §3, §5).
 const textContentType = "text/plain; charset=utf-8"
+
+// markerContentType is the Content-Type of ownership markers (SPEC.md §5).
+const markerContentType = "application/json"
 
 // DefaultMaxInputSize is the default input size limit (SPEC.md §2).
 // Documents are loaded whole into memory for rendering or splicing;
@@ -58,9 +63,20 @@ var ErrInvalidUTF8 = errors.New(
 		"only UTF-8 text documents are supported",
 )
 
+// ErrEmptyInput is returned by Upload or RenderInput for a zero-byte
+// document. Whitespace-only input remains valid (SPEC.md §2).
+var ErrEmptyInput = errors.New("airplan: input is empty")
+
+// ErrUninitializedClient is returned when a Client method is called on a nil
+// or zero-value Client. Construct clients with New before use.
+var ErrUninitializedClient = errors.New(
+	"airplan: client is not initialized; construct it with airplan.New",
+)
+
 // Client uploads plan documents per the pipeline in SPEC.md §1:
 // detect format → render (markdown) or noindex-splice (HTML) →
-// generate key → upload page (+ markdown source) → assemble URL.
+// generate key → upload marker → upload source (if any) → upload page →
+// assemble URL.
 type Client struct {
 	cfg      *Config
 	st       *storage
@@ -75,6 +91,9 @@ type Client struct {
 func New(ctx context.Context, cfg *Config) (*Client, error) {
 	if cfg == nil {
 		return nil, errors.New("airplan: nil config")
+	}
+	if ctx == nil {
+		return nil, errors.New("airplan: nil context")
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -108,7 +127,9 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 
 // Input describes one document to upload.
 type Input struct {
-	// Reader supplies the document bytes.
+	// Reader supplies the document bytes. Context cancellation stops waiting
+	// for a blocked Reader, but cannot interrupt an arbitrary Reader itself;
+	// callers retaining a long-lived reader must unblock or close it.
 	Reader io.Reader
 
 	// Name is the source filename ("" for stdin). Used for format
@@ -138,14 +159,16 @@ type Input struct {
 // the uploaded page object — the one URL points at — not the markdown
 // source (SPEC.md §6).
 type Result struct {
-	URL         string
-	Key         string
-	SourceURL   string // "" for HTML input or under no-source
-	SourceKey   string // "" likewise
-	Bucket      string
-	Bytes       int64
-	ContentType string
-	Title       string
+	URL           string
+	Key           string
+	SourceURL     string // "" for HTML input or under no-source
+	SourceKey     string // "" likewise
+	Bucket        string
+	Bytes         int64
+	ContentType   string
+	Title         string
+	CreatedAt     time.Time
+	MarkerVersion int
 
 	// Warnings collects non-fatal issues (e.g. HTML input with no
 	// <head> tag, public URL assembled without public_base_url) for
@@ -155,10 +178,12 @@ type Result struct {
 
 // Upload runs the full pipeline for one document and returns the
 // public URL(s). It never returns a URL that was not successfully
-// uploaded (SPEC.md §1). For markdown input the original source
-// uploads first; failure of either upload fails the whole call
-// (SPEC.md §5).
+// uploaded. The ownership marker uploads before the optional source
+// and page; failure of any PUT fails the whole call (SPEC.md §1, §5).
 func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
+	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
 	doc, err := renderInput(ctx, in, RenderInputOptions{
 		Indexable:     c.cfg.Indexable,
 		IncludeSource: !c.cfg.NoSource,
@@ -172,15 +197,46 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		return nil, fmt.Errorf("airplan: generate key: %w", err)
 	}
 
-	res := &Result{
-		Bucket:   c.cfg.Bucket,
-		Title:    doc.Title,
-		Warnings: append([]string(nil), doc.Warnings...),
+	createdAt := time.Now().UTC().Truncate(time.Second)
+	pageName := doc.Slug + ".html"
+	pageKey := BuildKey(c.cfg.KeyPrefix, dir, pageName)
+	sourceName := ""
+	if doc.sourceObjectName != "" && doc.SourcePath != "" {
+		sourceName = doc.sourceObjectName
+	}
+	marker := UploadMarker{
+		Schema:    MarkerSchema,
+		Version:   MarkerVersion,
+		Directory: dir,
+		CreatedAt: createdAt,
+		Format:    doc.Format.String(),
+		Page:      pageName,
+		Source:    sourceName,
+		Title:     doc.Title,
+	}
+	markerBody, err := EncodeUploadMarker(marker)
+	if err != nil {
+		return nil, err
+	}
+	markerKey := BuildKey(c.cfg.KeyPrefix, dir, MarkerFilename)
+	if err := c.st.put(ctx, object{
+		Key:         markerKey,
+		Body:        markerBody,
+		ContentType: markerContentType,
+	}); err != nil {
+		return nil, err
 	}
 
-	// The source uploads first: an orphaned source object is harmless,
-	// while an orphaned page URL would contain a broken download link
-	// (SPEC.md §5).
+	res := &Result{
+		Bucket:        c.cfg.Bucket,
+		Title:         doc.Title,
+		CreatedAt:     createdAt,
+		MarkerVersion: MarkerVersion,
+		Warnings:      append([]string(nil), doc.Warnings...),
+	}
+
+	// The marker uploads first so any later failure remains visibly owned and
+	// recoverable through remote management (SPEC.md §5).
 	if doc.sourceObjectName != "" && doc.SourcePath != "" {
 		sourceKey := BuildKey(
 			c.cfg.KeyPrefix, dir, doc.sourceObjectName,
@@ -197,7 +253,6 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		res.SourceKey = sourceKey
 	}
 
-	pageKey := BuildKey(c.cfg.KeyPrefix, dir, doc.Slug+".html")
 	err = c.st.put(ctx, object{
 		Key:         pageKey,
 		Body:        doc.HTML,
@@ -212,21 +267,35 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 	res.Bytes = int64(len(doc.HTML))
 	res.ContentType = pageContentType
 
-	url, fallback := PublicURL(c.cfg, pageKey)
+	url, fallback, err := PublicURL(c.cfg, pageKey)
+	if err != nil {
+		return nil, err
+	}
 	if fallback {
-		res.Warnings = append(res.Warnings,
-			"public_base_url is not set; assembled the URL from the "+
-				"endpoint and bucket — it may not be publicly reachable")
+		res.Warnings = append(res.Warnings, publicURLFallbackWarning)
 	}
 	res.URL = url
 
 	if res.SourceKey != "" {
-		res.SourceURL, _ = PublicURL(c.cfg, res.SourceKey)
+		res.SourceURL, _, err = PublicURL(c.cfg, res.SourceKey)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	c.recordUpload(res)
+	c.recordUpload(ctx, res)
 
 	return res, nil
+}
+
+func (c *Client) validate(ctx context.Context) error {
+	if c == nil || c.cfg == nil {
+		return ErrUninitializedClient
+	}
+	if ctx == nil {
+		return errors.New("airplan: nil context")
+	}
+	return nil
 }
 
 // titleMetadata builds the x-amz-meta-title metadata map (SPEC.md §5),
@@ -246,11 +315,11 @@ func titleMetadata(title string) map[string]string {
 // readInput reads r fully, enforcing limit (in bytes; <= 0 means
 // unlimited). It buffers at most one byte past the limit before
 // returning ErrInputTooLarge (SPEC.md §2). Cancelling ctx aborts the
-// wait — so a stalled stdin can't outlive the invocation timeout —
+// wait — so stalled input cannot outlive its operation timeout —
 // though the reading goroutine itself stays blocked until the
 // underlying reader unblocks or the process exits.
 func readInput(ctx context.Context, r io.Reader, limit int64) ([]byte, error) {
-	if limit > 0 {
+	if limit > 0 && limit < math.MaxInt64 {
 		r = io.LimitReader(r, limit+1)
 	}
 
@@ -284,25 +353,33 @@ func readInput(ctx context.Context, r io.Reader, limit int64) ([]byte, error) {
 
 // ParseSize parses a human-friendly byte size (SPEC.md §2): a plain
 // integer byte count, or an integer with a k/m/g suffix meaning
-// binary multiples (KiB/MiB/GiB). An optional trailing "b" or "ib" is
-// accepted and case is ignored: "10MB", "512k", "1gib", "1048576".
+// binary multiples (KiB/MiB/GiB). Unit suffixes may have a trailing
+// "b" or "ib", and case is ignored: "10MB", "512k", "1gib",
+// "1048576". A tail without k/m/g, such as "10ib", is invalid.
 func ParseSize(s string) (int64, error) {
 	orig := s
 	s = strings.ToLower(strings.TrimSpace(s))
 
 	var mult int64 = 1
-	s = strings.TrimSuffix(s, "ib")
-	s = strings.TrimSuffix(s, "b")
-	switch {
-	case strings.HasSuffix(s, "k"):
-		mult = 1 << 10
-		s = s[:len(s)-1]
-	case strings.HasSuffix(s, "m"):
-		mult = 1 << 20
-		s = s[:len(s)-1]
-	case strings.HasSuffix(s, "g"):
-		mult = 1 << 30
-		s = s[:len(s)-1]
+	for _, unit := range []struct {
+		suffix string
+		mult   int64
+	}{
+		{"kib", 1 << 10},
+		{"kb", 1 << 10},
+		{"k", 1 << 10},
+		{"mib", 1 << 20},
+		{"mb", 1 << 20},
+		{"m", 1 << 20},
+		{"gib", 1 << 30},
+		{"gb", 1 << 30},
+		{"g", 1 << 30},
+	} {
+		if strings.HasSuffix(s, unit.suffix) {
+			mult = unit.mult
+			s = strings.TrimSuffix(s, unit.suffix)
+			break
+		}
 	}
 
 	n, err := strconv.ParseInt(s, 10, 64)

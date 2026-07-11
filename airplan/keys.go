@@ -61,12 +61,18 @@ func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 			if basePath != "" {
 				key = strings.TrimPrefix(key, basePath+"/")
 			}
-			key = strings.TrimPrefix(key, cfg.Bucket+"/")
+			key, err = stripURLBucket(key, cfg.Bucket, s)
+			if err != nil {
+				return "", err
+			}
 		case cfg != nil && cfg.Endpoint == "" &&
 			cfg.PublicBaseURL == "" && cfg.Bucket != "":
 			// Keep accepting path-style URLs when only the bucket is
 			// available to the library caller.
-			key = strings.TrimPrefix(key, cfg.Bucket+"/")
+			key, err = stripURLBucket(key, cfg.Bucket, s)
+			if err != nil {
+				return "", err
+			}
 		case cfg != nil &&
 			(cfg.Endpoint != "" || cfg.PublicBaseURL != ""):
 			return "", fmt.Errorf(
@@ -76,6 +82,17 @@ func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 	}
 
 	return validateTarget(cfg, key)
+}
+
+func stripURLBucket(path, bucket, rawURL string) (string, error) {
+	segment, rest, found := strings.Cut(path, "/")
+	if !found || segment != bucket || rest == "" {
+		return "", fmt.Errorf(
+			"airplan: URL %q must contain configured bucket %q as its exact path segment",
+			rawURL, bucket,
+		)
+	}
+	return rest, nil
 }
 
 // baseURLMatches reports whether u is served from the configured
@@ -115,6 +132,22 @@ func validateTarget(cfg *Config, key string) (string, error) {
 		}
 	}
 	return key, nil
+}
+
+// KeyMatchesPrefix reports whether key's random directory is immediately
+// beneath keyPrefix. It distinguishes root uploads from uploads under another
+// configured prefix (SPEC.md §9).
+func KeyMatchesPrefix(key, keyPrefix string) bool {
+	dirPrefix, err := uploadDirPrefix(strings.Trim(key, "/"))
+	if err != nil {
+		return false
+	}
+	dirSegments := strings.Split(strings.TrimSuffix(dirPrefix, "/"), "/")
+	if len(dirSegments) == 0 {
+		return false
+	}
+	actualPrefix := strings.Join(dirSegments[:len(dirSegments)-1], "/")
+	return actualPrefix == strings.Trim(keyPrefix, "/")
 }
 
 // uploadDirPrefix returns an upload's directory prefix

@@ -2,103 +2,121 @@ package airplan
 
 import (
 	"context"
-	"path"
 	"sort"
 	"strings"
 	"time"
 )
 
-// RemoteUpload describes one upload discovered from a live bucket
-// listing (SPEC.md §9). Bytes and LastModified describe the page
-// object.
+// RemoteUpload describes one marker directory discovered by a live bucket
+// listing (SPEC.md §9). Its fields describe storage occupancy only; marker
+// content has not been fetched or trusted.
 type RemoteUpload struct {
-	Dir          string
-	PageKey      string
-	Keys         []string
-	Bytes        int64
+	// Dir is the 26-character random directory without key_prefix.
+	Dir string
+
+	// MarkerKey is the marker's full storage key, including key_prefix.
+	MarkerKey string
+
+	// Slug is inferred only when exactly one valid direct-child HTML page
+	// filename exists. It is a display hint, not trusted marker data.
+	Slug string
+
+	// Keys contains every object key recursively beneath the directory.
+	Keys []string
+
+	// Objects and Bytes describe all Keys, including the marker and extras.
+	Objects int
+	Bytes   int64
+
+	// LastModified is the marker object's storage timestamp.
 	LastModified time.Time
 }
 
 type remoteGroup struct {
-	dir     string
-	keys    []string
-	pages   []objectInfo
-	invalid bool
+	dir       string
+	marker    *objectInfo
+	keys      []string
+	bytes     int64
+	pageSlugs []string
 }
 
-// ListRemote discovers airplan uploads from the configured bucket and
-// key_prefix. It only recognizes the precise key shape from SPEC.md
-// §9 so unrelated shared-bucket objects are never returned.
+// ListRemote discovers exact marker-key candidates under key_prefix using
+// LIST operations only. It never fetches markers or heads payload objects.
 func (c *Client) ListRemote(ctx context.Context) ([]RemoteUpload, error) {
+	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
 	prefix := strings.Trim(c.cfg.KeyPrefix, "/")
 	if prefix != "" {
 		prefix += "/"
 	}
 
-	objs, err := c.st.listKeys(ctx, prefix)
+	objects, err := c.st.listKeys(ctx, prefix)
 	if err != nil {
 		return nil, err
 	}
 
-	groups := map[string]*remoteGroup{}
-	for _, obj := range objs {
+	groups := make(map[string]*remoteGroup)
+	for _, obj := range objects {
 		if !strings.HasPrefix(obj.Key, prefix) {
 			continue
 		}
 		rest := strings.TrimPrefix(obj.Key, prefix)
-		segs := strings.Split(rest, "/")
-		if len(segs) == 0 || !isRandomDir(segs[0]) {
+		segments := strings.Split(rest, "/")
+		if len(segments) < 2 || !isRandomDir(segments[0]) {
 			continue
 		}
 
-		dir := BuildKey(prefix, segs[0], "")
+		dir := segments[0]
 		group := groups[dir]
 		if group == nil {
-			group = &remoteGroup{dir: dir}
+			group = &remoteGroup{
+				dir: dir,
+			}
 			groups[dir] = group
 		}
+		group.keys = append(group.keys, obj.Key)
+		group.bytes += obj.Size
 
-		if len(segs) != 2 || segs[1] == "" {
-			group.invalid = true
+		if len(segments) != 2 {
 			continue
 		}
-
-		group.keys = append(group.keys, obj.Key)
-		if path.Ext(segs[1]) == ".html" {
-			group.pages = append(group.pages, obj)
+		switch segments[1] {
+		case MarkerFilename:
+			marker := obj
+			group.marker = &marker
+		default:
+			if slug, ok := pageSlug(segments[1]); ok {
+				group.pageSlugs = append(group.pageSlugs, slug)
+			}
 		}
 	}
 
 	uploads := make([]RemoteUpload, 0, len(groups))
 	for _, group := range groups {
-		if group.invalid || len(group.pages) == 0 {
+		if group.marker == nil {
 			continue
 		}
-		sort.Slice(group.pages, func(i, j int) bool {
-			return group.pages[i].Key < group.pages[j].Key
-		})
 		sort.Strings(group.keys)
-
-		page := group.pages[0]
-		uploads = append(uploads, RemoteUpload{
+		upload := RemoteUpload{
 			Dir:          group.dir,
-			PageKey:      page.Key,
+			MarkerKey:    group.marker.Key,
 			Keys:         group.keys,
-			Bytes:        page.Size,
-			LastModified: page.LastModified,
-		})
+			Objects:      len(group.keys),
+			Bytes:        group.bytes,
+			LastModified: group.marker.LastModified.UTC(),
+		}
+		if len(group.pageSlugs) == 1 {
+			upload.Slug = group.pageSlugs[0]
+		}
+		uploads = append(uploads, upload)
 	}
 
 	sort.Slice(uploads, func(i, j int) bool {
 		if uploads[i].LastModified.Equal(uploads[j].LastModified) {
-			return uploads[i].PageKey < uploads[j].PageKey
+			return uploads[i].MarkerKey < uploads[j].MarkerKey
 		}
 		return uploads[i].LastModified.Before(uploads[j].LastModified)
 	})
 	return uploads, nil
-}
-
-// RemoteTitle fetches the title metadata for a remote page object.
-func (c *Client) RemoteTitle(ctx context.Context, pageKey string) (string, error) {
-	return c.st.headTitle(ctx, pageKey)
 }

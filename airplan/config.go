@@ -3,6 +3,7 @@ package airplan
 import (
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-// DefaultTimeout is the default whole-invocation timeout (SPEC.md §6).
+// DefaultTimeout is the default operation timeout (SPEC.md §6).
 const DefaultTimeout = 30 * time.Second
 
 // Settings holds every connection and behavior key that may appear at
@@ -34,7 +35,7 @@ type Settings struct {
 	Template        string `toml:"template" json:"template,omitempty" jsonschema_description:"Path to the HTML template used for rendered pages."`
 	NoSource        *bool  `toml:"no_source" json:"no_source,omitempty" jsonschema_description:"Omit uploading the original source alongside rendered output."`
 	Indexable       *bool  `toml:"indexable" json:"indexable,omitempty" jsonschema_description:"Allow search indexing by omitting the noindex robots meta tag."`
-	Timeout         string `toml:"timeout" json:"timeout,omitempty" jsonschema_description:"Whole-invocation timeout as a Go duration or seconds; 0 disables it."`
+	Timeout         string `toml:"timeout" json:"timeout,omitempty" jsonschema_description:"Operation timeout as a Go duration or seconds; 0 disables it."`
 }
 
 // FileConfig is the on-disk shape of the TOML config file: shared
@@ -62,9 +63,10 @@ type Config struct {
 	NoSource        bool
 	Indexable       bool
 
-	// Timeout bounds one whole invocation (SPEC.md §6): default 30
-	// seconds, 0 means no timeout. The CLI applies it to its context;
-	// library consumers manage their own contexts and may ignore it.
+	// Timeout bounds one context-aware operation or phase (SPEC.md §6):
+	// default 30 seconds, 0 means no timeout. The CLI applies it to its
+	// contexts; library consumers manage their own contexts and may
+	// ignore it.
 	Timeout time.Duration
 
 	// DisableManifest turns off local manifest recording (SPEC.md §9).
@@ -89,10 +91,11 @@ type Config struct {
 
 // ConfigOptions controls LoadConfig.
 type ConfigOptions struct {
-	// Path of the config file. "" means the platform default
+	// Path of the config file. An explicitly named missing file is an
+	// error. "" means AIRPLAN_CONFIG, then the platform default
 	// ($XDG_CONFIG_HOME/airplan/config.toml; the platform-appropriate
-	// config directory on Windows). A missing file is not an error —
-	// env vars and flags may fully configure the tool.
+	// config directory on Windows). Only a missing default file is not
+	// an error — env vars and flags may fully configure the tool.
 	Path string
 
 	// Profile forces a profile by name (--profile / AIRPLAN_PROFILE).
@@ -122,8 +125,10 @@ func LoadConfig(opts ConfigOptions) (*Config, error) {
 	}
 
 	path := opts.Path
+	explicitPath := path != ""
 	if path == "" {
 		path = getenv("AIRPLAN_CONFIG")
+		explicitPath = path != ""
 	}
 	if path == "" {
 		var err error
@@ -136,6 +141,9 @@ func LoadConfig(opts ConfigOptions) (*Config, error) {
 	fileConfig, meta, loaded, err := loadFileConfig(path)
 	if err != nil {
 		return nil, err
+	}
+	if explicitPath && !loaded {
+		return nil, fmt.Errorf("airplan: config file %q does not exist", path)
 	}
 
 	profile, err := resolveProfile(opts, getenv, fileConfig, meta)
@@ -214,6 +222,16 @@ func parseTimeout(s string) (time.Duration, error) {
 
 	var d time.Duration
 	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		if n < 0 {
+			return 0, fmt.Errorf(
+				"airplan: invalid timeout %q (must not be negative)", s,
+			)
+		}
+		if n > math.MaxInt64/int64(time.Second) {
+			return 0, fmt.Errorf(
+				"airplan: invalid timeout %q (out of range)", s,
+			)
+		}
 		d = time.Duration(n) * time.Second
 	} else if d, err = time.ParseDuration(s); err != nil {
 		return 0, fmt.Errorf(

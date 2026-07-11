@@ -1,54 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.6.0**
-
-Changes in 0.6.0: uploaded objects use `no-store` so deletion is not
-defeated by long-lived caches; invalid UTF-8 and
-partial explicit credentials are rejected; configured URLs and key
-prefixes are validated and object keys are URL-encoded in public
-links; wrong-profile ensure-gone deletion cannot hide a still-live
-manifest upload, and incomplete manifest checks produce warnings;
-installed Go binaries report their module version;
-and the default invocation timeout is 30 seconds (§2, §5–§9).
-
-Changes in 0.5.2: layouts without the sticky table-of-contents rail
-keep it reachable after the inline table of contents scrolls away (§3).
-
-Changes in 0.5.1: built-in document controls use a quieter,
-borderless treatment with a segmented view toggle and visible keyboard
-focus (§3).
-
-Changes in 0.5.0: markdown rendering supports GitHub-style alerts;
-the built-in page gains a clearer typographic hierarchy, refined code
-surfaces, and labelled rendered/source controls; and uploaded source
-files can be opened raw as well as downloaded (§3).
-
-Changes in 0.4.0: rendered markdown pages gain a responsive table of
-contents and a wider document shell; the custom-template data contract
-exposes rendered, highlighted, and raw source forms plus structured
-headings and syntax CSS; `airplan template` emits an exact reusable
-built-in template; and `airplan preview` renders locally without S3
-access (§3, §6).
-
-Changes in 0.3.2: `airplan list` text/table output renders sizes as
-human-readable binary units; `--json` keeps exact byte counts (§9).
-
-Changes in 0.3.1: purge's `--profile` gets the standard `-p` short
-form and unified semantics — connection profile selection plus
-record filter (§9). §9 also clarified for text input — remote recognition
-keys off the 26-char base32 directory containing a `.html` page (the
-source sibling may carry any extension, §3), and tombstones reference
-the page key because the directory is the unit of deletion.
-
-Changes in 0.3.0: `--lang` overrides the highlight language for text
-input (§3, §6); unknown config file keys are rejected (§7).
-
-Changes in 0.2.0: input size limit and `--max-size` (§2, §6);
-configurable invocation timeout, default 20 s (§6, §7);
-plain-text input rendered as a highlighted code page (§2, §3, §5,
-§6, §8); binary input rejection (§2); profile resolution counts env
-vars and flag overrides toward a complete non-profile configuration
-(§7).
+**Spec version: 0.11.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -85,7 +37,8 @@ input (file|stdin)
   → detect format (md | html)
   → render (md → standalone HTML)  [skip for html]
   → generate object key (random dir + slug)
-  → PUT page — and, for md input, the original .md alongside
+  → PUT ownership marker
+  → PUT page — and, for md/text input, the original alongside
   → append manifest entry
   → print public URL to stdout
 ```
@@ -127,6 +80,10 @@ any upload, regardless of detected or forced format. There is no
 bypass for either check. When input fails both checks, the invalid
 UTF-8 error takes precedence over the binary-input error.
 
+A zero-byte document is rejected before key generation or any upload.
+Whitespace-only input remains valid: airplan does not reinterpret authored
+text merely because it has no visible characters.
+
 Size limit: input larger than the configured maximum — default
 **10 MiB** — is rejected with an error before any upload. The whole
 document is loaded into memory for rendering (md/text) or the noindex
@@ -134,10 +91,11 @@ splice (html), and a plan document over the default is invariably a
 mistake — the wrong file, like a database dump. Implementations must
 detect the overflow without buffering meaningfully past the limit.
 `--max-size` sets the limit per invocation: a plain byte count, or an
-integer with a `k`/`m`/`g` suffix (binary multiples; optional
-trailing `b`/`ib`; case-insensitive — `10MB`, `512k`, `1gib`). `0`
-removes the limit. There is deliberately no config key, so raising or
-removing the guard stays a per-invocation decision.
+integer with a `k`/`m`/`g` suffix (binary multiples) whose unit may have an
+optional trailing `b`/`ib`; matching is case-insensitive (`10MB`, `512k`,
+`1gib`). Unit tails without `k`/`m`/`g`, such as `10ib`, are invalid. `0`
+removes the limit. There is deliberately no config key, so raising or removing
+the guard stays a per-invocation decision.
 
 ---
 
@@ -278,12 +236,6 @@ Each heading has `.Level` (1–6), `.ID`, `.Text`, and `.IsTitle`.
 contents omits. `.TOC` is structured data, not pre-rendered navigation
 HTML, so custom templates retain control of markup and presentation.
 
-For compatibility, `.Body` remains an alias for `.RenderedHTML`,
-`.SourceHTML` remains the markdown-only alias for
-`.HighlightedSourceHTML` (and therefore stays empty for text input), and
-`.FileName` remains the legacy text-input-only filename. New templates
-should use the canonical fields.
-
 `.SourcePath` is empty when the source isn't uploaded
 (`--no-source`); templates must handle both cases.
 
@@ -311,41 +263,89 @@ markdown pages.
 
 Injection rules (privacy by default, applied conservatively):
 
-- The tag is spliced in immediately after the first `<head …>` tag,
-  found by a case-insensitive scan. This is a byte-level splice —
-  the document is never parsed or re-serialized, and every other
-  byte is served exactly as uploaded.
-- If the document already contains a robots `<meta>` tag, nothing
-  is injected — author intent wins.
-- If no `<head>` tag is found, a warning is printed to stderr and
-  the file is uploaded unmodified.
+- The tag is spliced immediately after the first explicit `<head …>`
+  start token emitted by HTML tokenization outside inert `template`
+  and `noscript` content. Head lookalikes in comments, raw-text, or
+  RCDATA content do not count. This is a byte-level splice at the
+  original token boundary: the document is never re-serialized, and
+  every other byte is served exactly as uploaded.
+- That head's metadata scope ends at the first effective `</head>` or
+  `<body …>` token outside inert content, or at EOF. Only an effective
+  `<meta>` start token in that scope, outside `template` and `noscript`
+  content, whose parsed `name` attribute equals `robots` ASCII
+  case-insensitively prevents injection. Normal HTML attribute parsing,
+  including character-reference decoding, applies. Author intent in
+  the effective head wins; meta lookalikes and metadata elsewhere do
+  not weaken the privacy default.
+- If tokenization finds no complete explicit effective head start
+  token, a warning is printed to stderr and the file is uploaded
+  unmodified. Once a valid splice point exists, malformed later markup
+  does not prevent injection unless an effective robots meta was
+  already recognized.
 - `--indexable` disables injection entirely.
 
-No other parsing or modification, ever. HTML input never uploads a
-sibling source object: the uploaded object already is the original
-file.
+No DOM tree is built or repaired, and no other modification occurs.
+HTML input never uploads a sibling source object: the uploaded object
+already is the original file.
 
 ---
 
 ## 5. Upload Behavior
+
+- Every upload first creates
+  `[<key_prefix>/]<random>/.airplan.json`, the ownership marker for
+  that random directory. The marker is UTF-8 JSON uploaded with
+  `Content-Type: application/json` and `Cache-Control: no-store`.
+  Its maximum size is 64 KiB. Version 1 has this shape:
+
+  ```json
+  {
+    "schema": "airplan-upload",
+    "version": 1,
+    "directory": "vq3nhk2p7r4wzt5c6ydjm3xhqd",
+    "created_at": "2026-07-08T14:03:11Z",
+    "format": "md",
+    "page": "plan.html",
+    "source": "plan.md",
+    "title": "Refactor auth"
+  }
+  ```
+
+  `schema`, `version`, `directory`, `created_at`, `format`, and
+  `page` are required. `schema` is exactly `airplan-upload`; version
+  1 is the only version defined here. `directory` must equal the
+  containing 26-character random directory. `created_at` is RFC
+  3339 UTC. `format` is `md`, `html`, or `txt`. `page` and optional
+  `source` are relative basenames — never paths — and must match the
+  filename rules for that format in §3 and §8. `source` is omitted
+  for HTML and under `--no-source`; `title` is omitted only when
+  empty. Unknown fields are ignored. Duplicate field names, invalid
+  UTF-8, malformed JSON, an unsupported version, unsafe or
+  inconsistent filenames, and an oversized marker make the marker
+  invalid.
 
 - The rendered page (or as-is HTML) is uploaded with:
   - `Content-Type: text/html; charset=utf-8`
   - `Cache-Control: no-store` — capability documents must remain
     revocable by deletion; neither browsers nor shared caches should
     retain a reusable response.
-  - `x-amz-meta-title`: the resolved title, so `list --remote` can
-    show titles via `HeadObject`.
+  - `x-amz-meta-title`: the resolved title. The marker's `title` is
+    authoritative for remote management; this metadata remains a
+    convenience for direct object inspection.
 - Markdown input additionally uploads the original source as
   `<random>/<slug>.md` (`text/markdown; charset=utf-8`, same cache
   headers) unless `--no-source`; text input likewise uploads its
   original file as `<random>/<slug>.<ext>`
   (`text/plain; charset=utf-8`, §3). The pair shares the random
   directory, so the page can link to it relatively (`./<slug>.md`,
-  or `./<slug>.<ext>` for text input) on any domain. The source uploads first; failure of either upload
-  fails the command (an orphaned first object is harmless; it never
-  reaches the manifest, so cleaning it up takes `purge --remote`).
-  stdout still carries only the page URL.
+  or `./<slug>.<ext>` for text input) on any domain.
+- Upload order is marker → source, when present → page. Failure of
+  any PUT fails the command and no local manifest upload record is
+  written. Because the marker is first, any partial upload remains
+  recognizably owned by airplan and appears remotely as `incomplete`
+  until `purge --remote` removes it. An upload becomes `complete`
+  when the marker's declared page and optional source both exist.
+  stdout still carries only the page URL after the page PUT succeeds.
 - Bucket must **not** allow listing publicly; privacy rests on the
   key being unguessable. Documentation covers the R2 setup: public
   bucket via custom domain (listing is not exposed) or Workers
@@ -371,7 +371,7 @@ airplan [flags] [file]
 | `--no-source`   | off            | don't upload the original .md       |
 | `--indexable`   | off            | no noindex meta (md and html, §3–4) |
 | `--max-size N`  | 10MiB          | input size limit; 0 = no limit (§2) |
-| `--timeout D`   | 30s            | invocation timeout; 0 = none        |
+| `--timeout D`   | 30s            | operation timeout; 0 = none         |
 | `--lang L`      | from filename  | highlight language, text only (§3)  |
 | `--json`        | off            | JSON object on stdout               |
 | `--profile P`   | config default | named profile from config file      |
@@ -399,13 +399,24 @@ Module pseudo-versions are reported without their leading `v`.
 Unversioned local development builds, including dirty builds, report
 `dev`.
 
-The whole invocation is bounded by a timeout — default **30
-seconds** — so a stalled endpoint fails with a clear error instead
-of hanging the caller (often an agent harness) indefinitely.
-Configurable via `--timeout` / `AIRPLAN_TIMEOUT` / the `timeout`
-config key (root or profile level), with the usual precedence (§7).
-Values are Go-style duration strings (`30s`, `1m30s`) or a bare
-integer meaning seconds; `0` disables the timeout.
+Context-aware execution phases are bounded by a timeout — default **30
+seconds** — so stalled input and storage operations fail with a clear error
+instead of hanging the caller (often an agent harness) indefinitely. The clock
+begins after config resolution; config loading itself is excluded because the
+config may supply the timeout. Interactive confirmation time is also excluded.
+
+Upload, preview, list, show, and delete each receive one timeout budget. Local
+purge starts one deletion budget after confirmation. Remote purge receives one
+budget for listing and marker inspection, then a fresh deletion budget after
+confirmation. This prevents human think time from consuming a network budget
+and gives both remote phases the configured opportunity to finish. Operations
+that share a phase share its deadline; a large sequential purge may therefore
+complete partially and report the remaining items as failures for retry.
+
+The timeout is configurable via `--timeout` / `AIRPLAN_TIMEOUT` / the
+`timeout` config key (root or profile level), with the usual precedence (§7).
+Values are Go-style duration strings (`30s`, `1m30s`) or a bare integer meaning
+seconds; out-of-range values are errors and `0` disables the timeout.
 
 Examples:
 
@@ -447,6 +458,7 @@ airplan template
 airplan preview [flags] [file]
 airplan completion bash|zsh|fish
 airplan list [--remote] [--json]
+airplan show [--json] <url|key>
 airplan delete <url|key>
 airplan purge [--remote] [--older-than 30d]
               [--all] [--dry-run] [--yes]
@@ -464,11 +476,17 @@ access the network, upload source, or write the manifest. Consequently
 view remains available. HTML input receives the same conservative
 noindex injection as an upload. `file` omitted or `-` reads stdin;
 `--output -` is equivalent to the stdout default. An output path that
-resolves to the input file is rejected without modifying the input.
+resolves to the input file is rejected without modifying the input. File output
+is written completely to a temporary file beside the destination and then
+atomically renamed into place; any failure before the rename leaves an existing
+destination unchanged.
+
 `list`/`purge` operate on the local upload manifest by default, or
-on a live bucket listing with `--remote`. `delete` takes an explicit
-URL or key, so it works on any upload regardless of which machine
-made it. See §9.
+on a live bucket listing with `--remote`. `show` inspects one remote
+marker directory. `delete` takes an explicit URL or key, but it only
+operates on a directory carrying a valid airplan ownership marker; it
+therefore works on marker-managed uploads from any machine without
+becoming a general-purpose bucket deletion command. See §9.
 
 ---
 
@@ -480,6 +498,11 @@ root-level values > built-in defaults**. Config file location:
 (`~/.config/airplan/config.toml`; platform-appropriate config
 directory on Windows), overridable with `--config` /
 `AIRPLAN_CONFIG`.
+
+The platform-default config file is optional so environment variables and
+flags can fully configure the tool. A path explicitly selected with `--config`
+or `AIRPLAN_CONFIG` must exist; a missing explicit path is an error rather than
+silently falling back to an empty configuration.
 
 All connection/behavior keys may be set at the root level of the
 config file as well as inside profiles. Root-level keys are base
@@ -505,7 +528,7 @@ endpoint        = "https://<account-id>.r2.cloudflarestorage.com"
 region          = "auto"
 # template = "~/.config/airplan/my-template.html"  # optional
 # no_source = true    # behavior defaults; flags override
-# timeout = "30s"     # invocation timeout; 0 = none
+# timeout = "30s"     # operation timeout; 0 = none
 # indexable = true
 # Credentials may live here, but env vars are preferred:
 # access_key_id     = "..."
@@ -622,6 +645,7 @@ be unguessable at internet scale, URL-safe, robust to case-folding
 Scheme:
 
 ```
+[<key_prefix>/]<random>/.airplan.json
 [<key_prefix>/]<random>/<slug>.html
 [<key_prefix>/]<random>/<slug>.md      (markdown input, unless
                                         --no-source)
@@ -630,9 +654,12 @@ Scheme:
                                         per §3)
 ```
 
-Each upload owns one random directory; everything under it belongs
-to that upload. Management commands treat the directory as the unit
-of deletion, so page and source never get separated.
+Each upload owns one random directory. A valid `.airplan.json`
+marker establishes airplan's authority over everything under that
+directory; filename shape without the marker never establishes
+ownership. Management commands treat the marked directory as the
+unit of deletion, so page, source, marker, and any partial-upload
+remnants never get separated.
 
 - `<random>`: 16 bytes from a cryptographically secure random source
   (never a seeded PRNG), encoded lowercase base32 (RFC 4648
@@ -653,6 +680,7 @@ of deletion, so page and source never get separated.
 Example keys:
 
 ```
+vq3nhk2p7r4wzt5c6ydjm3xhqd/.airplan.json
 vq3nhk2p7r4wzt5c6ydjm3xhqd/refactor-auth.html
 vq3nhk2p7r4wzt5c6ydjm3xhqd/refactor-auth.md
 ```
@@ -675,8 +703,8 @@ credentials to manage and even to verify, which conflicts with the
 minimal object-scoped tokens agents should hold. Cleanup is instead
 client-driven — off the local manifest, or off a live bucket listing
 with `--remote` — using the same credentials as uploads (the
-object-scoped token covers `DeleteObject` and `ListObjectsV2`;
-public listing stays blocked either way).
+object-scoped token covers `GetObject`, `DeleteObject`, and
+`ListObjectsV2`; public listing stays blocked either way).
 
 ### Local manifest
 
@@ -695,7 +723,7 @@ conforming implementations can share a manifest:
  "key":"vq3n.../plan.html","source_key":"vq3n.../plan.md",
  "url":"https://plans.example.com/vq3n.../plan.html",
  "bucket":"plans","profile":"work","title":"Refactor auth",
- "bytes":18432}
+ "bytes":18432,"marker_version":1}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html"}
 ```
@@ -706,13 +734,18 @@ conforming implementations can share a manifest:
 - `upload` records: `source_key` is omitted for HTML input and
   under `--no-source`; `title` is omitted when empty; `bytes`
   describes the page object; `profile` is the resolved profile
-  name, omitted when root-level values were used.
+  name, omitted when root-level values were used; `marker_version`
+  is the ownership-marker version written for the upload.
 - `delete` tombstones reference the upload by its page `key` — the
   random directory is the unit of deletion, so every sibling object
   (whatever its extension, §3) goes with it and nothing more is
   needed in the record.
 - Forward compatibility: readers ignore unknown fields and skip
-  records with an unknown `type`. No version field needed.
+  records with an unknown `type`. The record itself needs no schema
+  version; `marker_version` describes the remote upload format and
+  is required on every upload record. An upload record with a missing
+  or unsupported `marker_version` is invalid and skipped with a
+  warning.
 
 Concurrent invocations are expected (parallel agents on one
 machine) and must be safe:
@@ -723,7 +756,10 @@ machine) and must be safe:
 - Appends are wrapped in an advisory file lock (`flock` /
   `LockFileEx` style). All writers are airplan, so advisory
   suffices; the lock removes reliance on append atomicity, which
-  doesn't hold on network filesystems.
+  doesn't hold on network filesystems. Waiting for the lock is part
+  of the invocation and must stop when its context or configured
+  timeout expires; manifest locking can never create an unbounded
+  wait.
 - Readers tolerate a torn, malformed, or oversized line by skipping
   it with a warning on stderr — never by failing, never losing the
   rest of the file. Implementations may bound retained bytes per line,
@@ -735,53 +771,125 @@ machine) and must be safe:
 
 - `airplan list`: past uploads from the manifest (date, title,
   human-readable binary size, URL); `--json` for scripting with exact
-  byte counts.
-- `airplan delete <url|key>`: delete an upload — every object under
-  its random directory, so page and markdown source go together —
-  and tombstone its manifest entry if one exists (append a deletion
-  record; the file stays append-only). Takes an explicit URL/key,
-  so it also works on uploads made from other machines. Full URLs must
-  use HTTP(S) and match the configured public base URL or endpoint by
-  host and base path; HTTP and HTTPS variants of the same host are
-  equivalent because the URL is parsed, not fetched. Bucket-only URL
-  parsing is allowed only when neither connection URL is configured.
-  Ensure-gone tombstoning checks a matching active manifest record: if its
-  recorded bucket or profile differs from the active connection,
-  deletion fails with an actionable error instead of hiding an upload
-  that may still be live under another profile. If the manifest cannot
-  be read, or malformed/oversized records were skipped, ensure-gone
-  proceeds from the explicit target but warns that the bucket/profile
-  check was skipped or may be incomplete.
+  byte counts. Only valid upload records with the supported
+  `marker_version` appear in list output.
+- `airplan list --remote`: cheaply discovers marker directories made
+  from any machine. It performs only paginated bucket LIST operations
+  beneath the active profile's `key_prefix`; it does not GET markers,
+  HEAD pages, or trust marker content. It groups every returned object
+  beneath an exact
+  `[key_prefix/]<26-char lowercase base32>/` directory, then emits only
+  groups containing the exact `.airplan.json` marker key. Page/source
+  filename shape without that marker is never evidence of visibility.
+  Unmarked directories are invisible.
+- Remote list rows have `DATE`, `OBJECTS`, `SIZE`, `SLUG`, and
+  `DIRECTORY` columns. `DATE` is the marker object's storage
+  last-modified time. `OBJECTS` and `SIZE` count every object and byte
+  recursively beneath the random directory, including the marker,
+  nested keys, and unrecognized extras. `SLUG` is inferred only when
+  exactly one direct-child object matches the §8 page filename shape
+  (`[a-z0-9-]{1,64}.html`): it is that object's basename without
+  `.html`. With zero or multiple matching objects, `SLUG` is `-`.
+  `DIRECTORY` is the 26-character random directory without
+  `key_prefix`. Rows sort by marker last-modified time, then marker
+  key.
+- `list --remote --json` prints an array with one object per row. Its
+  stable fields are `time` (RFC 3339 marker last-modified time), `dir`,
+  `marker_key` (the full storage key), `objects`, and `bytes`; `slug`
+  is present only when inferred unambiguously. These entries describe
+  marker-key presence and directory occupancy, not validated uploads.
+  A malformed, oversized, or unsupported marker remains visible here
+  because ordinary remote listing never reads it.
+- `airplan show <url|key>` performs targeted inspection of one remote
+  marker directory. The target may be its random directory, marker,
+  or any direct child; full URLs and path-style endpoint URLs obey the
+  same connection, bucket, and prefix checks as `delete`. `show`
+  fetches and validates the marker, lists every object recursively
+  beneath the directory, and reports marker fields, declared page and
+  source existence and sizes, total object count and bytes, and a
+  state of `complete`, `incomplete`, or `invalid`. A valid marker is
+  `complete` when its declared page and optional source both exist;
+  otherwise it is `incomplete`. Extra objects do not affect state. A
+  present marker whose bytes cannot be validated is `invalid`; this is
+  a successful inspection result but grants no deletion authority. A
+  missing marker is an error. Storage, authentication, timeout,
+  cancellation, and other request failures fail the command; they are
+  never reported as marker states.
+- `show --json` emits one object. All states contain `state`, `dir`,
+  `marker_key`, `objects`, and `bytes`. Valid states additionally
+  contain `time` (marker `created_at`), `format`, `page`, and `title`
+  when non-empty; `source` is present when declared. `page` and
+  `source` are objects containing `key`, `url`, `exists`, and `bytes`,
+  with `bytes` omitted when the object is missing. An invalid result
+  additionally contains `error`, a stable coarse code:
+  `oversized`, `malformed_json`, `unsupported_version`, or
+  `invalid_fields`; it never exposes untrusted marker fields. Human
+  output presents the same information as a labeled detail block.
+- `airplan delete <url|key>` only deletes a marker-managed upload.
+  The target may be the random directory, its `.airplan.json` marker,
+  or the page/source named by a valid marker. Any other sibling key is
+  rejected. Before issuing any deletion, airplan fetches and validates
+  the exact marker in the target directory. A missing, malformed,
+  oversized, unsupported, or inconsistent marker is an error and no
+  bucket objects are touched. A directory without a valid marker is
+  not an airplan upload, regardless of its key shape; native storage
+  tooling is the escape hatch.
+  Full URLs must use HTTP(S) and match the configured public base URL
+  or endpoint by host and base path; HTTP and HTTPS variants of the
+  same host are equivalent because the URL is parsed, not fetched. A
+  path-style endpoint URL must contain the configured bucket as its
+  exact bucket path segment — a missing or different bucket is an
+  error. Bucket-only URL parsing is allowed only when neither
+  connection URL is configured.
+- A valid marker authorizes deletion of every object under its own
+  random directory, including incomplete-upload remnants and
+  unrecognized extra siblings. Deletion removes every non-marker
+  object first. Only after all payload deletions succeed is the marker
+  deleted in a separate final operation. Any payload or marker failure
+  leaves the local upload untombstoned so retry can resume while the
+  marker still establishes ownership. A successful marker deletion is
+  followed by the append-only local tombstone.
+- There is one narrow ensure-gone reconciliation path for a marker
+  deletion that succeeded before its local tombstone could be written.
+  When the marker is absent, airplan may append a tombstone without
+  issuing any S3 deletion only if an active local upload record names
+  the same page directory, has a supported `marker_version`, and
+  matches the active bucket and profile. If the manifest is missing,
+  unreadable, incomplete, invalid, or belongs to another
+  connection, deletion fails. This exception repairs local history; it
+  never grants authority to delete unmarked bucket objects.
 - `airplan purge`: bulk delete driven by the manifest with filters —
   `--older-than 30d`, `--slug PATTERN`, `--profile P`. Durations
   accept `d`/`w` units. `--profile`/`-p` behaves as on every other
   command — it selects the connection profile — and on `purge` it
   additionally filters to uploads recorded with that profile, so
-  purging a profile's uploads uses that profile's credentials. Requires at least one filter or an explicit
-  `--all`. `--dry-run` previews; confirmation prompt unless `--yes`.
+  purging a profile's uploads uses that profile's credentials.
+  Requires at least one filter or an explicit `--all`. `--dry-run`
+  previews; confirmation prompt unless `--yes`. EOF before an answer
+  is an error that directs non-interactive callers to use `--yes`; an
+  explicit negative answer remains a successful abort.
   Failed deletes are reported to stderr and left un-tombstoned so a
-  re-run retries them. Purge only considers manifest records for the
-  connected bucket (records from other buckets are skipped with a
-  note). Deletion is ensure-gone: an upload whose directory no
-  longer contains any objects is tombstoned as already deleted with
-  a warning, not treated as a failure — so a manifest referencing
-  externally-deleted objects converges instead of jamming. Suitable
-  for cron (`purge --older-than 30d --yes`).
-- `--remote` (on `list` and `purge`): operate on a bucket listing
-  instead of the manifest, discovering uploads made from any
-  machine. Airplan uploads are recognized by key shape: a
-  `[key_prefix/]<26-char lowercase base32>/` directory under the
-  profile's `key_prefix` that contains a `<slug>.html` page object
-  (source siblings may carry any extension, §3). Unrelated objects
-  in a shared bucket are never touched; deletion is per random
-  directory, keeping page/source pairs together. `LastModified` from the listing
-  drives `--older-than`.
+  re-run retries them. Purge only considers records with a supported
+  `marker_version` under the active bucket and `key_prefix`;
+  other-bucket and other-prefix records are skipped with a note.
+  Every selected deletion still requires the marker, except for the
+  local-only ensure-gone reconciliation above. Suitable for cron
+  (`purge --older-than 30d --yes`).
+- `purge --remote` starts from the same marker-key candidates as
+  `list --remote`, but fetches and validates markers because it is a
+  destructive operation. It may select both `complete` and
+  `incomplete` uploads, using marker `created_at` for `--older-than`
+  and the marker-declared page slug for `--slug` even if the page is
+  missing. It never selects an invalid marker. Such a directory cannot
+  be deleted by airplan; `show` can inspect it and native storage
+  tooling must clean it. Marker-last deletion keeps an interrupted
+  purge discoverable and retryable.
   In a team bucket, each person sets their own `key_prefix`, which
   keeps `--remote` scoped to their own uploads.
 - The local manifest still matters: it remembers titles and profile
-  context, and works offline. `--remote` is the source of truth for
-  what actually exists; `x-amz-meta-title` (set at upload) lets
-  `list --remote` show titles via `HeadObject`.
+  context, and works offline. Remote listing is the cheap storage view;
+  `show`, `delete`, and `purge --remote` read marker state when they
+  need validated upload details or deletion authority.
 
 ---
 

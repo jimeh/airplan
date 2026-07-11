@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
@@ -135,6 +136,40 @@ func TestRootURLOutputWithoutJSON(t *testing.T) {
 	}
 }
 
+func TestRootUploadsFileWithFilenameInference(t *testing.T) {
+	fake := newFakeS3(t)
+	input := filepath.Join(t.TempDir(), "example.go")
+	if err := os.WriteFile(input, []byte("package main\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeRoot(t, fake, "", "--json", input)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	var got rootJSON
+	decodeJSONLine(t, stdout, &got)
+	if !strings.HasSuffix(got.URL, "/example.html") ||
+		!strings.HasSuffix(got.SourceURL, "/example.go") {
+		t.Fatalf("result = %+v", got)
+	}
+	puts := fake.uploads()
+	if len(puts) != 3 || !bytes.Contains(puts[2].body, []byte("chroma")) {
+		t.Fatalf("uploads = %+v", puts)
+	}
+}
+
+func TestRootNonexistentFileFailsBeforeUpload(t *testing.T) {
+	fake := newFakeS3(t)
+	missing := filepath.Join(t.TempDir(), "missing.md")
+
+	stdout, _, err := executeRoot(t, fake, "", missing)
+	if err == nil || stdout != "" || len(fake.uploads()) != 0 {
+		t.Fatalf("stdout = %q, error = %v, uploads = %d",
+			stdout, err, len(fake.uploads()))
+	}
+}
+
 func TestRootWarningsGoToStderr(t *testing.T) {
 	fake := newFakeS3(t)
 	stdout, stderr, err := executeRootNoPublicBase(t, fake,
@@ -174,10 +209,10 @@ func TestRootLangReachesRenderedPage(t *testing.T) {
 	}
 
 	uploads := fake.uploads()
-	if len(uploads) != 1 {
-		t.Fatalf("got %d uploads, want 1", len(uploads))
+	if len(uploads) != 2 {
+		t.Fatalf("got %d uploads, want marker and page", len(uploads))
 	}
-	page := string(uploads[0].body)
+	page := string(uploads[1].body)
 	if !strings.Contains(page, `class="chroma"`) {
 		t.Fatal("rendered page body missing chroma class")
 	}
@@ -298,10 +333,8 @@ func executeRootWithPublicBase(
 	isolateEnv(t)
 
 	fullArgs := []string{
-		"--config", filepath.Join(t.TempDir(), "missing.toml"),
 		"--endpoint", fake.server.URL,
 		"--bucket", "plans",
-		"--timeout", "0",
 	}
 	if publicBaseURL != "" {
 		fullArgs = append(fullArgs, "--public-base-url", publicBaseURL)
@@ -323,7 +356,8 @@ func executeRootWithPublicBase(
 func isolateEnv(t *testing.T) {
 	t.Helper()
 
-	t.Setenv("AIRPLAN_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("AIRPLAN_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("AIRPLAN_PROFILE", "")
 	t.Setenv("AIRPLAN_TIMEOUT", "")
 	t.Setenv("AIRPLAN_ENDPOINT", "")

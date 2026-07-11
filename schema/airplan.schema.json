@@ -46,7 +46,7 @@
         },
         "timeout": {
           "type": "string",
-          "description": "Whole-invocation timeout as a Go duration or seconds; 0 disables it."
+          "description": "Operation timeout as a Go duration or seconds; 0 disables it."
         }
       },
       "additionalProperties": false,
@@ -96,7 +96,7 @@
     },
     "timeout": {
       "type": "string",
-      "description": "Whole-invocation timeout as a Go duration or seconds; 0 disables it."
+      "description": "Operation timeout as a Go duration or seconds; 0 disables it."
     },
     "default_profile": {
       "type": "string",

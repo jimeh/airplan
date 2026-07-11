@@ -47,6 +47,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		Region:          "us-east-1",
 		AccessKeyID:     minioC.Username,
 		SecretAccessKey: minioC.Password,
+		DisableManifest: true,
 	}
 
 	st, err := newStorage(ctx, cfg)
@@ -121,6 +122,144 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	if source.cacheControl != "no-store" {
 		t.Errorf("source Cache-Control = %q", source.cacheControl)
 	}
+
+	dirPrefix, err := uploadDirPrefix(res.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.TrimSuffix(dirPrefix, "/")
+	dir = dir[strings.LastIndex(dir, "/")+1:]
+	markerKey := dirPrefix + MarkerFilename
+	markerObject := getObject(ctx, t, st, markerKey)
+	if markerObject.contentType != "application/json" {
+		t.Errorf("marker Content-Type = %q", markerObject.contentType)
+	}
+	if markerObject.cacheControl != "no-store" {
+		t.Errorf("marker Cache-Control = %q", markerObject.cacheControl)
+	}
+	marker, err := DecodeUploadMarker(markerObject.body, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marker.Page != "integration-plan.html" ||
+		marker.Source != "integration-plan.md" ||
+		marker.Title != "Integration Plan" || marker.Format != "md" {
+		t.Fatalf("uploaded marker = %+v", marker)
+	}
+
+	remote, err := client.ListRemote(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	indexed := remoteByDir(t, remote, dir)
+	wantBytes := int64(len(markerObject.body) + len(page.body) + len(source.body))
+	if indexed.Slug != "integration-plan" || indexed.Objects != 3 ||
+		indexed.Bytes != wantBytes {
+		t.Fatalf("indexed upload = %+v, want 3 objects and %d bytes",
+			indexed, wantBytes)
+	}
+	inspection, err := client.InspectUpload(ctx, res.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspection.State != UploadComplete || inspection.Page == nil ||
+		!inspection.Page.Exists || inspection.Source == nil ||
+		!inspection.Source.Exists {
+		t.Fatalf("complete inspection = %+v", inspection)
+	}
+
+	partialDir := "bbbbbbbbbbbbbbbbbbbbbbbbbb"
+	partialMarker, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion,
+		Directory: partialDir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+		Format:    "md",
+		Page:      "missing.html",
+		Source:    "missing.md",
+		Title:     "Partial upload",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	putIntegrationObject(ctx, t, st, object{
+		Key: partialDir + "/" + MarkerFilename, Body: partialMarker,
+		ContentType: "application/json",
+	})
+
+	unmarkedDir := "cccccccccccccccccccccccccc"
+	putIntegrationObject(ctx, t, st, object{
+		Key: unmarkedDir + "/unowned.html", Body: []byte("unowned"),
+		ContentType: "text/html; charset=utf-8",
+	})
+
+	invalidDir := "dddddddddddddddddddddddddd"
+	putIntegrationObject(ctx, t, st, object{
+		Key:         invalidDir + "/" + MarkerFilename,
+		Body:        []byte(`{"schema":"airplan-upload","version":99}`),
+		ContentType: "application/json",
+	})
+
+	remote, err = client.ListRemote(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remote) != 3 {
+		t.Fatalf("remote uploads = %+v, want complete, partial, and invalid", remote)
+	}
+	remoteByDir(t, remote, partialDir)
+	remoteByDir(t, remote, invalidDir)
+	for _, upload := range remote {
+		if upload.Dir == unmarkedDir {
+			t.Fatal("markerless directory was remotely discoverable")
+		}
+	}
+
+	inspection, err = client.InspectUpload(ctx, partialDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspection.State != UploadIncomplete || inspection.Page.Exists ||
+		inspection.Source == nil || inspection.Source.Exists {
+		t.Fatalf("partial inspection = %+v", inspection)
+	}
+	inspection, err = client.InspectUpload(ctx, invalidDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspection.State != UploadInvalid ||
+		inspection.Error != MarkerErrorUnsupportedVersion {
+		t.Fatalf("invalid inspection = %+v", inspection)
+	}
+	if _, err := client.DeleteUpload(ctx, invalidDir); err == nil {
+		t.Fatal("delete accepted an invalid ownership marker")
+	}
+	getObject(ctx, t, st, invalidDir+"/"+MarkerFilename)
+
+	deleted, err := client.DeleteUpload(ctx, res.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(deleted.Keys) != 3 || deleted.Keys[len(deleted.Keys)-1] != markerKey {
+		t.Fatalf("delete operation order = %v", deleted.Keys)
+	}
+	objects, err := st.listKeys(ctx, dirPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(objects) != 0 {
+		t.Fatalf("objects remain after delete: %+v", objects)
+	}
+	if _, err := client.DeleteUpload(ctx, partialDir); err != nil {
+		t.Fatal(err)
+	}
+
+	remote, err = client.ListRemote(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remote) != 1 || remote[0].Dir != invalidDir {
+		t.Fatalf("remote uploads after deletes = %+v", remote)
+	}
 }
 
 type fetchedObject struct {
@@ -158,4 +297,31 @@ func getObject(
 		cacheControl: aws.ToString(out.CacheControl),
 		metaTitle:    out.Metadata["title"],
 	}
+}
+
+func putIntegrationObject(
+	ctx context.Context,
+	t *testing.T,
+	st *storage,
+	obj object,
+) {
+	t.Helper()
+	if err := st.put(ctx, obj); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func remoteByDir(
+	t *testing.T,
+	uploads []RemoteUpload,
+	dir string,
+) RemoteUpload {
+	t.Helper()
+	for _, upload := range uploads {
+		if upload.Dir == dir {
+			return upload
+		}
+	}
+	t.Fatalf("remote upload %q not found in %+v", dir, uploads)
+	return RemoteUpload{}
 }

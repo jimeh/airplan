@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,8 +129,16 @@ func TestPurgeRemoteOlderThanDeletesOnlyOldUploads(t *testing.T) {
 	oldKey := deleteDirA + "/old.html"
 	newKey := deleteDirB + "/new.html"
 	fake := newFakeRemoteS3(t, []remoteFakeObject{
+		{
+			key:  deleteDirA + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: old,
+		},
 		{key: oldKey, size: 10, lastModified: old},
 		{key: deleteDirA + "/old.md", size: 5, lastModified: old},
+		{
+			key:  deleteDirB + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: newer,
+		},
 		{key: newKey, size: 10, lastModified: newer},
 	}, nil, nil)
 
@@ -156,6 +165,185 @@ func TestPurgeRemoteOlderThanDeletesOnlyOldUploads(t *testing.T) {
 	if len(records) != 1 || records[0].Type != "delete" ||
 		records[0].Key != oldKey {
 		t.Fatalf("tombstone = %+v, want old upload only", records)
+	}
+}
+
+func TestPurgeRemoteDeletesIncompleteAndSkipsInvalid(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	incompleteMarkerKey := deleteDirA + "/" + airplan.MarkerFilename
+	invalidMarkerKey := deleteDirB + "/" + airplan.MarkerFilename
+	fake := newFakeRemoteS3(t, []remoteFakeObject{
+		{key: incompleteMarkerKey, size: 100, lastModified: when},
+		{key: invalidMarkerKey, size: 10, lastModified: when},
+	}, nil, nil)
+	body, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
+		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Directory: deleteDirA, CreatedAt: when, Format: "md",
+		Page: "missing.html", Source: "missing.md", Title: "Incomplete",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.setMarker(incompleteMarkerKey, body)
+	fake.setMarker(invalidMarkerKey, []byte(`{"schema":`))
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--remote", "--slug", "missing", "--yes",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if stdout != "" ||
+		!strings.Contains(stderr, "skipped 1 invalid remote marker") ||
+		!strings.Contains(stderr, "purged 1 uploads (0 failed)") ||
+		fake.markerDeleteCalls() != 1 {
+		t.Fatalf("stdout = %q, stderr = %q, marker deletes = %d",
+			stdout, stderr, fake.markerDeleteCalls())
+	}
+}
+
+func TestPurgeRemoteWarnsForFallbackPublicURL(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	pageKey := deleteDirA + "/plan.html"
+	fake := newFakeRemoteS3(t, []remoteFakeObject{
+		{
+			key:  deleteDirA + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: when,
+		},
+		{key: pageKey, size: 10, lastModified: when},
+	}, nil, nil)
+	config := filepath.Join(t.TempDir(), "config.toml")
+	data := "endpoint = \"" + fake.server.URL + "\"\n" +
+		"bucket = \"plans\"\n" +
+		"timeout = \"0\"\n"
+	if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--remote", "--all", "--dry-run", "--config", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantURL := fake.server.URL + "/plans/" + pageKey
+	if stdout != "" || !strings.Contains(stderr, "public_base_url") ||
+		!strings.Contains(stderr, wantURL) || fake.deleteCalls() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q, deletes = %d",
+			stdout, stderr, fake.deleteCalls())
+	}
+}
+
+func TestPrintRemotePurgeWarningsCountsAffectedUploads(t *testing.T) {
+	var out strings.Builder
+	printRemotePurgeWarnings(&out, []remotePurgeCandidate{
+		{warnings: []string{"shared warning", "single warning"}},
+		{warnings: []string{"shared warning"}},
+	})
+
+	got := out.String()
+	if strings.Count(got, "shared warning") != 1 ||
+		!strings.Contains(got, "shared warning (2 uploads)") ||
+		!strings.Contains(got, "airplan: warning: single warning\n") {
+		t.Fatalf("warnings = %q", got)
+	}
+}
+
+func TestPurgeRemoteConfirmationAbort(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	fake := newFakeRemoteS3(t, remoteUploadObjects(deleteDirA, "plan", when),
+		nil, nil)
+
+	stdout, stderr, err := executeCommand(t, "n\n", "",
+		"purge", "--remote", "--all",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || !strings.Contains(stderr, "aborted") ||
+		fake.deleteCalls() != 0 || fake.markerDeleteCalls() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q, deletes = %d/%d",
+			stdout, stderr, fake.deleteCalls(), fake.markerDeleteCalls())
+	}
+}
+
+func TestPurgeRemoteInspectionFailureStopsDeletion(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC()
+	fake := newFakeRemoteS3(t, []remoteFakeObject{
+		{
+			key:  deleteDirA + "/" + airplan.MarkerFilename,
+			size: 10, lastModified: when,
+		},
+	}, nil, nil)
+
+	stdout, _, err := executeCommand(t, "", "",
+		"purge", "--remote", "--all", "--yes",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err == nil || stdout != "" || fake.deleteCalls() != 0 ||
+		fake.markerDeleteCalls() != 0 {
+		t.Fatalf("stdout = %q, error = %v, deletes = %d/%d",
+			stdout, err, fake.deleteCalls(), fake.markerDeleteCalls())
+	}
+}
+
+func TestPurgeRemotePartialDeleteFailure(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	objects := append(remoteUploadObjects(deleteDirA, "alpha", when),
+		remoteUploadObjects(deleteDirB, "beta", when)...)
+	fake := newFakeRemoteS3(t, objects, nil,
+		map[string]bool{deleteDirB: true})
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--remote", "--all", "--yes",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err == nil || stdout != "" ||
+		!strings.Contains(stderr, "purged 1 uploads (1 failed)") ||
+		fake.deleteCalls() != 1 || fake.markerDeleteCalls() != 1 {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v, deletes = %d/%d",
+			stdout, stderr, err, fake.deleteCalls(), fake.markerDeleteCalls())
+	}
+}
+
+func TestPurgeRemoteInspectsMoreThanWorkerCount(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	var objects []remoteFakeObject
+	for i := range 10 {
+		dir := strings.Repeat(string(rune('a'+i)), 26)
+		objects = append(objects,
+			remoteUploadObjects(dir, fmt.Sprintf("plan-%d", i), when)...)
+	}
+	fake := newFakeRemoteS3(t, objects, nil, nil)
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--remote", "--all", "--dry-run",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || strings.Count(stderr, ".html") != 10 ||
+		fake.deleteCalls() != 0 {
+		t.Fatalf("stdout = %q, candidates = %d, deletes = %d",
+			stdout, strings.Count(stderr, ".html"), fake.deleteCalls())
+	}
+}
+
+func remoteUploadObjects(
+	dir, slug string, when time.Time,
+) []remoteFakeObject {
+	return []remoteFakeObject{
+		{
+			key:  dir + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: when,
+		},
+		{
+			key:  dir + "/" + slug + ".html",
+			size: 10, lastModified: when,
+		},
 	}
 }
 
@@ -259,6 +447,27 @@ func TestPurgeConfirmationAbort(t *testing.T) {
 	}
 }
 
+func TestPurgeConfirmationEOFErrors(t *testing.T) {
+	isolateEnv(t)
+	writeDefaultManifest(t, []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "alpha", "work", time.Now()),
+	})
+	fake := newFakeDeleteS3(t, map[string][]string{
+		deleteDirA + "/": {deleteDirA + "/alpha.html"},
+	}, nil)
+
+	stdout, stderr, err := executeCommand(t, "", "", "purge", "--all",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err == nil || !strings.Contains(err.Error(), "rerun with --yes") {
+		t.Fatalf("error = %v, want --yes guidance", err)
+	}
+	if stdout != "" || !strings.Contains(stderr, "Delete 1 uploads?") ||
+		fake.deleteCalls() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q, deletes = %d",
+			stdout, stderr, fake.deleteCalls())
+	}
+}
+
 func TestPurgePartialFailureLeavesFailedUploadActive(t *testing.T) {
 	isolateEnv(t)
 	writeDefaultManifest(t, []airplan.ManifestRecord{
@@ -306,14 +515,15 @@ func uploadRecord(
 ) airplan.ManifestRecord {
 	key := dir + "/" + slug + ".html"
 	return airplan.ManifestRecord{
-		Type:    "upload",
-		Time:    when.UTC().Truncate(time.Second),
-		Key:     key,
-		URL:     "https://plans.example.com/" + key,
-		Bucket:  "plans",
-		Profile: profile,
-		Title:   slug + " title",
-		Bytes:   10,
+		Type:          "upload",
+		Time:          when.UTC().Truncate(time.Second),
+		Key:           key,
+		URL:           "https://plans.example.com/" + key,
+		Bucket:        "plans",
+		Profile:       profile,
+		Title:         slug + " title",
+		Bytes:         10,
+		MarkerVersion: airplan.MarkerVersion,
 	}
 }
 
@@ -394,5 +604,62 @@ func TestPurgeAllStillAppliesFilters(t *testing.T) {
 	}
 	if strings.Contains(stderr, "beta.html") {
 		t.Errorf("--all bypassed --slug filter: %q", stderr)
+	}
+}
+
+func TestPurgeDryRunWithoutBucketDoesNotScopeKeyPrefix(t *testing.T) {
+	isolateEnv(t)
+	record := uploadRecord(deleteDirA, "legacy", "", time.Now().UTC())
+	record.Key = "team/old/" + record.Key
+	record.URL = "https://plans.example.com/" + record.Key
+	writeDefaultManifest(t, []airplan.ManifestRecord{record})
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--all", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || !strings.Contains(stderr, "legacy.html") ||
+		strings.Contains(stderr, "other key prefixes") {
+		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
+	}
+}
+
+func TestPurgeSkipsOtherBucketsAndPrefixes(t *testing.T) {
+	isolateEnv(t)
+	now := time.Now().UTC()
+	current := uploadRecord(deleteDirA, "current", "", now)
+	current.Key = "team/current/" + current.Key
+	current.URL = "https://plans.example.com/" + current.Key
+	otherPrefix := uploadRecord(deleteDirB, "other-prefix", "", now)
+	otherPrefix.Key = "team/old/" + otherPrefix.Key
+	otherPrefix.URL = "https://plans.example.com/" + otherPrefix.Key
+	otherBucket := uploadRecord(deleteDirC, "other-bucket", "", now)
+	otherBucket.Key = "team/current/" + otherBucket.Key
+	otherBucket.URL = "https://plans.example.com/" + otherBucket.Key
+	otherBucket.Bucket = "archive"
+	writeDefaultManifest(t, []airplan.ManifestRecord{
+		current, otherPrefix, otherBucket,
+	})
+
+	config := filepath.Join(t.TempDir(), "config.toml")
+	data := "endpoint = \"https://example.com\"\n" +
+		"bucket = \"plans\"\n" +
+		"key_prefix = \"team/current\"\n"
+	if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--all", "--dry-run", "--config", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || !strings.Contains(stderr, "current.html") ||
+		strings.Contains(stderr, "other-prefix.html") ||
+		strings.Contains(stderr, "other-bucket.html") ||
+		!strings.Contains(stderr, "skipped 1 upload(s) recorded for other buckets") ||
+		!strings.Contains(stderr, "skipped 1 upload(s) recorded for other key prefixes") {
+		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
 	}
 }

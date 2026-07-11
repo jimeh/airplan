@@ -60,6 +60,9 @@ func RenderInput(
 	in Input,
 	opts RenderInputOptions,
 ) (*RenderedDocument, error) {
+	if ctx == nil {
+		return nil, errors.New("airplan: nil context")
+	}
 	if opts.Template != nil && opts.TemplatePath != "" {
 		return nil, errors.New(
 			"airplan: render input: template and template path are " +
@@ -96,6 +99,9 @@ func renderInput(
 	data, err := readInput(ctx, in.Reader, limit)
 	if err != nil {
 		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, ErrEmptyInput
 	}
 	if !utf8.Valid(data) {
 		return nil, ErrInvalidUTF8

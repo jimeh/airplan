@@ -2,6 +2,7 @@ package airplan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,83 +10,118 @@ import (
 
 // DeleteResult describes a completed delete (SPEC.md §9).
 type DeleteResult struct {
-	// Keys are the object keys removed — page and siblings alike.
+	// Keys are the object keys removed, in operation order. The marker is last.
 	Keys []string
 
-	// PageKey is the .html page object's key when one was present;
-	// it is what the manifest tombstone references.
+	// PageKey is the marker-declared page key and manifest tombstone key.
 	PageKey string
 
-	// Warnings collects non-fatal issues (e.g. a manifest append
-	// failure) for the caller to print to stderr.
+	// Warnings collects non-fatal manifest outcomes.
 	Warnings []string
 }
 
-// DeleteUpload removes an upload — every object under its random
-// directory, so page and source go together — and appends a manifest
-// tombstone (SPEC.md §9). The target may be a page URL, any object
-// key from the upload, or the random directory itself, so it works on
-// uploads made from other machines.
+// DeleteUpload validates the upload's ownership marker, removes every
+// non-marker object, removes the marker separately, and appends a manifest
+// tombstone (SPEC.md §9).
 func (c *Client) DeleteUpload(
 	ctx context.Context, urlOrKey string,
 ) (*DeleteResult, error) {
+	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
 	key, err := KeyFromURLOrKey(c.cfg, urlOrKey)
 	if err != nil {
 		return nil, err
 	}
-	dir, err := uploadDirPrefix(key)
+	dirPrefix, err := uploadDirPrefix(key)
 	if err != nil {
 		return nil, err
 	}
+	dir := strings.TrimSuffix(dirPrefix, "/")
+	dir = dir[strings.LastIndex(dir, "/")+1:]
+	markerKey := dirPrefix + MarkerFilename
 
-	objs, err := c.st.listKeys(ctx, dir)
+	markerBody, err := c.st.getBytes(ctx, markerKey, MaxMarkerSize)
+	if err != nil {
+		if errors.Is(err, errObjectNotFound) {
+			return c.reconcileMissingMarker(ctx, dirPrefix, key)
+		}
+		return nil, err
+	}
+	marker, err := DecodeUploadMarker(markerBody, dir)
 	if err != nil {
 		return nil, err
 	}
-	if len(objs) == 0 {
-		// Ensure-gone semantics (SPEC.md §9): the goal state is
-		// already reached, so tombstone the record instead of failing
-		// forever on externally-deleted uploads. With no objects left
-		// to identify the page, normalize the tombstone to the
-		// manifest's own key — a bare-directory or source-key target
-		// must still deactivate the upload record.
-		pageKey, warnings, err := c.ensureGonePageKey(dir, key)
-		if err != nil {
-			return nil, err
-		}
-		res := &DeleteResult{PageKey: pageKey, Warnings: warnings}
-		res.Warnings = append(res.Warnings, fmt.Sprintf(
-			"no objects found under %q — already deleted; "+
-				"tombstoning the manifest entry", dir))
-		c.recordDelete(res)
-		return res, nil
-	}
-
-	res := &DeleteResult{}
-	for _, o := range objs {
-		res.Keys = append(res.Keys, o.Key)
-		if strings.HasSuffix(o.Key, ".html") {
-			res.PageKey = o.Key
-		}
-	}
-	if res.PageKey == "" {
-		// No page object (e.g. a previously half-deleted upload):
-		// tombstone whatever key the caller referenced.
-		res.PageKey = key
-	}
-
-	if err := c.st.deleteKeys(ctx, res.Keys); err != nil {
+	if err := validateDeleteTarget(key, dirPrefix, marker); err != nil {
 		return nil, err
 	}
 
-	c.recordDelete(res)
+	objects, err := c.st.listKeys(ctx, dirPrefix)
+	if err != nil {
+		return nil, err
+	}
+	payloadKeys := make([]string, 0, len(objects))
+	for _, object := range objects {
+		if object.Key != markerKey {
+			payloadKeys = append(payloadKeys, object.Key)
+		}
+	}
+	if err := c.st.deleteKeys(ctx, payloadKeys); err != nil {
+		return nil, err
+	}
+	if err := c.st.deleteMarker(ctx, markerKey); err != nil {
+		return nil, err
+	}
+
+	res := &DeleteResult{
+		Keys:    append(payloadKeys, markerKey),
+		PageKey: dirPrefix + marker.Page,
+	}
+	c.recordDelete(ctx, res)
 	return res, nil
 }
 
-// recordDelete appends a delete tombstone, best-effort like
-// recordUpload: failures degrade to a warning, never a failed delete
-// (the objects are already gone).
-func (c *Client) recordDelete(res *DeleteResult) {
+func validateDeleteTarget(
+	key, dirPrefix string, marker *UploadMarker,
+) error {
+	dirKey := strings.TrimSuffix(dirPrefix, "/")
+	allowed := key == dirKey || key == dirPrefix+MarkerFilename ||
+		key == dirPrefix+marker.Page
+	if marker.Source != "" {
+		allowed = allowed || key == dirPrefix+marker.Source
+	}
+	if !allowed {
+		return fmt.Errorf(
+			"airplan: delete target %q is not the directory, marker, or declared payload",
+			key,
+		)
+	}
+	return nil
+}
+
+func (c *Client) reconcileMissingMarker(
+	ctx context.Context, dirPrefix, target string,
+) (*DeleteResult, error) {
+	pageKey, err := c.ensureGonePageKey(dirPrefix, target)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"airplan: ownership marker is missing; cannot delete or reconcile %q: %w",
+			target, err,
+		)
+	}
+	res := &DeleteResult{PageKey: pageKey}
+	res.Warnings = append(res.Warnings, fmt.Sprintf(
+		"ownership marker is already absent under %q; recording the completed deletion",
+		dirPrefix,
+	))
+	c.recordDelete(ctx, res)
+	return res, nil
+}
+
+// recordDelete appends a delete tombstone, best-effort: marker deletion has
+// already completed, so a manifest failure degrades to a warning and a retry
+// can use the narrow reconciliation path.
+func (c *Client) recordDelete(ctx context.Context, res *DeleteResult) {
 	if c.cfg.DisableManifest {
 		return
 	}
@@ -106,50 +142,52 @@ func (c *Client) recordDelete(res *DeleteResult) {
 		Time: time.Now().UTC().Truncate(time.Second),
 		Key:  res.PageKey,
 	}
-	if err := appendManifestRecord(path, rec); err != nil {
+	if err := appendManifestRecord(ctx, path, rec); err != nil {
 		res.Warnings = append(res.Warnings,
 			"tombstone not recorded: "+err.Error())
 	}
 }
 
-// ensureGonePageKey finds the active manifest upload under dir and
-// returns its page key. It refuses to tombstone a record belonging to
-// a different bucket or profile because that upload may still be live
-// through another connection (SPEC.md §9).
-func (c *Client) ensureGonePageKey(
-	dir, fallback string,
-) (string, []string, error) {
+// ensureGonePageKey returns the exact active local upload matching dirPrefix.
+// The record must be complete, current, and belong to the active connection;
+// local history never grants authority to mutate remote objects.
+func (c *Client) ensureGonePageKey(dirPrefix, target string) (string, error) {
 	if c.cfg.DisableManifest {
-		return fallback, nil, nil
+		return "", errors.New("local manifest is disabled")
 	}
-	records, readWarnings, err := ReadManifest(c.cfg.ManifestPath)
+	records, warnings, err := ReadManifest(c.cfg.ManifestPath)
 	if err != nil {
-		return fallback, []string{fmt.Sprintf(
-			"manifest unreadable; skipping bucket/profile check: %s", err,
-		)}, nil
+		return "", fmt.Errorf("read local manifest: %w", err)
 	}
-	warnings := make([]string, 0, len(readWarnings))
-	for _, warning := range readWarnings {
-		warnings = append(warnings,
-			"manifest incomplete; bucket/profile check may be incomplete: "+
-				warning)
+	if len(warnings) > 0 {
+		return "", fmt.Errorf("local manifest is incomplete: %s", warnings[0])
 	}
-	for _, rec := range ActiveUploads(records) {
-		if strings.HasPrefix(rec.Key, dir) {
-			if rec.Bucket != c.cfg.Bucket || rec.Profile != c.cfg.Profile {
-				return "", nil, fmt.Errorf(
-					"airplan: cannot mark upload %q deleted: its manifest "+
-						"record belongs to bucket %q, profile %q, but the "+
-						"active connection uses bucket %q, profile %q; "+
-						"retry with the recorded profile",
-					rec.Key, rec.Bucket, profileLabel(rec.Profile),
-					c.cfg.Bucket, profileLabel(c.cfg.Profile),
-				)
-			}
-			return rec.Key, warnings, nil
+	for _, record := range ActiveUploads(records) {
+		if record.MarkerVersion != MarkerVersion {
+			continue
 		}
+		recordDir, err := uploadDirPrefix(record.Key)
+		if err != nil || recordDir != dirPrefix {
+			continue
+		}
+		if record.Bucket != c.cfg.Bucket || record.Profile != c.cfg.Profile {
+			return "", fmt.Errorf(
+				"manifest record belongs to bucket %q, profile %q; active connection uses bucket %q, profile %q",
+				record.Bucket, profileLabel(record.Profile),
+				c.cfg.Bucket, profileLabel(c.cfg.Profile),
+			)
+		}
+		dirKey := strings.TrimSuffix(dirPrefix, "/")
+		if target != dirKey && target != dirPrefix+MarkerFilename &&
+			target != record.Key && target != record.SourceKey {
+			return "", fmt.Errorf(
+				"target %q is not the directory, marker, or recorded payload",
+				target,
+			)
+		}
+		return record.Key, nil
 	}
-	return fallback, warnings, nil
+	return "", errors.New("no matching active marker-versioned manifest record")
 }
 
 func profileLabel(profile string) string {

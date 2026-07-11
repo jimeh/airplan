@@ -2,10 +2,15 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestPreviewRendersMarkdownWithoutUploadConfig(t *testing.T) {
@@ -72,6 +77,77 @@ func TestPreviewWritesOutputFile(t *testing.T) {
 		!bytes.Contains(page, []byte("<code>notes.txt</code>")) {
 		t.Fatalf("output file is not the rendered text page:\n%s", page)
 	}
+	temps, err := filepath.Glob(filepath.Join(dir, ".notes.html.tmp-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(temps) != 0 {
+		t.Fatalf("temporary preview files remain: %v", temps)
+	}
+}
+
+func TestWritePreviewAtomicLeavesDestinationOnRenameFailure(t *testing.T) {
+	dir := t.TempDir()
+	destination := filepath.Join(dir, "existing")
+	if err := os.Mkdir(destination, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(destination, "keep")
+	if err := os.WriteFile(sentinel, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writePreviewAtomic(destination, []byte("new")); err == nil {
+		t.Fatal("writePreviewAtomic error = nil, want rename failure")
+	}
+	got, err := os.ReadFile(sentinel)
+	if err != nil || string(got) != "old" {
+		t.Fatalf("sentinel = %q, error = %v", got, err)
+	}
+	temps, err := filepath.Glob(filepath.Join(dir, ".existing.tmp-*"))
+	if err != nil || len(temps) != 0 {
+		t.Fatalf("temporary files = %v, error = %v", temps, err)
+	}
+}
+
+func TestPreviewAppliesConfiguredTimeout(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("AIRPLAN_TIMEOUT", "20ms")
+
+	reader := &blockingPreviewReader{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	defer close(reader.release)
+	cmd := newRootCmd()
+	cmd.SetIn(reader)
+	cmd.SetArgs([]string{"preview", "-"})
+
+	started := time.Now()
+	err := cmd.Execute()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want context deadline exceeded", err)
+	}
+	if time.Since(started) > time.Second {
+		t.Fatalf("preview timeout took %s", time.Since(started))
+	}
+	select {
+	case <-reader.started:
+	default:
+		t.Fatal("preview did not start reading input")
+	}
+}
+
+type blockingPreviewReader struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (r *blockingPreviewReader) Read([]byte) (int, error) {
+	r.once.Do(func() { close(r.started) })
+	<-r.release
+	return 0, io.EOF
 }
 
 func TestPreviewRefusesToOverwriteInput(t *testing.T) {
@@ -95,6 +171,36 @@ func TestPreviewRefusesToOverwriteInput(t *testing.T) {
 	}
 	if string(got) != want {
 		t.Fatalf("input was changed: %q", got)
+	}
+}
+
+func TestPreviewRefusesInputAliases(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		link func(string, string) error
+	}{
+		{"hardlink", os.Link},
+		{"symlink", os.Symlink},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			isolateEnv(t)
+			dir := t.TempDir()
+			input := filepath.Join(dir, "plan.md")
+			alias := filepath.Join(dir, "alias.md")
+			if err := os.WriteFile(input, []byte("# Keep me\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := tt.link(input, alias); err != nil {
+				t.Skipf("create %s: %v", tt.name, err)
+			}
+
+			cmd := newRootCmd()
+			cmd.SetArgs([]string{"preview", "--output", alias, input})
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(err.Error(), "must not overwrite") {
+				t.Fatalf("error = %v, want overwrite refusal", err)
+			}
+		})
 	}
 }
 
@@ -152,7 +258,10 @@ func TestPreviewHTMLAppliesNoindexWithoutNetwork(t *testing.T) {
 	cmd := newRootCmd()
 	var stdout bytes.Buffer
 	cmd.SetOut(&stdout)
-	cmd.SetIn(strings.NewReader("<!doctype html><html><head></head></html>"))
+	cmd.SetIn(strings.NewReader(
+		"<!doctype html><!-- <meta name=robots> -->" +
+			"<html><head></head></html>",
+	))
 	cmd.SetArgs([]string{"preview", "--format", "html", "-"})
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
@@ -160,5 +269,8 @@ func TestPreviewHTMLAppliesNoindexWithoutNetwork(t *testing.T) {
 	if !strings.Contains(stdout.String(),
 		`<head><meta name="robots" content="noindex, nofollow">`) {
 		t.Fatalf("preview did not inject noindex: %s", stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "<!-- <meta name=robots> -->") {
+		t.Fatalf("preview changed the comment: %s", stdout.String())
 	}
 }

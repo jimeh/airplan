@@ -2,6 +2,7 @@ package airplan
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -66,7 +67,10 @@ func TestPublicURL(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotURL, gotFallback := PublicURL(&tt.cfg, tt.key)
+			gotURL, gotFallback, err := PublicURL(&tt.cfg, tt.key)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if gotURL != tt.wantURL {
 				t.Fatalf("url = %q, want %q", gotURL, tt.wantURL)
 			}
@@ -74,6 +78,13 @@ func TestPublicURL(t *testing.T) {
 				t.Fatalf("fallback = %v, want %v", gotFallback, tt.wantFallback)
 			}
 		})
+	}
+}
+
+func TestPublicURLRejectsNilConfig(t *testing.T) {
+	url, fallback, err := PublicURL(nil, "plan.html")
+	if err == nil || url != "" || fallback {
+		t.Fatalf("PublicURL(nil) = %q, %v, %v", url, fallback, err)
 	}
 }
 
@@ -148,6 +159,109 @@ func TestStoragePutErrorMentionsKey(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "random/error.html") {
 		t.Fatalf("error = %q, want it to mention key", err)
+	}
+}
+
+func TestStorageGetBytesIsBounded(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, "1234567890")
+		},
+	))
+	t.Cleanup(server.Close)
+
+	st := newTestStorage(t, server.URL)
+	body, err := st.getBytes(context.Background(), "random/.airplan.json", 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "12345" {
+		t.Fatalf("body = %q, want one byte past limit", body)
+	}
+}
+
+func TestStorageGetBytesNotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w,
+				`<Error><Code>NoSuchKey</Code><Message>missing</Message></Error>`)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	st := newTestStorage(t, server.URL)
+	_, err := st.getBytes(context.Background(), "random/missing", 4)
+	if !errors.Is(err, errObjectNotFound) {
+		t.Fatalf("error = %v, want errObjectNotFound", err)
+	}
+}
+
+func TestStorageDeleteMarkerUsesSingleObjectRequest(t *testing.T) {
+	var method, path string
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			method, path = r.Method, r.URL.Path
+			w.WriteHeader(http.StatusNoContent)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	st := newTestStorage(t, server.URL)
+	err := st.deleteMarker(context.Background(), "random/.airplan.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if method != http.MethodDelete || path != "/plans/random/.airplan.json" {
+		t.Fatalf("request = %s %s", method, path)
+	}
+}
+
+func TestStorageDeleteKeysReturnsPerObjectError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(w, `<?xml version="1.0"?>`+
+				`<DeleteResult><Error><Key>random/page.html</Key>`+
+				`<Code>AccessDenied</Code><Message>denied</Message>`+
+				`</Error></DeleteResult>`)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	st := newTestStorage(t, server.URL)
+	err := st.deleteKeys(context.Background(), []string{"random/page.html"})
+	if err == nil || !strings.Contains(err.Error(), "random/page.html") ||
+		!strings.Contains(err.Error(), "denied") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestStorageDeleteKeysBatchesAtOneThousand(t *testing.T) {
+	var batchSizes []int
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			batchSizes = append(batchSizes,
+				strings.Count(string(body), "<Object>"))
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(w,
+				`<?xml version="1.0"?><DeleteResult></DeleteResult>`)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	keys := make([]string, 1001)
+	for i := range keys {
+		keys[i] = "random/page.html"
+	}
+	st := newTestStorage(t, server.URL)
+	if err := st.deleteKeys(context.Background(), keys); err != nil {
+		t.Fatal(err)
+	}
+	if len(batchSizes) != 2 || batchSizes[0] != 1000 || batchSizes[1] != 1 {
+		t.Fatalf("batch sizes = %v, want [1000 1]", batchSizes)
 	}
 }
 
