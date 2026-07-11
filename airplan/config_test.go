@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -125,7 +126,8 @@ bucket = "env-bucket"
 		_, err := LoadConfig(ConfigOptions{
 			Path: path, Getenv: envMap(nil),
 		})
-		assertErrorContains(t, err, "config file", path, "does not exist")
+		assertErrorContains(t, err, "config file", strconv.Quote(path),
+			"does not exist")
 	})
 
 	t.Run("explicit missing environment path errors", func(t *testing.T) {
@@ -133,7 +135,8 @@ bucket = "env-bucket"
 		_, err := LoadConfig(ConfigOptions{Getenv: envMap(map[string]string{
 			"AIRPLAN_CONFIG": path,
 		})})
-		assertErrorContains(t, err, "config file", path, "does not exist")
+		assertErrorContains(t, err, "config file", strconv.Quote(path),
+			"does not exist")
 	})
 }
 
