@@ -208,6 +208,26 @@ func TestStorageDeleteMarkerUsesSingleObjectRequest(t *testing.T) {
 	}
 }
 
+func TestStorageDeleteKeysReturnsPerObjectError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(w, `<?xml version="1.0"?>`+
+				`<DeleteResult><Error><Key>random/page.html</Key>`+
+				`<Code>AccessDenied</Code><Message>denied</Message>`+
+				`</Error></DeleteResult>`)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	st := newTestStorage(t, server.URL)
+	err := st.deleteKeys(context.Background(), []string{"random/page.html"})
+	if err == nil || !strings.Contains(err.Error(), "random/page.html") ||
+		!strings.Contains(err.Error(), "denied") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 type capturedRequest struct {
 	path   string
 	header http.Header

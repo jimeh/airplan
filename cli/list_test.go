@@ -353,11 +353,17 @@ func newFakeRemoteS3(
 		func(w http.ResponseWriter, r *http.Request) {
 			switch r.Method {
 			case "GET":
-				fake.handleList(w, r)
+				if r.URL.Query().Get("list-type") == "2" {
+					fake.handleList(w, r)
+				} else {
+					fake.handleMarker(w, r)
+				}
 			case "HEAD":
 				fake.handleHead(w, r)
 			case "POST":
 				fake.handleDelete(w, r)
+			case "DELETE":
+				w.WriteHeader(http.StatusNoContent)
 			default:
 				w.WriteHeader(http.StatusOK)
 			}
@@ -365,6 +371,42 @@ func newFakeRemoteS3(
 	))
 	t.Cleanup(fake.server.Close)
 	return fake
+}
+
+func (f *fakeRemoteS3) handleMarker(w http.ResponseWriter, r *http.Request) {
+	markerKey := strings.TrimPrefix(r.URL.Path, "/plans/")
+	dirPrefix := strings.TrimSuffix(markerKey, airplan.MarkerFilename)
+	dir := strings.TrimSuffix(dirPrefix, "/")
+	dir = dir[strings.LastIndex(dir, "/")+1:]
+
+	f.mu.Lock()
+	objects := append([]remoteFakeObject(nil), f.objects...)
+	f.mu.Unlock()
+	page := ""
+	createdAt := time.Time{}
+	for _, object := range objects {
+		if object.key == markerKey {
+			createdAt = object.lastModified
+		}
+		if strings.HasPrefix(object.key, dirPrefix) &&
+			strings.HasSuffix(object.key, ".html") &&
+			!strings.Contains(strings.TrimPrefix(object.key, dirPrefix), "/") {
+			page = strings.TrimPrefix(object.key, dirPrefix)
+		}
+	}
+	if page == "" || createdAt.IsZero() {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	body, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
+		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Directory: dir, CreatedAt: createdAt.UTC(), Format: "html", Page: page,
+	})
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	_, _ = w.Write(body)
 }
 
 func (f *fakeRemoteS3) handleList(w http.ResponseWriter, r *http.Request) {

@@ -314,14 +314,15 @@ func uploadRecord(
 ) airplan.ManifestRecord {
 	key := dir + "/" + slug + ".html"
 	return airplan.ManifestRecord{
-		Type:    "upload",
-		Time:    when.UTC().Truncate(time.Second),
-		Key:     key,
-		URL:     "https://plans.example.com/" + key,
-		Bucket:  "plans",
-		Profile: profile,
-		Title:   slug + " title",
-		Bytes:   10,
+		Type:          "upload",
+		Time:          when.UTC().Truncate(time.Second),
+		Key:           key,
+		URL:           "https://plans.example.com/" + key,
+		Bucket:        "plans",
+		Profile:       profile,
+		Title:         slug + " title",
+		Bytes:         10,
+		MarkerVersion: airplan.MarkerVersion,
 	}
 }
 
