@@ -23,17 +23,19 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
 			`"key":"active/plan.html",` +
 			`"url":"https://plans.example.com/active/plan.html",` +
-			`"bucket":"plans","title":"Active plan","bytes":18432}`,
+			`"bucket":"plans","title":"Active plan","bytes":18432,` +
+			`"marker_version":1}`,
 		`{"type":"upload","time":"2026-07-08T15:04:12Z",` +
 			`"key":"deleted/plan.html",` +
 			`"url":"https://plans.example.com/deleted/plan.html",` +
-			`"bucket":"plans","title":"Deleted plan","bytes":42}`,
+			`"bucket":"plans","title":"Deleted plan","bytes":42,` +
+			`"marker_version":1}`,
 		`{"type":"delete","time":"2026-07-09T09:12:44Z",` +
 			`"key":"deleted/plan.html"}`,
 		`{"type":"upload","time":"2026-07-08T16:05:13Z",` +
 			`"key":"untitled/plan.html",` +
 			`"url":"https://plans.example.com/untitled/plan.html",` +
-			`"bucket":"plans","bytes":7}`,
+			`"bucket":"plans","bytes":7,"marker_version":1}`,
 	}, "\n")+"\n")
 
 	stdout, stderr, err := executeList(t)
@@ -74,11 +76,12 @@ func TestListJSONShowsActiveUploads(t *testing.T) {
 			`"source_key":"active/plan.md",` +
 			`"url":"https://plans.example.com/active/plan.html",` +
 			`"bucket":"plans","profile":"work",` +
-			`"title":"Active plan","bytes":18432}`,
+			`"title":"Active plan","bytes":18432,"marker_version":1}`,
 		`{"type":"upload","time":"2026-07-08T15:04:12Z",` +
 			`"key":"deleted/plan.html",` +
 			`"url":"https://plans.example.com/deleted/plan.html",` +
-			`"bucket":"plans","title":"Deleted plan","bytes":42}`,
+			`"bucket":"plans","title":"Deleted plan","bytes":42,` +
+			`"marker_version":1}`,
 		`{"type":"delete","time":"2026-07-09T09:12:44Z",` +
 			`"key":"deleted/plan.html"}`,
 	}, "\n")+"\n")
@@ -131,7 +134,8 @@ func TestListWarnsForTornLine(t *testing.T) {
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
 			`"key":"active/plan.html",` +
 			`"url":"https://plans.example.com/active/plan.html",` +
-			`"bucket":"plans","title":"Active plan","bytes":18432}`,
+			`"bucket":"plans","title":"Active plan","bytes":18432,` +
+			`"marker_version":1}`,
 		`{"type":"upload","time":"2026-07-08T15:04:12Z",`,
 	}, "\n")+"\n")
 
@@ -326,14 +330,16 @@ type remoteFakeObject struct {
 }
 
 type fakeRemoteS3 struct {
-	server     *httptest.Server
-	mu         sync.Mutex
-	objects    []remoteFakeObject
-	titles     map[string]string
-	failDelete map[string]bool
-	prefixes   []string
-	posts      int
-	heads      int
+	server        *httptest.Server
+	mu            sync.Mutex
+	objects       []remoteFakeObject
+	titles        map[string]string
+	failDelete    map[string]bool
+	prefixes      []string
+	posts         int
+	heads         int
+	markerDeletes int
+	markers       map[string][]byte
 }
 
 func newFakeRemoteS3(
@@ -348,6 +354,7 @@ func newFakeRemoteS3(
 		objects:    objects,
 		titles:     titles,
 		failDelete: failDelete,
+		markers:    make(map[string][]byte),
 	}
 	fake.server = httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
@@ -363,6 +370,9 @@ func newFakeRemoteS3(
 			case "POST":
 				fake.handleDelete(w, r)
 			case "DELETE":
+				fake.mu.Lock()
+				fake.markerDeletes++
+				fake.mu.Unlock()
 				w.WriteHeader(http.StatusNoContent)
 			default:
 				w.WriteHeader(http.StatusOK)
@@ -381,7 +391,12 @@ func (f *fakeRemoteS3) handleMarker(w http.ResponseWriter, r *http.Request) {
 
 	f.mu.Lock()
 	objects := append([]remoteFakeObject(nil), f.objects...)
+	explicit := append([]byte(nil), f.markers[markerKey]...)
 	f.mu.Unlock()
+	if explicit != nil {
+		_, _ = w.Write(explicit)
+		return
+	}
 	page := ""
 	createdAt := time.Time{}
 	for _, object := range objects {
@@ -407,6 +422,18 @@ func (f *fakeRemoteS3) handleMarker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = w.Write(body)
+}
+
+func (f *fakeRemoteS3) setMarker(key string, body []byte) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.markers[key] = append([]byte(nil), body...)
+}
+
+func (f *fakeRemoteS3) markerDeleteCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.markerDeletes
 }
 
 func (f *fakeRemoteS3) handleList(w http.ResponseWriter, r *http.Request) {

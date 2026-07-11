@@ -41,7 +41,7 @@ func (c *Client) DeleteUpload(
 	markerBody, err := c.st.getBytes(ctx, markerKey, MaxMarkerSize)
 	if err != nil {
 		if errors.Is(err, errObjectNotFound) {
-			return c.reconcileMissingMarker(dirPrefix, key)
+			return c.reconcileMissingMarker(ctx, dirPrefix, key)
 		}
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func (c *Client) DeleteUpload(
 		Keys:    append(payloadKeys, markerKey),
 		PageKey: dirPrefix + marker.Page,
 	}
-	c.recordDelete(res)
+	c.recordDelete(ctx, res)
 	return res, nil
 }
 
@@ -97,7 +97,7 @@ func validateDeleteTarget(
 }
 
 func (c *Client) reconcileMissingMarker(
-	dirPrefix, target string,
+	ctx context.Context, dirPrefix, target string,
 ) (*DeleteResult, error) {
 	pageKey, err := c.ensureGonePageKey(dirPrefix, target)
 	if err != nil {
@@ -111,14 +111,14 @@ func (c *Client) reconcileMissingMarker(
 		"ownership marker is already absent under %q; recording the completed deletion",
 		dirPrefix,
 	))
-	c.recordDelete(res)
+	c.recordDelete(ctx, res)
 	return res, nil
 }
 
 // recordDelete appends a delete tombstone, best-effort: marker deletion has
 // already completed, so a manifest failure degrades to a warning and a retry
 // can use the narrow reconciliation path.
-func (c *Client) recordDelete(res *DeleteResult) {
+func (c *Client) recordDelete(ctx context.Context, res *DeleteResult) {
 	if c.cfg.DisableManifest {
 		return
 	}
@@ -139,7 +139,7 @@ func (c *Client) recordDelete(res *DeleteResult) {
 		Time: time.Now().UTC().Truncate(time.Second),
 		Key:  res.PageKey,
 	}
-	if err := appendManifestRecord(path, rec); err != nil {
+	if err := appendManifestRecord(ctx, path, rec); err != nil {
 		res.Warnings = append(res.Warnings,
 			"tombstone not recorded: "+err.Error())
 	}

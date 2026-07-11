@@ -134,6 +134,22 @@ func validateTarget(cfg *Config, key string) (string, error) {
 	return key, nil
 }
 
+// KeyMatchesPrefix reports whether key's random directory is immediately
+// beneath keyPrefix. It distinguishes root uploads from uploads under another
+// configured prefix (SPEC.md §9).
+func KeyMatchesPrefix(key, keyPrefix string) bool {
+	dirPrefix, err := uploadDirPrefix(strings.Trim(key, "/"))
+	if err != nil {
+		return false
+	}
+	dirSegments := strings.Split(strings.TrimSuffix(dirPrefix, "/"), "/")
+	if len(dirSegments) == 0 {
+		return false
+	}
+	actualPrefix := strings.Join(dirSegments[:len(dirSegments)-1], "/")
+	return actualPrefix == strings.Trim(keyPrefix, "/")
+}
+
 // uploadDirPrefix returns an upload's directory prefix
 // ("[key_prefix/]<random>/") for one of its object keys — the unit of
 // deletion (SPEC.md §9). Object filenames always contain a dot

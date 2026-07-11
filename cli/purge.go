@@ -2,11 +2,14 @@ package cli
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"path"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jimeh/airplan/airplan"
@@ -120,22 +123,30 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	// (SPEC.md §9). With no bucket configured (e.g. a config-free
 	// --dry-run) there is nothing to scope against, so the filter is
 	// skipped — actual deletion would still fail config validation.
-	if cfg.Bucket != "" {
-		kept := candidates[:0]
-		skipped := 0
-		for _, rec := range candidates {
-			if rec.Bucket != "" && rec.Bucket != cfg.Bucket {
-				skipped++
-				continue
-			}
-			kept = append(kept, rec)
+	kept := candidates[:0]
+	otherBuckets := 0
+	otherPrefixes := 0
+	for _, rec := range candidates {
+		if cfg.Bucket != "" && rec.Bucket != cfg.Bucket {
+			otherBuckets++
+			continue
 		}
-		candidates = kept
-		if skipped > 0 {
-			fmt.Fprintf(stderr,
-				"airplan: note: skipped %d upload(s) recorded for "+
-					"other buckets\n", skipped)
+		if !airplan.KeyMatchesPrefix(rec.Key, cfg.KeyPrefix) {
+			otherPrefixes++
+			continue
 		}
+		kept = append(kept, rec)
+	}
+	candidates = kept
+	if otherBuckets > 0 {
+		fmt.Fprintf(stderr,
+			"airplan: note: skipped %d upload(s) recorded for other buckets\n",
+			otherBuckets)
+	}
+	if otherPrefixes > 0 {
+		fmt.Fprintf(stderr,
+			"airplan: note: skipped %d upload(s) recorded for other key prefixes\n",
+			otherPrefixes)
 	}
 
 	if opts.dryRun {
@@ -218,10 +229,14 @@ func runRemotePurge(
 	if err != nil {
 		return err
 	}
-	candidates, err := remotePurgeCandidates(
-		uploads, cfg, opts, olderThan, time.Now())
+	candidates, invalid, err := remotePurgeCandidates(
+		listCtx, uploads, cfg, client, opts, olderThan, time.Now())
 	if err != nil {
 		return err
+	}
+	if invalid > 0 {
+		fmt.Fprintf(stderr,
+			"airplan: note: skipped %d invalid remote marker(s)\n", invalid)
 	}
 
 	records := remotePurgeRecords(candidates)
@@ -252,7 +267,7 @@ func runRemotePurge(
 
 	var purged, failed int
 	for _, cand := range candidates {
-		if _, err := client.DeleteUpload(ctx, cand.upload.PageKey); err != nil {
+		if _, err := client.DeleteUpload(ctx, cand.upload.MarkerKey); err != nil {
 			failed++
 			fmt.Fprintf(stderr, "airplan: error: delete %s: %s\n",
 				purgeTarget(cand.record), err)
@@ -301,42 +316,114 @@ func purgeCandidates(
 }
 
 func remotePurgeCandidates(
+	ctx context.Context,
 	uploads []airplan.RemoteUpload,
 	cfg *airplan.Config,
+	client *airplan.Client,
 	opts *purgeOptions,
 	olderThan time.Duration,
 	now time.Time,
-) ([]remotePurgeCandidate, error) {
+) ([]remotePurgeCandidate, int, error) {
+	if opts.slug != "" {
+		if _, err := path.Match(opts.slug, ""); err != nil {
+			return nil, 0, fmt.Errorf("--slug: %w", err)
+		}
+	}
+
+	inspections := inspectRemoteCandidates(ctx, client, uploads)
 	var out []remotePurgeCandidate
+	invalid := 0
 	cutoff := now.Add(-olderThan)
-	for _, upload := range uploads {
-		if opts.olderThan != "" && !upload.LastModified.Before(cutoff) {
+	for _, result := range inspections {
+		if result.err != nil {
+			return nil, invalid, result.err
+		}
+		inspection := result.inspection
+		if inspection.State == airplan.UploadInvalid {
+			invalid++
+			continue
+		}
+		if opts.olderThan != "" && !inspection.CreatedAt.Before(cutoff) {
 			continue
 		}
 		if opts.slug != "" {
-			ok, err := path.Match(opts.slug, uploadSlug(upload.PageKey))
-			if err != nil {
-				return nil, fmt.Errorf("--slug: %w", err)
-			}
+			ok, _ := path.Match(opts.slug, uploadSlug(inspection.Page.Key))
 			if !ok {
 				continue
 			}
 		}
 
-		url, _ := airplan.PublicURL(cfg, upload.PageKey)
+		pageBytes := int64(0)
+		if inspection.Page.Exists {
+			pageBytes = inspection.Page.Bytes
+		}
 		out = append(out, remotePurgeCandidate{
-			upload: upload,
+			upload: result.upload,
 			record: airplan.ManifestRecord{
-				Type:   "upload",
-				Time:   upload.LastModified.UTC(),
-				Key:    upload.PageKey,
-				URL:    url,
-				Bucket: cfg.Bucket,
-				Bytes:  upload.Bytes,
+				Type:          "upload",
+				Time:          inspection.CreatedAt.UTC(),
+				Key:           inspection.Page.Key,
+				URL:           inspection.Page.URL,
+				Bucket:        cfg.Bucket,
+				Title:         inspection.Title,
+				Bytes:         pageBytes,
+				MarkerVersion: airplan.MarkerVersion,
 			},
 		})
 	}
-	return out, nil
+	return out, invalid, nil
+}
+
+type remoteInspectionResult struct {
+	index      int
+	upload     airplan.RemoteUpload
+	inspection *airplan.UploadInspection
+	err        error
+}
+
+func inspectRemoteCandidates(
+	ctx context.Context,
+	client *airplan.Client,
+	uploads []airplan.RemoteUpload,
+) []remoteInspectionResult {
+	const workers = 8
+	type job struct {
+		index  int
+		upload airplan.RemoteUpload
+	}
+
+	jobs := make(chan job)
+	results := make(chan remoteInspectionResult, len(uploads))
+	workerCount := min(workers, len(uploads))
+	var wg sync.WaitGroup
+	for range workerCount {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobs {
+				inspection, err := client.InspectUpload(ctx, job.upload.MarkerKey)
+				results <- remoteInspectionResult{
+					index: job.index, upload: job.upload,
+					inspection: inspection, err: err,
+				}
+			}
+		}()
+	}
+	go func() {
+		for index, upload := range uploads {
+			jobs <- job{index: index, upload: upload}
+		}
+		close(jobs)
+		wg.Wait()
+		close(results)
+	}()
+
+	out := make([]remoteInspectionResult, 0, len(uploads))
+	for result := range results {
+		out = append(out, result)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].index < out[j].index })
+	return out
 }
 
 func remotePurgeRecords(

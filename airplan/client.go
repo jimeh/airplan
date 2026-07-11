@@ -259,7 +259,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		res.SourceURL, _ = PublicURL(c.cfg, res.SourceKey)
 	}
 
-	c.recordUpload(res)
+	c.recordUpload(ctx, res)
 
 	return res, nil
 }

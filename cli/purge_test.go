@@ -167,6 +167,41 @@ func TestPurgeRemoteOlderThanDeletesOnlyOldUploads(t *testing.T) {
 	}
 }
 
+func TestPurgeRemoteDeletesIncompleteAndSkipsInvalid(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	incompleteMarkerKey := deleteDirA + "/" + airplan.MarkerFilename
+	invalidMarkerKey := deleteDirB + "/" + airplan.MarkerFilename
+	fake := newFakeRemoteS3(t, []remoteFakeObject{
+		{key: incompleteMarkerKey, size: 100, lastModified: when},
+		{key: invalidMarkerKey, size: 10, lastModified: when},
+	}, nil, nil)
+	body, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
+		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Directory: deleteDirA, CreatedAt: when, Format: "md",
+		Page: "missing.html", Source: "missing.md", Title: "Incomplete",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.setMarker(incompleteMarkerKey, body)
+	fake.setMarker(invalidMarkerKey, []byte(`{"schema":`))
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--remote", "--slug", "missing", "--yes",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if stdout != "" ||
+		!strings.Contains(stderr, "skipped 1 invalid remote marker") ||
+		!strings.Contains(stderr, "purged 1 uploads (0 failed)") ||
+		fake.markerDeleteCalls() != 1 {
+		t.Fatalf("stdout = %q, stderr = %q, marker deletes = %d",
+			stdout, stderr, fake.markerDeleteCalls())
+	}
+}
+
 func TestPurgeDryRunDeletesNothing(t *testing.T) {
 	isolateEnv(t)
 	writeDefaultManifest(t, []airplan.ManifestRecord{
@@ -403,5 +438,44 @@ func TestPurgeAllStillAppliesFilters(t *testing.T) {
 	}
 	if strings.Contains(stderr, "beta.html") {
 		t.Errorf("--all bypassed --slug filter: %q", stderr)
+	}
+}
+
+func TestPurgeSkipsOtherBucketsAndPrefixes(t *testing.T) {
+	isolateEnv(t)
+	now := time.Now().UTC()
+	current := uploadRecord(deleteDirA, "current", "", now)
+	current.Key = "team/current/" + current.Key
+	current.URL = "https://plans.example.com/" + current.Key
+	otherPrefix := uploadRecord(deleteDirB, "other-prefix", "", now)
+	otherPrefix.Key = "team/old/" + otherPrefix.Key
+	otherPrefix.URL = "https://plans.example.com/" + otherPrefix.Key
+	otherBucket := uploadRecord(deleteDirC, "other-bucket", "", now)
+	otherBucket.Key = "team/current/" + otherBucket.Key
+	otherBucket.URL = "https://plans.example.com/" + otherBucket.Key
+	otherBucket.Bucket = "archive"
+	writeDefaultManifest(t, []airplan.ManifestRecord{
+		current, otherPrefix, otherBucket,
+	})
+
+	config := filepath.Join(t.TempDir(), "config.toml")
+	data := "endpoint = \"https://example.com\"\n" +
+		"bucket = \"plans\"\n" +
+		"key_prefix = \"team/current\"\n"
+	if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--all", "--dry-run", "--config", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || !strings.Contains(stderr, "current.html") ||
+		strings.Contains(stderr, "other-prefix.html") ||
+		strings.Contains(stderr, "other-bucket.html") ||
+		!strings.Contains(stderr, "skipped 1 upload(s) recorded for other buckets") ||
+		!strings.Contains(stderr, "skipped 1 upload(s) recorded for other key prefixes") {
+		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
 	}
 }

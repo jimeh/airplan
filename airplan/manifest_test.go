@@ -1,7 +1,9 @@
 package airplan
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +12,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gofrs/flock"
 )
 
 func TestDefaultManifestPathHonorsXDGStateHome(t *testing.T) {
@@ -45,15 +49,16 @@ func TestAppendManifestRecordCreatesManifestAndRoundTrips(t *testing.T) {
 	firstTime := time.Date(2026, 7, 8, 14, 3, 11, 0, time.UTC)
 	secondTime := firstTime.Add(time.Hour)
 	first := ManifestRecord{
-		Type:      "upload",
-		Time:      firstTime,
-		Key:       "vq3n/plan.html",
-		SourceKey: "vq3n/plan.md",
-		URL:       "https://plans.example.com/vq3n/plan.html",
-		Bucket:    "plans",
-		Profile:   "work",
-		Title:     "Refactor auth",
-		Bytes:     18432,
+		Type:          "upload",
+		Time:          firstTime,
+		Key:           "vq3n/plan.html",
+		SourceKey:     "vq3n/plan.md",
+		URL:           "https://plans.example.com/vq3n/plan.html",
+		Bucket:        "plans",
+		Profile:       "work",
+		Title:         "Refactor auth",
+		Bytes:         18432,
+		MarkerVersion: MarkerVersion,
 	}
 	second := ManifestRecord{
 		Type: "delete",
@@ -61,10 +66,10 @@ func TestAppendManifestRecordCreatesManifestAndRoundTrips(t *testing.T) {
 		Key:  "vq3n/plan.html",
 	}
 
-	if err := appendManifestRecord(path, first); err != nil {
+	if err := appendManifestRecord(context.Background(), path, first); err != nil {
 		t.Fatal(err)
 	}
-	if err := appendManifestRecord(path, second); err != nil {
+	if err := appendManifestRecord(context.Background(), path, second); err != nil {
 		t.Fatal(err)
 	}
 
@@ -86,7 +91,7 @@ func TestAppendManifestRecordCreatesManifestAndRoundTrips(t *testing.T) {
 		`"key":"vq3n/plan.html","source_key":"vq3n/plan.md",` +
 		`"url":"https://plans.example.com/vq3n/plan.html",` +
 		`"bucket":"plans","profile":"work","title":"Refactor auth",` +
-		`"bytes":18432}`
+		`"bytes":18432,"marker_version":1}`
 	if lines[0] != wantLine {
 		t.Fatalf("first line = %s, want %s", lines[0], wantLine)
 	}
@@ -120,9 +125,10 @@ func TestAppendManifestRecordConcurrentWritesStayIntact(t *testing.T) {
 				Type: "upload",
 				Time: time.Date(2026, 7, 8, 14, 3, i%60, 0,
 					time.UTC),
-				Key: fmt.Sprintf("key-%02d/plan.html", i),
+				Key:           fmt.Sprintf("key-%02d/plan.html", i),
+				MarkerVersion: MarkerVersion,
 			}
-			errs <- appendManifestRecord(path, rec)
+			errs <- appendManifestRecord(context.Background(), path, rec)
 		}()
 	}
 	close(start)
@@ -170,11 +176,54 @@ func TestAppendManifestRecordConcurrentWritesStayIntact(t *testing.T) {
 	}
 }
 
+func TestAppendManifestRecordLockWaitHonorsContext(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.jsonl")
+	lock := flock.New(path + ".lock")
+	if err := lock.Lock(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Unlock() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	err := appendManifestRecord(ctx, path, ManifestRecord{
+		Type: "upload", Key: "key/plan.html", MarkerVersion: MarkerVersion,
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want context deadline", err)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("lock wait took %s", elapsed)
+	}
+}
+
+func TestReadManifestSkipsUnsupportedMarkerVersion(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.jsonl")
+	data := strings.Join([]string{
+		`{"type":"upload","key":"missing.html"}`,
+		`{"type":"upload","key":"future.html","marker_version":2}`,
+		`{"type":"upload","key":"current.html","marker_version":1}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	records, warnings, err := readManifest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Key != "current.html" ||
+		len(warnings) != 2 {
+		t.Fatalf("records = %+v, warnings = %v", records, warnings)
+	}
+}
+
 func TestReadManifestSkipsMalformedAndUnknownType(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.jsonl")
 	data := strings.Join([]string{
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
-			`"key":"upload.html","extra":"ignored"}`,
+			`"key":"upload.html","marker_version":1,"extra":"ignored"}`,
 		`not json`,
 		`{"type":"future","time":"2026-07-08T14:03:12Z",` +
 			`"key":"future.html"}`,
@@ -197,9 +246,10 @@ func TestReadManifestSkipsMalformedAndUnknownType(t *testing.T) {
 	}
 	want := []ManifestRecord{
 		{
-			Type: "upload",
-			Time: time.Date(2026, 7, 8, 14, 3, 11, 0, time.UTC),
-			Key:  "upload.html",
+			Type:          "upload",
+			Time:          time.Date(2026, 7, 8, 14, 3, 11, 0, time.UTC),
+			Key:           "upload.html",
+			MarkerVersion: MarkerVersion,
 		},
 		{
 			Type: "delete",
@@ -215,7 +265,7 @@ func TestReadManifestSkipsMalformedAndUnknownType(t *testing.T) {
 func TestReadManifestSkipsOversizedLineAndContinues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.jsonl")
 	oversized := strings.Repeat("x", 10*1024*1024+1)
-	data := `{"type":"upload","key":"before.html"}` + "\n" +
+	data := `{"type":"upload","key":"before.html","marker_version":1}` + "\n" +
 		oversized + "\n" +
 		`{"type":"delete","key":"after.html"}` + "\n"
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {

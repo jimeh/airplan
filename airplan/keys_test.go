@@ -141,6 +141,24 @@ func TestKeyFromURLOrKeyPrefixAndEncodedPaths(t *testing.T) {
 	}
 }
 
+func TestKeyMatchesPrefix(t *testing.T) {
+	for _, tt := range []struct {
+		key, prefix string
+		want        bool
+	}{
+		{testDir + "/plan.html", "", true},
+		{"team/jimeh/" + testDir + "/plan.html", "team/jimeh", true},
+		{"team/other/" + testDir + "/plan.html", "team/jimeh", false},
+		{"team/jimeh/" + testDir + "/plan.html", "", false},
+		{"invalid/plan.html", "", false},
+	} {
+		if got := KeyMatchesPrefix(tt.key, tt.prefix); got != tt.want {
+			t.Errorf("KeyMatchesPrefix(%q, %q) = %v, want %v",
+				tt.key, tt.prefix, got, tt.want)
+		}
+	}
+}
+
 func TestDeleteUploadMarkerLast(t *testing.T) {
 	marker := testUploadMarker(t, "md", "plan.html", "plan.md")
 	fake := newDeleteLifecycleS3(t, marker, []objectInfo{
@@ -246,7 +264,7 @@ func TestDeleteUploadMissingMarkerReconciliation(t *testing.T) {
 	fake.markerMissing = true
 	manifest := t.TempDir() + "/manifest.jsonl"
 	pageKey := testDir + "/plan.html"
-	if err := appendManifestRecord(manifest, ManifestRecord{
+	if err := appendManifestRecord(context.Background(), manifest, ManifestRecord{
 		Type: "upload", Time: time.Now().UTC(), Key: pageKey,
 		Bucket: "plans", Profile: "work", MarkerVersion: MarkerVersion,
 	}); err != nil {
@@ -295,7 +313,9 @@ func TestDeleteUploadMissingMarkerRequiresExactManifest(t *testing.T) {
 			fake.markerMissing = true
 			manifest := t.TempDir() + "/manifest.jsonl"
 			if tt.record != nil {
-				if err := appendManifestRecord(manifest, *tt.record); err != nil {
+				if err := appendManifestRecord(
+					context.Background(), manifest, *tt.record,
+				); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -316,8 +336,8 @@ func TestDeleteUploadMissingMarkerRequiresExactManifest(t *testing.T) {
 
 func TestActiveUploads(t *testing.T) {
 	records := []ManifestRecord{
-		{Type: "upload", Key: "a/x.html"},
-		{Type: "upload", Key: "b/y.html"},
+		{Type: "upload", Key: "a/x.html", MarkerVersion: MarkerVersion},
+		{Type: "upload", Key: "b/y.html", MarkerVersion: MarkerVersion},
 		{Type: "delete", Key: "a/x.html"},
 	}
 	got := ActiveUploads(records)

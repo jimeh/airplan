@@ -3,6 +3,7 @@ package airplan
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -77,7 +78,9 @@ func DefaultManifestPath() (string, error) {
 // per SPEC.md §9: the file is opened in append mode, the full line —
 // trailing newline included — goes out in a single write, and the
 // write is wrapped in an advisory file lock (gofrs/flock).
-func appendManifestRecord(path string, rec ManifestRecord) error {
+func appendManifestRecord(
+	ctx context.Context, path string, rec ManifestRecord,
+) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return fmt.Errorf("create manifest directory: %w", err)
 	}
@@ -89,8 +92,12 @@ func appendManifestRecord(path string, rec ManifestRecord) error {
 	line = append(line, '\n')
 
 	lock := flock.New(path+".lock", flock.SetPermissions(0o600))
-	if err := lock.Lock(); err != nil {
+	locked, err := lock.TryLockContext(ctx, 10*time.Millisecond)
+	if err != nil {
 		return fmt.Errorf("lock manifest: %w", err)
+	}
+	if !locked {
+		return fmt.Errorf("lock manifest: %w", ctx.Err())
 	}
 	defer func() { _ = lock.Unlock() }()
 
@@ -154,7 +161,16 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 			if err := json.Unmarshal(line, &rec); err != nil {
 				warnings = append(warnings,
 					fmt.Sprintf("skipping malformed manifest line %d", lineNo))
-			} else if rec.Type == "upload" || rec.Type == "delete" {
+			} else if rec.Type == "upload" {
+				if rec.MarkerVersion != MarkerVersion {
+					warnings = append(warnings, fmt.Sprintf(
+						"skipping manifest line %d with unsupported marker_version %d",
+						lineNo, rec.MarkerVersion,
+					))
+				} else {
+					records = append(records, rec)
+				}
+			} else if rec.Type == "delete" {
 				records = append(records, rec)
 			}
 		}
@@ -192,7 +208,7 @@ func readManifestLine(r *bufio.Reader, max int) ([]byte, bool, error) {
 // recordUpload appends an upload record for res, best-effort: manifest
 // failures degrade to a warning on the result, never a failed upload
 // (SPEC.md §9 — the manifest is convenience, not a source of truth).
-func (c *Client) recordUpload(res *Result) {
+func (c *Client) recordUpload(ctx context.Context, res *Result) {
 	if c.cfg.DisableManifest {
 		return
 	}
@@ -220,7 +236,7 @@ func (c *Client) recordUpload(res *Result) {
 		Bytes:         res.Bytes,
 		MarkerVersion: res.MarkerVersion,
 	}
-	if err := appendManifestRecord(path, rec); err != nil {
+	if err := appendManifestRecord(ctx, path, rec); err != nil {
 		res.Warnings = append(res.Warnings,
 			"manifest not recorded: "+err.Error())
 	}
@@ -252,7 +268,8 @@ func ActiveUploads(records []ManifestRecord) []ManifestRecord {
 
 	var out []ManifestRecord
 	for _, r := range records {
-		if r.Type == "upload" && !deleted[r.Key] {
+		if r.Type == "upload" && r.MarkerVersion == MarkerVersion &&
+			!deleted[r.Key] {
 			out = append(out, r)
 		}
 	}
