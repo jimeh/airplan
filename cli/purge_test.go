@@ -128,8 +128,16 @@ func TestPurgeRemoteOlderThanDeletesOnlyOldUploads(t *testing.T) {
 	oldKey := deleteDirA + "/old.html"
 	newKey := deleteDirB + "/new.html"
 	fake := newFakeRemoteS3(t, []remoteFakeObject{
+		{
+			key:  deleteDirA + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: old,
+		},
 		{key: oldKey, size: 10, lastModified: old},
 		{key: deleteDirA + "/old.md", size: 5, lastModified: old},
+		{
+			key:  deleteDirB + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: newer,
+		},
 		{key: newKey, size: 10, lastModified: newer},
 	}, nil, nil)
 

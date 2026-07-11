@@ -1,13 +1,13 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/jimeh/airplan/airplan"
 	"github.com/spf13/cobra"
@@ -76,7 +76,7 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 }
 
 func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
-	client, cfg, ctx, cancel, err := setupClient(
+	client, _, ctx, cancel, err := setupClient(
 		cmd, opts.config, opts.profile)
 	if err != nil {
 		return err
@@ -88,45 +88,69 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 		return err
 	}
 
-	records := remoteListRecords(ctx, cmd, cfg, client, uploads)
 	if opts.json {
-		if records == nil {
-			records = []airplan.ManifestRecord{}
+		if uploads == nil {
+			uploads = []airplan.RemoteUpload{}
 		}
-		return json.NewEncoder(cmd.OutOrStdout()).Encode(records)
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(
+			remoteListJSONRecords(uploads),
+		)
 	}
 
-	return printUploadTable(cmd.OutOrStdout(), records)
+	return printRemoteUploadTable(cmd.OutOrStdout(), uploads)
 }
 
-func remoteListRecords(
-	ctx context.Context,
-	cmd *cobra.Command,
-	cfg *airplan.Config,
-	client *airplan.Client,
+type remoteListJSONRecord struct {
+	Time      time.Time `json:"time"`
+	Dir       string    `json:"dir"`
+	MarkerKey string    `json:"marker_key"`
+	Objects   int       `json:"objects"`
+	Bytes     int64     `json:"bytes"`
+	Slug      string    `json:"slug,omitempty"`
+}
+
+func remoteListJSONRecords(
 	uploads []airplan.RemoteUpload,
-) []airplan.ManifestRecord {
-	records := make([]airplan.ManifestRecord, 0, len(uploads))
+) []remoteListJSONRecord {
+	records := make([]remoteListJSONRecord, 0, len(uploads))
 	for _, upload := range uploads {
-		title, err := client.RemoteTitle(ctx, upload.PageKey)
-		if err != nil {
-			title = "-"
-			fmt.Fprintf(cmd.ErrOrStderr(),
-				"airplan: warning: title unavailable for %s: %s\n",
-				upload.PageKey, err)
-		}
-		url, _ := airplan.PublicURL(cfg, upload.PageKey)
-		records = append(records, airplan.ManifestRecord{
-			Type:   "upload",
-			Time:   upload.LastModified.UTC(),
-			Key:    upload.PageKey,
-			URL:    url,
-			Bucket: cfg.Bucket,
-			Title:  title,
-			Bytes:  upload.Bytes,
+		records = append(records, remoteListJSONRecord{
+			Time:      upload.LastModified.UTC(),
+			Dir:       upload.Dir,
+			MarkerKey: upload.MarkerKey,
+			Objects:   upload.Objects,
+			Bytes:     upload.Bytes,
+			Slug:      upload.Slug,
 		})
 	}
 	return records
+}
+
+func printRemoteUploadTable(w io.Writer, uploads []airplan.RemoteUpload) error {
+	if len(uploads) == 0 {
+		return nil
+	}
+
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	if _, err := fmt.Fprintln(tw, "DATE\tOBJECTS\tSIZE\tSLUG\tDIRECTORY"); err != nil {
+		return err
+	}
+	for _, upload := range uploads {
+		slug := upload.Slug
+		if slug == "" {
+			slug = "-"
+		}
+		if _, err := fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n",
+			upload.LastModified.UTC().Format("2006-01-02 15:04"),
+			upload.Objects,
+			formatListBytes(upload.Bytes),
+			slug,
+			upload.Dir,
+		); err != nil {
+			return err
+		}
+	}
+	return tw.Flush()
 }
 
 func printUploadTable(

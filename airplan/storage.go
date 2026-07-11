@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
 	neturl "net/url"
 	"strings"
 	"time"
@@ -256,28 +255,4 @@ func (s *storage) deleteKeys(ctx context.Context, keys []string) error {
 		}
 	}
 	return nil
-}
-
-// headTitle fetches an object's x-amz-meta-title, reversing the
-// RFC 2047 encoding applied at upload; "" when absent (SPEC.md §9).
-func (s *storage) headTitle(
-	ctx context.Context, key string,
-) (string, error) {
-	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(key),
-	})
-	if err != nil {
-		return "", fmt.Errorf("airplan: head %q: %w", key, err)
-	}
-
-	raw := out.Metadata["title"]
-	if raw == "" {
-		return "", nil
-	}
-	dec := new(mime.WordDecoder)
-	if title, err := dec.DecodeHeader(raw); err == nil {
-		return title, nil
-	}
-	return raw, nil
 }

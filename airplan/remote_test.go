@@ -3,7 +3,6 @@ package airplan
 import (
 	"context"
 	"fmt"
-	"mime"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,63 +10,72 @@ import (
 	"time"
 )
 
-func TestListRemoteRecognizesUploadKeys(t *testing.T) {
-	oldPage := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
-	newPage := time.Date(2026, 7, 2, 10, 0, 0, 0, time.UTC)
+func TestListRemoteIndexesMarkerDirectories(t *testing.T) {
+	markerA := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+	markerB := markerA.Add(time.Hour)
 	prefix := "team/jimeh/"
 	dirA := "aaaaaaaaaaaaaaaaaaaaaaaaaa"
 	dirB := "bbbbbbbbbbbbbbbbbbbbbbbbbb"
-	dirNoPage := "cccccccccccccccccccccccccc"
-	dirNested := "dddddddddddddddddddddddddd"
+	dirMarkerOnly := "cccccccccccccccccccccccccc"
+	dirMarkerless := "dddddddddddddddddddddddddd"
 
+	var requests int
 	var capturedPrefix string
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != "GET" {
-				w.WriteHeader(http.StatusOK)
-				return
+			requests++
+			if r.Method != http.MethodGet || r.URL.Query().Get("list-type") != "2" {
+				t.Fatalf("unexpected request: %s %s", r.Method, r.URL.String())
 			}
 			capturedPrefix = r.URL.Query().Get("prefix")
 			writeListXML(t, w, []objectInfo{
 				{
-					Key: prefix + dirA + "/zeta.html", Size: 20,
-					LastModified: newPage,
+					Key: prefix + dirA + "/" + MarkerFilename, Size: 100,
+					LastModified: markerA,
+				},
+				{
+					Key: prefix + dirA + "/plan.html", Size: 20,
+					LastModified: markerA.Add(time.Minute),
 				},
 				{
 					Key: prefix + dirA + "/plan.md", Size: 5,
-					LastModified: newPage.Add(-time.Minute),
+					LastModified: markerA,
 				},
 				{
-					Key: prefix + dirA + "/main.go", Size: 7,
-					LastModified: newPage.Add(-2 * time.Minute),
+					Key: prefix + dirA + "/deep/extra.bin", Size: 7,
+					LastModified: markerA,
 				},
 				{
-					Key: prefix + dirB + "/beta.html", Size: 30,
-					LastModified: newPage,
+					Key: prefix + dirB + "/" + MarkerFilename, Size: 90,
+					LastModified: markerB,
 				},
 				{
 					Key: prefix + dirB + "/alpha.html", Size: 10,
-					LastModified: oldPage,
+					LastModified: markerB,
 				},
 				{
-					Key: prefix + "not-base32/plan.html", Size: 1,
-					LastModified: oldPage,
+					Key: prefix + dirB + "/beta.html", Size: 30,
+					LastModified: markerB,
 				},
 				{
-					Key: prefix + dirNoPage + "/plan.md", Size: 1,
-					LastModified: oldPage,
+					Key: prefix + dirMarkerOnly + "/" + MarkerFilename, Size: 80,
+					LastModified: markerB.Add(time.Hour),
 				},
 				{
-					Key: prefix + dirNested + "/page.html", Size: 1,
-					LastModified: oldPage,
+					Key: prefix + dirMarkerless + "/page.html", Size: 1,
+					LastModified: markerA,
 				},
 				{
-					Key: prefix + dirNested + "/deep/page.md", Size: 1,
-					LastModified: oldPage,
+					Key: prefix + "not-base32/" + MarkerFilename, Size: 1,
+					LastModified: markerA,
 				},
 				{
-					Key: "other/" + dirA + "/outside.html", Size: 1,
-					LastModified: oldPage,
+					Key: prefix + dirMarkerless + "/deep/" + MarkerFilename, Size: 1,
+					LastModified: markerA,
+				},
+				{
+					Key: "other/" + dirA + "/" + MarkerFilename, Size: 1,
+					LastModified: markerA,
 				},
 			})
 		},
@@ -80,33 +88,81 @@ func TestListRemoteRecognizesUploadKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	if requests != 1 {
+		t.Fatalf("requests = %d, want one LIST", requests)
+	}
 	if capturedPrefix != prefix {
 		t.Fatalf("prefix = %q, want %q", capturedPrefix, prefix)
 	}
-	if len(uploads) != 2 {
-		t.Fatalf("uploads = %+v, want 2 uploads", uploads)
+	if len(uploads) != 3 {
+		t.Fatalf("uploads = %+v, want 3 marker directories", uploads)
 	}
 
-	if uploads[0].Dir != prefix+dirB ||
-		uploads[0].PageKey != prefix+dirB+"/alpha.html" ||
-		uploads[0].Bytes != 10 ||
-		!uploads[0].LastModified.Equal(oldPage) {
-		t.Fatalf("first upload = %+v", uploads[0])
+	first := uploads[0]
+	if first.Dir != dirA ||
+		first.MarkerKey != prefix+dirA+"/"+MarkerFilename ||
+		first.Slug != "plan" ||
+		first.PageKey != prefix+dirA+"/plan.html" ||
+		first.Objects != 4 || first.Bytes != 132 ||
+		!first.LastModified.Equal(markerA) {
+		t.Fatalf("first upload = %+v", first)
 	}
-	if uploads[1].Dir != prefix+dirA ||
-		uploads[1].PageKey != prefix+dirA+"/zeta.html" ||
-		uploads[1].Bytes != 20 ||
-		!uploads[1].LastModified.Equal(newPage) {
-		t.Fatalf("second upload = %+v", uploads[1])
-	}
-
 	wantKeys := []string{
-		prefix + dirA + "/main.go",
+		prefix + dirA + "/" + MarkerFilename,
+		prefix + dirA + "/deep/extra.bin",
+		prefix + dirA + "/plan.html",
 		prefix + dirA + "/plan.md",
-		prefix + dirA + "/zeta.html",
 	}
-	if strings.Join(uploads[1].Keys, ",") != strings.Join(wantKeys, ",") {
-		t.Fatalf("keys = %v, want %v", uploads[1].Keys, wantKeys)
+	if strings.Join(first.Keys, ",") != strings.Join(wantKeys, ",") {
+		t.Fatalf("keys = %v, want %v", first.Keys, wantKeys)
+	}
+	if uploads[1].Dir != dirB || uploads[1].Slug != "" ||
+		uploads[1].PageKey != "" || uploads[1].Objects != 3 ||
+		uploads[1].Bytes != 130 {
+		t.Fatalf("ambiguous upload = %+v", uploads[1])
+	}
+	if uploads[2].Dir != dirMarkerOnly || uploads[2].Objects != 1 ||
+		uploads[2].Bytes != 80 || uploads[2].Slug != "" {
+		t.Fatalf("marker-only upload = %+v", uploads[2])
+	}
+}
+
+func TestListRemotePaginatesAndAggregates(t *testing.T) {
+	dir := "abcdefghijklmnopqrstuvwxyz"
+	when := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			requests++
+			w.Header().Set("Content-Type", "application/xml")
+			if r.URL.Query().Get("continuation-token") == "next" {
+				fmt.Fprintln(w, `<?xml version="1.0"?><ListBucketResult>`+
+					`<IsTruncated>false</IsTruncated>`+
+					objectXML(objectInfo{
+						Key: dir + "/plan.html", Size: 20,
+						LastModified: when,
+					})+`</ListBucketResult>`)
+				return
+			}
+			fmt.Fprintln(w, `<?xml version="1.0"?><ListBucketResult>`+
+				`<IsTruncated>true</IsTruncated>`+
+				`<NextContinuationToken>next</NextContinuationToken>`+
+				objectXML(objectInfo{
+					Key: dir + "/" + MarkerFilename, Size: 10,
+					LastModified: when,
+				})+`</ListBucketResult>`)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	client := newRemoteTestClient(t, server.URL, "")
+	uploads, err := client.ListRemote(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 2 || len(uploads) != 1 || uploads[0].Objects != 2 ||
+		uploads[0].Bytes != 30 || uploads[0].Slug != "plan" {
+		t.Fatalf("requests = %d, uploads = %+v", requests, uploads)
 	}
 }
 
@@ -126,30 +182,6 @@ func TestListRemoteRootPrefixListsBucketRoot(t *testing.T) {
 	}
 	if capturedPrefix != "" {
 		t.Fatalf("prefix = %q, want bucket root", capturedPrefix)
-	}
-}
-
-func TestRemoteTitleDecodesMetadata(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != "HEAD" {
-				w.WriteHeader(http.StatusOK)
-				return
-			}
-			w.Header().Set("X-Amz-Meta-Title",
-				mime.QEncoding.Encode("utf-8", "Plan ✓"))
-			w.WriteHeader(http.StatusOK)
-		},
-	))
-	t.Cleanup(server.Close)
-
-	client := newRemoteTestClient(t, server.URL, "")
-	title, err := client.RemoteTitle(context.Background(), testDir+"/plan.html")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if title != "Plan ✓" {
-		t.Fatalf("title = %q, want decoded title", title)
 	}
 }
 
@@ -177,11 +209,13 @@ func writeListXML(t *testing.T, w http.ResponseWriter, objects []objectInfo) {
 	fmt.Fprintln(w, `<?xml version="1.0" encoding="UTF-8"?>`)
 	fmt.Fprintln(w, `<ListBucketResult><IsTruncated>false</IsTruncated>`)
 	for _, obj := range objects {
-		fmt.Fprintf(w, "<Contents><Key>%s</Key><Size>%d</Size>",
-			obj.Key, obj.Size)
-		fmt.Fprintf(w, "<LastModified>%s</LastModified>",
-			obj.LastModified.Format(time.RFC3339))
-		fmt.Fprintln(w, "</Contents>")
+		fmt.Fprintln(w, objectXML(obj))
 	}
 	fmt.Fprintln(w, `</ListBucketResult>`)
+}
+
+func objectXML(obj objectInfo) string {
+	return fmt.Sprintf("<Contents><Key>%s</Key><Size>%d</Size>"+
+		"<LastModified>%s</LastModified></Contents>",
+		obj.Key, obj.Size, obj.LastModified.Format(time.RFC3339))
 }
