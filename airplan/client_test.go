@@ -193,10 +193,10 @@ func TestSourceExt(t *testing.T) {
 func TestUploadRejectsBinaryInput(t *testing.T) {
 	c := &Client{cfg: &Config{Bucket: "b"}}
 
-	png := "\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+	binary := "valid UTF-8\x00with a NUL"
 	_, err := c.Upload(context.Background(), Input{
-		Reader: strings.NewReader(png),
-		Name:   "image.png",
+		Reader: strings.NewReader(binary),
+		Name:   "data.bin",
 	})
 	if !errors.Is(err, ErrBinaryInput) {
 		t.Fatalf("err = %v, want ErrBinaryInput", err)

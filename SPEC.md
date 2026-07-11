@@ -1,6 +1,15 @@
 # airplan — Tool Specification
 
-**Spec version: 0.5.2**
+**Spec version: 0.6.0**
+
+Changes in 0.6.0: uploaded objects use `no-store` so deletion is not
+defeated by long-lived caches; invalid UTF-8 and
+partial explicit credentials are rejected; configured URLs and key
+prefixes are validated and object keys are URL-encoded in public
+links; wrong-profile ensure-gone deletion cannot hide a still-live
+manifest upload, and incomplete manifest checks produce warnings;
+installed Go binaries report their module version;
+and the default invocation timeout is 30 seconds (§2, §5–§9).
 
 Changes in 0.5.2: layouts without the sticky table-of-contents rail
 keep it reachable after the inline table of contents scrolls away (§3).
@@ -41,12 +50,14 @@ plain-text input rendered as a highlighted code page (§2, §3, §5,
 vars and flag overrides toward a complete non-profile configuration
 (§7).
 
-Semantic versioning, applied to the spec itself: **major** —
-breaking changes to observable behavior or on-disk/on-wire formats
-(CLI contract, config, key scheme, manifest); **minor** —
-backward-compatible additions; **patch** — clarifications and
-editorial fixes. Stays 0.x until the first implementation ships and
-the spec is declared stable at 1.0.0.
+Semantic versioning, applied to the spec itself: while below 1.0,
+**minor** covers observable behavior changes — including breaking
+pre-release corrections and backward-compatible additions — and
+**patch** covers clarifications and editorial fixes. Once the
+contract is deliberately declared stable at 1.0.0, **major** covers
+breaking changes, **minor** covers backward-compatible additions,
+and **patch** covers clarifications and compatible corrections. The
+first implementation release does not by itself force spec 1.0.
 
 `airplan` uploads AI/LLM agent plan files (markdown or HTML) to
 S3-compatible object storage under a randomized, unguessable URL path
@@ -111,7 +122,10 @@ Format detection:
 Binary rejection: input containing a NUL byte within its first 8 KiB
 (git's binary heuristic) is rejected with an error before any upload,
 regardless of detected or forced format. airplan uploads UTF-8 text
-documents; there is no bypass.
+documents: input that is not valid UTF-8 is likewise rejected before
+any upload, regardless of detected or forced format. There is no
+bypass for either check. When input fails both checks, the invalid
+UTF-8 error takes precedence over the binary-input error.
 
 Size limit: input larger than the configured maximum — default
 **10 MiB** — is rejected with an error before any upload. The whole
@@ -139,6 +153,11 @@ CSS, no external fonts/scripts/assets, system font stack.
   and `CAUTION`; they are converted to static HTML during
   rendering and may contain normal block Markdown. Unrecognized alert
   markers remain ordinary blockquotes.
+- Trust boundary: raw inline/block HTML and link/image destinations are
+  rendered as authored. Markdown and HTML input are trusted content and
+  may execute active content when someone opens the resulting page.
+  The original Markdown remains exact in source view and in the
+  uploaded sibling.
 - Fenced code blocks are syntax-highlighted at render time. The
   highlighting must follow `prefers-color-scheme` (light and dark
   palettes).
@@ -312,8 +331,9 @@ file.
 
 - The rendered page (or as-is HTML) is uploaded with:
   - `Content-Type: text/html; charset=utf-8`
-  - `Cache-Control: public, max-age=31536000, immutable` — every
-    upload gets a fresh URL, so content at a URL never changes.
+  - `Cache-Control: no-store` — capability documents must remain
+    revocable by deletion; neither browsers nor shared caches should
+    retain a reusable response.
   - `x-amz-meta-title`: the resolved title, so `list --remote` can
     show titles via `HeadObject`.
 - Markdown input additionally uploads the original source as
@@ -351,7 +371,7 @@ airplan [flags] [file]
 | `--no-source`   | off            | don't upload the original .md       |
 | `--indexable`   | off            | no noindex meta (md and html, §3–4) |
 | `--max-size N`  | 10MiB          | input size limit; 0 = no limit (§2) |
-| `--timeout D`   | 20s            | invocation timeout; 0 = none        |
+| `--timeout D`   | 30s            | invocation timeout; 0 = none        |
 | `--lang L`      | from filename  | highlight language, text only (§3)  |
 | `--json`        | off            | JSON object on stdout               |
 | `--profile P`   | config default | named profile from config file      |
@@ -372,12 +392,19 @@ If `--open` fails to launch a browser (common in headless/agent
 environments), a warning goes to stderr and the exit code is
 unaffected — the upload succeeded and the URL was already printed.
 
-The whole invocation is bounded by a timeout — default **20
+Released binaries report their release version under `--version`.
+GoReleaser builds may stamp it directly; binaries installed through
+the Go module path derive it from embedded Go build information.
+Module pseudo-versions are reported without their leading `v`.
+Unversioned local development builds, including dirty builds, report
+`dev`.
+
+The whole invocation is bounded by a timeout — default **30
 seconds** — so a stalled endpoint fails with a clear error instead
 of hanging the caller (often an agent harness) indefinitely.
 Configurable via `--timeout` / `AIRPLAN_TIMEOUT` / the `timeout`
 config key (root or profile level), with the usual precedence (§7).
-Values are Go-style duration strings (`20s`, `1m30s`) or a bare
+Values are Go-style duration strings (`30s`, `1m30s`) or a bare
 integer meaning seconds; `0` disables the timeout.
 
 Examples:
@@ -478,7 +505,7 @@ endpoint        = "https://<account-id>.r2.cloudflarestorage.com"
 region          = "auto"
 # template = "~/.config/airplan/my-template.html"  # optional
 # no_source = true    # behavior defaults; flags override
-# timeout = "20s"     # invocation timeout; 0 = none
+# timeout = "30s"     # invocation timeout; 0 = none
 # indexable = true
 # Credentials may live here, but env vars are preferred:
 # access_key_id     = "..."
@@ -537,7 +564,18 @@ AIRPLAN_CONFIG
 Credential fallback order: `AIRPLAN_*` env → profile file values →
 standard AWS chain (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`,
 shared credentials file). The AWS chain fallback makes it work
-out-of-the-box in environments already configured for S3.
+out-of-the-box in environments already configured for S3. If exactly
+one of `access_key_id` and `secret_access_key` is set after merging,
+configuration fails instead of silently ignoring the partial pair and
+falling back to ambient AWS credentials.
+
+`endpoint` and `public_base_url` must be absolute HTTP(S) URLs with a
+host and without user information, query, or fragment components.
+Path prefixes are allowed. `key_prefix` may contain arbitrary UTF-8
+path-segment text, but empty internal segments and `.` / `..`
+segments are rejected because intermediaries can normalize them.
+When public links are assembled, every object-key segment is
+percent-encoded; delete URL parsing reverses that encoding.
 
 Unknown keys in the config file are an error naming the offending
 key — typo protection, and it keeps the parser exactly in sync with
@@ -619,7 +657,9 @@ vq3nhk2p7r4wzt5c6ydjm3xhqd/refactor-auth.html
 vq3nhk2p7r4wzt5c6ydjm3xhqd/refactor-auth.md
 ```
 
-Final URL: `<public_base_url>/<key>`.
+Final URL: `<public_base_url>/<key>`, with each key path segment
+percent-encoded. The object key stored in S3 and exposed in JSON or
+manifest records remains unencoded.
 
 Explicitly rejected: hash-of-content keys (deduplication leaks
 whether a document was already uploaded, and shorter hashes invite
@@ -684,9 +724,10 @@ machine) and must be safe:
   `LockFileEx` style). All writers are airplan, so advisory
   suffices; the lock removes reliance on append atomicity, which
   doesn't hold on network filesystems.
-- Readers tolerate a torn or malformed line by skipping it with a
-  warning on stderr — never by failing, never losing the rest of
-  the file.
+- Readers tolerate a torn, malformed, or oversized line by skipping
+  it with a warning on stderr — never by failing, never losing the
+  rest of the file. Implementations may bound retained bytes per line,
+  but must discard through the next newline before resuming.
 - Never rewriting in place (tombstones, not deletion) means there
   is no read-modify-write cycle to race on.
 
@@ -699,7 +740,18 @@ machine) and must be safe:
   its random directory, so page and markdown source go together —
   and tombstone its manifest entry if one exists (append a deletion
   record; the file stays append-only). Takes an explicit URL/key,
-  so it also works on uploads made from other machines.
+  so it also works on uploads made from other machines. Full URLs must
+  use HTTP(S) and match the configured public base URL or endpoint by
+  host and base path; HTTP and HTTPS variants of the same host are
+  equivalent because the URL is parsed, not fetched. Bucket-only URL
+  parsing is allowed only when neither connection URL is configured.
+  Ensure-gone tombstoning checks a matching active manifest record: if its
+  recorded bucket or profile differs from the active connection,
+  deletion fails with an actionable error instead of hiding an upload
+  that may still be live under another profile. If the manifest cannot
+  be read, or malformed/oversized records were skipped, ensure-gone
+  proceeds from the explicit target but warns that the bucket/profile
+  check was skipped or may be incomplete.
 - `airplan purge`: bulk delete driven by the manifest with filters —
   `--older-than 30d`, `--slug PATTERN`, `--profile P`. Durations
   accept `d`/`w` units. `--profile`/`-p` behaves as on every other
@@ -750,3 +802,6 @@ machine) and must be safe:
   feasible.
 - Key generation must use a cryptographically secure random source —
   never a seeded/insecure PRNG.
+- Markdown rendering preserves raw HTML and link destinations, and HTML
+  input is uploaded as authored. Both may execute active content, so
+  only share documents from trusted sources.

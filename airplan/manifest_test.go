@@ -212,6 +212,30 @@ func TestReadManifestSkipsMalformedAndUnknownType(t *testing.T) {
 	}
 }
 
+func TestReadManifestSkipsOversizedLineAndContinues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.jsonl")
+	oversized := strings.Repeat("x", 10*1024*1024+1)
+	data := `{"type":"upload","key":"before.html"}` + "\n" +
+		oversized + "\n" +
+		`{"type":"delete","key":"after.html"}` + "\n"
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	records, warnings, err := readManifest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[0].Key != "before.html" ||
+		records[1].Key != "after.html" {
+		t.Fatalf("records after oversized line = %+v", records)
+	}
+	if len(warnings) != 1 || warnings[0] !=
+		"skipping oversized manifest line 2" {
+		t.Fatalf("warnings = %#v", warnings)
+	}
+}
+
 func assertFileMode(t *testing.T, path string, want os.FileMode) {
 	t.Helper()
 

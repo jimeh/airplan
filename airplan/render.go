@@ -143,8 +143,8 @@ func newMarkdown() goldmark.Markdown {
 			parser.WithAutoHeadingID(),
 		),
 		goldmark.WithRendererOptions(
-			// Plan documents are the author's own content; raw HTML
-			// passes through like on GitHub READMEs rendered locally.
+			// Markdown and raw HTML inputs share the same trust
+			// boundary: preserve the author's HTML and URL destinations.
 			html.WithUnsafe(),
 		),
 	)

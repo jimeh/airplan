@@ -49,7 +49,11 @@ func (c *Client) DeleteUpload(
 		// to identify the page, normalize the tombstone to the
 		// manifest's own key — a bare-directory or source-key target
 		// must still deactivate the upload record.
-		res := &DeleteResult{PageKey: c.manifestPageKey(dir, key)}
+		pageKey, warnings, err := c.ensureGonePageKey(dir, key)
+		if err != nil {
+			return nil, err
+		}
+		res := &DeleteResult{PageKey: pageKey, Warnings: warnings}
 		res.Warnings = append(res.Warnings, fmt.Sprintf(
 			"no objects found under %q — already deleted; "+
 				"tombstoning the manifest entry", dir))
@@ -108,22 +112,49 @@ func (c *Client) recordDelete(res *DeleteResult) {
 	}
 }
 
-// manifestPageKey finds the active manifest upload under dir and
-// returns its key — the key tombstones must reference for
-// ActiveUploads to converge. Falls back to the resolved target when
-// the manifest is unreadable or has no matching record.
-func (c *Client) manifestPageKey(dir, fallback string) string {
+// ensureGonePageKey finds the active manifest upload under dir and
+// returns its page key. It refuses to tombstone a record belonging to
+// a different bucket or profile because that upload may still be live
+// through another connection (SPEC.md §9).
+func (c *Client) ensureGonePageKey(
+	dir, fallback string,
+) (string, []string, error) {
 	if c.cfg.DisableManifest {
-		return fallback
+		return fallback, nil, nil
 	}
-	records, _, err := ReadManifest(c.cfg.ManifestPath)
+	records, readWarnings, err := ReadManifest(c.cfg.ManifestPath)
 	if err != nil {
-		return fallback
+		return fallback, []string{fmt.Sprintf(
+			"manifest unreadable; skipping bucket/profile check: %s", err,
+		)}, nil
+	}
+	warnings := make([]string, 0, len(readWarnings))
+	for _, warning := range readWarnings {
+		warnings = append(warnings,
+			"manifest incomplete; bucket/profile check may be incomplete: "+
+				warning)
 	}
 	for _, rec := range ActiveUploads(records) {
 		if strings.HasPrefix(rec.Key, dir) {
-			return rec.Key
+			if rec.Bucket != c.cfg.Bucket || rec.Profile != c.cfg.Profile {
+				return "", nil, fmt.Errorf(
+					"airplan: cannot mark upload %q deleted: its manifest "+
+						"record belongs to bucket %q, profile %q, but the "+
+						"active connection uses bucket %q, profile %q; "+
+						"retry with the recorded profile",
+					rec.Key, rec.Bucket, profileLabel(rec.Profile),
+					c.cfg.Bucket, profileLabel(c.cfg.Profile),
+				)
+			}
+			return rec.Key, warnings, nil
 		}
 	}
-	return fallback
+	return fallback, warnings, nil
+}
+
+func profileLabel(profile string) string {
+	if profile == "" {
+		return "<root>"
+	}
+	return profile
 }

@@ -7,10 +7,41 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"testing"
 )
+
+func TestResolveVersion(t *testing.T) {
+	info := &debug.BuildInfo{Main: debug.Module{Version: "v0.1.2"}}
+	for _, tt := range []struct {
+		name    string
+		stamped string
+		info    *debug.BuildInfo
+		ok      bool
+		want    string
+	}{
+		{"ldflag wins", "0.2.0", info, true, "0.2.0"},
+		{"module version", "dev", info, true, "0.1.2"},
+		{"pseudo-version", "dev", &debug.BuildInfo{Main: debug.Module{
+			Version: "v0.0.0-20260710011458-abcdef123456",
+		}}, true, "0.0.0-20260710011458-abcdef123456"},
+		{"dirty local build", "dev", &debug.BuildInfo{
+			Main: debug.Module{Version: "(devel)"},
+			Settings: []debug.BuildSetting{
+				{Key: "vcs.modified", Value: "true"},
+			},
+		}, true, "dev"},
+		{"unavailable", "dev", nil, false, "dev"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveVersion(tt.stamped, tt.info, tt.ok); got != tt.want {
+				t.Fatalf("resolveVersion() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestRootJSONOutputShape(t *testing.T) {
 	t.Run("with source_url", func(t *testing.T) {

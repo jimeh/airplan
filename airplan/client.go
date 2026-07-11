@@ -51,6 +51,13 @@ var ErrBinaryInput = errors.New(
 		"only UTF-8 text documents are supported",
 )
 
+// ErrInvalidUTF8 is returned by Upload or RenderInput when the input
+// is not valid UTF-8 (SPEC.md §2). There is no bypass.
+var ErrInvalidUTF8 = errors.New(
+	"airplan: input is not valid UTF-8; " +
+		"only UTF-8 text documents are supported",
+)
+
 // Client uploads plan documents per the pipeline in SPEC.md §1:
 // detect format → render (markdown) or noindex-splice (HTML) →
 // generate key → upload page (+ markdown source) → assemble URL.
@@ -108,7 +115,7 @@ type Input struct {
 	// detection and the slug/title fallback chains.
 	Name string
 
-	// Format overrides detection: "md" or "html". "" means auto
+	// Format overrides detection: "md", "html", or "txt". "" means auto
 	// (SPEC.md §2).
 	Format string
 

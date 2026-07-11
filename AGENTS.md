@@ -13,7 +13,8 @@ same PR**, including its version per the semver rules at the top of
 the file. Code comments reference spec sections (`SPEC.md §7`); keep
 them accurate. [IMPLEMENTATION.md](IMPLEMENTATION.md) describes how
 this implementation is built and must not contradict the spec.
-[PLAN.md](PLAN.md) tracks phased execution status.
+[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) tracks the v0.1.0
+release-hardening work and evidence gates.
 
 ## Task surface (mise)
 
@@ -43,12 +44,19 @@ pins live in `mise.lock` (commit both when bumping tools).
 - **Golden files**: rendering snapshots live in `airplan/testdata/`;
   refresh with `go test ./airplan/ -run TestRenderMarkdownGolden
 -update` after template/CSS/JS changes.
+- **Repository text files use LF on every platform** via
+  `.gitattributes`; byte-exact golden and generated-file tests depend
+  on this even when Git runs on Windows.
 - **Config schema**: `schema/airplan.schema.json` is generated from
   the config structs and golden-tested; refresh with
   `go test ./airplan/ -run TestConfigSchema -update`. Unknown config
   keys are a hard error — parser and schema must not drift (SPEC §7).
 - **Page assets** (`airplan/assets/`): embedded via go:embed; pages
   must stay fully standalone (no external fonts/scripts/requests).
+- **Markdown input is trusted content**: Goldmark's unsafe renderer is
+  intentionally enabled so authored HTML and URL destinations survive.
+  Do not add sanitization without changing the product trust boundary
+  in SPEC.md.
 - **Markdown alerts** (`airplan/alert.go`): Goldmark splits markers
   such as `[!NOTE]` across multiple text nodes. Reconstruct the first
   blockquote line when matching alerts; do not assume one marker node.
@@ -60,6 +68,12 @@ pins live in `mise.lock` (commit both when bumping tools).
 - **GoReleaser PR checks are opt-in**: apply the `ci:goreleaser`
   label when a PR changes `.goreleaser.yaml` or release packaging.
   The check remains unconditional on pushes to `main`.
+- **MinIO is immutable-pinned** in `airplan/integration_test.go`:
+  update the release tag and multi-platform digest together, inspect
+  the image labels, then run `mise run test-integration`.
+- **Real R2 release smoke tests may use `AIRPLAN_TIMEOUT=60s`** when
+  local firewall approval could interrupt the sequence. The product
+  default remains 30 seconds.
 
 ## Layout
 

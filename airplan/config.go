@@ -3,6 +3,7 @@ package airplan
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,25 +11,26 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 )
 
 // DefaultTimeout is the default whole-invocation timeout (SPEC.md §6).
-const DefaultTimeout = 20 * time.Second
+const DefaultTimeout = 30 * time.Second
 
 // Settings holds every connection and behavior key that may appear at
 // the root level of the config file or inside a [profiles.*] table
 // (SPEC.md §7). Boolean fields are pointers so profile merging can
 // distinguish "unset" from "false".
 type Settings struct {
-	Endpoint        string `toml:"endpoint" json:"endpoint,omitempty" jsonschema_description:"S3-compatible API endpoint URL."`
+	Endpoint        string `toml:"endpoint" json:"endpoint,omitempty" jsonschema_description:"Absolute HTTP(S) S3-compatible API endpoint URL; path prefixes are allowed."`
 	Bucket          string `toml:"bucket" json:"bucket,omitempty" jsonschema_description:"Bucket where rendered plans are uploaded."`
 	Region          string `toml:"region" json:"region,omitempty" jsonschema_description:"S3 signing region; R2 commonly uses auto."`
-	AccessKeyID     string `toml:"access_key_id" json:"access_key_id,omitempty" jsonschema_description:"Access key ID for the S3-compatible endpoint."`
-	SecretAccessKey string `toml:"secret_access_key" json:"secret_access_key,omitempty" jsonschema_description:"Secret access key for the S3-compatible endpoint."`
-	PublicBaseURL   string `toml:"public_base_url" json:"public_base_url,omitempty" jsonschema_description:"Public base URL used to assemble share links."`
-	KeyPrefix       string `toml:"key_prefix" json:"key_prefix,omitempty" jsonschema_description:"Prefix prepended to uploaded object keys and remote listings."`
+	AccessKeyID     string `toml:"access_key_id" json:"access_key_id,omitempty" jsonschema_description:"Access key ID for explicit credentials; must be paired with secret_access_key."`
+	SecretAccessKey string `toml:"secret_access_key" json:"secret_access_key,omitempty" jsonschema_description:"Secret for explicit credentials; must be paired with access_key_id."`
+	PublicBaseURL   string `toml:"public_base_url" json:"public_base_url,omitempty" jsonschema_description:"Absolute HTTP(S) public base URL used to assemble share links; path prefixes are allowed."`
+	KeyPrefix       string `toml:"key_prefix" json:"key_prefix,omitempty" jsonschema_description:"UTF-8 path segments prepended to uploaded keys; empty, dot, and dot-dot segments are rejected."`
 	Template        string `toml:"template" json:"template,omitempty" jsonschema_description:"Path to the HTML template used for rendered pages."`
 	NoSource        *bool  `toml:"no_source" json:"no_source,omitempty" jsonschema_description:"Omit uploading the original source alongside rendered output."`
 	Indexable       *bool  `toml:"indexable" json:"indexable,omitempty" jsonschema_description:"Allow search indexing by omitting the noindex robots meta tag."`
@@ -60,7 +62,7 @@ type Config struct {
 	NoSource        bool
 	Indexable       bool
 
-	// Timeout bounds one whole invocation (SPEC.md §6): default 20
+	// Timeout bounds one whole invocation (SPEC.md §6): default 30
 	// seconds, 0 means no timeout. The CLI applies it to its context;
 	// library consumers manage their own contexts and may ignore it.
 	Timeout time.Duration
@@ -166,7 +168,7 @@ func LoadConfig(opts ConfigOptions) (*Config, error) {
 }
 
 // resolveTimeout applies the timeout precedence chain (SPEC.md §6,
-// §7): flag override > AIRPLAN_TIMEOUT > profile > root > the 20s
+// §7): flag override > AIRPLAN_TIMEOUT > profile > root > the 30s
 // default. Timeout is kept as a string through merging so the winning
 // value is parsed — and rejected — exactly once.
 func resolveTimeout(
@@ -205,7 +207,7 @@ func resolveTimeout(
 }
 
 // parseTimeout parses a timeout value (SPEC.md §6): a Go duration
-// string ("20s", "1m30s") or a bare integer meaning seconds. 0
+// string ("30s", "1m30s") or a bare integer meaning seconds. 0
 // disables the timeout.
 func parseTimeout(s string) (time.Duration, error) {
 	s = strings.TrimSpace(s)
@@ -215,7 +217,7 @@ func parseTimeout(s string) (time.Duration, error) {
 		d = time.Duration(n) * time.Second
 	} else if d, err = time.ParseDuration(s); err != nil {
 		return 0, fmt.Errorf(
-			"airplan: invalid timeout %q (examples: 20s, 1m30s, 0)", s,
+			"airplan: invalid timeout %q (examples: 30s, 1m30s, 0)", s,
 		)
 	}
 
@@ -227,10 +229,8 @@ func parseTimeout(s string) (time.Duration, error) {
 	return d, nil
 }
 
-// Validate checks that the configuration is complete enough to upload
-// (endpoint and bucket present). The error names the missing field,
-// which profile was resolved (or that root-level values were used),
-// and the three ways to set it (SPEC.md §7).
+// Validate checks configuration completeness and correctness for an
+// upload (SPEC.md §7).
 func (c *Config) Validate() error {
 	if c == nil {
 		return errors.New("airplan: config is nil")
@@ -243,24 +243,91 @@ func (c *Config) Validate() error {
 	if c.Bucket == "" {
 		missing = append(missing, "bucket")
 	}
-	if len(missing) == 0 {
+	if len(missing) > 0 {
+		where := "root-level values were used"
+		if c.Profile != "" {
+			where = fmt.Sprintf("profile %q was resolved", c.Profile)
+		}
+
+		return fmt.Errorf(
+			"airplan: missing required config field(s) %s; %s; "+
+				"set via flag(s) %s, env var(s) %s, or config file key(s) %s",
+			strings.Join(missing, ", "),
+			where,
+			flagNames(missing),
+			envNames(missing),
+			strings.Join(missing, ", "),
+		)
+	}
+
+	if (c.AccessKeyID == "") != (c.SecretAccessKey == "") {
+		return errors.New(
+			"airplan: access_key_id and secret_access_key must be " +
+				"configured together, or both omitted to use the " +
+				"standard AWS credential chain",
+		)
+	}
+	if err := validateHTTPURL("endpoint", c.Endpoint); err != nil {
+		return err
+	}
+	if c.PublicBaseURL != "" {
+		if err := validateHTTPURL("public_base_url", c.PublicBaseURL); err != nil {
+			return err
+		}
+	}
+	if err := validateKeyPrefix(c.KeyPrefix); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateHTTPURL(name, raw string) error {
+	if !utf8.ValidString(raw) {
+		return fmt.Errorf("airplan: %s must be valid UTF-8", name)
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("airplan: invalid %s %q: %w", name, raw, err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf(
+			"airplan: invalid %s %q: scheme must be http or https",
+			name, raw,
+		)
+	}
+	if u.Host == "" {
+		return fmt.Errorf(
+			"airplan: invalid %s %q: host is required", name, raw,
+		)
+	}
+	if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return fmt.Errorf(
+			"airplan: invalid %s %q: user info, query, and fragment "+
+				"are not allowed",
+			name, raw,
+		)
+	}
+	return nil
+}
+
+func validateKeyPrefix(prefix string) error {
+	if !utf8.ValidString(prefix) {
+		return errors.New("airplan: key_prefix must be valid UTF-8")
+	}
+	trimmed := strings.Trim(prefix, "/")
+	if trimmed == "" {
 		return nil
 	}
-
-	where := "root-level values were used"
-	if c.Profile != "" {
-		where = fmt.Sprintf("profile %q was resolved", c.Profile)
+	for _, segment := range strings.Split(trimmed, "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return fmt.Errorf(
+				"airplan: invalid key_prefix %q: empty, dot, and "+
+					"dot-dot path segments are not allowed",
+				prefix,
+			)
+		}
 	}
-
-	return fmt.Errorf(
-		"airplan: missing required config field(s) %s; %s; "+
-			"set via flag(s) %s, env var(s) %s, or config file key(s) %s",
-		strings.Join(missing, ", "),
-		where,
-		flagNames(missing),
-		envNames(missing),
-		strings.Join(missing, ", "),
-	)
+	return nil
 }
 
 // DefaultConfigPath returns the platform default config file location

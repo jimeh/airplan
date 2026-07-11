@@ -104,6 +104,51 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 	})
 }
 
+func TestRenderMarkdownPreservesTrustedContent(t *testing.T) {
+	src := []byte(strings.Join([]string{
+		"# Trusted content",
+		"",
+		`<script>window.airplanPwned = true</script>`,
+		"",
+		`<img src=x onerror="window.airplanPwned = true">`,
+		"",
+		`inline <span onclick="window.airplanPwned = true">HTML</span>`,
+		"",
+		`[unsafe](javascript:alert(1))`,
+		"",
+		`![unsafe image](javascript:alert(2))`,
+		"",
+		`[safe](https://example.com/path)`,
+	}, "\n"))
+	out := render(t, src, RenderOptions{Title: "Trusted content"})
+	rendered := renderedSection(t, out)
+
+	for _, authored := range []string{
+		"<script>window.airplanPwned", "onerror=", "onclick=",
+		`href="javascript:alert(1)"`, `src="javascript:alert(2)"`,
+		`href="https://example.com/path"`,
+	} {
+		if !strings.Contains(rendered, authored) {
+			t.Errorf("rendered view omitted authored content %q: %s",
+				authored, rendered)
+		}
+	}
+}
+
+func renderedSection(t *testing.T, page string) string {
+	t.Helper()
+	start := strings.Index(page, `id="rendered">`)
+	if start < 0 {
+		t.Fatal("rendered main section not found")
+	}
+	start = strings.LastIndex(page[:start], "<main")
+	end := strings.Index(page[start:], "</main>")
+	if end < 0 {
+		t.Fatal("rendered main closing tag not found")
+	}
+	return page[start : start+end]
+}
+
 func render(t *testing.T, src []byte, opts RenderOptions) string {
 	t.Helper()
 	out, err := RenderMarkdown(src, opts)

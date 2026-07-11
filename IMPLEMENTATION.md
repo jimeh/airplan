@@ -3,13 +3,14 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.5.2.
+may contradict it. Targets spec version 0.6.0.
 
 ---
 
 ## 1. Language & Toolchain
 
-**Go (1.22+).** Rationale:
+**Go (1.26.4).** The exact minimum is declared by `go.mod` and pinned
+in `mise.lock`. Rationale:
 
 - Single static binary via `CGO_ENABLED=0`; trivial cross-compilation
   for the usual agent-host platforms (linux/amd64, linux/arm64,
@@ -102,7 +103,7 @@ cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
     Path:    "",       // "" → XDG default
     Profile: "work",
 })
-client, err := airplan.New(cfg)
+client, err := airplan.New(ctx, cfg)
 res, err := client.Upload(ctx, airplan.Input{
     Reader: file,
     Name:   "plan.md", // "" for stdin
@@ -112,11 +113,14 @@ res, err := client.Upload(ctx, airplan.Input{
 
 ## 4. Spec Requirements → Mechanisms
 
-- Rendering: goldmark with GFM extensions (tables, strikethrough,
-  task lists, autolinks), footnotes, heading anchors, and a small local
-  AST transformer/renderer for GitHub-style alerts. Alert parsing and
-  HTML generation happen before template execution; the uploaded page
-  needs CSS for presentation but no alert JavaScript.
+- Rendering: goldmark with GFM extensions (tables,
+  strikethrough, task lists, autolinks), footnotes, heading anchors,
+  and a small local AST transformer/renderer for GitHub-style alerts.
+  Alert parsing and HTML generation happen before template execution;
+  the uploaded page needs CSS for presentation but no alert JavaScript.
+  Unsafe rendering remains enabled so Markdown preserves authored raw
+  HTML and link destinations; Markdown and explicit HTML input share the
+  same trusted-content boundary.
 - Highlighting: chroma emitting class-based markup with CSS custom
   properties for the palette — required so highlighting can follow
   `prefers-color-scheme` (inline styles can't switch light/dark).
@@ -130,17 +134,21 @@ res, err := client.Upload(ctx, airplan.Input{
   and JS are expanded into the embedded template source before parsing,
   so `airplan template` prints an exact reusable template containing
   only public data fields.
-- Local rendering: `RenderInput` owns read limits, binary rejection,
+- Local rendering: `RenderInput` owns read limits, binary and invalid
+  UTF-8 rejection,
   format detection, title/slug resolution, template execution, and
   noindex handling. `Client.Upload` adds source/page storage, URLs, and
   manifest recording; `airplan preview` stops after `RenderInput`.
 - Key randomness: `crypto/rand` — never `math/rand` (spec requires a
   CSPRNG).
+- Public URL assembly percent-encodes each object-key path segment;
+  delete parsing uses `net/url` to recover the original UTF-8 key.
 - `--older-than` durations: small custom parser for `d`/`w` units —
   Go's stdlib `time.ParseDuration` has no days.
 - Manifest appends: `O_APPEND` open, whole line in one `Write` call,
   wrapped in `gofrs/flock` (flock on Unix, LockFileEx on Windows)
-  per spec §9's concurrency rules.
+  per spec §9's concurrency rules. Readers discard malformed or
+  oversized lines completely and resume at the following newline.
 - Config/state paths: `os.UserConfigDir` for config; a small helper
   for the state dir (`XDG_STATE_HOME` → `~/.local/state`,
   `%LocalAppData%` on Windows — Go stdlib has no state-dir
@@ -181,13 +189,16 @@ JSON Schema all fall out of one struct definition.
 
 ## 7. Distribution
 
-GoReleaser: cross-platform archives, checksums, Homebrew tap (cask);
+GoReleaser: cross-platform archives, checksums, SPDX JSON SBOMs from
+Syft, Homebrew tap (cask);
 `airplan.schema.json` bundled into archives and published as a
 standalone release asset (the `#:schema` URL). Shell completions are
 generated at runtime by `airplan completion` rather than shipped.
 Releases are cut by release-please from conventional commits; the
-tag triggers the GoReleaser publish workflow. `go install` works as
-a fallback.
+tag triggers the GoReleaser publish workflow, which records GitHub
+SLSA provenance attestations for every checksum-listed artifact.
+`go install` works as a fallback and derives its version from Go build
+information.
 
 ## 8. Phased Plan
 
@@ -256,6 +267,8 @@ All behavior per spec §9.
 - Golden files: markdown fixtures → rendered HTML snapshots
   (`testdata/`, `-update` flag convention).
 - Integration: MinIO in a container (CI service / testcontainers);
-  round-trip upload, then GET and compare bytes + headers.
+  round-trip upload, then GET and compare bytes + headers. The image
+  release tag and multi-platform digest are immutable-pinned together
+  in `airplan/integration_test.go`.
 - Smoke (manual or tagged, needs creds): real R2 upload via a
   scoped token, fetched through the custom domain.

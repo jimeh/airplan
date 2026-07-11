@@ -36,6 +36,11 @@ func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("airplan: parse url %q: %w", s, err)
 		}
+		if !strings.EqualFold(u.Scheme, "http") &&
+			!strings.EqualFold(u.Scheme, "https") {
+			return "", fmt.Errorf(
+				"airplan: URL %q must use http or https", s)
+		}
 
 		key = strings.TrimPrefix(u.Path, "/")
 		switch {
@@ -48,10 +53,25 @@ func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 			if basePath != "" {
 				key = strings.TrimPrefix(key, basePath+"/")
 			}
-		case cfg != nil && cfg.Bucket != "":
+		case cfg != nil && baseURLMatches(cfg.Endpoint, u):
 			// Path-style URLs (<endpoint>/<bucket>/<key>) carry the
-			// bucket as the first segment.
+			// endpoint path and bucket before the key.
+			b, _ := url.Parse(cfg.Endpoint)
+			basePath := strings.Trim(b.Path, "/")
+			if basePath != "" {
+				key = strings.TrimPrefix(key, basePath+"/")
+			}
 			key = strings.TrimPrefix(key, cfg.Bucket+"/")
+		case cfg != nil && cfg.Endpoint == "" &&
+			cfg.PublicBaseURL == "" && cfg.Bucket != "":
+			// Keep accepting path-style URLs when only the bucket is
+			// available to the library caller.
+			key = strings.TrimPrefix(key, cfg.Bucket+"/")
+		case cfg != nil &&
+			(cfg.Endpoint != "" || cfg.PublicBaseURL != ""):
+			return "", fmt.Errorf(
+				"airplan: URL %q does not match the configured endpoint "+
+					"or public_base_url", s)
 		}
 	}
 
@@ -59,13 +79,16 @@ func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 }
 
 // baseURLMatches reports whether u is served from the configured
-// public_base_url (same host, path under the base's path).
+// public_base_url (same host, path under the base's path). HTTP and
+// HTTPS are equivalent here because parsing a delete target does not
+// fetch the supplied URL.
 func baseURLMatches(base string, u *url.URL) bool {
 	if base == "" {
 		return false
 	}
 	b, err := url.Parse(base)
-	if err != nil || b.Host == "" || b.Host != u.Host {
+	if err != nil || b.Host == "" ||
+		!strings.EqualFold(b.Host, u.Host) {
 		return false
 	}
 	basePath := strings.Trim(b.Path, "/")

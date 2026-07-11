@@ -2,6 +2,7 @@ package airplan
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -131,28 +132,57 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 		warnings []string
 		lineNo   int
 	)
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), maxManifestLine)
-	for scanner.Scan() {
+	reader := bufio.NewReaderSize(file, 64*1024)
+	for {
+		line, oversized, readErr := readManifestLine(reader, maxManifestLine)
+		if len(line) == 0 && !oversized && readErr == io.EOF {
+			break
+		}
 		lineNo++
-
-		var rec ManifestRecord
-		if err := json.Unmarshal(scanner.Bytes(), &rec); err != nil {
+		if oversized {
 			warnings = append(warnings,
-				fmt.Sprintf("skipping malformed manifest line %d", lineNo))
-			continue
-		}
+				fmt.Sprintf("skipping oversized manifest line %d", lineNo))
+		} else {
+			line = bytes.TrimSuffix(line, []byte{'\n'})
+			line = bytes.TrimSuffix(line, []byte{'\r'})
 
-		if rec.Type != "upload" && rec.Type != "delete" {
-			continue
+			var rec ManifestRecord
+			if err := json.Unmarshal(line, &rec); err != nil {
+				warnings = append(warnings,
+					fmt.Sprintf("skipping malformed manifest line %d", lineNo))
+			} else if rec.Type == "upload" || rec.Type == "delete" {
+				records = append(records, rec)
+			}
 		}
-		records = append(records, rec)
-	}
-	if err := scanner.Err(); err != nil {
-		return records, warnings, fmt.Errorf("read manifest: %w", err)
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+			return records, warnings, fmt.Errorf("read manifest: %w", readErr)
+		}
 	}
 
 	return records, warnings, nil
+}
+
+// readManifestLine reads one logical line while retaining at most max
+// bytes. Oversized lines are fully discarded so parsing can resume at
+// the next record.
+func readManifestLine(r *bufio.Reader, max int) ([]byte, bool, error) {
+	line := make([]byte, 0, min(max, 64*1024))
+	oversized := false
+	for {
+		fragment, err := r.ReadSlice('\n')
+		if !oversized && len(line)+len(fragment) <= max {
+			line = append(line, fragment...)
+		} else {
+			oversized = true
+		}
+		if err == bufio.ErrBufferFull {
+			continue
+		}
+		return line, oversized, err
+	}
 }
 
 // recordUpload appends an upload record for res, best-effort: manifest
