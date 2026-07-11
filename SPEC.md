@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.9.0**
+**Spec version: 0.10.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -80,6 +80,10 @@ any upload, regardless of detected or forced format. There is no
 bypass for either check. When input fails both checks, the invalid
 UTF-8 error takes precedence over the binary-input error.
 
+A zero-byte document is rejected before key generation or any upload.
+Whitespace-only input remains valid: airplan does not reinterpret authored
+text merely because it has no visible characters.
+
 Size limit: input larger than the configured maximum — default
 **10 MiB** — is rejected with an error before any upload. The whole
 document is loaded into memory for rendering (md/text) or the noindex
@@ -87,10 +91,11 @@ splice (html), and a plan document over the default is invariably a
 mistake — the wrong file, like a database dump. Implementations must
 detect the overflow without buffering meaningfully past the limit.
 `--max-size` sets the limit per invocation: a plain byte count, or an
-integer with a `k`/`m`/`g` suffix (binary multiples; optional
-trailing `b`/`ib`; case-insensitive — `10MB`, `512k`, `1gib`). `0`
-removes the limit. There is deliberately no config key, so raising or
-removing the guard stays a per-invocation decision.
+integer with a `k`/`m`/`g` suffix (binary multiples) whose unit may have an
+optional trailing `b`/`ib`; matching is case-insensitive (`10MB`, `512k`,
+`1gib`). Unit tails without `k`/`m`/`g`, such as `10ib`, are invalid. `0`
+removes the limit. There is deliberately no config key, so raising or removing
+the guard stays a per-invocation decision.
 
 ---
 
@@ -400,13 +405,24 @@ Module pseudo-versions are reported without their leading `v`.
 Unversioned local development builds, including dirty builds, report
 `dev`.
 
-The whole invocation is bounded by a timeout — default **30
-seconds** — so a stalled endpoint fails with a clear error instead
-of hanging the caller (often an agent harness) indefinitely.
-Configurable via `--timeout` / `AIRPLAN_TIMEOUT` / the `timeout`
-config key (root or profile level), with the usual precedence (§7).
-Values are Go-style duration strings (`30s`, `1m30s`) or a bare
-integer meaning seconds; `0` disables the timeout.
+Context-aware execution phases are bounded by a timeout — default **30
+seconds** — so stalled input and storage operations fail with a clear error
+instead of hanging the caller (often an agent harness) indefinitely. The clock
+begins after config resolution; config loading itself is excluded because the
+config may supply the timeout. Interactive confirmation time is also excluded.
+
+Upload, preview, list, show, and delete each receive one timeout budget. Local
+purge starts one deletion budget after confirmation. Remote purge receives one
+budget for listing and marker inspection, then a fresh deletion budget after
+confirmation. This prevents human think time from consuming a network budget
+and gives both remote phases the configured opportunity to finish. Operations
+that share a phase share its deadline; a large sequential purge may therefore
+complete partially and report the remaining items as failures for retry.
+
+The timeout is configurable via `--timeout` / `AIRPLAN_TIMEOUT` / the
+`timeout` config key (root or profile level), with the usual precedence (§7).
+Values are Go-style duration strings (`30s`, `1m30s`) or a bare integer meaning
+seconds; out-of-range values are errors and `0` disables the timeout.
 
 Examples:
 
@@ -466,7 +482,11 @@ access the network, upload source, or write the manifest. Consequently
 view remains available. HTML input receives the same conservative
 noindex injection as an upload. `file` omitted or `-` reads stdin;
 `--output -` is equivalent to the stdout default. An output path that
-resolves to the input file is rejected without modifying the input.
+resolves to the input file is rejected without modifying the input. File output
+is written completely to a temporary file beside the destination and then
+atomically renamed into place; any failure before the rename leaves an existing
+destination unchanged.
+
 `list`/`purge` operate on the local upload manifest by default, or
 on a live bucket listing with `--remote`. `show` inspects one remote
 marker directory. `delete` takes an explicit URL or key, but it only
@@ -484,6 +504,11 @@ root-level values > built-in defaults**. Config file location:
 (`~/.config/airplan/config.toml`; platform-appropriate config
 directory on Windows), overridable with `--config` /
 `AIRPLAN_CONFIG`.
+
+The platform-default config file is optional so environment variables and
+flags can fully configure the tool. A path explicitly selected with `--config`
+or `AIRPLAN_CONFIG` must exist; a missing explicit path is an error rather than
+silently falling back to an empty configuration.
 
 All connection/behavior keys may be set at the root level of the
 config file as well as inside profiles. Root-level keys are base
@@ -844,8 +869,11 @@ machine) and must be safe:
   accept `d`/`w` units. `--profile`/`-p` behaves as on every other
   command — it selects the connection profile — and on `purge` it
   additionally filters to uploads recorded with that profile, so
-  purging a profile's uploads uses that profile's credentials. Requires at least one filter or an explicit
-  `--all`. `--dry-run` previews; confirmation prompt unless `--yes`.
+  purging a profile's uploads uses that profile's credentials.
+  Requires at least one filter or an explicit `--all`. `--dry-run`
+  previews; confirmation prompt unless `--yes`. EOF before an answer
+  is an error that directs non-interactive callers to use `--yes`; an
+  explicit negative answer remains a successful abort.
   Failed deletes are reported to stderr and left un-tombstoned so a
   re-run retries them. Purge only considers records with a supported
   `marker_version` under the active bucket and `key_prefix`;
