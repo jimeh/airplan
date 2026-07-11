@@ -47,6 +47,20 @@ func TestRenderInputRejectsEmptyButAcceptsWhitespace(t *testing.T) {
 	}
 }
 
+func TestRenderInputRejectsTemplateAndTemplatePath(t *testing.T) {
+	path := writeTemplate(t, `{{.Title}}`)
+	tmpl, err := LoadTemplate(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = RenderInput(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n"),
+	}, RenderInputOptions{Template: tmpl, TemplatePath: path})
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestRenderInputAcceptsValidNonASCII(t *testing.T) {
 	_, err := RenderInput(context.Background(), Input{
 		Reader: strings.NewReader("# Héllo 👋\n"), Format: "md",

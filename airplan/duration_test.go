@@ -14,6 +14,9 @@ func TestParseAge(t *testing.T) {
 		{"2w", 14 * 24 * time.Hour},
 		{"36h", 36 * time.Hour},
 		{"1w2d", 9 * 24 * time.Hour},
+		{"1.5d", 36 * time.Hour},
+		{".5w", 84 * time.Hour},
+		{"1d12h", 36 * time.Hour},
 		{"90m", 90 * time.Minute},
 	}
 	for _, tt := range tests {

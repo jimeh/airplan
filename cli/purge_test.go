@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -231,6 +232,103 @@ func TestPurgeRemoteWarnsForFallbackPublicURL(t *testing.T) {
 		!strings.Contains(stderr, wantURL) || fake.deleteCalls() != 0 {
 		t.Fatalf("stdout = %q, stderr = %q, deletes = %d",
 			stdout, stderr, fake.deleteCalls())
+	}
+}
+
+func TestPurgeRemoteConfirmationAbort(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	fake := newFakeRemoteS3(t, remoteUploadObjects(deleteDirA, "plan", when),
+		nil, nil)
+
+	stdout, stderr, err := executeCommand(t, "n\n", "",
+		"purge", "--remote", "--all",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || !strings.Contains(stderr, "aborted") ||
+		fake.deleteCalls() != 0 || fake.markerDeleteCalls() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q, deletes = %d/%d",
+			stdout, stderr, fake.deleteCalls(), fake.markerDeleteCalls())
+	}
+}
+
+func TestPurgeRemoteInspectionFailureStopsDeletion(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC()
+	fake := newFakeRemoteS3(t, []remoteFakeObject{
+		{
+			key:  deleteDirA + "/" + airplan.MarkerFilename,
+			size: 10, lastModified: when,
+		},
+	}, nil, nil)
+
+	stdout, _, err := executeCommand(t, "", "",
+		"purge", "--remote", "--all", "--yes",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err == nil || stdout != "" || fake.deleteCalls() != 0 ||
+		fake.markerDeleteCalls() != 0 {
+		t.Fatalf("stdout = %q, error = %v, deletes = %d/%d",
+			stdout, err, fake.deleteCalls(), fake.markerDeleteCalls())
+	}
+}
+
+func TestPurgeRemotePartialDeleteFailure(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	objects := append(remoteUploadObjects(deleteDirA, "alpha", when),
+		remoteUploadObjects(deleteDirB, "beta", when)...)
+	fake := newFakeRemoteS3(t, objects, nil,
+		map[string]bool{deleteDirB: true})
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--remote", "--all", "--yes",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err == nil || stdout != "" ||
+		!strings.Contains(stderr, "purged 1 uploads (1 failed)") ||
+		fake.deleteCalls() != 1 || fake.markerDeleteCalls() != 1 {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v, deletes = %d/%d",
+			stdout, stderr, err, fake.deleteCalls(), fake.markerDeleteCalls())
+	}
+}
+
+func TestPurgeRemoteInspectsMoreThanWorkerCount(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	var objects []remoteFakeObject
+	for i := range 10 {
+		dir := strings.Repeat(string(rune('a'+i)), 26)
+		objects = append(objects,
+			remoteUploadObjects(dir, fmt.Sprintf("plan-%d", i), when)...)
+	}
+	fake := newFakeRemoteS3(t, objects, nil, nil)
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--remote", "--all", "--dry-run",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || strings.Count(stderr, ".html") != 10 ||
+		fake.deleteCalls() != 0 {
+		t.Fatalf("stdout = %q, candidates = %d, deletes = %d",
+			stdout, strings.Count(stderr, ".html"), fake.deleteCalls())
+	}
+}
+
+func remoteUploadObjects(
+	dir, slug string, when time.Time,
+) []remoteFakeObject {
+	return []remoteFakeObject{
+		{
+			key:  dir + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: when,
+		},
+		{
+			key:  dir + "/" + slug + ".html",
+			size: 10, lastModified: when,
+		},
 	}
 }
 

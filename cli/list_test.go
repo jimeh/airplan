@@ -410,7 +410,10 @@ func (f *fakeRemoteS3) handleMarker(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if page == "" || createdAt.IsZero() {
+		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w,
+			`<Error><Code>NoSuchKey</Code><Message>missing</Message></Error>`)
 		return
 	}
 	body, err := airplan.EncodeUploadMarker(airplan.UploadMarker{

@@ -110,6 +110,83 @@ func TestShowCommandWarnsForFallbackPublicURL(t *testing.T) {
 	}
 }
 
+func TestShowCommandIncompleteAndInvalidStates(t *testing.T) {
+	when := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)
+	incomplete, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
+		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Directory: deleteDirA, CreatedAt: when, Format: "md",
+		Page: "missing.html", Source: "missing.md", Title: "Partial",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tt := range []struct {
+		name      string
+		body      []byte
+		wantState string
+		want      string
+	}{
+		{"incomplete", incomplete, "incomplete", "missing"},
+		{"invalid", []byte(`{"schema":`), "invalid", "malformed_json"},
+	} {
+		for _, jsonOutput := range []bool{false, true} {
+			name := tt.name + "/human"
+			if jsonOutput {
+				name = tt.name + "/json"
+			}
+			t.Run(name, func(t *testing.T) {
+				isolateEnv(t)
+				markerKey := deleteDirA + "/" + airplan.MarkerFilename
+				fake := newFakeRemoteS3(t, []remoteFakeObject{
+					{
+						key: markerKey, size: int64(len(tt.body)),
+						lastModified: when,
+					},
+				}, nil, nil)
+				fake.setMarker(markerKey, tt.body)
+				args := []string{
+					"show", "--config", writeCLIConfig(t, fake.server.URL),
+					deleteDirA,
+				}
+				if jsonOutput {
+					args = append(args, "--json")
+				}
+				stdout, stderr, err := executeCommand(t, "", "", args...)
+				if err != nil {
+					t.Fatalf("Execute: %v\nstderr:\n%s", err, stderr)
+				}
+				if !strings.Contains(stdout, tt.wantState) ||
+					!strings.Contains(stdout, tt.want) {
+					t.Fatalf("stdout = %q", stdout)
+				}
+				if jsonOutput && tt.name == "incomplete" &&
+					strings.Contains(stdout, `"bytes":0`) {
+					t.Fatalf("missing object exposed byte count: %s", stdout)
+				}
+			})
+		}
+	}
+}
+
+func TestShowCommandMissingMarkerFails(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC()
+	fake := newFakeRemoteS3(t, []remoteFakeObject{
+		{
+			key:  deleteDirA + "/" + airplan.MarkerFilename,
+			size: 10, lastModified: when,
+		},
+	}, nil, nil)
+
+	stdout, _, err := executeCommand(t, "", "", "show", "--json",
+		"--config", writeCLIConfig(t, fake.server.URL), deleteDirA)
+	if err == nil || stdout != "" ||
+		!strings.Contains(err.Error(), "ownership marker") {
+		t.Fatalf("stdout = %q, error = %v", stdout, err)
+	}
+}
+
 func newFakeShowS3(
 	t *testing.T, markerBody []byte, when time.Time,
 ) *httptest.Server {

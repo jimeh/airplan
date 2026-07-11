@@ -32,6 +32,7 @@ func TestConfigSchemaCmd(t *testing.T) {
 func TestConfigSchemaCmdRejectsArguments(t *testing.T) {
 	cmd := newConfigCmd()
 	cmd.SetArgs([]string{"schema", "extra"})
+	cmd.SetOut(io.Discard)
 	cmd.SetErr(io.Discard)
 
 	err := cmd.Execute()
