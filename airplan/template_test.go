@@ -132,8 +132,9 @@ func TestUploadMarkdownUsesCustomTemplate(t *testing.T) {
 	templatePath := filepath.Join(t.TempDir(), "page.html")
 	templateBody := strings.Join([]string{
 		`<title>{{.Title}}</title>`,
-		`<main data-slug="{{.Slug}}">{{.Body}}</main>`,
-		`<aside data-source="{{.SourcePath}}">{{.SourceHTML}}</aside>`,
+		`<main data-slug="{{.Slug}}">{{.RenderedHTML}}</main>`,
+		`<aside data-source="{{.SourcePath}}">` +
+			`{{.HighlightedSourceHTML}}</aside>`,
 	}, "\n")
 	if err := os.WriteFile(
 		templatePath, []byte(templateBody), 0o600,

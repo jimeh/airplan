@@ -312,8 +312,8 @@ func TestRenderTextNoSourceToggle(t *testing.T) {
 
 func TestRenderCustomTemplate(t *testing.T) {
 	tmpl := template.Must(template.New("t").Parse(
-		"<title>{{.Title}}</title><b>{{.Slug}}</b>{{.Body}}" +
-			"{{if .SourceHTML}}src{{end}}"))
+		"<title>{{.Title}}</title><b>{{.Slug}}</b>{{.RenderedHTML}}" +
+			"{{if .HighlightedSourceHTML}}src{{end}}"))
 
 	out, err := RenderMarkdown([]byte("# X\n"), RenderOptions{
 		Title:    "Custom",

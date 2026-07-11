@@ -118,7 +118,6 @@ func TestRenderInputTextExposesCanonicalSourceData(t *testing.T) {
 	tmpl, err := LoadTemplate(writeTemplate(t, strings.Join([]string{
 		`{{.Format}}|{{.Language}}|{{.SourceName}}|`,
 		`{{.SourceText}}|{{if .HighlightedSourceHTML}}highlighted{{end}}|`,
-		`{{if .SourceHTML}}legacy{{end}}`,
 	}, "")))
 	if err != nil {
 		t.Fatal(err)
@@ -134,9 +133,6 @@ func TestRenderInputTextExposesCanonicalSourceData(t *testing.T) {
 	got := string(doc.HTML)
 	if !strings.Contains(got, "txt|go|main.go|package main\n|highlighted|") {
 		t.Fatalf("canonical template data = %q", got)
-	}
-	if strings.Contains(got, "legacy") {
-		t.Fatalf("legacy SourceHTML must stay empty for text: %q", got)
 	}
 }
 

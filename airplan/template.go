@@ -73,16 +73,6 @@ type TemplateData struct {
 
 	// Slug is the resolved slug.
 	Slug string
-
-	// Body is a compatibility alias for RenderedHTML.
-	Body template.HTML
-
-	// SourceHTML is a compatibility alias for HighlightedSourceHTML.
-	SourceHTML template.HTML
-
-	// FileName is a compatibility alias for text input's SourceName. It
-	// remains empty for markdown input.
-	FileName string
 }
 
 // LoadTemplate parses a custom page template from path. The template

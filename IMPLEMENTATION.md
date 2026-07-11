@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.10.0.
+may contradict it. Targets spec version 0.11.0.
 
 ---
 
@@ -135,11 +135,10 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
 - Templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, structured headings/ToC entries, format metadata,
-  title, slug, indexing intent, and source names/paths. Legacy
-  `Body`/`SourceHTML`/`FileName` aliases remain. The built-in page CSS
-  and JS are expanded into the embedded template source before parsing,
-  so `airplan template` prints an exact reusable template containing
-  only public data fields.
+  title, slug, indexing intent, and source names/paths. The built-in page CSS
+  and JS are expanded into the embedded template source before parsing, so
+  `airplan template` prints an exact reusable template containing only public
+  data fields.
 - Local rendering: `RenderInput` owns read limits, binary and invalid
   UTF-8 rejection,
   format detection, title/slug resolution, template execution, and

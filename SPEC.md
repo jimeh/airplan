@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.10.0**
+**Spec version: 0.11.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -235,12 +235,6 @@ Each heading has `.Level` (1–6), `.ID`, `.Text`, and `.IsTitle`.
 `.IsTitle` is true only for a leading H1 that the built-in table of
 contents omits. `.TOC` is structured data, not pre-rendered navigation
 HTML, so custom templates retain control of markup and presentation.
-
-For compatibility, `.Body` remains an alias for `.RenderedHTML`,
-`.SourceHTML` remains the markdown-only alias for
-`.HighlightedSourceHTML` (and therefore stays empty for text input), and
-`.FileName` remains the legacy text-input-only filename. New templates
-should use the canonical fields.
 
 `.SourcePath` is empty when the source isn't uploaded
 (`--no-source`); templates must handle both cases.
