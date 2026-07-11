@@ -377,7 +377,7 @@ airplan [flags] [file]
 | `--no-source`   | off            | don't upload the original .md       |
 | `--indexable`   | off            | no noindex meta (md and html, §3–4) |
 | `--max-size N`  | 10MiB          | input size limit; 0 = no limit (§2) |
-| `--timeout D`   | 30s            | invocation timeout; 0 = none        |
+| `--timeout D`   | 30s            | operation timeout; 0 = none         |
 | `--lang L`      | from filename  | highlight language, text only (§3)  |
 | `--json`        | off            | JSON object on stdout               |
 | `--profile P`   | config default | named profile from config file      |
@@ -534,7 +534,7 @@ endpoint        = "https://<account-id>.r2.cloudflarestorage.com"
 region          = "auto"
 # template = "~/.config/airplan/my-template.html"  # optional
 # no_source = true    # behavior defaults; flags override
-# timeout = "30s"     # invocation timeout; 0 = none
+# timeout = "30s"     # operation timeout; 0 = none
 # indexable = true
 # Credentials may live here, but env vars are preferred:
 # access_key_id     = "..."

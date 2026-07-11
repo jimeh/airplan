@@ -52,6 +52,9 @@ func runShow(cmd *cobra.Command, opts *showOptions, target string) error {
 	if err != nil {
 		return err
 	}
+	for _, warning := range inspection.Warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", warning)
+	}
 	if opts.json {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(
 			showJSONFromInspection(inspection),

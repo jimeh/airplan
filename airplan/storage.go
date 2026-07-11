@@ -174,6 +174,10 @@ func PublicURL(cfg *Config, key string) (url string, fallback bool) {
 	return appendURLPath(cfg.Endpoint, cfg.Bucket+"/"+key), true
 }
 
+const publicURLFallbackWarning = "public_base_url is not set; " +
+	"assembled the URL from the endpoint and bucket — it may not be " +
+	"publicly reachable"
+
 func appendURLPath(base, path string) string {
 	u, err := neturl.Parse(base)
 	if err != nil {

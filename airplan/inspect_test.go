@@ -118,6 +118,32 @@ func TestInspectUploadRequestFailures(t *testing.T) {
 	}
 }
 
+func TestInspectUploadWarnsForFallbackPublicURL(t *testing.T) {
+	dir := "abcdefghijklmnopqrstuvwxyz"
+	markerBody, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: time.Now().UTC(), Format: "html", Page: "plan.html",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := newInspectServer(t, dir, markerBody, []objectInfo{
+		{Key: dir + "/" + MarkerFilename, Size: int64(len(markerBody))},
+		{Key: dir + "/plan.html", Size: 20},
+	}, http.StatusOK)
+	client := newInspectTestClient(t, server.URL)
+	client.cfg.PublicBaseURL = ""
+
+	got, err := client.InspectUpload(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Warnings) != 1 ||
+		!strings.Contains(got.Warnings[0], "public_base_url") {
+		t.Fatalf("warnings = %v", got.Warnings)
+	}
+}
+
 func TestInspectUploadRejectsNestedTargetBeforeRequests(t *testing.T) {
 	dir := "abcdefghijklmnopqrstuvwxyz"
 	requests := 0

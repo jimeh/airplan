@@ -254,9 +254,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 
 	url, fallback := PublicURL(c.cfg, pageKey)
 	if fallback {
-		res.Warnings = append(res.Warnings,
-			"public_base_url is not set; assembled the URL from the "+
-				"endpoint and bucket — it may not be publicly reachable")
+		res.Warnings = append(res.Warnings, publicURLFallbackWarning)
 	}
 	res.URL = url
 

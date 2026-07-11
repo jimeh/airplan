@@ -202,6 +202,38 @@ func TestPurgeRemoteDeletesIncompleteAndSkipsInvalid(t *testing.T) {
 	}
 }
 
+func TestPurgeRemoteWarnsForFallbackPublicURL(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	pageKey := deleteDirA + "/plan.html"
+	fake := newFakeRemoteS3(t, []remoteFakeObject{
+		{
+			key:  deleteDirA + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: when,
+		},
+		{key: pageKey, size: 10, lastModified: when},
+	}, nil, nil)
+	config := filepath.Join(t.TempDir(), "config.toml")
+	data := "endpoint = \"" + fake.server.URL + "\"\n" +
+		"bucket = \"plans\"\n" +
+		"timeout = \"0\"\n"
+	if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--remote", "--all", "--dry-run", "--config", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantURL := fake.server.URL + "/plans/" + pageKey
+	if stdout != "" || !strings.Contains(stderr, "public_base_url") ||
+		!strings.Contains(stderr, wantURL) || fake.deleteCalls() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q, deletes = %d",
+			stdout, stderr, fake.deleteCalls())
+	}
+}
+
 func TestPurgeDryRunDeletesNothing(t *testing.T) {
 	isolateEnv(t)
 	writeDefaultManifest(t, []airplan.ManifestRecord{
@@ -299,6 +331,27 @@ func TestPurgeConfirmationAbort(t *testing.T) {
 	}
 	if got := airplan.ActiveUploads(records); len(got) != 1 {
 		t.Fatalf("active uploads = %d, want 1", len(got))
+	}
+}
+
+func TestPurgeConfirmationEOFErrors(t *testing.T) {
+	isolateEnv(t)
+	writeDefaultManifest(t, []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "alpha", "work", time.Now()),
+	})
+	fake := newFakeDeleteS3(t, map[string][]string{
+		deleteDirA + "/": {deleteDirA + "/alpha.html"},
+	}, nil)
+
+	stdout, stderr, err := executeCommand(t, "", "", "purge", "--all",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err == nil || !strings.Contains(err.Error(), "rerun with --yes") {
+		t.Fatalf("error = %v, want --yes guidance", err)
+	}
+	if stdout != "" || !strings.Contains(stderr, "Delete 1 uploads?") ||
+		fake.deleteCalls() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q, deletes = %d",
+			stdout, stderr, fake.deleteCalls())
 	}
 }
 

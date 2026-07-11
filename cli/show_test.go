@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +76,37 @@ func TestShowCommandHumanAndJSON(t *testing.T) {
 				t.Fatalf("show JSON = %+v", got)
 			}
 		})
+	}
+}
+
+func TestShowCommandWarnsForFallbackPublicURL(t *testing.T) {
+	isolateEnv(t)
+	createdAt := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)
+	body, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
+		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Directory: deleteDirA, CreatedAt: createdAt, Format: "html",
+		Page: "plan.html",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := newFakeShowS3(t, body, createdAt)
+	config := filepath.Join(t.TempDir(), "config.toml")
+	data := fmt.Sprintf("endpoint = %q\nbucket = \"plans\"\ntimeout = \"0\"\n",
+		server.URL)
+	if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeCommand(
+		t, "", "", "show", "--config", config, deleteDirA,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, server.URL+"/plans/"+deleteDirA+
+		"/plan.html") || !strings.Contains(stderr, "public_base_url") {
+		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
 	}
 }
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/jimeh/airplan/airplan"
@@ -25,5 +26,17 @@ func TestConfigSchemaCmd(t *testing.T) {
 	}
 	if !bytes.Equal(out.Bytes(), want) {
 		t.Fatalf("output differs from ConfigSchema()")
+	}
+}
+
+func TestConfigSchemaCmdRejectsArguments(t *testing.T) {
+	cmd := newConfigCmd()
+	cmd.SetArgs([]string{"schema", "extra"})
+	cmd.SetErr(io.Discard)
+
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "unknown command") &&
+		!strings.Contains(err.Error(), "accepts 0 arg") {
+		t.Fatalf("error = %v, want argument rejection", err)
 	}
 }

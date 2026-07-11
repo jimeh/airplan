@@ -2,10 +2,15 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestPreviewRendersMarkdownWithoutUploadConfig(t *testing.T) {
@@ -72,6 +77,53 @@ func TestPreviewWritesOutputFile(t *testing.T) {
 		!bytes.Contains(page, []byte("<code>notes.txt</code>")) {
 		t.Fatalf("output file is not the rendered text page:\n%s", page)
 	}
+	temps, err := filepath.Glob(filepath.Join(dir, ".notes.html.tmp-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(temps) != 0 {
+		t.Fatalf("temporary preview files remain: %v", temps)
+	}
+}
+
+func TestPreviewAppliesConfiguredTimeout(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("AIRPLAN_TIMEOUT", "20ms")
+
+	reader := &blockingPreviewReader{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	defer close(reader.release)
+	cmd := newRootCmd()
+	cmd.SetIn(reader)
+	cmd.SetArgs([]string{"preview", "-"})
+
+	started := time.Now()
+	err := cmd.Execute()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want context deadline exceeded", err)
+	}
+	if time.Since(started) > time.Second {
+		t.Fatalf("preview timeout took %s", time.Since(started))
+	}
+	select {
+	case <-reader.started:
+	default:
+		t.Fatal("preview did not start reading input")
+	}
+}
+
+type blockingPreviewReader struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (r *blockingPreviewReader) Read([]byte) (int, error) {
+	r.once.Do(func() { close(r.started) })
+	<-r.release
+	return 0, io.EOF
 }
 
 func TestPreviewRefusesToOverwriteInput(t *testing.T) {

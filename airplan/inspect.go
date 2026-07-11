@@ -39,6 +39,8 @@ type UploadInspection struct {
 	Title     string
 	Page      *InspectedObject
 	Source    *InspectedObject
+	// Warnings contains non-fatal URL assembly caveats for callers to report.
+	Warnings []string
 
 	// Error is set only for UploadInvalid and is stable for JSON output.
 	Error MarkerErrorCode
@@ -114,9 +116,21 @@ func (c *Client) InspectUpload(
 	inspection.CreatedAt = marker.CreatedAt
 	inspection.Format = marker.Format
 	inspection.Title = marker.Title
-	inspection.Page = c.inspectedObject(dirPrefix+marker.Page, byKey)
+	var fallback bool
+	inspection.Page, fallback = c.inspectedObject(
+		dirPrefix+marker.Page, byKey,
+	)
 	if marker.Source != "" {
-		inspection.Source = c.inspectedObject(dirPrefix+marker.Source, byKey)
+		var sourceFallback bool
+		inspection.Source, sourceFallback = c.inspectedObject(
+			dirPrefix+marker.Source, byKey,
+		)
+		fallback = fallback || sourceFallback
+	}
+	if fallback {
+		inspection.Warnings = append(
+			inspection.Warnings, publicURLFallbackWarning,
+		)
 	}
 	inspection.State = UploadComplete
 	if !inspection.Page.Exists ||
@@ -128,15 +142,15 @@ func (c *Client) InspectUpload(
 
 func (c *Client) inspectedObject(
 	key string, objects map[string]objectInfo,
-) *InspectedObject {
+) (*InspectedObject, bool) {
 	object, exists := objects[key]
-	url, _ := PublicURL(c.cfg, key)
+	url, fallback := PublicURL(c.cfg, key)
 	return &InspectedObject{
 		Key:    key,
 		URL:    url,
 		Exists: exists,
 		Bytes:  object.Size,
-	}
+	}, fallback
 }
 
 func validateInspectionTarget(key, dirPrefix string) error {

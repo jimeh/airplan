@@ -198,8 +198,9 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 }
 
 type remotePurgeCandidate struct {
-	upload airplan.RemoteUpload
-	record airplan.ManifestRecord
+	upload   airplan.RemoteUpload
+	record   airplan.ManifestRecord
+	warnings []string
 }
 
 func runRemotePurge(
@@ -238,6 +239,7 @@ func runRemotePurge(
 		fmt.Fprintf(stderr,
 			"airplan: note: skipped %d invalid remote marker(s)\n", invalid)
 	}
+	printRemotePurgeWarnings(stderr, candidates)
 
 	records := remotePurgeRecords(candidates)
 	if opts.dryRun {
@@ -359,6 +361,8 @@ func remotePurgeCandidates(
 		}
 		out = append(out, remotePurgeCandidate{
 			upload: result.upload,
+			warnings: append([]string(nil),
+				inspection.Warnings...),
 			record: airplan.ManifestRecord{
 				Type:          "upload",
 				Time:          inspection.CreatedAt.UTC(),
@@ -372,6 +376,21 @@ func remotePurgeCandidates(
 		})
 	}
 	return out, invalid, nil
+}
+
+func printRemotePurgeWarnings(
+	w io.Writer, candidates []remotePurgeCandidate,
+) {
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		for _, warning := range candidate.warnings {
+			if seen[warning] {
+				continue
+			}
+			seen[warning] = true
+			fmt.Fprintf(w, "airplan: warning: %s\n", warning)
+		}
+	}
 }
 
 type remoteInspectionResult struct {
@@ -468,6 +487,11 @@ func confirmPurge(cmd *cobra.Command, count int) (bool, error) {
 	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {
 		return false, err
+	}
+	if errors.Is(err, io.EOF) && strings.TrimSpace(line) == "" {
+		return false, errors.New(
+			"airplan: confirmation input closed; rerun with --yes",
+		)
 	}
 	answer := strings.ToLower(strings.TrimSpace(line))
 	return answer == "y" || answer == "yes", nil

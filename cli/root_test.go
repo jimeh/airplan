@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -298,7 +297,6 @@ func executeRootWithPublicBase(
 	isolateEnv(t)
 
 	fullArgs := []string{
-		"--config", filepath.Join(t.TempDir(), "missing.toml"),
 		"--endpoint", fake.server.URL,
 		"--bucket", "plans",
 		"--timeout", "0",
@@ -323,7 +321,8 @@ func executeRootWithPublicBase(
 func isolateEnv(t *testing.T) {
 	t.Helper()
 
-	t.Setenv("AIRPLAN_CONFIG", filepath.Join(t.TempDir(), "missing.toml"))
+	t.Setenv("AIRPLAN_CONFIG", "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("AIRPLAN_PROFILE", "")
 	t.Setenv("AIRPLAN_TIMEOUT", "")
 	t.Setenv("AIRPLAN_ENDPOINT", "")

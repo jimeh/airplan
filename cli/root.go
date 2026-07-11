@@ -100,7 +100,7 @@ func newRootCmd() *cobra.Command {
 	f.StringVar(&opts.maxSize, "max-size", "10MiB",
 		"input size limit, e.g. 10MiB, 512k, 1048576; 0 = no limit")
 	f.StringVar(&opts.timeout, "timeout", "",
-		"invocation timeout, e.g. 30s, 1m30s; 0 = none (default 30s)")
+		"operation timeout, e.g. 30s, 1m30s; 0 = none (default 30s)")
 	f.BoolVarP(&opts.json, "json", "j", false,
 		"print a single JSON object instead of the URL")
 	f.BoolVarP(&opts.open, "open", "o", false,
@@ -174,9 +174,8 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 		return err
 	}
 
-	// The resolved timeout bounds the whole invocation so a stalled
-	// endpoint fails with a clear error instead of hanging the CLI
-	// (and any agent harness driving it) indefinitely (SPEC.md §6).
+	// The resolved timeout bounds the upload operation after config
+	// resolution (SPEC.md §6).
 	ctx := cmd.Context()
 	if cfg.Timeout > 0 {
 		var cancel context.CancelFunc
