@@ -22,9 +22,13 @@ $ airplan plan.md
 https://plans.example.com/vq3nhk2p7r4wzt5c6ydjm3xhqd/plan.html
 ```
 
-It is useful when an agent has written a plan that a person should review, or
-whenever you want to share a local document without running a server or using a
-paste service.
+It is especially useful with coding agents: an agent can turn a local plan into
+a link you can open from any device. That makes reviewing plans from a mobile
+app practical even when the agent is running elsewhere and its local files are
+hard to reach.
+
+It also works whenever you want to share a local document without running a
+server or using a paste service.
 
 - Markdown becomes a polished page with light and dark themes.
   Authored HTML and link destinations are preserved, so treat it as trusted
@@ -59,6 +63,22 @@ go install github.com/jimeh/airplan@latest
 
 Prebuilt binaries are available from
 [GitHub Releases](https://github.com/jimeh/airplan/releases).
+
+### Install the agent skill
+
+This repository includes an [airplan agent skill](skills/airplan/SKILL.md) for
+compatible coding agents. It teaches the agent to upload a document when you
+ask for a shareable link, then return that link in chat.
+
+Install it globally with the [Skills CLI](https://skills.sh/):
+
+```sh
+npx skills add jimeh/airplan --skill airplan --global
+```
+
+The `airplan` CLI must also be installed and configured on the machine where
+the agent runs. Once it is, ask the agent to share a plan as a link and open the
+result from your phone, tablet, or any other browser.
 
 Release assets include separate SPDX JSON SBOMs, and the archives are covered by
 GitHub artifact attestations. After downloading the release assets, verify them:
@@ -236,16 +256,6 @@ url=$(airplan --json plan.md | jq -r .url)
 
 Do not invent or reuse a URL after a failed command. For the complete CLI,
 config, key, and manifest contracts, use [SPEC.md](SPEC.md).
-
-### Agent skill
-
-The shipped [airplan skill](skills/airplan/SKILL.md) teaches compatible agent
-harnesses when and how to share a finished document. Install it globally with
-the [Skills CLI](https://skills.sh/):
-
-```sh
-npx skills add jimeh/airplan@airplan --global
-```
 
 ## Privacy model
 
