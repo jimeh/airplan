@@ -10,6 +10,12 @@
   "force-tag-creation": false,
   "packages": {
     ".": {
+      "extra-files": [
+        {
+          "type": "generic",
+          "path": "README.md"
+        }
+      ],
       "initial-version": "0.1.0",
       "package-name": "airplan"
     }
