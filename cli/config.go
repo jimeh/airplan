@@ -155,6 +155,8 @@ func printConfigShow(
 		credentialMode = "standard AWS credential chain"
 	case "partial":
 		credentialMode = "partial explicit configuration"
+	case "explicit":
+		credentialMode = "explicit access keys"
 	}
 	if _, err := fmt.Fprintf(tw, "CREDENTIALS\t%s\n\n", credentialMode); err != nil {
 		return err

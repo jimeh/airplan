@@ -104,6 +104,52 @@ func TestDeleteInfersManifestProfileWithoutExplicitSelector(t *testing.T) {
 	}
 }
 
+func TestDeleteProfileFlagOverridesManifestInference(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	recorded := newFakeDeleteS3(t, nil, nil)
+	active := newFakeDeleteS3(t, map[string][]string{
+		deleteDirA + "/": {deleteDirA + "/plan.html"},
+	}, nil)
+	writeDeleteManifest(t, stateHome, deleteDirA, "jimeh", "")
+
+	_, stderr, err := executeCommand(t, "", "",
+		"delete", "--profile", "airplan-dev",
+		"--config", writeDeleteProfilesConfig(
+			t, active.server.URL, recorded.server.URL,
+		),
+		deleteDirA+"/plan.html",
+	)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if strings.Contains(stderr, "using profile") {
+		t.Fatalf("stderr = %q, explicit profile must bypass inference", stderr)
+	}
+	if active.deleteCalls() != 1 || recorded.deleteCalls() != 0 {
+		t.Fatalf("active deletes = %d, recorded deletes = %d",
+			active.deleteCalls(), recorded.deleteCalls())
+	}
+}
+
+func TestDeleteAmbiguousManifestRecordsFallBackToConfigResolution(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	path := filepath.Join(stateHome, "airplan", "manifest.jsonl")
+	writeManifest(t, path,
+		deleteManifestLine(deleteDirA, "")+
+			deleteManifestLine(deleteDirA, "jimeh"))
+
+	profile, inferred := deleteProfile(deleteDirA+"/plan.html", "")
+	if profile != "" || inferred {
+		t.Fatalf("deleteProfile = %q, %v; want normal config resolution",
+			profile, inferred)
+	}
+}
+
 func TestDeleteExplicitProfileMismatchPrintsHint(t *testing.T) {
 	isolateEnv(t)
 	stateHome := t.TempDir()
@@ -138,17 +184,52 @@ func TestDeleteExplicitProfileMismatchPrintsHint(t *testing.T) {
 	}
 }
 
+func TestDeleteRootProfileMismatchPrintsActionableHint(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	recorded := newFakeDeleteS3(t, nil, nil)
+	active := newFakeDeleteS3(t, nil, nil)
+	writeDeleteManifest(t, stateHome, deleteDirA, "", "")
+
+	_, stderr, err := executeCommand(t, "", "",
+		"delete", "--config", writeDeleteProfilesConfig(
+			t, active.server.URL, recorded.server.URL,
+		),
+		deleteDirA+"/plan.html",
+	)
+	if err == nil || !strings.Contains(err.Error(), "ownership marker is missing") {
+		t.Fatalf("error = %v, want missing-marker failure", err)
+	}
+	for _, want := range []string{
+		"upload was recorded with root-level config",
+		"--config or AIRPLAN_CONFIG",
+		"config that resolves root-level settings",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q: %s", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "unset AIRPLAN_PROFILE") {
+		t.Fatalf("stderr contains non-working retry advice: %s", stderr)
+	}
+}
+
 func writeDeleteManifest(
 	t *testing.T, stateHome, dir, profile, prefix string,
 ) {
 	t.Helper()
 	path := filepath.Join(stateHome, "airplan", "manifest.jsonl")
-	writeManifest(t, path, prefix+
-		`{"type":"upload","time":"2026-07-08T14:03:11Z",`+
-		`"key":"`+dir+`/plan.html",`+
-		`"url":"https://plans.example.com/`+dir+`/plan.html",`+
-		`"bucket":"plans","profile":"`+profile+`",`+
-		`"bytes":10,"marker_version":1}`+"\n")
+	writeManifest(t, path, prefix+deleteManifestLine(dir, profile))
+}
+
+func deleteManifestLine(dir, profile string) string {
+	return (`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+		`"key":"` + dir + `/plan.html",` +
+		`"url":"https://plans.example.com/` + dir + `/plan.html",` +
+		`"bucket":"plans","profile":"` + profile + `",` +
+		`"bytes":10,"marker_version":1}` + "\n")
 }
 
 func writeDeleteProfilesConfig(
@@ -164,7 +245,6 @@ default_profile = "airplan-dev"
 
 [profiles.airplan-dev]
 endpoint = %q
-bucket = "dev-plans"
 
 [profiles.jimeh]
 endpoint = %q

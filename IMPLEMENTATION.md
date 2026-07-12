@@ -288,10 +288,11 @@ information.
    objects first, remove the marker last, then append the local tombstone.
 
 Manifest reads retain pre-marker upload records as read-only legacy history.
-Delete profile inference matches the requested URL or key against active,
-marker-managed history before config resolution; explicit flag or environment
-profile selection remains authoritative. A typed profile-mismatch error lets
-the CLI add a targeted retry hint when marker lookup fails.
+Delete profile inference requires exactly one requested URL or key match in
+active, marker-managed history before config resolution. URL matches require
+the recorded public host; explicit flag or environment profile selection
+remains authoritative. A typed profile-mismatch error lets the CLI add a
+targeted retry hint when marker lookup fails.
 Local purge likewise filters manifest candidates by the fully resolved active
 profile before applying its user-supplied age and slug filters.
 

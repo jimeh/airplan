@@ -23,6 +23,7 @@ release-hardening work and evidence gates.
 | `mise run setup`                   | install tools + git hooks (run once)                        |
 | `mise run check`                   | fast handoff gate: lint + generated files + format + tests  |
 | `mise run test`                    | unit tests (no Docker needed)                               |
+| `mise run test:coverage`           | unit tests + text and HTML statement coverage reports       |
 | `mise run test-integration`        | MinIO round-trip via testcontainers (needs Docker)          |
 | `mise run lint`                    | all lints: `lint:go`, `lint:workflows`                      |
 | `mise run format` / `format:check` | write / check formatting (`:go`, `:markdown`)               |

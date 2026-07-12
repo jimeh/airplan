@@ -724,7 +724,9 @@ mode, and every config field's resolved value and winning source. Sources are
 one of a built-in default, root config key, selected-profile config key,
 `AIRPLAN_*` environment variable, or explicit flag. Config-path and profile
 rows likewise distinguish flag, environment, default path/profile, and
-profile inference. Unset fields remain visible as `<unset>`.
+profile inference. Root-level selection made complete by any combination of
+root config, environment, and flags is described as a complete root-level
+resolution. Unset fields remain visible as `<unset>`.
 
 `--json` returns one object with `config_file`, `profile`, `credential_mode`,
 and `fields`. Each field object contains `value`, `set`, `sensitive`, and
@@ -738,7 +740,8 @@ significant in JSON.
 prints only `<set>` or `<unset>`; JSON always uses `value: null` together with
 the `set` and `sensitive` booleans. When neither is explicitly configured,
 credential mode reports the standard AWS chain without attempting to resolve
-it. Endpoint values remain visible.
+it. When both fields are configured, the human-readable credential mode is
+`explicit access keys`. Endpoint values remain visible.
 
 Incomplete endpoint, bucket, or credential settings are displayable because
 inspection is diagnostic. Errors that prevent deterministic resolution still
@@ -984,11 +987,16 @@ machine) and must be safe:
   matching active, marker-managed local manifest record. When neither
   `--profile` nor `AIRPLAN_PROFILE` is set and that record names a
   profile, the recorded profile overrides the general config default;
-  stderr notes the selection. Explicit flag or environment selection
-  always wins and is never silently changed. If marker lookup then
-  fails and the matching record names another profile, stderr warns
-  that the mismatch may be the cause and identifies both
-  `--profile` and `AIRPLAN_PROFILE` as retry mechanisms.
+  stderr notes the selection. URL targets participate in this inference
+  only when they are HTTP(S) URLs whose host matches the recorded public
+  URL; URL query strings and fragments are ignored. With zero or multiple
+  matching records, normal config resolution proceeds without inference.
+  Explicit flag or environment selection always wins and is never silently
+  changed. If marker lookup then fails and the matching record names another
+  profile, stderr warns that the mismatch may be the cause and identifies
+  both `--profile` and `AIRPLAN_PROFILE` as retry mechanisms. When the record
+  used root-level settings but named-profile resolution is active, the hint
+  instead directs the user to a config path that resolves root-level settings.
 - There is one narrow ensure-gone reconciliation path for a marker
   deletion that succeeded before its local tombstone could be written.
   When the marker is absent, airplan may append a tombstone without

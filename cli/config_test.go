@@ -63,6 +63,7 @@ func TestConfigShowTableReportsSourcesAndRedactsCredentials(t *testing.T) {
 	for _, want := range []string{
 		"CONFIG FILE", path, "--config",
 		"PROFILE", "work", "default_profile",
+		"CREDENTIALS", "explicit access keys",
 		"bucket", "flag-bucket", "--bucket",
 		"endpoint", "https://work.example.com", "profiles.work.endpoint",
 		"no_source", "false", "--no-source",
@@ -143,6 +144,17 @@ func TestConfigShowWorksWithIncompleteRootConfig(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout)
 		}
+	}
+	var endpointRow string
+	for _, line := range strings.Split(stdout, "\n") {
+		if strings.HasPrefix(line, "endpoint ") {
+			endpointRow = line
+			break
+		}
+	}
+	if strings.Count(endpointRow, "<unset>") != 2 {
+		t.Fatalf("unset endpoint row = %q, want unset value and source",
+			endpointRow)
 	}
 }
 

@@ -3,6 +3,7 @@ package airplan
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -1136,6 +1137,78 @@ default_profile = "work"
 			t.Fatalf("config path resolution = %+v", resolution.ConfigPath)
 		}
 	})
+
+	t.Run("complete root-level resolution", func(t *testing.T) {
+		path := writeConfig(t, `
+[profiles.home]
+[profiles.work]
+`, 0o600)
+		resolution, err := ResolveConfig(ConfigOptions{
+			Path: path, Getenv: envMap(nil),
+			Overrides: Settings{
+				Endpoint: "https://flag.example.com", Bucket: "plans",
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolution.Profile.Name != "" ||
+			resolution.Profile.Source.Name != "complete root-level resolution" {
+			t.Fatalf("profile resolution = %+v", resolution.Profile)
+		}
+	})
+}
+
+func TestConfigFieldDefinitionsCoverSettings(t *testing.T) {
+	want := make(map[string]bool)
+	typeOfSettings := reflect.TypeOf(Settings{})
+	for i := range typeOfSettings.NumField() {
+		name := strings.Split(typeOfSettings.Field(i).Tag.Get("toml"), ",")[0]
+		want[name] = true
+	}
+
+	got := make(map[string]bool)
+	envNames := make(map[string]bool)
+	for _, field := range configFieldDefinitions {
+		if got[field.name] {
+			t.Fatalf("duplicate config field definition %q", field.name)
+		}
+		got[field.name] = true
+		if field.overrideSource == "" {
+			t.Fatalf("field %q has no override source", field.name)
+		}
+		if field.envName != "" {
+			if envNames[field.envName] {
+				t.Fatalf("duplicate config env name %q", field.envName)
+			}
+			envNames[field.envName] = true
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("config field definitions = %v, want Settings fields %v",
+			got, want)
+	}
+}
+
+func TestResolveConfigLabelsLibraryCredentialOverridesAccurately(t *testing.T) {
+	resolution, err := ResolveConfig(ConfigOptions{
+		Getenv: envMap(nil),
+		Overrides: Settings{
+			AccessKeyID: "access", SecretAccessKey: "secret",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for field, want := range map[string]string{
+		"access_key_id":     "ConfigOptions.Overrides.access_key_id",
+		"secret_access_key": "ConfigOptions.Overrides.secret_access_key",
+	} {
+		source := resolution.Fields[field].Source
+		if source == nil || source.Name != want {
+			t.Fatalf("%s source = %+v, want %q", field, source, want)
+		}
+	}
 }
 
 func boolPointer(value bool) *bool { return &value }

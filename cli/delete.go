@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sort"
 	"strings"
 
 	"github.com/jimeh/airplan/airplan"
@@ -42,10 +41,7 @@ func newDeleteCmd() *cobra.Command {
 
 func runDelete(cmd *cobra.Command, urlOrKey string, opts *deleteOptions) error {
 	stderr := cmd.ErrOrStderr()
-	profile, inferred, err := deleteProfile(urlOrKey, opts.profile)
-	if err != nil {
-		return err
-	}
+	profile, inferred := deleteProfile(urlOrKey, opts.profile)
 
 	client, _, ctx, cancel, err := setupClient(cmd, opts.config, profile)
 	if err != nil {
@@ -81,38 +77,27 @@ func runDelete(cmd *cobra.Command, urlOrKey string, opts *deleteOptions) error {
 	return nil
 }
 
-func deleteProfile(target, flagProfile string) (string, bool, error) {
+func deleteProfile(target, flagProfile string) (string, bool) {
 	if flagProfile != "" || os.Getenv("AIRPLAN_PROFILE") != "" {
-		return flagProfile, false, nil
+		return flagProfile, false
 	}
 
 	records, _, err := airplan.ReadManifest("")
 	if err != nil {
 		// Profile inference is a convenience. Remote marker validation still
 		// provides the authority for deletion when history is unavailable.
-		return flagProfile, false, nil
+		return flagProfile, false
 	}
-	profiles := make(map[string]struct{})
+	var matches []airplan.ManifestRecord
 	for _, rec := range airplan.MatchingManifestUploads(records, target) {
-		if rec.MarkerVersion == airplan.MarkerVersion && rec.Profile != "" {
-			profiles[rec.Profile] = struct{}{}
+		if rec.MarkerVersion == airplan.MarkerVersion {
+			matches = append(matches, rec)
 		}
 	}
-	if len(profiles) == 0 {
-		return flagProfile, false, nil
+	if len(matches) != 1 || matches[0].Profile == "" {
+		return flagProfile, false
 	}
-	names := make([]string, 0, len(profiles))
-	for profile := range profiles {
-		names = append(names, profile)
-	}
-	sort.Strings(names)
-	if len(names) > 1 {
-		return "", false, fmt.Errorf(
-			"airplan: local manifest records for this upload name multiple profiles (%s); select one with --profile or AIRPLAN_PROFILE",
-			strings.Join(names, ", "),
-		)
-	}
-	return names[0], true, nil
+	return matches[0].Profile, true
 }
 
 func printDeleteProfileMismatch(
@@ -121,7 +106,7 @@ func printDeleteProfileMismatch(
 ) {
 	if mismatch.Recorded == "" {
 		fmt.Fprintf(stderr,
-			"airplan: warning: upload was recorded with root-level config, but the active profile is %q; omit --profile, unset AIRPLAN_PROFILE, and retry\n",
+			"airplan: warning: upload was recorded with root-level config, but the active profile is %q; retry with --config or AIRPLAN_CONFIG pointing to a config that resolves root-level settings\n",
 			mismatch.Active)
 		return
 	}

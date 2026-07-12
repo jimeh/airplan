@@ -20,6 +20,67 @@ import (
 // DefaultTimeout is the default operation timeout (SPEC.md §6).
 const DefaultTimeout = 30 * time.Second
 
+type configFieldDefinition struct {
+	name           string
+	builtin        bool
+	envName        string
+	overrideSource string
+}
+
+var configFieldDefinitions = []configFieldDefinition{
+	{
+		name: "endpoint", envName: "AIRPLAN_ENDPOINT",
+		overrideSource: "--endpoint",
+	},
+	{
+		name: "bucket", envName: "AIRPLAN_BUCKET",
+		overrideSource: "--bucket",
+	},
+	{
+		name: "region", builtin: true, envName: "AIRPLAN_REGION",
+		overrideSource: "--region",
+	},
+	{
+		name: "access_key_id", envName: "AIRPLAN_ACCESS_KEY_ID",
+		overrideSource: "ConfigOptions.Overrides.access_key_id",
+	},
+	{
+		name: "secret_access_key", envName: "AIRPLAN_SECRET_ACCESS_KEY",
+		overrideSource: "ConfigOptions.Overrides.secret_access_key",
+	},
+	{
+		name: "public_base_url", envName: "AIRPLAN_PUBLIC_BASE_URL",
+		overrideSource: "--public-base-url",
+	},
+	{
+		name: "key_prefix", envName: "AIRPLAN_KEY_PREFIX",
+		overrideSource: "--key-prefix",
+	},
+	{
+		name: "template", envName: "AIRPLAN_TEMPLATE",
+		overrideSource: "--template",
+	},
+	{name: "no_source", builtin: true, overrideSource: "--no-source"},
+	{name: "indexable", builtin: true, overrideSource: "--indexable"},
+	{
+		name: "no_external_assets", builtin: true,
+		envName:        "AIRPLAN_NO_EXTERNAL_ASSETS",
+		overrideSource: "--no-external-assets",
+	},
+	{
+		name: "mermaid_url", builtin: true, envName: "AIRPLAN_MERMAID_URL",
+		overrideSource: "--mermaid-url",
+	},
+	{
+		name: "repo", builtin: true, envName: "AIRPLAN_REPO",
+		overrideSource: "--repo",
+	},
+	{
+		name: "timeout", builtin: true, envName: "AIRPLAN_TIMEOUT",
+		overrideSource: "--timeout",
+	},
+}
+
 // Settings holds every connection and behavior key that may appear at
 // the root level of the config file or inside a [profiles.*] table
 // (SPEC.md §7). Boolean fields are pointers so profile merging can
@@ -332,7 +393,7 @@ func profileResolution(
 	case len(fileConfig.Profiles) == 0:
 		source.Name = "no named profiles"
 	default:
-		source.Name = "complete root-level configuration"
+		source.Name = "complete root-level resolution"
 	}
 	return ProfileResolution{Name: profile, Source: source}
 }
@@ -345,111 +406,110 @@ func configFieldResolutions(
 	profile string,
 	path string,
 ) map[string]FieldResolution {
-	keys := []string{
-		"endpoint", "bucket", "region", "access_key_id",
-		"secret_access_key", "public_base_url", "key_prefix", "template",
-		"no_source", "indexable", "no_external_assets", "mermaid_url",
-		"repo", "timeout",
-	}
-	chains := make(map[string][]ConfigSource, len(keys))
-	for _, key := range []string{
-		"region", "no_source", "indexable", "no_external_assets",
-		"mermaid_url", "repo", "timeout",
-	} {
-		chains[key] = append(chains[key], ConfigSource{
-			Kind: ConfigSourceBuiltin, Name: "built-in default",
-		})
+	chains := make(map[string][]ConfigSource, len(configFieldDefinitions))
+	for _, field := range configFieldDefinitions {
+		if field.builtin {
+			chains[field.name] = append(chains[field.name], ConfigSource{
+				Kind: ConfigSourceBuiltin, Name: "built-in default",
+			})
+		}
 	}
 	if loaded {
-		for _, key := range keys {
-			if meta.IsDefined(key) {
-				chains[key] = append(chains[key], ConfigSource{
+		for _, field := range configFieldDefinitions {
+			if meta.IsDefined(field.name) {
+				chains[field.name] = append(chains[field.name], ConfigSource{
 					Kind: ConfigSourceRoot,
-					Name: "root." + key,
+					Name: "root." + field.name,
 					Path: path,
 				})
 			}
 		}
 	}
 	if profile != "" {
-		for _, key := range keys {
-			if meta.IsDefined("profiles", profile, key) {
-				chains[key] = append(chains[key], ConfigSource{
-					Kind:    ConfigSourceProfile,
-					Name:    "profiles." + profile + "." + key,
-					Path:    path,
-					Profile: profile,
-				})
+		for _, field := range configFieldDefinitions {
+			if meta.IsDefined("profiles", profile, field.name) {
+				chains[field.name] = append(
+					chains[field.name], ConfigSource{
+						Kind:    ConfigSourceProfile,
+						Name:    "profiles." + profile + "." + field.name,
+						Path:    path,
+						Profile: profile,
+					})
 			}
 		}
 	}
 
-	for key, envName := range map[string]string{
-		"endpoint":           "AIRPLAN_ENDPOINT",
-		"bucket":             "AIRPLAN_BUCKET",
-		"region":             "AIRPLAN_REGION",
-		"access_key_id":      "AIRPLAN_ACCESS_KEY_ID",
-		"secret_access_key":  "AIRPLAN_SECRET_ACCESS_KEY",
-		"public_base_url":    "AIRPLAN_PUBLIC_BASE_URL",
-		"key_prefix":         "AIRPLAN_KEY_PREFIX",
-		"template":           "AIRPLAN_TEMPLATE",
-		"no_external_assets": "AIRPLAN_NO_EXTERNAL_ASSETS",
-		"mermaid_url":        "AIRPLAN_MERMAID_URL",
-		"repo":               "AIRPLAN_REPO",
-		"timeout":            "AIRPLAN_TIMEOUT",
-	} {
-		if getenv(envName) != "" {
-			chains[key] = append(chains[key], ConfigSource{
-				Kind: ConfigSourceEnv, Name: envName,
+	for _, field := range configFieldDefinitions {
+		if field.envName != "" && getenv(field.envName) != "" {
+			chains[field.name] = append(chains[field.name], ConfigSource{
+				Kind: ConfigSourceEnv, Name: field.envName,
 			})
 		}
 	}
 
-	for _, key := range overrideFieldNames(opts.Overrides) {
-		chains[key] = append(chains[key], ConfigSource{
+	for _, field := range overrideFields(opts.Overrides) {
+		chains[field.name] = append(chains[field.name], ConfigSource{
 			Kind: ConfigSourceOverride,
-			Name: "--" + strings.ReplaceAll(key, "_", "-"),
+			Name: field.overrideSource,
 		})
 	}
 
-	fields := make(map[string]FieldResolution, len(keys))
-	for _, key := range keys {
-		sources := chains[key]
+	fields := make(map[string]FieldResolution, len(configFieldDefinitions))
+	for _, definition := range configFieldDefinitions {
+		sources := chains[definition.name]
 		field := FieldResolution{Sources: sources}
 		if len(sources) > 0 {
 			winning := sources[len(sources)-1]
 			field.Source = &winning
 		}
-		fields[key] = field
+		fields[definition.name] = field
 	}
 	return fields
 }
 
-func overrideFieldNames(settings Settings) []string {
-	var names []string
-	for name, value := range map[string]string{
-		"endpoint": settings.Endpoint, "bucket": settings.Bucket,
-		"region": settings.Region, "access_key_id": settings.AccessKeyID,
-		"secret_access_key": settings.SecretAccessKey,
-		"public_base_url":   settings.PublicBaseURL,
-		"key_prefix":        settings.KeyPrefix, "template": settings.Template,
-		"mermaid_url": settings.MermaidURL, "repo": settings.Repository,
-		"timeout": settings.Timeout,
-	} {
-		if value != "" {
-			names = append(names, name)
+func overrideFields(settings Settings) []configFieldDefinition {
+	var fields []configFieldDefinition
+	for _, field := range configFieldDefinitions {
+		if configOverrideIsSet(settings, field.name) {
+			fields = append(fields, field)
 		}
 	}
-	if settings.NoSource != nil {
-		names = append(names, "no_source")
+	return fields
+}
+
+func configOverrideIsSet(settings Settings, name string) bool {
+	switch name {
+	case "endpoint":
+		return settings.Endpoint != ""
+	case "bucket":
+		return settings.Bucket != ""
+	case "region":
+		return settings.Region != ""
+	case "access_key_id":
+		return settings.AccessKeyID != ""
+	case "secret_access_key":
+		return settings.SecretAccessKey != ""
+	case "public_base_url":
+		return settings.PublicBaseURL != ""
+	case "key_prefix":
+		return settings.KeyPrefix != ""
+	case "template":
+		return settings.Template != ""
+	case "no_source":
+		return settings.NoSource != nil
+	case "indexable":
+		return settings.Indexable != nil
+	case "no_external_assets":
+		return settings.NoExternalAssets != nil
+	case "mermaid_url":
+		return settings.MermaidURL != ""
+	case "repo":
+		return settings.Repository != ""
+	case "timeout":
+		return settings.Timeout != ""
+	default:
+		return false
 	}
-	if settings.Indexable != nil {
-		names = append(names, "indexable")
-	}
-	if settings.NoExternalAssets != nil {
-		names = append(names, "no_external_assets")
-	}
-	return names
 }
 
 // parseTimeout parses a timeout value (SPEC.md §6): a Go duration
@@ -856,45 +916,62 @@ func applySettings(
 }
 
 func applyEnv(cfg *Config, getenv func(string) string) error {
-	applyEnvString(&cfg.Endpoint, getenv, "AIRPLAN_ENDPOINT")
-	applyEnvString(&cfg.Bucket, getenv, "AIRPLAN_BUCKET")
-	applyEnvString(&cfg.Region, getenv, "AIRPLAN_REGION")
-	applyEnvString(&cfg.AccessKeyID, getenv, "AIRPLAN_ACCESS_KEY_ID")
-	applyEnvString(&cfg.SecretAccessKey, getenv, "AIRPLAN_SECRET_ACCESS_KEY")
-	applyEnvString(&cfg.PublicBaseURL, getenv, "AIRPLAN_PUBLIC_BASE_URL")
-	applyEnvString(&cfg.KeyPrefix, getenv, "AIRPLAN_KEY_PREFIX")
-	applyEnvString(&cfg.Template, getenv, "AIRPLAN_TEMPLATE")
-	applyEnvString(&cfg.MermaidURL, getenv, "AIRPLAN_MERMAID_URL")
-	applyEnvString(&cfg.Repository, getenv, "AIRPLAN_REPO")
-	return applyEnvBool(
-		&cfg.NoExternalAssets,
-		getenv,
-		"AIRPLAN_NO_EXTERNAL_ASSETS",
-	)
-}
-
-func applyEnvBool(
-	field *bool,
-	getenv func(string) string,
-	name string,
-) error {
-	if value := getenv(name); value != "" {
-		parsed, err := strconv.ParseBool(value)
-		if err != nil {
-			return fmt.Errorf(
-				"airplan: invalid %s %q: must be a boolean",
-				name,
-				value,
-			)
+	for _, field := range configFieldDefinitions {
+		if field.envName == "" || field.name == "timeout" {
+			continue
 		}
-		*field = parsed
+		value := getenv(field.envName)
+		if value == "" {
+			continue
+		}
+		if field.name == "no_external_assets" {
+			if err := applyEnvBoolValue(
+				&cfg.NoExternalAssets, value, field.envName,
+			); err != nil {
+				return err
+			}
+			continue
+		}
+		applyEnvStringValue(cfg, field.name, value)
 	}
 	return nil
 }
 
-func applyEnvString(field *string, getenv func(string) string, name string) {
-	if value := getenv(name); value != "" {
-		*field = value
+func applyEnvBoolValue(field *bool, value, name string) error {
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return fmt.Errorf(
+			"airplan: invalid %s %q: must be a boolean",
+			name,
+			value,
+		)
+	}
+	*field = parsed
+	return nil
+}
+
+func applyEnvStringValue(cfg *Config, name, value string) {
+	switch name {
+	case "endpoint":
+		cfg.Endpoint = value
+	case "bucket":
+		cfg.Bucket = value
+	case "region":
+		cfg.Region = value
+	case "access_key_id":
+		cfg.AccessKeyID = value
+	case "secret_access_key":
+		cfg.SecretAccessKey = value
+	case "public_base_url":
+		cfg.PublicBaseURL = value
+	case "key_prefix":
+		cfg.KeyPrefix = value
+	case "template":
+		cfg.Template = value
+	case "mermaid_url":
+		cfg.MermaidURL = value
+	case "repo":
+		cfg.Repository = value
 	}
 }
 

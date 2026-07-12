@@ -357,14 +357,16 @@ func manifestUploadMatchesTarget(rec ManifestRecord, target string) bool {
 	isURL := strings.Contains(target, "://")
 	if isURL {
 		targetURL, err := url.Parse(target)
-		if err != nil {
+		if err != nil || !isHTTPURL(targetURL) {
+			return false
+		}
+		recordURL, err := url.Parse(rec.URL)
+		if err != nil || !isHTTPURL(recordURL) ||
+			!strings.EqualFold(targetURL.Host, recordURL.Host) {
 			return false
 		}
 		targetKey = strings.Trim(targetURL.Path, "/")
-		if recordURL, err := url.Parse(rec.URL); err == nil &&
-			strings.EqualFold(targetURL.Scheme, recordURL.Scheme) &&
-			strings.EqualFold(targetURL.Host, recordURL.Host) &&
-			targetURL.Path == recordURL.Path {
+		if targetURL.Path == recordURL.Path {
 			return true
 		}
 	}
@@ -389,4 +391,9 @@ func manifestUploadMatchesTarget(rec ManifestRecord, target string) bool {
 		}
 	}
 	return false
+}
+
+func isHTTPURL(value *url.URL) bool {
+	return (value.Scheme == "http" || value.Scheme == "https") &&
+		value.Host != ""
 }

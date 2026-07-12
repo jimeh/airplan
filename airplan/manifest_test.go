@@ -235,6 +235,37 @@ func TestReadManifestRecognizesLegacyAndSkipsUnsupportedMarkerVersion(
 	}
 }
 
+func TestMatchingManifestUploadsRequiresMatchingURLHost(t *testing.T) {
+	dir := "aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	record := ManifestRecord{
+		Type:          "upload",
+		Key:           dir + "/plan.html",
+		SourceKey:     dir + "/plan.md",
+		URL:           "https://plans.example.com/base/" + dir + "/plan.html",
+		MarkerVersion: MarkerVersion,
+	}
+	records := []ManifestRecord{record}
+
+	for _, target := range []string{
+		"https://other.example.com/base/" + dir + "/plan.html",
+		"https://other.example.com/" + dir + "/.airplan.json",
+		"ftp://plans.example.com/base/" + dir + "/plan.html",
+	} {
+		if matches := MatchingManifestUploads(records, target); len(matches) != 0 {
+			t.Fatalf("target %q matched unrelated URL: %+v", target, matches)
+		}
+	}
+	for _, target := range []string{
+		"http://plans.example.com/base/" + dir + "/plan.html?download=1#page",
+		"https://plans.example.com/base/" + dir + "/.airplan.json",
+		dir + "/plan.md",
+	} {
+		if matches := MatchingManifestUploads(records, target); len(matches) != 1 {
+			t.Fatalf("target %q matches = %+v, want record", target, matches)
+		}
+	}
+}
+
 func TestReadManifestSkipsMalformedAndUnknownType(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.jsonl")
 	data := strings.Join([]string{
