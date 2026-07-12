@@ -162,6 +162,10 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 				if readErr == io.EOF {
 					break
 				}
+				if readErr != nil {
+					return records, warnings,
+						fmt.Errorf("read manifest: %w", readErr)
+				}
 				continue
 			}
 

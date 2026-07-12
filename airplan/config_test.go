@@ -50,6 +50,7 @@ no_external_assets = true
 			"AIRPLAN_REGION":             "env-region",
 			"AIRPLAN_SECRET_ACCESS_KEY":  "env-secret",
 			"AIRPLAN_PUBLIC_BASE_URL":    "env-public",
+			"AIRPLAN_KEY_PREFIX":         "env-prefix",
 			"AIRPLAN_TEMPLATE":           "env-template",
 			"AIRPLAN_MERMAID_URL":        "https://env.example/mermaid.mjs",
 			"AIRPLAN_REPO":               "https://github.com/env/project.git",
@@ -67,7 +68,7 @@ no_external_assets = true
 	assertEqual(t, cfg.AccessKeyID, "profile-access")
 	assertEqual(t, cfg.SecretAccessKey, "env-secret")
 	assertEqual(t, cfg.PublicBaseURL, "env-public")
-	assertEqual(t, cfg.KeyPrefix, "root-prefix")
+	assertEqual(t, cfg.KeyPrefix, "env-prefix")
 	assertEqual(t, cfg.Template, "env-template")
 	assertEqual(t, cfg.NoSource, true)
 	assertEqual(t, cfg.Indexable, false)
@@ -1014,8 +1015,10 @@ bucket = "same-bucket"
 		Path:   path,
 		Getenv: envMap(env),
 		Overrides: Settings{
-			Bucket:   "same-bucket",
-			NoSource: boolPointer(false),
+			Bucket:           "same-bucket",
+			NoSource:         boolPointer(false),
+			Indexable:        boolPointer(true),
+			NoExternalAssets: boolPointer(true),
 		},
 	})
 	if err != nil {
@@ -1050,6 +1053,25 @@ bucket = "same-bucket"
 		resolution.Config.NoSource {
 		t.Fatalf("no_source resolution = %+v, value %v",
 			noSource, resolution.Config.NoSource)
+	}
+	for field, wantValue := range map[string]bool{
+		"indexable": true, "no_external_assets": true,
+	} {
+		resolved := resolution.Fields[field]
+		if resolved.Source == nil ||
+			resolved.Source.Kind != ConfigSourceOverride {
+			t.Fatalf("%s resolution = %+v", field, resolved)
+		}
+		var value bool
+		switch field {
+		case "indexable":
+			value = resolution.Config.Indexable
+		case "no_external_assets":
+			value = resolution.Config.NoExternalAssets
+		}
+		if value != wantValue {
+			t.Fatalf("%s value = %v, want %v", field, value, wantValue)
+		}
 	}
 	region := resolution.Fields["region"]
 	if region.Source == nil || region.Source.Kind != ConfigSourceBuiltin {

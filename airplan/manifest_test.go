@@ -44,6 +44,18 @@ func TestReadManifestMissingFile(t *testing.T) {
 	}
 }
 
+func TestReadManifestReturnsEmptyReadErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.jsonl")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := readManifest(path); err == nil ||
+		!strings.Contains(err.Error(), "read manifest") {
+		t.Fatalf("error = %v, want manifest read failure", err)
+	}
+}
+
 func TestAppendManifestRecordCreatesManifestAndRoundTrips(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state", "airplan", "manifest.jsonl")
 	firstTime := time.Date(2026, 7, 8, 14, 3, 11, 0, time.UTC)
@@ -250,6 +262,8 @@ func TestMatchingManifestUploadsRequiresMatchingURLHost(t *testing.T) {
 		"https://other.example.com/base/" + dir + "/plan.html",
 		"https://other.example.com/" + dir + "/.airplan.json",
 		"ftp://plans.example.com/base/" + dir + "/plan.html",
+		"https://plans.example.com/%zz",
+		"https://plans.example.com/base/another/plan.html",
 	} {
 		if matches := MatchingManifestUploads(records, target); len(matches) != 0 {
 			t.Fatalf("target %q matched unrelated URL: %+v", target, matches)
@@ -262,6 +276,24 @@ func TestMatchingManifestUploadsRequiresMatchingURLHost(t *testing.T) {
 	} {
 		if matches := MatchingManifestUploads(records, target); len(matches) != 1 {
 			t.Fatalf("target %q matches = %+v, want record", target, matches)
+		}
+	}
+	for _, invalid := range []ManifestRecord{
+		{Type: "upload", Key: dir + "/plan.html", URL: "://bad"},
+		{
+			Type: "upload", Key: dir + "/plan.html",
+			URL: "ftp://plans.example.com/" + dir + "/plan.html",
+		},
+		{
+			Type: "upload", Key: "invalid/plan.html",
+			URL: "https://plans.example.com/invalid/plan.html",
+		},
+	} {
+		if matches := MatchingManifestUploads(
+			[]ManifestRecord{invalid},
+			"https://plans.example.com/"+dir+"/plan.html",
+		); len(matches) != 0 {
+			t.Fatalf("invalid record matched URL: %+v", invalid)
 		}
 	}
 }

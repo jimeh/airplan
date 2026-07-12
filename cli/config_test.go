@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -171,6 +172,42 @@ func TestConfigShowReportsPartialCredentialsWithoutValidation(t *testing.T) {
 	if !strings.Contains(stdout, "partial explicit configuration") ||
 		strings.Contains(stdout, "partial-access-sentinel") {
 		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestConfigShowReportsLoadWarnings(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission warning does not apply on Windows")
+	}
+	isolateEnv(t)
+	path := writeConfigShowFixture(t)
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeConfigCommand(t, "show", "--config", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout == "" || !strings.Contains(stderr,
+		"contains credentials and is group- or world-readable") {
+		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
+	}
+}
+
+func TestConfigShowReturnsResolutionErrors(t *testing.T) {
+	isolateEnv(t)
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("bucet = \"plans\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, _, err := executeConfigCommand(t, "show", "--config", path)
+	if err == nil || !strings.Contains(err.Error(), "unknown config key") {
+		t.Fatalf("error = %v, want unknown-key failure", err)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want no partial report", stdout)
 	}
 }
 

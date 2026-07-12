@@ -52,6 +52,8 @@ pins live in `mise.lock` (commit both when bumping tools).
   the config structs and golden-tested; refresh with
   `go test ./airplan/ -run TestConfigSchema -update`. Unknown config
   keys are a hard error — parser and schema must not drift (SPEC §7).
+- **Manifest reads**: handle empty non-EOF reads as errors before continuing;
+  reading a directory can otherwise spin without making progress.
 - **Page assets** (`airplan/assets/`): embedded via go:embed. Mermaid is the
   only airplan-managed external load and is conditional. Update its pin with
   `mise run update:mermaid`; dependency-only updates never bump SPEC.md.

@@ -150,6 +150,45 @@ func TestDeleteAmbiguousManifestRecordsFallBackToConfigResolution(t *testing.T) 
 	}
 }
 
+func TestDeleteUnreadableManifestFallsBackToConfigResolution(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	manifest := filepath.Join(stateHome, "airplan", "manifest.jsonl")
+	if err := os.MkdirAll(manifest, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	profile, inferred := deleteProfile(deleteDirA+"/plan.html", "")
+	if profile != "" || inferred {
+		t.Fatalf("deleteProfile = %q, %v; want normal config resolution",
+			profile, inferred)
+	}
+}
+
+func TestDeleteInferredProfileMustExist(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	writeDeleteManifest(t, stateHome, deleteDirA, "removed", "")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(`
+endpoint = "https://example.com"
+bucket = "plans"
+default_profile = "work"
+[profiles.work]
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := executeCommand(t, "", "",
+		"delete", "--config", path, deleteDirA+"/plan.html")
+	if err == nil || !strings.Contains(err.Error(),
+		`upload was recorded with profile "removed", but it could not be selected`) {
+		t.Fatalf("error = %v, want missing inferred-profile guidance", err)
+	}
+}
+
 func TestDeleteExplicitProfileMismatchPrintsHint(t *testing.T) {
 	isolateEnv(t)
 	stateHome := t.TempDir()

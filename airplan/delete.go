@@ -174,9 +174,6 @@ func (c *Client) ensureGonePageKey(dirPrefix, target string) (string, error) {
 		return "", fmt.Errorf("read local manifest: %w", err)
 	}
 	for _, record := range ActiveUploads(records) {
-		if record.MarkerVersion != MarkerVersion {
-			continue
-		}
 		recordDir, err := uploadDirPrefix(record.Key)
 		if err != nil || recordDir != dirPrefix {
 			continue
