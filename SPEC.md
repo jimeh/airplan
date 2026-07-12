@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.16.0**
+**Spec version: 0.17.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -710,6 +710,42 @@ reachable.
 Validation at startup: missing bucket/endpoint/creds produce a clear
 error naming the missing field, which profile was resolved (or that
 root-level values were used), and the three ways to set it.
+
+### Resolved config inspection
+
+`airplan config show` prints the resolved configuration without accessing the
+network, resolving the standard AWS credential chain, validating storage
+completeness, or writing local state. It accepts `--config`, `--profile`, and
+the same config override flags as an upload. Those flags describe the current
+inspection invocation; flags from an earlier process cannot be observed.
+
+The default table reports the selected config path, active profile, credential
+mode, and every config field's resolved value and winning source. Sources are
+one of a built-in default, root config key, selected-profile config key,
+`AIRPLAN_*` environment variable, or explicit flag. Config-path and profile
+rows likewise distinguish flag, environment, default path/profile, and
+profile inference. Unset fields remain visible as `<unset>`.
+
+`--json` returns one object with `config_file`, `profile`, `credential_mode`,
+and `fields`. Each field object contains `value`, `set`, `sensitive`, and
+`source`; each source contains stable `kind` and `name` strings plus optional
+`path` and `profile`. Source kinds are `builtin`, `config_root`,
+`config_profile`, `environment`, `override`, and `inferred`. Root profile
+selection is represented by `name: null` and `root: true`. Field order is not
+significant in JSON.
+
+`access_key_id` and `secret_access_key` values are always redacted. The table
+prints only `<set>` or `<unset>`; JSON always uses `value: null` together with
+the `set` and `sensitive` booleans. When neither is explicitly configured,
+credential mode reports the standard AWS chain without attempting to resolve
+it. Endpoint values remain visible.
+
+Incomplete endpoint, bucket, or credential settings are displayable because
+inspection is diagnostic. Errors that prevent deterministic resolution still
+fail the command, including malformed TOML, unknown keys, invalid parsed
+environment values, a missing explicit config path, or an invalid/ambiguous
+profile selection. Config load warnings go to stderr; inspection output goes
+to stdout.
 
 ### Config JSON Schema
 

@@ -996,6 +996,150 @@ bucket   = "work-bucket"
 	})
 }
 
+func TestResolveConfigTracksWinningSourcesAndChains(t *testing.T) {
+	path := writeConfig(t, `
+endpoint       = "https://root.example.com"
+bucket         = "same-bucket"
+default_profile = "work"
+
+[profiles.work]
+bucket = "same-bucket"
+`, 0o600)
+	env := map[string]string{
+		"AIRPLAN_PROFILE": "work",
+		"AIRPLAN_BUCKET":  "same-bucket",
+	}
+	resolution, err := ResolveConfig(ConfigOptions{
+		Path:   path,
+		Getenv: envMap(env),
+		Overrides: Settings{
+			Bucket:   "same-bucket",
+			NoSource: boolPointer(false),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolution.ConfigPath.Path != path || !resolution.ConfigPath.Exists ||
+		resolution.ConfigPath.Source.Name != "--config" {
+		t.Fatalf("config path resolution = %+v", resolution.ConfigPath)
+	}
+	if resolution.Profile.Name != "work" ||
+		resolution.Profile.Source.Name != "AIRPLAN_PROFILE" {
+		t.Fatalf("profile resolution = %+v", resolution.Profile)
+	}
+	bucket := resolution.Fields["bucket"]
+	if bucket.Source == nil || bucket.Source.Name != "--bucket" {
+		t.Fatalf("bucket source = %+v", bucket.Source)
+	}
+	wantSources := []string{
+		"root.bucket", "profiles.work.bucket", "AIRPLAN_BUCKET", "--bucket",
+	}
+	if len(bucket.Sources) != len(wantSources) {
+		t.Fatalf("bucket sources = %+v", bucket.Sources)
+	}
+	for i, want := range wantSources {
+		if bucket.Sources[i].Name != want {
+			t.Fatalf("bucket source %d = %+v, want %q",
+				i, bucket.Sources[i], want)
+		}
+	}
+	noSource := resolution.Fields["no_source"]
+	if noSource.Source == nil || noSource.Source.Name != "--no-source" ||
+		resolution.Config.NoSource {
+		t.Fatalf("no_source resolution = %+v, value %v",
+			noSource, resolution.Config.NoSource)
+	}
+	region := resolution.Fields["region"]
+	if region.Source == nil || region.Source.Kind != ConfigSourceBuiltin {
+		t.Fatalf("region source = %+v", region.Source)
+	}
+}
+
+func TestResolveConfigTracksDefaultAndRootProfileSelection(t *testing.T) {
+	t.Run("default profile", func(t *testing.T) {
+		path := writeConfig(t, `
+default_profile = "work"
+[profiles.work]
+`, 0o600)
+		resolution, err := ResolveConfig(ConfigOptions{
+			Path: path, Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolution.Profile.Name != "work" ||
+			resolution.Profile.Source.Name != "default_profile" ||
+			resolution.Profile.Source.Path != path {
+			t.Fatalf("profile resolution = %+v", resolution.Profile)
+		}
+	})
+
+	t.Run("explicit profile", func(t *testing.T) {
+		path := writeConfig(t, `
+[profiles.home]
+[profiles.work]
+`, 0o600)
+		resolution, err := ResolveConfig(ConfigOptions{
+			Path: path, Profile: "home", Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolution.Profile.Name != "home" ||
+			resolution.Profile.Source.Name != "--profile" {
+			t.Fatalf("profile resolution = %+v", resolution.Profile)
+		}
+	})
+
+	t.Run("single profile", func(t *testing.T) {
+		path := writeConfig(t, "[profiles.only]\n", 0o600)
+		resolution, err := ResolveConfig(ConfigOptions{
+			Path: path, Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolution.Profile.Name != "only" ||
+			resolution.Profile.Source.Name != "single named profile" {
+			t.Fatalf("profile resolution = %+v", resolution.Profile)
+		}
+	})
+
+	t.Run("no profiles", func(t *testing.T) {
+		resolution, err := ResolveConfig(ConfigOptions{
+			Path: missingPath(t), Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolution.Profile.Name != "" ||
+			resolution.Profile.Source.Name != "no named profiles" {
+			t.Fatalf("profile resolution = %+v", resolution.Profile)
+		}
+		if resolution.ConfigPath.Exists ||
+			resolution.ConfigPath.Source.Kind != ConfigSourceBuiltin {
+			t.Fatalf("config path resolution = %+v", resolution.ConfigPath)
+		}
+	})
+
+	t.Run("environment config path", func(t *testing.T) {
+		path := writeConfig(t, "bucket = \"plans\"\n", 0o600)
+		resolution, err := ResolveConfig(ConfigOptions{
+			Getenv: envMap(map[string]string{"AIRPLAN_CONFIG": path}),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolution.ConfigPath.Path != path ||
+			resolution.ConfigPath.Source.Name != "AIRPLAN_CONFIG" {
+			t.Fatalf("config path resolution = %+v", resolution.ConfigPath)
+		}
+	})
+}
+
+func boolPointer(value bool) *bool { return &value }
+
 func TestParseTimeout(t *testing.T) {
 	tests := []struct {
 		in      string

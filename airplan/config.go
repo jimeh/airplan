@@ -123,11 +123,71 @@ type ConfigOptions struct {
 	Overrides Settings
 }
 
+// ConfigSourceKind identifies one layer in config resolution.
+type ConfigSourceKind string
+
+const (
+	ConfigSourceBuiltin  ConfigSourceKind = "builtin"
+	ConfigSourceRoot     ConfigSourceKind = "config_root"
+	ConfigSourceProfile  ConfigSourceKind = "config_profile"
+	ConfigSourceEnv      ConfigSourceKind = "environment"
+	ConfigSourceOverride ConfigSourceKind = "override"
+	ConfigSourceInferred ConfigSourceKind = "inferred"
+)
+
+// ConfigSource describes where a resolved config value came from.
+type ConfigSource struct {
+	Kind    ConfigSourceKind `json:"kind"`
+	Name    string           `json:"name"`
+	Path    string           `json:"path,omitempty"`
+	Profile string           `json:"profile,omitempty"`
+}
+
+// FieldResolution records the winning source and the complete low-to-high
+// precedence source chain for one config field. It deliberately carries no
+// values, so shadowed credentials are never duplicated into diagnostics.
+type FieldResolution struct {
+	Source  *ConfigSource  `json:"source,omitempty"`
+	Sources []ConfigSource `json:"sources,omitempty"`
+}
+
+// ConfigPathResolution describes the selected config path.
+type ConfigPathResolution struct {
+	Path   string       `json:"path"`
+	Exists bool         `json:"exists"`
+	Source ConfigSource `json:"source"`
+}
+
+// ProfileResolution describes the selected profile and why it was selected.
+// Name is empty when root-level settings are active.
+type ProfileResolution struct {
+	Name   string       `json:"name,omitempty"`
+	Source ConfigSource `json:"source"`
+}
+
+// ConfigResolution is a resolved Config plus field-level provenance.
+type ConfigResolution struct {
+	Config     *Config                    `json:"-"`
+	ConfigPath ConfigPathResolution       `json:"config_file"`
+	Profile    ProfileResolution          `json:"profile"`
+	Fields     map[string]FieldResolution `json:"fields"`
+}
+
 // LoadConfig reads the config file (if present), applies AIRPLAN_* env
 // vars, resolves the profile per SPEC.md §7, and returns the merged
 // result. It does not check completeness — callers overlay flag values
 // first, then Validate reports what is still missing.
 func LoadConfig(opts ConfigOptions) (*Config, error) {
+	resolution, err := ResolveConfig(opts)
+	if err != nil {
+		return nil, err
+	}
+	return resolution.Config, nil
+}
+
+// ResolveConfig performs the same merge as LoadConfig while retaining the
+// winning source and complete source chain for every field.
+func ResolveConfig(opts ConfigOptions) (*ConfigResolution, error) {
 	getenv := opts.Getenv
 	if getenv == nil {
 		getenv = os.Getenv
@@ -135,15 +195,24 @@ func LoadConfig(opts ConfigOptions) (*Config, error) {
 
 	path := opts.Path
 	explicitPath := path != ""
+	pathSource := ConfigSource{
+		Kind: ConfigSourceOverride, Name: "--config",
+	}
 	if path == "" {
 		path = getenv("AIRPLAN_CONFIG")
 		explicitPath = path != ""
+		pathSource = ConfigSource{
+			Kind: ConfigSourceEnv, Name: "AIRPLAN_CONFIG",
+		}
 	}
 	if path == "" {
 		var err error
 		path, err = DefaultConfigPath()
 		if err != nil {
 			return nil, err
+		}
+		pathSource = ConfigSource{
+			Kind: ConfigSourceBuiltin, Name: "default config path",
 		}
 	}
 
@@ -188,7 +257,16 @@ func LoadConfig(opts ConfigOptions) (*Config, error) {
 		warnReadableCredentials(cfg, path, fileConfig)
 	}
 
-	return cfg, nil
+	return &ConfigResolution{
+		Config: cfg,
+		ConfigPath: ConfigPathResolution{
+			Path: path, Exists: loaded, Source: pathSource,
+		},
+		Profile: profileResolution(opts, getenv, fileConfig, profile, path),
+		Fields: configFieldResolutions(
+			opts, getenv, meta, loaded, profile, path,
+		),
+	}, nil
 }
 
 // resolveTimeout applies the timeout precedence chain (SPEC.md §6,
@@ -228,6 +306,150 @@ func resolveTimeout(
 	}
 	cfg.Timeout = d
 	return nil
+}
+
+func profileResolution(
+	opts ConfigOptions,
+	getenv func(string) string,
+	fileConfig FileConfig,
+	profile string,
+	path string,
+) ProfileResolution {
+	source := ConfigSource{Kind: ConfigSourceInferred}
+	switch {
+	case opts.Profile != "":
+		source = ConfigSource{Kind: ConfigSourceOverride, Name: "--profile"}
+	case getenv("AIRPLAN_PROFILE") != "":
+		source = ConfigSource{
+			Kind: ConfigSourceEnv, Name: "AIRPLAN_PROFILE",
+		}
+	case fileConfig.DefaultProfile != "":
+		source = ConfigSource{
+			Kind: ConfigSourceRoot, Name: "default_profile", Path: path,
+		}
+	case len(fileConfig.Profiles) == 1:
+		source.Name = "single named profile"
+	case len(fileConfig.Profiles) == 0:
+		source.Name = "no named profiles"
+	default:
+		source.Name = "complete root-level configuration"
+	}
+	return ProfileResolution{Name: profile, Source: source}
+}
+
+func configFieldResolutions(
+	opts ConfigOptions,
+	getenv func(string) string,
+	meta toml.MetaData,
+	loaded bool,
+	profile string,
+	path string,
+) map[string]FieldResolution {
+	keys := []string{
+		"endpoint", "bucket", "region", "access_key_id",
+		"secret_access_key", "public_base_url", "key_prefix", "template",
+		"no_source", "indexable", "no_external_assets", "mermaid_url",
+		"repo", "timeout",
+	}
+	chains := make(map[string][]ConfigSource, len(keys))
+	for _, key := range []string{
+		"region", "no_source", "indexable", "no_external_assets",
+		"mermaid_url", "repo", "timeout",
+	} {
+		chains[key] = append(chains[key], ConfigSource{
+			Kind: ConfigSourceBuiltin, Name: "built-in default",
+		})
+	}
+	if loaded {
+		for _, key := range keys {
+			if meta.IsDefined(key) {
+				chains[key] = append(chains[key], ConfigSource{
+					Kind: ConfigSourceRoot,
+					Name: "root." + key,
+					Path: path,
+				})
+			}
+		}
+	}
+	if profile != "" {
+		for _, key := range keys {
+			if meta.IsDefined("profiles", profile, key) {
+				chains[key] = append(chains[key], ConfigSource{
+					Kind:    ConfigSourceProfile,
+					Name:    "profiles." + profile + "." + key,
+					Path:    path,
+					Profile: profile,
+				})
+			}
+		}
+	}
+
+	for key, envName := range map[string]string{
+		"endpoint":           "AIRPLAN_ENDPOINT",
+		"bucket":             "AIRPLAN_BUCKET",
+		"region":             "AIRPLAN_REGION",
+		"access_key_id":      "AIRPLAN_ACCESS_KEY_ID",
+		"secret_access_key":  "AIRPLAN_SECRET_ACCESS_KEY",
+		"public_base_url":    "AIRPLAN_PUBLIC_BASE_URL",
+		"key_prefix":         "AIRPLAN_KEY_PREFIX",
+		"template":           "AIRPLAN_TEMPLATE",
+		"no_external_assets": "AIRPLAN_NO_EXTERNAL_ASSETS",
+		"mermaid_url":        "AIRPLAN_MERMAID_URL",
+		"repo":               "AIRPLAN_REPO",
+		"timeout":            "AIRPLAN_TIMEOUT",
+	} {
+		if getenv(envName) != "" {
+			chains[key] = append(chains[key], ConfigSource{
+				Kind: ConfigSourceEnv, Name: envName,
+			})
+		}
+	}
+
+	for _, key := range overrideFieldNames(opts.Overrides) {
+		chains[key] = append(chains[key], ConfigSource{
+			Kind: ConfigSourceOverride,
+			Name: "--" + strings.ReplaceAll(key, "_", "-"),
+		})
+	}
+
+	fields := make(map[string]FieldResolution, len(keys))
+	for _, key := range keys {
+		sources := chains[key]
+		field := FieldResolution{Sources: sources}
+		if len(sources) > 0 {
+			winning := sources[len(sources)-1]
+			field.Source = &winning
+		}
+		fields[key] = field
+	}
+	return fields
+}
+
+func overrideFieldNames(settings Settings) []string {
+	var names []string
+	for name, value := range map[string]string{
+		"endpoint": settings.Endpoint, "bucket": settings.Bucket,
+		"region": settings.Region, "access_key_id": settings.AccessKeyID,
+		"secret_access_key": settings.SecretAccessKey,
+		"public_base_url":   settings.PublicBaseURL,
+		"key_prefix":        settings.KeyPrefix, "template": settings.Template,
+		"mermaid_url": settings.MermaidURL, "repo": settings.Repository,
+		"timeout": settings.Timeout,
+	} {
+		if value != "" {
+			names = append(names, name)
+		}
+	}
+	if settings.NoSource != nil {
+		names = append(names, "no_source")
+	}
+	if settings.Indexable != nil {
+		names = append(names, "indexable")
+	}
+	if settings.NoExternalAssets != nil {
+		names = append(names, "no_external_assets")
+	}
+	return names
 }
 
 // parseTimeout parses a timeout value (SPEC.md §6): a Go duration

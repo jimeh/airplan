@@ -217,6 +217,14 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
   `%LocalAppData%` on Windows — Go stdlib has no state-dir
   function).
 
+Config resolution derives provenance from the same definition metadata and
+explicit inputs used by each precedence layer. `ResolveConfig` returns the
+same `Config` as `LoadConfig` plus config-path, profile-selection, and
+field-source metadata; `LoadConfig` delegates to it to keep one resolution
+path. Field traces retain ordered source identities but no shadowed values,
+avoiding duplicate credential material. `config show` is a thin table/JSON
+formatter over that result and redacts both credential fields.
+
 ## 5. Config JSON Schema Generation
 
 Generated from the core package's config structs via
