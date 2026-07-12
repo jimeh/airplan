@@ -99,6 +99,11 @@ look — light + dark (`prefers-color-scheme`) and narrow viewports.
 ## Releases
 
 Merge to main → release-please maintains the release PR → merging it
-tags `vX.Y.Z` → the release workflow builds with GoReleaser and
-pushes the Homebrew cask. Credentials come from the release bot
-GitHub App; no PATs.
+creates a notes-bearing draft release → the reusable release workflow
+builds with GoReleaser, uploads and verifies every asset, records
+attestations, pushes the Homebrew cask, then publishes the immutable
+release and tag. Retry failed publications with the release workflow's
+manual tag/SHA inputs while the release remains a draft. Credentials
+come from the release bot GitHub App; no PATs. Keep the release-please
+release name and GoReleaser `name_template` equal to the full tag:
+GoReleaser finds an existing draft by title, not `tag_name`.

@@ -54,8 +54,11 @@ changelog:
   disable: true
 
 release:
-  draft: false
+  draft: true
+  use_existing_draft: true
+  replace_existing_artifacts: true
   mode: keep-existing
+  name_template: "{{ .Tag }}"
   extra_files:
     - glob: schema/airplan.schema.json
       name_template: airplan.schema.json

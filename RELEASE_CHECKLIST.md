@@ -242,8 +242,12 @@ evidence gates are complete.
       internal checklist noise.
 - [ ] Release workflow credentials and Homebrew tap access are confirmed without
       exposing secret values.
-- [ ] Merging the release PR creates tag `v0.1.0`, the GitHub release, checksums,
-      platform archives, schema asset, and updated Homebrew cask.
+- [ ] GitHub release immutability is enabled before merging the release PR; it
+      only applies to releases published after the setting is enabled.
+- [ ] Merging the release PR creates a draft, uploads and verifies checksums,
+      platform archives, SBOMs, and the standalone schema asset, records
+      attestations, updates the Homebrew cask, then publishes immutable release
+      `v0.1.0` and its tag.
 - [ ] Fresh-install smoke tests pass through Homebrew, mise, Go, and a downloaded
       release archive.
 - [ ] Published `airplan --version`, schema URL, release badge, and Go package
