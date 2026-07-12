@@ -1,1 +1,3 @@
-{}
+{
+  "ignorePatterns": ["airplan/testdata/**", "CHANGELOG.md"]
+}

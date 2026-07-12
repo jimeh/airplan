@@ -12,7 +12,7 @@ pre-commit:
     markdown:
       glob: "*.md"
       exclude: "airplan/testdata/*"
-      run: oxfmt --check {staged_files}
+      run: oxfmt --check --no-error-on-unmatched-pattern {staged_files}
     workflows:
       glob: ".github/workflows/*.yml"
       run: mise run lint:workflows
