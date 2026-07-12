@@ -1,9 +1,34 @@
 name: release
 
 on:
+  workflow_call:
+    inputs:
+      sha:
+        description: Commit SHA associated with the draft release
+        required: true
+        type: string
+      tag:
+        description: Release tag associated with the draft release
+        required: true
+        type: string
+    secrets:
+      RELEASE_BOT_PRIVATE_KEY:
+        description: Private key for the release bot GitHub App
+        required: true
   workflow_dispatch:
-  push:
-    tags: ["v*"]
+    inputs:
+      sha:
+        description: Commit SHA associated with the draft release
+        required: true
+        type: string
+      tag:
+        description: Release tag associated with the draft release
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -14,11 +39,49 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      RELEASE_SHA: ${{ inputs.sha }}
+      RELEASE_TAG: ${{ inputs.tag }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
           persist-credentials: false
+          ref: ${{ inputs.sha }}
+      - id: draft
+        name: Validate draft release
+        run: |
+          release="$({
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases"
+          } | jq -sc --arg tag "$RELEASE_TAG" '
+            [.[].[] | select(.draft and .tag_name == $tag)]
+            | if length == 1 then .[0]
+              elif length == 0 then error("draft release not found")
+              else error("multiple matching draft releases found")
+              end
+          ')"
+          target="$(jq -r '.target_commitish' <<<"$release")"
+          if [[ "$target" != "$RELEASE_SHA" ]]; then
+            echo "draft targets $target, expected $RELEASE_SHA" >&2
+            exit 1
+          fi
+          if [[ "$(git rev-parse HEAD)" != "$RELEASE_SHA" ]]; then
+            echo "checkout does not match release SHA" >&2
+            exit 1
+          fi
+          echo "release_id=$(jq -r '.id' <<<"$release")" >>"$GITHUB_OUTPUT"
+      - name: Prepare local release tag
+        run: |
+          if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
+            if [[ "$(git rev-list -n 1 "$RELEASE_TAG")" != "$RELEASE_SHA" ]]; then
+              echo "$RELEASE_TAG points at an unexpected commit" >&2
+              exit 1
+            fi
+          else
+            git tag "$RELEASE_TAG" "$RELEASE_SHA"
+          fi
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
           # No tool cache on release builds: restored caches are an
@@ -36,10 +99,64 @@ jobs:
           owner: jimeh
           repositories: homebrew-tap
           permission-contents: write
-      - run: goreleaser release --clean
+      - name: Build and upload draft release
+        run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
       - uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-checksums: dist/checksums.txt
+      - name: Verify draft release assets
+        env:
+          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+        run: |
+          (cd dist && sha256sum --check checksums.txt)
+
+          awk '{print $2}' dist/checksums.txt >expected-assets.txt
+          printf '%s\n' airplan.schema.json checksums.txt \
+            >>expected-assets.txt
+          sort -u -o expected-assets.txt expected-assets.txt
+
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets" \
+            | jq -sr 'add | sort_by(.name)' >release-assets.json
+          jq -r '.[].name' release-assets.json >actual-assets.txt
+          diff -u expected-assets.txt actual-assets.txt
+
+          jq -r '.[] | [.name, .digest, .size, .state] | @tsv' \
+            release-assets.json \
+            | while IFS=$'\t' read -r name digest size state; do
+                path="dist/$name"
+                if [[ "$name" == "airplan.schema.json" ]]; then
+                  path="schema/airplan.schema.json"
+                fi
+                if [[ "$state" != "uploaded" || "$size" -le 0 ]]; then
+                  echo "$name is not a complete, non-empty upload" >&2
+                  exit 1
+                fi
+                actual="sha256:$(sha256sum "$path" | awk '{print $1}')"
+                if [[ "$digest" != "$actual" ]]; then
+                  echo "$name digest mismatch: $digest != $actual" >&2
+                  exit 1
+                fi
+              done
+      - name: Publish immutable release
+        env:
+          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+        run: |
+          published="$(gh api --method PATCH \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
+            -F draft=false -f make_latest=true)"
+          jq -e '.draft == false and .immutable == true' \
+            <<<"$published" >/dev/null
+
+          for attempt in {1..5}; do
+            if gh release verify "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY"; then
+              exit 0
+            fi
+            sleep "$((attempt * 2))"
+          done
+          echo "immutable release attestation was not ready" >&2
+          exit 1
