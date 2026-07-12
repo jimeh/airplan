@@ -47,6 +47,7 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
+      issues: write
     uses: ./.github/workflows/release.yml
     with:
       sha: ${{ needs.release-please.outputs.sha }}
