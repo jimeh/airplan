@@ -201,10 +201,14 @@ func TestAppendManifestRecordLockWaitHonorsContext(t *testing.T) {
 	}
 }
 
-func TestReadManifestSkipsUnsupportedMarkerVersion(t *testing.T) {
+func TestReadManifestRecognizesLegacyAndSkipsUnsupportedMarkerVersion(
+	t *testing.T,
+) {
 	path := filepath.Join(t.TempDir(), "manifest.jsonl")
 	data := strings.Join([]string{
-		`{"type":"upload","key":"missing.html"}`,
+		`{"type":"upload","time":"2026-07-08T13:03:11Z",` +
+			`"key":"legacy.html","url":"https://plans.example.com/legacy.html",` +
+			`"bucket":"plans","bytes":1}`,
 		`{"type":"upload","key":"future.html","marker_version":2}`,
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
 			`"key":"current.html","url":"https://plans.example.com/current.html",` +
@@ -218,9 +222,16 @@ func TestReadManifestSkipsUnsupportedMarkerVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].Key != "current.html" ||
-		len(warnings) != 2 {
+	if len(records) != 2 || records[0].Key != "legacy.html" ||
+		records[1].Key != "current.html" || len(warnings) != 1 {
 		t.Fatalf("records = %+v, warnings = %v", records, warnings)
+	}
+	if uploads := ManifestUploads(records); len(uploads) != 2 {
+		t.Fatalf("ManifestUploads = %+v, want legacy and current", uploads)
+	}
+	if uploads := ActiveUploads(records); len(uploads) != 1 ||
+		uploads[0].Key != "current.html" {
+		t.Fatalf("ActiveUploads = %+v, want current only", uploads)
 	}
 }
 

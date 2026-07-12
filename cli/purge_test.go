@@ -15,9 +15,9 @@ import (
 func TestPurgeCommandFilters(t *testing.T) {
 	now := time.Now().UTC()
 	records := []airplan.ManifestRecord{
-		uploadRecord(deleteDirA, "alpha", "work", now.Add(-60*24*time.Hour)),
+		uploadRecord(deleteDirA, "alpha", "", now.Add(-60*24*time.Hour)),
 		uploadRecord(deleteDirB, "beta", "home", now.Add(-45*24*time.Hour)),
-		uploadRecord(deleteDirC, "alpha-new", "work", now.Add(-time.Hour)),
+		uploadRecord(deleteDirC, "alpha-new", "", now.Add(-time.Hour)),
 	}
 
 	tests := []struct {
@@ -28,7 +28,7 @@ func TestPurgeCommandFilters(t *testing.T) {
 		{
 			name: "older-than",
 			args: []string{"purge", "--older-than", "30d", "--dry-run"},
-			want: []string{"alpha.html", "beta.html"},
+			want: []string{"alpha.html"},
 		},
 		{
 			name: "slug",
@@ -71,6 +71,45 @@ func TestPurgeCommandFilters(t *testing.T) {
 				if strings.Contains(stderr, name) {
 					t.Fatalf("stderr = %q, did not want %q", stderr, name)
 				}
+			}
+		})
+	}
+}
+
+func TestPurgeScopesManifestToResolvedProfile(t *testing.T) {
+	now := time.Now().UTC()
+	records := []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "work-plan", "work", now),
+		uploadRecord(deleteDirB, "home-plan", "home", now),
+	}
+	for _, tt := range []struct {
+		name       string
+		envProfile string
+		want       string
+		unwanted   string
+	}{
+		{
+			name: "default profile", want: "work-plan.html",
+			unwanted: "home-plan.html",
+		},
+		{
+			name: "environment profile", envProfile: "home",
+			want: "home-plan.html", unwanted: "work-plan.html",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			isolateEnv(t)
+			writeDefaultManifest(t, records)
+
+			stdout, stderr, err := executeCommand(t, "", tt.envProfile,
+				"purge", "--all", "--dry-run",
+				"--config", writeProfilesConfig(t))
+			if err != nil {
+				t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+			}
+			if stdout != "" || !strings.Contains(stderr, tt.want) ||
+				strings.Contains(stderr, tt.unwanted) {
+				t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
 			}
 		})
 	}
@@ -350,7 +389,7 @@ func remoteUploadObjects(
 func TestPurgeDryRunDeletesNothing(t *testing.T) {
 	isolateEnv(t)
 	writeDefaultManifest(t, []airplan.ManifestRecord{
-		uploadRecord(deleteDirA, "alpha", "work",
+		uploadRecord(deleteDirA, "alpha", "",
 			time.Now().Add(-60*24*time.Hour)),
 	})
 
@@ -378,9 +417,9 @@ func TestPurgeDryRunDeletesNothing(t *testing.T) {
 func TestPurgeYesDeletesAndTombstones(t *testing.T) {
 	isolateEnv(t)
 	writeDefaultManifest(t, []airplan.ManifestRecord{
-		uploadRecord(deleteDirA, "alpha", "work",
+		uploadRecord(deleteDirA, "alpha", "",
 			time.Now().Add(-60*24*time.Hour)),
-		uploadRecord(deleteDirB, "beta", "home",
+		uploadRecord(deleteDirB, "beta", "",
 			time.Now().Add(-45*24*time.Hour)),
 	})
 	fake := newFakeDeleteS3(t, map[string][]string{
@@ -415,7 +454,7 @@ func TestPurgeYesDeletesAndTombstones(t *testing.T) {
 func TestPurgeConfirmationAbort(t *testing.T) {
 	isolateEnv(t)
 	writeDefaultManifest(t, []airplan.ManifestRecord{
-		uploadRecord(deleteDirA, "alpha", "work",
+		uploadRecord(deleteDirA, "alpha", "",
 			time.Now().Add(-60*24*time.Hour)),
 	})
 	fake := newFakeDeleteS3(t, map[string][]string{
@@ -450,7 +489,7 @@ func TestPurgeConfirmationAbort(t *testing.T) {
 func TestPurgeConfirmationEOFErrors(t *testing.T) {
 	isolateEnv(t)
 	writeDefaultManifest(t, []airplan.ManifestRecord{
-		uploadRecord(deleteDirA, "alpha", "work", time.Now()),
+		uploadRecord(deleteDirA, "alpha", "", time.Now()),
 	})
 	fake := newFakeDeleteS3(t, map[string][]string{
 		deleteDirA + "/": {deleteDirA + "/alpha.html"},
@@ -471,11 +510,11 @@ func TestPurgeConfirmationEOFErrors(t *testing.T) {
 func TestPurgePartialFailureLeavesFailedUploadActive(t *testing.T) {
 	isolateEnv(t)
 	writeDefaultManifest(t, []airplan.ManifestRecord{
-		uploadRecord(deleteDirA, "alpha", "work",
+		uploadRecord(deleteDirA, "alpha", "",
 			time.Now().Add(-60*24*time.Hour)),
-		uploadRecord(deleteDirB, "beta", "home",
+		uploadRecord(deleteDirB, "beta", "",
 			time.Now().Add(-45*24*time.Hour)),
-		uploadRecord(deleteDirC, "gamma", "work",
+		uploadRecord(deleteDirC, "gamma", "",
 			time.Now().Add(-40*24*time.Hour)),
 	})
 	fake := newFakeDeleteS3(t, map[string][]string{
@@ -570,7 +609,8 @@ func writeProfilesConfig(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.toml")
 	cfg := "endpoint = \"https://example.com\"\n" +
-		"bucket = \"plans\"\n\n" +
+		"bucket = \"plans\"\n" +
+		"default_profile = \"work\"\n\n" +
 		"[profiles.home]\n" +
 		"[profiles.work]\n"
 	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
@@ -585,8 +625,8 @@ func writeProfilesConfig(t *testing.T) string {
 func TestPurgeAllStillAppliesFilters(t *testing.T) {
 	now := time.Now().UTC()
 	records := []airplan.ManifestRecord{
-		uploadRecord(deleteDirA, "alpha", "work", now.Add(-time.Hour)),
-		uploadRecord(deleteDirB, "beta", "home", now.Add(-time.Hour)),
+		uploadRecord(deleteDirA, "alpha", "", now.Add(-time.Hour)),
+		uploadRecord(deleteDirB, "beta", "", now.Add(-time.Hour)),
 	}
 	isolateEnv(t)
 	writeDefaultManifest(t, records)

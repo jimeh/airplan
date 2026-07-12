@@ -53,13 +53,12 @@ func newPurgeCmd() *cobra.Command {
 		"filter: uploads older than this age, e.g. 30d, 2w, 36h")
 	f.StringVar(&opts.slug, "slug", "",
 		"filter: glob pattern matched against the page slug")
-	// Local manifest semantics (SPEC.md §9): --profile selects the
-	// connection profile and additionally filters to uploads recorded
-	// with that profile. In --remote mode it only selects the
-	// connection profile/key_prefix because buckets do not carry
+	// Local manifest semantics (SPEC.md §9): every resolved connection
+	// profile scopes manifest records. In --remote mode the profile only
+	// selects the connection/key_prefix because buckets do not carry
 	// manifest profile metadata.
 	f.StringVarP(&opts.profile, "profile", "p", "",
-		"config profile; locally also filters to uploads made with it")
+		"config profile (local purge is scoped to the active profile)")
 	f.BoolVar(&opts.remote, "remote", false,
 		"purge uploads from a live bucket listing instead of the manifest")
 	f.BoolVar(&opts.all, "all", false,
@@ -114,7 +113,8 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	}
 
 	candidates, err := purgeCandidates(
-		airplan.ActiveUploads(records), opts, olderThan, time.Now())
+		airplan.ActiveUploads(records), opts, cfg.Profile,
+		olderThan, time.Now())
 	if err != nil {
 		return err
 	}
@@ -289,6 +289,7 @@ func runRemotePurge(
 func purgeCandidates(
 	uploads []airplan.ManifestRecord,
 	opts *purgeOptions,
+	activeProfile string,
 	olderThan time.Duration,
 	now time.Time,
 ) ([]airplan.ManifestRecord, error) {
@@ -298,6 +299,9 @@ func purgeCandidates(
 	var out []airplan.ManifestRecord
 	cutoff := now.Add(-olderThan)
 	for _, rec := range uploads {
+		if rec.Profile != activeProfile {
+			continue
+		}
 		if opts.olderThan != "" && !rec.Time.Before(cutoff) {
 			continue
 		}
@@ -309,9 +313,6 @@ func purgeCandidates(
 			if !ok {
 				continue
 			}
-		}
-		if opts.profile != "" && rec.Profile != opts.profile {
-			continue
 		}
 		out = append(out, rec)
 	}

@@ -64,7 +64,7 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 		fmt.Fprintf(stderr, "airplan: warning: %s\n", warning)
 	}
 
-	uploads := airplan.ActiveUploads(records)
+	uploads := airplan.ManifestUploads(records)
 	if opts.json {
 		if uploads == nil {
 			uploads = []airplan.ManifestRecord{}
@@ -162,7 +162,9 @@ func printUploadTable(
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "DATE\tTITLE\tSIZE\tURL"); err != nil {
+	if _, err := fmt.Fprintln(
+		tw, "DATE\tPROFILE\tSTATE\tTITLE\tSIZE\tURL",
+	); err != nil {
 		return err
 	}
 	for _, upload := range uploads {
@@ -170,9 +172,19 @@ func printUploadTable(
 		if title == "" {
 			title = "-"
 		}
+		profile := upload.Profile
+		if profile == "" {
+			profile = "<root>"
+		}
+		state := "legacy"
+		if upload.MarkerVersion == airplan.MarkerVersion {
+			state = "managed"
+		}
 
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n",
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
 			upload.Time.UTC().Format("2006-01-02 15:04"),
+			profile,
+			state,
 			title,
 			formatListBytes(upload.Bytes),
 			upload.URL,
