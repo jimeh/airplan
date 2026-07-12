@@ -54,6 +54,14 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		}
 	})
 
+	t.Run("color scheme advertised", func(t *testing.T) {
+		out := render(t, src, RenderOptions{Title: "Hi"})
+		if !strings.Contains(out,
+			`<meta name="color-scheme" content="light dark">`) {
+			t.Error("missing color-scheme meta tag")
+		}
+	})
+
 	t.Run("indexable omits robots meta", func(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "Hi", Indexable: true})
 		if strings.Contains(out, `name="robots"`) {
