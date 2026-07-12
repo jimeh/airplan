@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.14.0**
+**Spec version: 0.15.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -151,15 +151,16 @@ described below.
   using an exact pinned ECMAScript module URL, strict security, explicit
   rendering, and the initial light or dark system theme. Custom templates
   receive the Mermaid template data below but do not receive injected assets.
-- Page styling: dark/light aware via `prefers-color-scheme`, a centered
-  document shell around 54rem wide, prose constrained to a readable
-  measure around 78ch, comfortable line height, distinct heading/body/
-  muted color roles, and section hierarchy carried primarily by type and
-  spacing rather than repeated divider rules. Code blocks and tables may
-  use the full shell width so an 80-column source line fits without
-  horizontal scrolling at the default font size. Inline and block code
-  use separate subtle surfaces; block code has a quiet border and thin
-  horizontal scrollbar.
+- Page styling: dark/light aware via `prefers-color-scheme`, with support
+  for both schemes advertised through the standard document-level
+  `color-scheme` hint. The page uses a centered document shell around 54rem
+  wide, prose constrained to a readable measure around 78ch, comfortable
+  line height, distinct heading/body/muted color roles, and section
+  hierarchy carried primarily by type and spacing rather than repeated
+  divider rules. Code blocks and tables may use the full shell width so an
+  80-column source line fits without horizontal scrolling at the default
+  font size. Inline and block code use separate subtle surfaces; block code
+  has a quiet border and thin horizontal scrollbar.
 - A responsive table of contents is rendered from markdown headings:
   - H1, H2, and H3 headings are included. If an H1 is the first visible
     block in the document, it is treated as the document title and is
