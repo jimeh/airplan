@@ -95,6 +95,9 @@ MinIO; a genuine R2 smoke test needs the developer's own
 `~/.config/airplan/config.toml` (never commit credentials, never
 print secret values). Rendered-page changes deserve a real-browser
 look — light + dark (`prefers-color-scheme`) and narrow viewports.
+For an isolated module-version `go install` smoke test, invoke
+`$(mise which go)` directly; the mise Go shim can reset a temporary
+`GOBIN` to mise's managed binary directory.
 
 ## Releases
 

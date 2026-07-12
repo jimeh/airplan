@@ -1,11 +1,12 @@
 # airplan v0.1.0 Release Checklist
 
-Status: **in progress** on `codex/pre-release-hardening`.
+Status: **final publication gates pending**.
 
 This is the working contract for the initial release. It replaces the obsolete
 build-phase plan and covers every finding from the pre-release project review.
-Do not merge the release-please v0.1.0 PR until all **must** items and final
-evidence gates are complete.
+Do not merge the release-please v0.1.0 PR until all **must** items and
+pre-publication evidence gates are complete. The release workflow and immediate
+post-publication smoke tests close the remaining gates.
 
 ## Working rules
 
@@ -29,13 +30,10 @@ evidence gates are complete.
 - [x] **Revocable cache behavior:** pages and uploaded sources default to
       `Cache-Control: no-store`; deletion and expiry matter more than caching for
       capability URLs.
-- [x] **[GO-2026-5856](https://vuln.go.dev/ID/GO-2026-5856.json) accepted
-      temporarily:** airplan reaches `crypto/tls` through the AWS SDK, but does not
-      configure
-      `tls.Config.EncryptedClientHelloConfigList`. The advisory only affects
-      handshakes that actively use ECH. Keep Go 1.26.4 until 1.26.5 satisfies the
-      minimum-age policy. Revisit if airplan adds custom TLS/ECH configuration or
-      the advisory scope changes.
+- [x] **[GO-2026-5856](https://vuln.go.dev/ID/GO-2026-5856.json) resolved by
+      Go 1.26.5:** the initial audit accepted this ECH-only finding temporarily
+      while Go 1.26.4 remained pinned. The repository now uses Go 1.26.5, and a
+      fresh `govulncheck` reports no vulnerabilities.
 - [x] **Remove the obsolete build plan:** `PLAN.md` is deleted rather than kept
       as misleading historical documentation.
 - [x] **Spec 0.6.0 for pre-release corrections:** while the spec is below 1.0,
@@ -70,11 +68,10 @@ evidence gates are complete.
   - Confirm a deleted R2 object is no longer retrievable through the public URL;
     note any provider cache behavior that remains outside airplan's control.
 
-- [x] **SEC-03 — Preserve the Go vulnerability exception as evidence.**
-  - Keep the official GO-2026-5856 advisory URL and ECH-only rationale in this
-    file while Go 1.26.4 remains pinned.
-  - Run `govulncheck` at the final gate and confirm this is the only reachable
-    report; investigate any additional result independently.
+- [x] **SEC-03 — Revalidate after the Go vulnerability fix.**
+  - Upgrade to Go 1.26.5 after it satisfies the minimum-age policy.
+  - Run `govulncheck` at the final gate and confirm the previously accepted
+    GO-2026-5856 finding is gone; investigate any additional result independently.
   - Do not add a broad vulnerability-scanner suppression that could hide future
     findings.
 
@@ -190,12 +187,11 @@ evidence gates are complete.
 - [x] `go mod verify` passes.
 - [x] Coverage is reviewed for meaningful regressions from the pre-hardening
       baseline: library 88.1%, CLI 74.9%, overall 82.7%.
-- [x] `govulncheck ./...` has no unexplained reachable findings; the expected
-      GO-2026-5856 ECH-only exception is revalidated if Go remains at 1.26.4.
+- [x] `govulncheck ./...` reports no vulnerabilities with Go 1.26.5.
 - [x] `goreleaser release --snapshot --clean --skip=publish` succeeds.
 - [x] Snapshot archives contain the binary, license, README, spec, and generated
       schema for every intended platform.
-- [ ] Version output is checked from a snapshot artifact and a module-versioned
+- [x] Version output is checked from a snapshot artifact and a module-versioned
       Go installation path.
 
 ### Browser and real-storage checks
@@ -233,16 +229,27 @@ evidence gates are complete.
   converged. Remote listing confirmed zero remaining smoke objects, including
   cleanup after the initial attempt was delayed by local firewall approval.
 
+### Evidence refreshed 2026-07-12
+
+- The repository is pinned to Go 1.26.5. `govulncheck` v1.6.0 reports no
+  vulnerabilities.
+- A module-path install at the current `main` commit reports its embedded
+  pseudo-version, confirming the non-GoReleaser version path end to end. The
+  snapshot artifact separately reported its GoReleaser-provided version.
+- The hardening and immutable-release PRs passed CI, including their required
+  GoReleaser checks. Release PR #3 regenerated cleanly, and its changelog contains
+  the user-visible features and fixes without internal checklist noise.
+
 ### Release automation and publication
 
-- [ ] Hardening PR CI is fully green; apply `ci:goreleaser` if release packaging
+- [x] Hardening PR CI is fully green; apply `ci:goreleaser` if release packaging
       changes require the opt-in PR check.
-- [ ] The release-please v0.1.0 PR regenerates after the hardening PR merges.
-- [ ] Generated changelog accurately reflects all user-visible fixes without
+- [x] The release-please v0.1.0 PR regenerates after the hardening PR merges.
+- [x] Generated changelog accurately reflects all user-visible fixes without
       internal checklist noise.
 - [ ] Release workflow credentials and Homebrew tap access are confirmed without
       exposing secret values.
-- [ ] GitHub release immutability is enabled before merging the release PR; it
+- [x] GitHub release immutability is enabled before merging the release PR; it
       only applies to releases published after the setting is enabled.
 - [ ] Merging the release PR creates a draft, uploads and verifies checksums,
       platform archives, SBOMs, and the standalone schema asset, records

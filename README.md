@@ -69,12 +69,15 @@ sha256sum --ignore-missing --check checksums.txt
 # macOS
 shasum --ignore-missing --algorithm 256 --check checksums.txt
 
+gh release verify v0.1.0 --repo jimeh/airplan
+
 gh attestation verify airplan_0.1.0_darwin_arm64.tar.gz \
   --repo jimeh/airplan
 ```
 
-Use the matching `.zip` name on Windows. The attestation verifies that the
-archive was produced by this repository's release workflow.
+Use the matching `.zip` name on Windows. Release verification checks GitHub's
+immutable release attestation; artifact verification confirms that the archive
+was produced by this repository's release workflow.
 
 ## Configure storage
 
