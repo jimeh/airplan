@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.13.0**
+**Spec version: 0.14.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -171,6 +171,8 @@ described below.
     As a progressive enhancement on layouts without the sticky rail, a
     compact control keeps the table of contents reachable after its
     inline version scrolls above the viewport.
+  - In-page navigation scrolls smoothly by default. It becomes immediate
+    when the reader requests reduced motion.
   - Scroll position highlighting is a progressive enhancement and
     respects `prefers-reduced-motion`. The table of contents is hidden
     in source view and omitted when fewer than two entries remain.
