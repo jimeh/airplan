@@ -16,6 +16,11 @@ type configShowOptions struct {
 	json   bool
 }
 
+type configProfilesOptions struct {
+	config string
+	json   bool
+}
+
 func newConfigCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
@@ -36,8 +41,69 @@ func newConfigCmd() *cobra.Command {
 		},
 	})
 	cmd.AddCommand(newConfigShowCmd())
+	cmd.AddCommand(newConfigProfilesCmd())
 
 	return cmd
+}
+
+func newConfigProfilesCmd() *cobra.Command {
+	opts := &configProfilesOptions{}
+	cmd := &cobra.Command{
+		Use:           "profiles",
+		Short:         "List configured profiles",
+		Args:          cobra.NoArgs,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runConfigProfiles(cmd, opts)
+		},
+	}
+	cmd.Flags().StringVar(&opts.config, "config", "",
+		"config file path (default: XDG config dir)")
+	cmd.Flags().BoolVarP(&opts.json, "json", "j", false,
+		"print structured JSON instead of a table")
+	return cmd
+}
+
+func runConfigProfiles(
+	cmd *cobra.Command,
+	opts *configProfilesOptions,
+) error {
+	result, err := airplan.ListConfigProfiles(airplan.ConfigProfilesOptions{
+		Path: opts.config,
+	})
+	if err != nil {
+		return err
+	}
+	for _, warning := range result.Warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", warning)
+	}
+	if opts.json {
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Profiles)
+	}
+	return printConfigProfiles(cmd.OutOrStdout(), result.Profiles)
+}
+
+func printConfigProfiles(w io.Writer, profiles []airplan.ConfigProfile) error {
+	if len(profiles) == 0 {
+		return nil
+	}
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	if _, err := fmt.Fprintln(tw, "PROFILE\tDEFAULT"); err != nil {
+		return err
+	}
+	for _, profile := range profiles {
+		isDefault := "no"
+		if profile.Default {
+			isDefault = "yes"
+		}
+		if _, err := fmt.Fprintf(
+			tw, "%s\t%s\n", profile.Name, isDefault,
+		); err != nil {
+			return err
+		}
+	}
+	return tw.Flush()
 }
 
 func newConfigShowCmd() *cobra.Command {

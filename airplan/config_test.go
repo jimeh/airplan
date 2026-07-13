@@ -1379,3 +1379,163 @@ bucet    = "typo"
 	_, err := LoadConfig(ConfigOptions{Path: path, Getenv: envMap(nil)})
 	assertErrorContains(t, err, "unknown config key", "bucet")
 }
+
+func TestListConfigProfilesReturnsSortedInventory(t *testing.T) {
+	path := writeConfig(t, `
+endpoint = "not a URL"
+default_profile = "alpha"
+
+[profiles.zulu]
+timeout = "not a duration"
+
+[profiles.alpha]
+access_key_id = "access"
+`, 0o600)
+
+	result, err := ListConfigProfiles(ConfigProfilesOptions{
+		Path: path,
+		Getenv: envMap(map[string]string{
+			"AIRPLAN_PROFILE":            "missing",
+			"AIRPLAN_NO_EXTERNAL_ASSETS": "not-a-boolean",
+			"AIRPLAN_TIMEOUT":            "not-a-duration",
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ConfigProfile{
+		{Name: "alpha", Default: true},
+		{Name: "zulu", Default: false},
+	}
+	if !reflect.DeepEqual(result.Profiles, want) {
+		t.Fatalf("Profiles = %#v, want %#v", result.Profiles, want)
+	}
+	if result.Profiles == nil {
+		t.Fatal("Profiles is nil")
+	}
+}
+
+func TestListConfigProfilesPathPrecedenceAndMissingFiles(t *testing.T) {
+	envPath := writeConfig(t, "[profiles.environment]\n", 0o600)
+	explicitPath := writeConfig(t, "[profiles.explicit]\n", 0o600)
+
+	result, err := ListConfigProfiles(ConfigProfilesOptions{
+		Path: explicitPath,
+		Getenv: envMap(map[string]string{
+			"AIRPLAN_CONFIG": envPath,
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Profiles) != 1 ||
+		result.Profiles[0].Name != "explicit" {
+		t.Fatalf("Profiles = %#v", result.Profiles)
+	}
+
+	result, err = ListConfigProfiles(ConfigProfilesOptions{
+		Getenv: envMap(map[string]string{
+			"AIRPLAN_CONFIG": envPath,
+		}),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Profiles) != 1 ||
+		result.Profiles[0].Name != "environment" {
+		t.Fatalf("Profiles = %#v", result.Profiles)
+	}
+
+	missing := filepath.Join(t.TempDir(), "missing.toml")
+	_, err = ListConfigProfiles(ConfigProfilesOptions{
+		Path: missing, Getenv: envMap(nil),
+	})
+	assertErrorContains(t, err, "does not exist", missing)
+
+	_, err = ListConfigProfiles(ConfigProfilesOptions{
+		Getenv: envMap(map[string]string{"AIRPLAN_CONFIG": missing}),
+	})
+	assertErrorContains(t, err, "does not exist", missing)
+}
+
+func TestListConfigProfilesEmptyDefaultAndRootOnlyConfig(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	result, err := ListConfigProfiles(ConfigProfilesOptions{
+		Getenv: envMap(nil),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Profiles == nil || len(result.Profiles) != 0 {
+		t.Fatalf("Profiles = %#v, want non-nil empty slice", result.Profiles)
+	}
+
+	result, err = ListConfigProfiles(ConfigProfilesOptions{
+		Path:   writeConfig(t, "bucket = \"plans\"\n", 0o600),
+		Getenv: envMap(nil),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Profiles == nil || len(result.Profiles) != 0 {
+		t.Fatalf("Profiles = %#v, want non-nil empty slice", result.Profiles)
+	}
+}
+
+func TestListConfigProfilesReturnsConfigFileErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{
+			name: "malformed TOML", config: "[profiles.work\n",
+			wantErr: "parse config",
+		},
+		{
+			name: "unknown key", config: "bucet = \"plans\"\n",
+			wantErr: "unknown config key",
+		},
+		{
+			name: "dangling default",
+			config: `
+default_profile = "missing"
+[profiles.work]
+`,
+			wantErr: "default_profile \"missing\" does not exist",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ListConfigProfiles(ConfigProfilesOptions{
+				Path:   writeConfig(t, tc.config, 0o600),
+				Getenv: envMap(nil),
+			})
+			assertErrorContains(t, err, tc.wantErr)
+		})
+	}
+}
+
+func TestListConfigProfilesWarnsForReadableCredentials(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission warning does not apply on Windows")
+	}
+	path := writeConfig(t, `
+[profiles.work]
+secret_access_key = "secret-sentinel"
+`, 0o644)
+
+	result, err := ListConfigProfiles(ConfigProfilesOptions{
+		Path: path, Getenv: envMap(nil),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Warnings) != 1 ||
+		!strings.Contains(result.Warnings[0], "contains credentials") {
+		t.Fatalf("Warnings = %#v", result.Warnings)
+	}
+	if strings.Contains(result.Warnings[0], "secret-sentinel") {
+		t.Fatalf("warning leaked credential: %q", result.Warnings[0])
+	}
+}

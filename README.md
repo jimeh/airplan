@@ -139,6 +139,11 @@ For multiple buckets, add `[profiles.name]` tables and select one with
 `--profile`/`-p`. For a shared bucket, give each person a distinct
 `key_prefix`.
 
+Use `airplan config profiles` to list configured profile names and identify an
+explicit `default_profile`. Add `--json` / `-j` for scriptable output. This
+inventory does not require profiles to contain complete or valid storage
+settings and does not inspect AWS credential profiles.
+
 Use `airplan config show` to inspect the active profile, resolved values, and
 the winning source for each field. `airplan config show --json` provides the
 same information for scripts. Access and secret key values are always

@@ -211,6 +211,229 @@ func TestConfigShowReturnsResolutionErrors(t *testing.T) {
 	}
 }
 
+func TestConfigProfilesTable(t *testing.T) {
+	isolateEnv(t)
+	path := filepath.Join(t.TempDir(), "config.toml")
+	contents := `
+default_profile = "alpha"
+[profiles.zulu]
+[profiles.alpha]
+`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeConfigCommand(
+		t, "profiles", "--config", path,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	want := "PROFILE  DEFAULT\nalpha    yes\nzulu     no\n"
+	if stdout != want {
+		t.Fatalf("stdout = %q, want %q", stdout, want)
+	}
+}
+
+func TestConfigProfilesJSONAndEmptyOutput(t *testing.T) {
+	isolateEnv(t)
+	path := filepath.Join(t.TempDir(), "config.toml")
+	contents := "[profiles.work]\n[profiles.personal]\n"
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeConfigCommand(
+		t, "profiles", "-j", "--config", path,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	wantJSON := "[{\"name\":\"personal\",\"default\":false}," +
+		"{\"name\":\"work\",\"default\":false}]\n"
+	if stdout != wantJSON {
+		t.Fatalf("stdout = %q, want %q", stdout, wantJSON)
+	}
+
+	emptyPath := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(emptyPath, []byte("bucket = \"plans\"\n"),
+		0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, err = executeConfigCommand(
+		t, "profiles", "--config", emptyPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, want both empty", stdout, stderr)
+	}
+	stdout, stderr, err = executeConfigCommand(
+		t, "profiles", "--json", "--config", emptyPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "[]\n" || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
+	}
+}
+
+func TestConfigProfilesIgnoresProfileResolutionAndFieldEnvironment(
+	t *testing.T,
+) {
+	isolateEnv(t)
+	t.Setenv("AIRPLAN_PROFILE", "missing")
+	t.Setenv("AIRPLAN_NO_EXTERNAL_ASSETS", "not-a-boolean")
+	t.Setenv("AIRPLAN_TIMEOUT", "not-a-duration")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	contents := `
+[profiles.home]
+endpoint = "not a URL"
+[profiles.work]
+timeout = "not a duration"
+`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeConfigCommand(
+		t, "profiles", "--config", path,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "PROFILE  DEFAULT\nhome     no\nwork     no\n" ||
+		stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
+	}
+}
+
+func TestConfigProfilesConfigPathPrecedenceAndErrors(t *testing.T) {
+	isolateEnv(t)
+	envPath := filepath.Join(t.TempDir(), "env.toml")
+	explicitPath := filepath.Join(t.TempDir(), "explicit.toml")
+	if err := os.WriteFile(envPath, []byte("[profiles.environment]\n"),
+		0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(explicitPath,
+		[]byte("[profiles.explicit]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AIRPLAN_CONFIG", envPath)
+
+	stdout, _, err := executeConfigCommand(
+		t, "profiles", "--config", explicitPath,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "explicit") ||
+		strings.Contains(stdout, "environment") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+
+	stdout, _, err = executeConfigCommand(t, "profiles")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout, "environment") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+
+	missing := filepath.Join(t.TempDir(), "missing.toml")
+	stdout, _, err = executeConfigCommand(
+		t, "profiles", "--config", missing,
+	)
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
+		t.Fatalf("error = %v", err)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{"malformed", "[profiles.work\n", "parse config"},
+		{"unknown", "bucet = \"plans\"\n", "unknown config key"},
+		{
+			"dangling", "default_profile = \"missing\"\n[profiles.work]\n",
+			"default_profile \"missing\" does not exist",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.toml")
+			if err := os.WriteFile(path, []byte(tc.config), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			stdout, _, err := executeConfigCommand(
+				t, "profiles", "--config", path,
+			)
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error = %v, want %q", err, tc.wantErr)
+			}
+			if stdout != "" {
+				t.Fatalf("stdout = %q, want empty", stdout)
+			}
+		})
+	}
+}
+
+func TestConfigProfilesReportsPermissionWarning(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission warning does not apply on Windows")
+	}
+	isolateEnv(t)
+	path := filepath.Join(t.TempDir(), "config.toml")
+	contents := `
+[profiles.work]
+secret_access_key = "secret-sentinel"
+`
+	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeConfigCommand(
+		t, "profiles", "--config", path,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout == "" || !strings.Contains(stderr, "contains credentials") {
+		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
+	}
+	if strings.Contains(stderr, "secret-sentinel") {
+		t.Fatalf("stderr leaked credential: %q", stderr)
+	}
+}
+
+func TestConfigProfilesRejectsResolutionFlags(t *testing.T) {
+	for _, flag := range []string{"--profile", "--bucket"} {
+		t.Run(flag, func(t *testing.T) {
+			stdout, _, err := executeConfigCommand(
+				t, "profiles", flag, "value",
+			)
+			if err == nil || !strings.Contains(err.Error(), "unknown flag") {
+				t.Fatalf("error = %v, want unknown flag", err)
+			}
+			if stdout != "" {
+				t.Fatalf("stdout = %q, want empty", stdout)
+			}
+		})
+	}
+}
+
 func writeConfigShowFixture(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.toml")
