@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/jimeh/airplan/compare/v0.1.0...v0.1.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* prevent duplicate release pull requests ([#33](https://github.com/jimeh/airplan/issues/33)) ([648c9f0](https://github.com/jimeh/airplan/commit/648c9f0f6f0a134bc07d6868eba759d1657268b5))
+
 ## 0.1.0 (2026-07-13)
 
 
