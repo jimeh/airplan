@@ -138,6 +138,47 @@ func TestUpdateSelectsEligibleReleaseWithinCurrentMajor(t *testing.T) {
 	}
 }
 
+func TestRestoreFilesRestoresGoldenDirectory(t *testing.T) {
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+
+	originalPath := filepath.Join(
+		"airplan", "testdata", "TestRenderMarkdownGolden", "original.html",
+	)
+	newPath := filepath.Join(
+		"airplan", "testdata", "TestRenderMarkdownGolden", "new.html",
+	)
+	if err := os.MkdirAll(filepath.Dir(originalPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(originalPath, []byte("changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	restoreFiles(map[string][]byte{originalPath: []byte("original")})
+
+	got, err := os.ReadFile(originalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "original" {
+		t.Fatalf("restored contents = %q, want %q", got, "original")
+	}
+	if _, err := os.Stat(newPath); !os.IsNotExist(err) {
+		t.Fatalf("new golden still exists: %v", err)
+	}
+}
+
 func withManifest(t *testing.T, contents string) {
 	t.Helper()
 	old, err := os.Getwd()
@@ -152,9 +193,10 @@ func withManifest(t *testing.T, contents string) {
 		[]byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	trackedPaths := append(
-		[]string{"airplan/mermaid_generated.go"}, renderGoldenPaths...,
-	)
+	trackedPaths := []string{
+		"airplan/mermaid_generated.go",
+		"airplan/testdata/TestRenderMarkdownGolden/basic.html",
+	}
 	for _, path := range trackedPaths {
 		full := filepath.Join(dir, path)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {

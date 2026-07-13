@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,16 +18,10 @@ import (
 )
 
 const (
-	manifestPath = "internal/deps/mermaid.json"
-	minimumAge   = 72 * time.Hour
+	manifestPath        = "internal/deps/mermaid.json"
+	renderGoldenPattern = "airplan/testdata/TestRenderMarkdownGolden/*.html"
+	minimumAge          = 72 * time.Hour
 )
-
-var renderGoldenPaths = []string{
-	"airplan/testdata/TestRenderMarkdownGolden/alert_go.html",
-	"airplan/testdata/TestRenderMarkdownGolden/basic.html",
-	"airplan/testdata/TestRenderMarkdownGolden/how_airplan_works.html",
-	"airplan/testdata/TestRenderMarkdownGolden/implementation_plan.html",
-}
 
 type manifest struct {
 	Package    string `json:"package"`
@@ -56,6 +51,10 @@ func main() {
 }
 
 func update(now time.Time, client *http.Client, dryRun bool) error {
+	renderGoldenPaths, err := findRenderGoldens()
+	if err != nil {
+		return err
+	}
 	trackedPaths := append([]string{
 		manifestPath,
 		"airplan/mermaid_generated.go",
@@ -150,9 +149,7 @@ func update(now time.Time, client *http.Client, dryRun bool) error {
 	rollback := true
 	defer func() {
 		if rollback {
-			for path, data := range originals {
-				_ = os.WriteFile(path, data, 0o644)
-			}
+			restoreFiles(originals)
 		}
 	}()
 	commands := [][]string{
@@ -173,6 +170,31 @@ func update(now time.Time, client *http.Client, dryRun bool) error {
 	rollback = false
 	fmt.Printf("updated Mermaid %s -> %s\n", current.Version, next.raw)
 	return nil
+}
+
+func findRenderGoldens() ([]string, error) {
+	paths, err := filepath.Glob(renderGoldenPattern)
+	if err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf(
+			"no render golden files match %q", renderGoldenPattern,
+		)
+	}
+	return paths, nil
+}
+
+func restoreFiles(originals map[string][]byte) {
+	currentGoldens, _ := filepath.Glob(renderGoldenPattern)
+	for _, path := range currentGoldens {
+		if _, existed := originals[path]; !existed {
+			_ = os.Remove(path)
+		}
+	}
+	for path, data := range originals {
+		_ = os.WriteFile(path, data, 0o644)
+	}
 }
 
 func fetchRegistry(client *http.Client) (registryDocument, error) {

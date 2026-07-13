@@ -68,6 +68,15 @@ error budget and support signals agree.
 > Token and cookie validation must share the same revocation source. Running
 > two independent authorization models would make rollback unsafe.
 
+## Delivery tracking
+
+The rollout is coordinated in #184. Dual-validation middleware lands in PR
+#231, followed by token-first authentication in PR #248. The mobile client
+dependency is tracked separately in octo-mobile/auth-client#77.
+
+These references use the fictional `octo-org/identity-platform` repository
+configured for this demonstration.
+
 ## Implementation
 
 ### 1. Add dual validation

@@ -34,7 +34,7 @@ func TestRenderMarkdownGolden(t *testing.T) {
 			name:       "implementation_plan",
 			path:       filepath.Join("testdata", "implementation-plan.md"),
 			input:      Input{Name: "implementation-plan.md"},
-			repository: "https://github.com/jimeh/airplan",
+			repository: "https://github.com/octo-org/identity-platform",
 		},
 		{
 			name:       "how_airplan_works",
@@ -43,9 +43,12 @@ func TestRenderMarkdownGolden(t *testing.T) {
 			repository: "https://github.com/jimeh/airplan",
 		},
 		{
-			name:  "alert_go",
-			path:  "alert.go",
-			input: Input{Name: "alert.go"},
+			name: "upload_example_go",
+			path: filepath.Join("testdata", "upload-example.go"),
+			input: Input{
+				Name:  "upload-example.go",
+				Title: "Upload with airplan's Go API",
+			},
 		},
 	}
 

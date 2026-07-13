@@ -41,13 +41,14 @@ server or using a paste service.
 
 ## Live examples
 
-- [Zero-downtime token migration](https://demo.airplan.dev/u5o3rv77okwcscoxj6lkzldkue/implementation-plan.html)
+- [Zero-downtime token migration](https://demo.airplan.dev/xyeknypg6lgzwpawpg4vshygeq/implementation-plan.html)
   is a realistic Markdown implementation plan with a diagram, responsive
-  columns, alerts, tables, task lists, and highlighted code.
+  columns, alerts, tables, task lists, highlighted code, and automatic GitHub
+  issue and pull-request links.
 - [How airplan works](https://demo.airplan.dev/lsbpxbvfucyu6zkp5scelp6ni4/how-airplan-works.html)
   is a concise architecture overview showing the CLI and library workflows.
-- [The GitHub-style alert renderer](https://demo.airplan.dev/6uidkbcadi7uafoztdtelipd7e/alert.html)
-  is a real Go source file presented as a highlighted, gist-like page.
+- [Upload with airplan's Go API](https://demo.airplan.dev/vdsuzbk6qkstspjbod4242rfge/upload-example.html)
+  is a runnable Go example presented as a highlighted, gist-like page.
 
 The exact behavior is defined in [SPEC.md](SPEC.md).
 
