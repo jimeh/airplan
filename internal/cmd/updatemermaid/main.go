@@ -50,7 +50,7 @@ func main() {
 	}
 }
 
-func update(now time.Time, client *http.Client, dryRun bool) error {
+func update(now time.Time, client *http.Client, dryRun bool) (retErr error) {
 	renderGoldenPaths, err := findRenderGoldens()
 	if err != nil {
 		return err
@@ -143,15 +143,20 @@ func update(now time.Time, client *http.Client, dryRun bool) error {
 		return err
 	}
 	encoded = append(encoded, '\n')
-	if err := os.WriteFile(manifestPath, encoded, 0o644); err != nil {
-		return err
-	}
 	rollback := true
 	defer func() {
 		if rollback {
-			restoreFiles(originals)
+			if err := restoreFiles(originals); err != nil {
+				retErr = errors.Join(
+					retErr,
+					fmt.Errorf("restore Mermaid update files: %w", err),
+				)
+			}
 		}
 	}()
+	if err := os.WriteFile(manifestPath, encoded, 0o644); err != nil {
+		return err
+	}
 	commands := [][]string{
 		{
 			"go", "run", "./internal/cmd/genmermaid",
@@ -185,16 +190,36 @@ func findRenderGoldens() ([]string, error) {
 	return paths, nil
 }
 
-func restoreFiles(originals map[string][]byte) {
-	currentGoldens, _ := globRenderGoldens()
-	for _, path := range currentGoldens {
-		if _, existed := originals[path]; !existed {
-			_ = os.Remove(path)
+func restoreFiles(originals map[string][]byte) error {
+	var restoreErr error
+	currentGoldens, err := globRenderGoldens()
+	if err != nil {
+		restoreErr = errors.Join(
+			restoreErr,
+			fmt.Errorf("find current render goldens: %w", err),
+		)
+	} else {
+		for _, path := range currentGoldens {
+			if _, existed := originals[path]; existed {
+				continue
+			}
+			if err := os.Remove(path); err != nil {
+				restoreErr = errors.Join(
+					restoreErr,
+					fmt.Errorf("remove %s: %w", path, err),
+				)
+			}
 		}
 	}
 	for path, data := range originals {
-		_ = os.WriteFile(path, data, 0o644)
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			restoreErr = errors.Join(
+				restoreErr,
+				fmt.Errorf("restore %s: %w", path, err),
+			)
+		}
 	}
+	return restoreErr
 }
 
 func globRenderGoldens() ([]string, error) {
