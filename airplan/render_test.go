@@ -1,45 +1,85 @@
 package airplan
 
 import (
-	"flag"
+	"bytes"
+	"context"
 	"html/template"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jimeh/go-golden"
 )
 
-var update = flag.Bool("update", false, "update golden files")
+var htmlGoldens = golden.New(golden.WithSuffix(".html"))
 
 func TestRenderMarkdownGolden(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join("testdata", "basic.md"))
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name       string
+		path       string
+		input      Input
+		repository string
+	}{
+		{
+			name: "basic",
+			path: filepath.Join("testdata", "basic.md"),
+			input: Input{
+				Name:  "basic.md",
+				Slug:  "refactor-auth",
+				Title: "Refactor auth",
+			},
+		},
+		{
+			name:       "implementation_plan",
+			path:       filepath.Join("testdata", "implementation-plan.md"),
+			input:      Input{Name: "implementation-plan.md"},
+			repository: "https://github.com/octo-org/identity-platform",
+		},
+		{
+			name:       "how_airplan_works",
+			path:       filepath.Join("testdata", "how-airplan-works.md"),
+			input:      Input{Name: "how-airplan-works.md"},
+			repository: "https://github.com/jimeh/airplan",
+		},
+		{
+			name: "upload_example_go",
+			path: filepath.Join("testdata", "upload-example.go"),
+			input: Input{
+				Name:  "upload-example.go",
+				Title: "Upload with airplan's Go API",
+			},
+		},
 	}
 
-	got, err := RenderMarkdown(src, RenderOptions{
-		Title:      "Refactor auth",
-		Slug:       "refactor-auth",
-		SourcePath: "./refactor-auth.md",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			src, err := os.ReadFile(test.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.input.Reader = bytes.NewReader(src)
+			doc, err := RenderInput(
+				context.Background(),
+				test.input,
+				RenderInputOptions{
+					IncludeSource: true,
+					Repository:    test.repository,
+				},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	golden := filepath.Join("testdata", "basic.html")
-	if *update {
-		if err := os.WriteFile(golden, got, 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	want, err := os.ReadFile(golden)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(got) != string(want) {
-		t.Errorf("rendered output differs from %s (run with -update "+
-			"to refresh)", golden)
+			want := htmlGoldens.Do(t, doc.HTML)
+			if !bytes.Equal(doc.HTML, want) {
+				t.Errorf(
+					"rendered output differs from %s "+
+						"(set GOLDEN_UPDATE=1 to refresh)",
+					htmlGoldens.File(t),
+				)
+			}
+		})
 	}
 }
 

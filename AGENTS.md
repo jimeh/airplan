@@ -44,8 +44,8 @@ pins live in `mise.lock` (commit both when bumping tools).
   one JSON object) and _nothing else_; everything else → stderr.
   Tests assert this; don't print to stdout casually in `cli/`.
 - **Golden files**: rendering snapshots live in `airplan/testdata/`;
-  refresh with `go test ./airplan/ -run TestRenderMarkdownGolden
--update` after template/CSS/JS changes.
+  run `GOLDEN_UPDATE=1 go test ./airplan/ -run TestRenderMarkdownGolden`
+  after template/CSS/JS changes.
 - **Repository text files use LF on every platform** via
   `.gitattributes`; byte-exact golden and generated-file tests depend
   on this even when Git runs on Windows.
@@ -57,7 +57,7 @@ pins live in `mise.lock` (commit both when bumping tools).
   issues otherwise keep references to files that no longer exist.
 - **Config schema**: `schema/airplan.schema.json` is generated from
   the config structs and golden-tested; refresh with
-  `go test ./airplan/ -run TestConfigSchema -update`. Unknown config
+  `GOLDEN_UPDATE=1 go test ./airplan/ -run TestConfigSchema`. Unknown config
   keys are a hard error — parser and schema must not drift (SPEC §7).
 - **Manifest reads**: handle empty non-EOF reads as errors before continuing;
   reading a directory can otherwise spin without making progress.

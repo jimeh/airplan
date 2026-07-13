@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"github.com/jimeh/go-golden"
 )
 
 func TestConfigSchemaCommitted(t *testing.T) {
@@ -18,23 +20,23 @@ func TestConfigSchemaCommitted(t *testing.T) {
 		t.Fatal("ConfigSchema returned invalid JSON")
 	}
 
-	golden := filepath.Join("..", "schema", "airplan.schema.json")
-	if *update {
-		if err := os.MkdirAll(filepath.Dir(golden), 0o755); err != nil {
+	goldenPath := filepath.Join("..", "schema", "airplan.schema.json")
+	if golden.Update() {
+		if err := os.MkdirAll(filepath.Dir(goldenPath), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(golden, got, 0o644); err != nil {
+		if err := os.WriteFile(goldenPath, got, 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	want, err := os.ReadFile(golden)
+	want, err := os.ReadFile(goldenPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Errorf("schema differs from %s (run with -update to refresh)",
-			golden)
+		t.Errorf("schema differs from %s (set GOLDEN_UPDATE=1 to refresh)",
+			goldenPath)
 	}
 }
 

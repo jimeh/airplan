@@ -1,0 +1,1727 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex, nofollow">
+<title>How airplan works</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --heading: #1f2328;
+  --subheading: #3d444d;
+  --muted: #59636e;
+  --link: #0969da;
+  --border: #d1d9e0;
+  --surface-subtle: #f6f8fa;
+  --code-inline-bg: #eff1f3;
+  --code-bg: #f6f8fa;
+  --code-border: #d1d9e0;
+  --control-track: #eff1f3;
+  --control-active: #ffffff;
+  --control-hover: #eff1f3;
+  --control-divider: #d8dee4;
+  --on-link: #ffffff;
+  --dialog-backdrop: rgba(31, 35, 40, 0.45);
+  --mark-bg: #fff8c5;
+  --alert-note: #0969da;
+  --alert-note-bg: #ddf4ff;
+  --alert-tip: #1a7f37;
+  --alert-tip-bg: #dafbe1;
+  --alert-important: #8250df;
+  --alert-important-bg: #fbefff;
+  --alert-warning: #9a6700;
+  --alert-warning-bg: #fff8c5;
+  --alert-caution: #cf222e;
+  --alert-caution-bg: #ffebe9;
+  --page-width: 54rem;
+  --prose-width: 78ch;
+  --toc-width: 14rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --heading: #f0f6fc;
+    --subheading: #c9d1d9;
+    --muted: #9198a1;
+    --link: #4493f8;
+    --border: #3d444d;
+    --surface-subtle: #151b23;
+    --code-inline-bg: #212830;
+    --code-bg: #151b23;
+    --code-border: #30363d;
+    --control-track: #21262d;
+    --control-active: #30363d;
+    --control-hover: #21262d;
+    --control-divider: #30363d;
+    --on-link: #0d1117;
+    --dialog-backdrop: rgba(0, 0, 0, 0.66);
+    --mark-bg: #693e00;
+    --alert-note: #4493f8;
+    --alert-note-bg: #121d2f;
+    --alert-tip: #3fb950;
+    --alert-tip-bg: #12261e;
+    --alert-important: #a371f7;
+    --alert-important-bg: #211a2e;
+    --alert-warning: #d29922;
+    --alert-warning-bg: #272115;
+    --alert-caution: #f85149;
+    --alert-caution-bg: #2d1618;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
+    Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-size: 16px;
+  line-height: 1.7;
+  -webkit-text-size-adjust: 100%;
+}
+
+.page-shell {
+  display: grid;
+  grid-template-columns:
+    minmax(12rem, 1fr) minmax(0, var(--page-width)) minmax(12rem, 1fr);
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
+.toolbar {
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
+  padding: 0.75rem 1.25rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.toc {
+  grid-column: 1;
+  grid-row: 2;
+  position: sticky;
+  top: 1.5rem;
+  align-self: start;
+  justify-self: end;
+  width: min(var(--toc-width), calc(100% - 2rem));
+  max-height: calc(100vh - 3rem);
+  margin: 1.5rem 1.25rem 0 0;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+
+.toc-title {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.toc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toc-list li + li {
+  margin-top: 0.1rem;
+}
+
+.toc-list a {
+  display: block;
+  padding: 0.3rem 0;
+  color: var(--muted);
+  line-height: 1.35;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.toc-list a:hover,
+.toc-list a:focus-visible {
+  color: var(--fg);
+}
+
+.toc-list a.active {
+  color: var(--link);
+}
+
+.toc-level-1 {
+  margin-top: 0.65rem;
+  font-weight: 650;
+}
+
+.toc-level-1:first-child {
+  margin-top: 0;
+}
+
+.toc-level-3 a {
+  padding-left: 1rem;
+  font-size: 0.8rem;
+}
+
+.toc-trigger {
+  display: none;
+  position: fixed;
+  right: 1.25rem;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom));
+  z-index: 20;
+  width: 3rem;
+  height: 3rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--on-link);
+  background: var(--link);
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(0.5rem);
+  transition:
+    opacity 0.15s ease-in-out,
+    visibility 0.15s ease-in-out,
+    transform 0.15s ease-in-out,
+    box-shadow 0.15s ease-in-out;
+}
+
+.toc-trigger.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.toc-trigger:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+
+.toc-trigger .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.toc-trigger:focus-visible,
+.toc-dialog-close:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 3px;
+}
+
+.toc-dialog {
+  position: fixed;
+  inset: auto 0 0;
+  width: min(100%, 42rem);
+  max-width: none;
+  max-height: 70vh;
+  max-height: 70svh;
+  margin: 0 auto;
+  padding: 0;
+  color: var(--fg);
+  background: var(--bg);
+  border: 0;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.toc-dialog::backdrop {
+  background: var(--dialog-backdrop);
+}
+
+.toc-dialog-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+}
+
+.toc-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: 1.25rem 1.25rem 0.75rem;
+}
+
+.toc-dialog-title {
+  margin: 0;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.toc-dialog-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.toc-dialog-close:hover {
+  color: var(--fg);
+  background: var(--control-hover);
+}
+
+.toc-dialog-nav {
+  min-height: 0;
+  padding: 0.25rem 1.25rem
+    calc(1.5rem + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.toc-dialog .toc-list a {
+  padding-block: 0.55rem;
+}
+
+body.toc-dialog-open {
+  overflow: hidden;
+}
+
+.toolbar a,
+.toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  font: inherit;
+  color: var(--muted);
+  background: transparent;
+  text-decoration: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 0.4rem 0.65rem;
+  cursor: pointer;
+  transition:
+    color 0.15s ease-in-out,
+    background-color 0.15s ease-in-out;
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.icon-check,
+.icon-x {
+  display: none;
+}
+
+.is-copied .icon-copy,
+.is-failed .icon-copy {
+  display: none;
+}
+
+.is-copied .icon-check,
+.is-failed .icon-x {
+  display: inline;
+}
+
+.toolbar a:hover,
+.toolbar button:hover {
+  color: var(--fg);
+  background: var(--control-hover);
+}
+
+.toolbar a:focus-visible,
+.toolbar button:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.viewtoggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--control-track);
+  border: 0;
+  border-radius: 8px;
+}
+
+.viewtoggle button {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.3rem 0.55rem;
+}
+
+.viewtoggle button:hover {
+  color: var(--fg);
+}
+
+.viewtoggle button.active {
+  color: var(--fg);
+  background: var(--control-active);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.viewtoggle + .copy-source {
+  position: relative;
+  margin-left: 0.5rem;
+}
+
+.viewtoggle + .copy-source::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -0.5rem;
+  width: 1px;
+  height: 1rem;
+  background: var(--control-divider);
+  transform: translateY(-50%);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.codewrap {
+  position: relative;
+  margin: 0 0 1.5em;
+}
+
+.codewrap pre {
+  margin: 0;
+}
+
+.codecopy {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  color: var(--muted);
+  background: var(--code-bg);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.35rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.codecopy .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.codewrap:hover .codecopy,
+.codecopy:focus-visible {
+  opacity: 1;
+}
+
+.codecopy:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+
+@media (hover: none) {
+  .codecopy {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .toolbar a,
+  .toolbar button,
+  .toc-trigger,
+  .codecopy {
+    transition: none;
+  }
+}
+
+.content {
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  min-width: 0;
+  padding: 1.5rem 1.5rem 4rem;
+  overflow-wrap: break-word;
+}
+
+.content > p,
+.content > ul,
+.content > ol,
+.content > blockquote,
+.content > .footnotes {
+  max-width: var(--prose-width);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--heading);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  margin: 2em 0 0.75em;
+  scroll-margin-top: 0.75em;
+}
+
+h1 {
+  font-size: 2em;
+  margin-top: 0.35em;
+  letter-spacing: -0.025em;
+}
+
+h2 {
+  font-size: 1.5em;
+  margin-top: 2.25em;
+}
+
+h3 {
+  font-size: 1.2em;
+  color: var(--subheading);
+}
+h4 { font-size: 1.05em; }
+h5, h6 { font-size: 1em; }
+h6 { color: var(--muted); }
+
+p, ul, ol, blockquote, table, pre {
+  margin: 0 0 1.25em;
+}
+
+dl {
+  margin: 1.25rem 0;
+}
+
+dt {
+  font-weight: 650;
+  margin-top: 0.8rem;
+}
+
+dd {
+  color: var(--muted);
+  margin: 0.25rem 0 0 1.25rem;
+}
+
+.frontmatter {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  margin: 0 0 1.75rem;
+  overflow: hidden;
+}
+
+.frontmatter summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.55rem 0.75rem;
+  user-select: none;
+}
+
+.frontmatter summary span {
+  font-weight: 400;
+  margin-left: 0.35rem;
+  text-transform: uppercase;
+}
+
+.frontmatter .chroma {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+}
+
+.columns {
+  display: flex;
+  gap: 1.5rem;
+  margin: 1.5rem 0;
+  min-width: 0;
+}
+
+.column {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.column[style] {
+  flex: 0 1 var(--column-width);
+}
+
+.column > :first-child { margin-top: 0; }
+.column > :last-child { margin-bottom: 0; }
+
+a {
+  color: var(--link);
+}
+
+ul, ol {
+  padding-left: 1.75em;
+}
+
+li + li {
+  margin-top: 0.2em;
+}
+
+li > ul, li > ol {
+  margin-bottom: 0;
+}
+
+ul:has(> li > input[type="checkbox"]) {
+  list-style: none;
+  padding-left: 0.5em;
+}
+
+li > input[type="checkbox"] {
+  margin: 0 0.4em 0.2em 0;
+  vertical-align: middle;
+}
+
+blockquote {
+  border-left: 0.25em solid var(--border);
+  padding: 0 1em;
+  color: var(--muted);
+}
+
+blockquote > :first-child { margin-top: 0; }
+blockquote > :last-child { margin-bottom: 0; }
+
+.markdown-alert {
+  --alert-color: var(--alert-note);
+  --alert-bg: var(--alert-note-bg);
+  margin: 1.5em 0;
+  padding: 0.85em 1em;
+  border-left: 3px solid var(--alert-color);
+  border-radius: 6px;
+  background: var(--alert-bg);
+  color: var(--fg);
+}
+
+.markdown-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin: 0 0 0.55em;
+  color: var(--alert-color);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.markdown-alert-icon {
+  width: 1em;
+  height: 1em;
+  flex: none;
+}
+
+.markdown-alert > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-alert-tip {
+  --alert-color: var(--alert-tip);
+  --alert-bg: var(--alert-tip-bg);
+}
+
+.markdown-alert-important {
+  --alert-color: var(--alert-important);
+  --alert-bg: var(--alert-important-bg);
+}
+
+.markdown-alert-warning {
+  --alert-color: var(--alert-warning);
+  --alert-bg: var(--alert-warning-bg);
+}
+
+.markdown-alert-caution {
+  --alert-color: var(--alert-caution);
+  --alert-bg: var(--alert-caution-bg);
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  height: 0;
+  margin: 2em 0;
+}
+
+img {
+  max-width: 100%;
+}
+
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+th, td {
+  border: 1px solid var(--border);
+  padding: 0.35em 0.8em;
+}
+
+th {
+  font-weight: 600;
+}
+
+thead tr, tbody tr:nth-child(even) {
+  background: var(--code-bg);
+}
+
+code, pre, kbd, samp {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+code {
+  background: var(--code-inline-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+  font-size: 0.875em;
+}
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 8px;
+  padding: 1em 1.25em;
+  overflow-x: auto;
+  line-height: 1.6;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+pre::-webkit-scrollbar {
+  height: 6px;
+}
+
+pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+pre::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 0.875em;
+}
+
+.chroma {
+  background: var(--code-bg) !important;
+}
+
+pre.mermaid {
+  max-width: 100%;
+  white-space: pre-wrap;
+}
+
+pre.mermaid.mermaid-rendered {
+  display: flex;
+  justify-content: center;
+}
+
+pre.mermaid.mermaid-rendered svg {
+  height: auto;
+  max-width: 100%;
+}
+
+pre.mermaid.mermaid-failed {
+  display: block;
+  color: var(--muted);
+}
+
+.filehead {
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--code-border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  padding: 0.6em 1em;
+}
+
+.filehead code {
+  background: none;
+  padding: 0;
+  color: var(--fg);
+}
+
+.filehead + pre {
+  border-radius: 0 0 8px 8px;
+  margin-top: 0;
+}
+
+.source-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.source-heading .icon {
+  width: 14px;
+  height: 14px;
+}
+
+mark {
+  background: var(--mark-bg);
+  color: inherit;
+}
+
+.footnotes {
+  margin-top: 3em;
+  padding-top: 1em;
+  border-top: 1px solid var(--border);
+  font-size: 0.9em;
+  color: var(--muted);
+}
+
+.footnotes hr {
+  display: none;
+}
+
+.sr-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 78rem) {
+  .page-shell {
+    display: block;
+  }
+
+  .toolbar,
+  .toc,
+  .content {
+    width: 100%;
+    max-width: var(--page-width);
+    margin-inline: auto;
+  }
+
+  .toc {
+    position: static;
+    max-height: none;
+    padding: 1.25rem 1.5rem 0;
+    overflow: visible;
+  }
+
+  .toc-trigger {
+    display: inline-flex;
+  }
+
+  .toc-trigger.is-visible {
+    pointer-events: auto;
+  }
+}
+
+@media (max-width: 36rem) {
+  .toolbar {
+    display: grid;
+    grid-template-columns: repeat(3, max-content);
+    justify-content: flex-start;
+    padding-inline: 1rem;
+  }
+
+  .toolbar .viewtoggle {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .viewtoggle + .copy-source {
+    margin-left: 0;
+  }
+
+  .viewtoggle + .copy-source::before {
+    display: none;
+  }
+
+  .toc,
+  .content {
+    padding-inline: 1.25rem;
+  }
+}
+
+@media (max-width: 48rem), print {
+  .columns {
+    display: block;
+  }
+
+  .column + .column {
+    margin-top: 1.5rem;
+  }
+}
+
+@media print {
+  .toolbar,
+  .toc,
+  .toc-trigger,
+  .toc-dialog,
+  .codecopy,
+  .source-view {
+    display: none !important;
+  }
+
+  #rendered {
+    display: block !important;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+/* Background */ .bg { background-color: #f7f7f7; }
+/* PreWrapper */ .chroma { background-color: #f7f7f7; -webkit-text-size-adjust: none; }
+/* Error */ .chroma .err { color: #f6f8fa; background-color: #82071e }
+/* LineLink */ .chroma .lnlinks { outline: none; text-decoration: none; color: inherit }
+/* LineTableTD */ .chroma .lntd { vertical-align: top; padding: 0; margin: 0; border: 0; }
+/* LineTable */ .chroma .lntable { border-spacing: 0; padding: 0; margin: 0; border: 0; }
+/* LineHighlight */ .chroma .hl { background-color: #dedede }
+/* LineNumbersTable */ .chroma .lnt { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+/* LineNumbers */ .chroma .ln { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+/* Line */ .chroma .line { display: flex; }
+/* Keyword */ .chroma .k { color: #cf222e }
+/* KeywordConstant */ .chroma .kc { color: #cf222e }
+/* KeywordDeclaration */ .chroma .kd { color: #cf222e }
+/* KeywordNamespace */ .chroma .kn { color: #cf222e }
+/* KeywordPseudo */ .chroma .kp { color: #cf222e }
+/* KeywordReserved */ .chroma .kr { color: #cf222e }
+/* KeywordType */ .chroma .kt { color: #cf222e }
+/* NameAttribute */ .chroma .na { color: #1f2328 }
+/* NameClass */ .chroma .nc { color: #1f2328 }
+/* NameConstant */ .chroma .no { color: #0550ae }
+/* NameDecorator */ .chroma .nd { color: #0550ae }
+/* NameEntity */ .chroma .ni { color: #6639ba }
+/* NameLabel */ .chroma .nl { color: #990000; font-weight: bold }
+/* NameNamespace */ .chroma .nn { color: #24292e }
+/* NameOther */ .chroma .nx { color: #1f2328 }
+/* NameTag */ .chroma .nt { color: #0550ae }
+/* NameBuiltin */ .chroma .nb { color: #6639ba }
+/* NameBuiltinPseudo */ .chroma .bp { color: #6a737d }
+/* NameVariable */ .chroma .nv { color: #953800 }
+/* NameVariableClass */ .chroma .vc { color: #953800 }
+/* NameVariableGlobal */ .chroma .vg { color: #953800 }
+/* NameVariableInstance */ .chroma .vi { color: #953800 }
+/* NameVariableMagic */ .chroma .vm { color: #953800 }
+/* NameFunction */ .chroma .nf { color: #6639ba }
+/* NameFunctionMagic */ .chroma .fm { color: #6639ba }
+/* LiteralString */ .chroma .s { color: #0a3069 }
+/* LiteralStringAffix */ .chroma .sa { color: #0a3069 }
+/* LiteralStringBacktick */ .chroma .sb { color: #0a3069 }
+/* LiteralStringChar */ .chroma .sc { color: #0a3069 }
+/* LiteralStringDelimiter */ .chroma .dl { color: #0a3069 }
+/* LiteralStringDoc */ .chroma .sd { color: #0a3069 }
+/* LiteralStringDouble */ .chroma .s2 { color: #0a3069 }
+/* LiteralStringEscape */ .chroma .se { color: #0a3069 }
+/* LiteralStringHeredoc */ .chroma .sh { color: #0a3069 }
+/* LiteralStringInterpol */ .chroma .si { color: #0a3069 }
+/* LiteralStringOther */ .chroma .sx { color: #0a3069 }
+/* LiteralStringRegex */ .chroma .sr { color: #0a3069 }
+/* LiteralStringSingle */ .chroma .s1 { color: #0a3069 }
+/* LiteralStringSymbol */ .chroma .ss { color: #032f62 }
+/* LiteralNumber */ .chroma .m { color: #0550ae }
+/* LiteralNumberBin */ .chroma .mb { color: #0550ae }
+/* LiteralNumberFloat */ .chroma .mf { color: #0550ae }
+/* LiteralNumberHex */ .chroma .mh { color: #0550ae }
+/* LiteralNumberInteger */ .chroma .mi { color: #0550ae }
+/* LiteralNumberIntegerLong */ .chroma .il { color: #0550ae }
+/* LiteralNumberOct */ .chroma .mo { color: #0550ae }
+/* Operator */ .chroma .o { color: #0550ae }
+/* OperatorWord */ .chroma .ow { color: #0550ae }
+/* OperatorReserved */ .chroma .or { color: #0550ae }
+/* Punctuation */ .chroma .p { color: #1f2328 }
+/* Comment */ .chroma .c { color: #57606a }
+/* CommentHashbang */ .chroma .ch { color: #57606a }
+/* CommentMultiline */ .chroma .cm { color: #57606a }
+/* CommentSingle */ .chroma .c1 { color: #57606a }
+/* CommentSpecial */ .chroma .cs { color: #57606a }
+/* CommentPreproc */ .chroma .cp { color: #57606a }
+/* CommentPreprocFile */ .chroma .cpf { color: #57606a }
+/* GenericDeleted */ .chroma .gd { color: #82071e; background-color: #ffebe9 }
+/* GenericEmph */ .chroma .ge { color: #1f2328 }
+/* GenericInserted */ .chroma .gi { color: #116329; background-color: #dafbe1 }
+/* GenericOutput */ .chroma .go { color: #1f2328 }
+/* GenericUnderline */ .chroma .gl { text-decoration: underline }
+/* TextWhitespace */ .chroma .w { color: #ffffff }
+}
+@media (prefers-color-scheme: dark) {
+/* Background */ .bg { color: #e6edf3; background-color: #0d1117; }
+/* PreWrapper */ .chroma { color: #e6edf3; background-color: #0d1117; -webkit-text-size-adjust: none; }
+/* Error */ .chroma .err { color: #f85149 }
+/* LineLink */ .chroma .lnlinks { outline: none; text-decoration: none; color: inherit }
+/* LineTableTD */ .chroma .lntd { vertical-align: top; padding: 0; margin: 0; border: 0; }
+/* LineTable */ .chroma .lntable { border-spacing: 0; padding: 0; margin: 0; border: 0; }
+/* LineHighlight */ .chroma .hl { background-color: #6e7681 }
+/* LineNumbersTable */ .chroma .lnt { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #737679 }
+/* LineNumbers */ .chroma .ln { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #6e7681 }
+/* Line */ .chroma .line { display: flex; }
+/* Keyword */ .chroma .k { color: #ff7b72 }
+/* KeywordConstant */ .chroma .kc { color: #79c0ff }
+/* KeywordDeclaration */ .chroma .kd { color: #ff7b72 }
+/* KeywordNamespace */ .chroma .kn { color: #ff7b72 }
+/* KeywordPseudo */ .chroma .kp { color: #79c0ff }
+/* KeywordReserved */ .chroma .kr { color: #ff7b72 }
+/* KeywordType */ .chroma .kt { color: #ff7b72 }
+/* NameClass */ .chroma .nc { color: #f0883e; font-weight: bold }
+/* NameConstant */ .chroma .no { color: #79c0ff; font-weight: bold }
+/* NameDecorator */ .chroma .nd { color: #d2a8ff; font-weight: bold }
+/* NameEntity */ .chroma .ni { color: #ffa657 }
+/* NameException */ .chroma .ne { color: #f0883e; font-weight: bold }
+/* NameLabel */ .chroma .nl { color: #79c0ff; font-weight: bold }
+/* NameNamespace */ .chroma .nn { color: #ff7b72 }
+/* NameProperty */ .chroma .py { color: #79c0ff }
+/* NameTag */ .chroma .nt { color: #7ee787 }
+/* NameVariable */ .chroma .nv { color: #79c0ff }
+/* NameVariableClass */ .chroma .vc { color: #79c0ff }
+/* NameVariableGlobal */ .chroma .vg { color: #79c0ff }
+/* NameVariableInstance */ .chroma .vi { color: #79c0ff }
+/* NameVariableMagic */ .chroma .vm { color: #79c0ff }
+/* NameFunction */ .chroma .nf { color: #d2a8ff; font-weight: bold }
+/* NameFunctionMagic */ .chroma .fm { color: #d2a8ff; font-weight: bold }
+/* Literal */ .chroma .l { color: #a5d6ff }
+/* LiteralDate */ .chroma .ld { color: #79c0ff }
+/* LiteralString */ .chroma .s { color: #a5d6ff }
+/* LiteralStringAffix */ .chroma .sa { color: #79c0ff }
+/* LiteralStringBacktick */ .chroma .sb { color: #a5d6ff }
+/* LiteralStringChar */ .chroma .sc { color: #a5d6ff }
+/* LiteralStringDelimiter */ .chroma .dl { color: #79c0ff }
+/* LiteralStringDoc */ .chroma .sd { color: #a5d6ff }
+/* LiteralStringDouble */ .chroma .s2 { color: #a5d6ff }
+/* LiteralStringEscape */ .chroma .se { color: #79c0ff }
+/* LiteralStringHeredoc */ .chroma .sh { color: #79c0ff }
+/* LiteralStringInterpol */ .chroma .si { color: #a5d6ff }
+/* LiteralStringOther */ .chroma .sx { color: #a5d6ff }
+/* LiteralStringRegex */ .chroma .sr { color: #79c0ff }
+/* LiteralStringSingle */ .chroma .s1 { color: #a5d6ff }
+/* LiteralStringSymbol */ .chroma .ss { color: #a5d6ff }
+/* LiteralNumber */ .chroma .m { color: #a5d6ff }
+/* LiteralNumberBin */ .chroma .mb { color: #a5d6ff }
+/* LiteralNumberFloat */ .chroma .mf { color: #a5d6ff }
+/* LiteralNumberHex */ .chroma .mh { color: #a5d6ff }
+/* LiteralNumberInteger */ .chroma .mi { color: #a5d6ff }
+/* LiteralNumberIntegerLong */ .chroma .il { color: #a5d6ff }
+/* LiteralNumberOct */ .chroma .mo { color: #a5d6ff }
+/* Operator */ .chroma .o { color: #ff7b72; font-weight: bold }
+/* OperatorWord */ .chroma .ow { color: #ff7b72; font-weight: bold }
+/* OperatorReserved */ .chroma .or { color: #ff7b72; font-weight: bold }
+/* Comment */ .chroma .c { color: #8b949e; font-style: italic }
+/* CommentHashbang */ .chroma .ch { color: #8b949e; font-style: italic }
+/* CommentMultiline */ .chroma .cm { color: #8b949e; font-style: italic }
+/* CommentSingle */ .chroma .c1 { color: #8b949e; font-style: italic }
+/* CommentSpecial */ .chroma .cs { color: #8b949e; font-weight: bold; font-style: italic }
+/* CommentPreproc */ .chroma .cp { color: #8b949e; font-weight: bold; font-style: italic }
+/* CommentPreprocFile */ .chroma .cpf { color: #8b949e; font-weight: bold; font-style: italic }
+/* GenericDeleted */ .chroma .gd { color: #ffa198; background-color: #490202 }
+/* GenericEmph */ .chroma .ge { font-style: italic }
+/* GenericError */ .chroma .gr { color: #ffa198 }
+/* GenericHeading */ .chroma .gh { color: #79c0ff; font-weight: bold }
+/* GenericInserted */ .chroma .gi { color: #56d364; background-color: #0f5323 }
+/* GenericOutput */ .chroma .go { color: #8b949e }
+/* GenericPrompt */ .chroma .gp { color: #8b949e }
+/* GenericStrong */ .chroma .gs { font-weight: bold }
+/* GenericSubheading */ .chroma .gu { color: #79c0ff }
+/* GenericTraceback */ .chroma .gt { color: #ff7b72 }
+/* GenericUnderline */ .chroma .gl { text-decoration: underline }
+/* TextWhitespace */ .chroma .w { color: #6e7681 }
+}
+
+</style>
+</head>
+<body>
+<div class="page-shell">
+<nav class="toolbar" aria-label="Document controls">
+  <div class="viewtoggle js-only" hidden>
+    <button type="button" class="active" data-view="rendered"
+      aria-pressed="true" aria-label="Rendered view"
+      title="Rendered view"><svg class="icon" aria-hidden="true"
+      viewBox="0 0 16 16" fill="currentColor"><path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.825.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"/></svg><span>Rendered</span></button>
+    <button type="button" data-view="source"
+      aria-pressed="false" aria-label="Source view"
+      title="Source view"><svg class="icon" aria-hidden="true"
+      viewBox="0 0 16 16" fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Source</span></button>
+  </div>
+  <button type="button" class="copy-source js-only" hidden
+    aria-label="Copy markdown" title="Copy markdown"><svg
+    class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg><svg
+    class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg><svg
+    class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg><span class="action-label">Copy</span></button>
+  <a class="download" href="./how-airplan-works.md" download
+    aria-label="Download markdown"
+    title="Download markdown"><svg
+    class="icon" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg><span>Download</span></a>
+  <a class="raw" href="./how-airplan-works.md"
+    aria-label="Open raw markdown"
+    title="Open raw markdown"><svg
+    class="icon" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Raw</span></a>
+</nav>
+<nav class="toc" id="toc" aria-label="Table of contents">
+  <p class="toc-title">Contents</p>
+  <ol class="toc-list">
+    <li class="toc-level-2"><a href="#from-local-file-to-browser">From local file to browser</a></li>
+    <li class="toc-level-2"><a href="#two-ways-to-use-it">Two ways to use it</a></li>
+    <li class="toc-level-3"><a href="#command-line">Command line</a></li>
+    <li class="toc-level-3"><a href="#go-library">Go library</a></li>
+    <li class="toc-level-2"><a href="#a-complete-page-in-one-object">A complete page in one object</a></li>
+    <li class="toc-level-2"><a href="#storage-configuration">Storage configuration</a></li>
+    <li class="toc-level-2"><a href="#designed-for-agents">Designed for agents</a></li>
+    <li class="toc-level-2"><a href="#where-to-learn-more">Where to learn more</a></li>
+  </ol>
+</nav>
+<main class="content" id="rendered">
+<details class="frontmatter">
+  <summary>Frontmatter <span>toml</span></summary>
+  <pre class="chroma"><code><span class="line"><span class="cl"><span class="err">+++</span>
+</span></span><span class="line"><span class="cl"><span class="nx">title</span> <span class="p">=</span> <span class="s2">&#34;How airplan works&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nx">project</span> <span class="p">=</span> <span class="s2">&#34;airplan&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nx">audience</span> <span class="p">=</span> <span class="s2">&#34;Users and contributors&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="err">+++</span>
+</span></span></code></pre>
+</details>
+<h1 id="how-airplan-works">How airplan works</h1>
+<p>Airplan turns a local Markdown document, HTML page, or source file into a
+readable URL backed by storage you control. It has no hosted application,
+account system, or background service.</p>
+<div class="markdown-alert markdown-alert-tip">
+<p class="markdown-alert-title"><svg class="markdown-alert-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1.5c-2.363 0-4 1.69-4 3.75 0 .984.424 1.625.984 2.304l.214.253c.223.264.47.556.673.848.284.411.537.896.621 1.49a.75.75 0 0 1-1.484.211c-.04-.282-.163-.547-.37-.847a9 9 0 0 0-.542-.68l-.268-.32C3.201 7.75 2.5 6.766 2.5 5.25 2.5 2.31 4.863 0 8 0s5.5 2.31 5.5 5.25c0 1.516-.701 2.5-1.328 3.259q-.142.172-.268.319c-.207.245-.383.453-.541.681-.208.3-.33.565-.37.847a.751.751 0 0 1-1.485-.212c.084-.593.337-1.078.621-1.489.203-.292.45-.584.673-.848l.213-.253c.561-.679.985-1.32.985-2.304 0-2.06-1.637-3.75-4-3.75M5.75 12h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5M6 15.25a.75.75 0 0 1 .75-.75h2.5a.75.75 0 0 1 0 1.5h-2.5a.75.75 0 0 1-.75-.75"/></svg>Tip</p>
+<p>The shortest useful workflow is still <code>airplan plan.md</code>: one command in, one
+URL out.</p>
+</div>
+<h2 id="from-local-file-to-browser">From local file to browser</h2>
+<pre class="mermaid">flowchart LR
+    A[Local document] --&gt; B[airplan CLI]
+    B --&gt; C{Input format}
+    C --&gt;|Markdown| D[Render standalone page]
+    C --&gt;|Source| E[Highlight source]
+    C --&gt;|HTML| F[Preserve authored page]
+    D --&gt; G[S3-compatible storage]
+    E --&gt; G
+    F --&gt; G
+    G --&gt; H[Unguessable public URL]
+</pre>
+<p>The generated directory contains an ownership marker, the page, and—when the
+input is Markdown or source—the original document. That marker lets airplan
+inspect and safely delete exactly the objects it owns.</p>
+<h2 id="two-ways-to-use-it">Two ways to use it</h2>
+<div class="columns">
+<div class="column">
+<h3 id="command-line">Command line</h3>
+<p>The CLI is optimized for people, scripts, and coding agents:</p>
+<pre class="chroma"><code><span class="line"><span class="cl">airplan plan.md
+</span></span><span class="line"><span class="cl">airplan --json report.md
+</span></span><span class="line"><span class="cl">airplan preview plan.md &gt; plan.html
+</span></span></code></pre><p>Successful uploads print only the final URL to stdout. Diagnostics stay on
+stderr, so command substitution is safe.</p>
+</div>
+<div class="column">
+<h3 id="go-library">Go library</h3>
+<p>The same pipeline is available as an importable package:</p>
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="nx">doc</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">airplan</span><span class="p">.</span><span class="nf">RenderInput</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">input</span><span class="p">,</span><span class="w"> </span><span class="nx">opts</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="k">return</span><span class="w"> </span><span class="nx">err</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;%s: %d bytes\n&#34;</span><span class="p">,</span><span class="w"> </span><span class="nx">doc</span><span class="p">.</span><span class="nx">Title</span><span class="p">,</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">doc</span><span class="p">.</span><span class="nx">HTML</span><span class="p">))</span><span class="w">
+</span></span></span></code></pre><p>The CLI contains no private rendering path; library callers get the same input
+detection and standalone pages.</p>
+</div>
+</div>
+<h2 id="a-complete-page-in-one-object">A complete page in one object</h2>
+<dl>
+<dt>Embedded assets</dt>
+<dd>Page CSS, interaction JavaScript, and syntax-highlighting styles are included
+directly in the generated HTML.</dd>
+<dt>Conditional asset</dt>
+<dd>Mermaid is loaded only when the document contains an exact lowercase
+<code>mermaid</code> fence and external assets are allowed.</dd>
+<dt>Original source</dt>
+<dd>Markdown and source uploads retain the authored bytes for source view, copy,
+download, and raw links.</dd>
+</dl>
+<table>
+<thead>
+<tr>
+<th>Input</th>
+<th>Page treatment</th>
+<th>Original uploaded</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Markdown</td>
+<td>Rendered with navigation</td>
+<td>Yes, by default</td>
+</tr>
+<tr>
+<td>Source</td>
+<td>Syntax-highlighted, gist-like</td>
+<td>Yes, by default</td>
+</tr>
+<tr>
+<td>HTML</td>
+<td>Uploaded as authored</td>
+<td>No</td>
+</tr>
+</tbody>
+</table>
+<h2 id="storage-configuration">Storage configuration</h2>
+<p>Airplan accepts profiles for separate buckets or environments. A minimal
+S3-compatible profile looks like this:</p>
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="p">[</span><span class="nx">profiles</span><span class="p">.</span><span class="nx">demo</span><span class="p">]</span>
+</span></span><span class="line"><span class="cl"><span class="nx">endpoint</span> <span class="p">=</span> <span class="s2">&#34;https://example.r2.cloudflarestorage.com&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nx">bucket</span> <span class="p">=</span> <span class="s2">&#34;airplan-demo&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nx">public_base_url</span> <span class="p">=</span> <span class="s2">&#34;https://plans.example.com&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nx">region</span> <span class="p">=</span> <span class="s2">&#34;auto&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nx">access_key_id</span> <span class="p">=</span> <span class="s2">&#34;...&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nx">secret_access_key</span> <span class="p">=</span> <span class="s2">&#34;...&#34;</span>
+</span></span></code></pre><p>Credentials stay on the machine running airplan. Generated pages contain no
+storage API credentials.</p>
+<div class="markdown-alert markdown-alert-important">
+<p class="markdown-alert-title"><svg class="markdown-alert-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.75.75 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0M9 9a1 1 0 1 1-2 0a1 1 0 0 1 2 0"/></svg>Important</p>
+<p>An unguessable URL is not access control. Anyone who receives the URL can
+open it, and Markdown or HTML may contain active authored content. Upload only
+documents intended for every recipient of the link.</p>
+</div>
+<h2 id="designed-for-agents">Designed for agents</h2>
+<p>Airplan's output contract is intentionally narrow:</p>
+<pre class="chroma"><code><span class="line"><span class="cl">success  -&gt; URL on stdout, exit 0
+</span></span><span class="line"><span class="cl">warning  -&gt; message on stderr, URL still on stdout
+</span></span><span class="line"><span class="cl">failure  -&gt; error on stderr, no URL, non-zero exit
+</span></span></code></pre><p>That makes the result easy to capture and return in chat without parsing logs.
+The bundled
+<a href="https://github.com/jimeh/airplan/blob/main/skills/airplan/SKILL.md">agent skill</a>
+teaches compatible coding agents when and how to upload a requested document.</p>
+<h2 id="where-to-learn-more">Where to learn more</h2>
+<ul>
+<li>The
+<a href="https://github.com/jimeh/airplan/blob/main/README.md">README</a>
+covers installation and everyday usage.</li>
+<li>The
+<a href="https://github.com/jimeh/airplan/blob/main/SPEC.md">behavior specification</a>
+is the authoritative contract.</li>
+<li>The
+<a href="https://github.com/jimeh/airplan/blob/main/IMPLEMENTATION.md">implementation guide</a>
+maps that contract onto the Go codebase.</li>
+<li>The
+<a href="https://pkg.go.dev/github.com/jimeh/airplan/airplan">Go package reference</a>
+documents the importable API.<sup id="fnref:1"><a href="#fn:1" class="footnote-ref" role="doc-noteref">1</a></sup></li>
+</ul>
+<div class="footnotes" role="doc-endnotes">
+<hr>
+<ol>
+<li id="fn:1">
+<p>The package and CLI share the same renderer, configuration model,
+and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+</ol>
+</div>
+
+</main>
+<main class="content source-view" id="source" hidden>
+<p class="source-heading"><svg class="icon" aria-hidden="true"
+  viewBox="0 0 16 16" fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Markdown source</span></p>
+<pre class="chroma"><code><span class="line"><span class="cl">+++
+</span></span><span class="line"><span class="cl">title = &#34;How airplan works&#34;
+</span></span><span class="line"><span class="cl">project = &#34;airplan&#34;
+</span></span><span class="line"><span class="cl">audience = &#34;Users and contributors&#34;
+</span></span><span class="line"><span class="cl">+++
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gh"># How airplan works
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Airplan turns a local Markdown document, HTML page, or source file into a
+</span></span><span class="line"><span class="cl">readable URL backed by storage you control. It has no hosted application,
+</span></span><span class="line"><span class="cl">account system, or background service.
+</span></span><span class="line"><span class="cl"><span class="k">
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">[!TIP]
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">The shortest useful workflow is still `airplan plan.md`: one command in, one
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">URL out.
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## From local file to browser
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="s">```mermaid
+</span></span></span><span class="line"><span class="cl">flowchart LR
+</span></span><span class="line"><span class="cl">    A[Local document] --&gt; B[airplan CLI]
+</span></span><span class="line"><span class="cl">    B --&gt; C{Input format}
+</span></span><span class="line"><span class="cl">    C --&gt;|Markdown| D[Render standalone page]
+</span></span><span class="line"><span class="cl">    C --&gt;|Source| E[Highlight source]
+</span></span><span class="line"><span class="cl">    C --&gt;|HTML| F[Preserve authored page]
+</span></span><span class="line"><span class="cl">    D --&gt; G[S3-compatible storage]
+</span></span><span class="line"><span class="cl">    E --&gt; G
+</span></span><span class="line"><span class="cl">    F --&gt; G
+</span></span><span class="line"><span class="cl">    G --&gt; H[Unguessable public URL]
+</span></span><span class="line"><span class="cl"><span class="s">```</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">The generated directory contains an ownership marker, the page, and—when the
+</span></span><span class="line"><span class="cl">input is Markdown or source—the original document. That marker lets airplan
+</span></span><span class="line"><span class="cl">inspect and safely delete exactly the objects it owns.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Two ways to use it
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">:::: {.columns}
+</span></span><span class="line"><span class="cl">::: {.column}
+</span></span><span class="line"><span class="cl"><span class="gu">### Command line
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">The CLI is optimized for people, scripts, and coding agents:
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="s">```sh
+</span></span></span><span class="line"><span class="cl">airplan plan.md
+</span></span><span class="line"><span class="cl">airplan --json report.md
+</span></span><span class="line"><span class="cl">airplan preview plan.md &gt; plan.html
+</span></span><span class="line"><span class="cl"><span class="s">```</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Successful uploads print only the final URL to stdout. Diagnostics stay on
+</span></span><span class="line"><span class="cl">stderr, so command substitution is safe.
+</span></span><span class="line"><span class="cl">:::
+</span></span><span class="line"><span class="cl">::: {.column}
+</span></span><span class="line"><span class="cl"><span class="gu">### Go library
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">The same pipeline is available as an importable package:
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="s">```go
+</span></span></span><span class="line"><span class="cl"><span class="nx">doc</span><span class="p">,</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nx">airplan</span><span class="p">.</span><span class="nf">RenderInput</span><span class="p">(</span><span class="nx">ctx</span><span class="p">,</span><span class="w"> </span><span class="nx">input</span><span class="p">,</span><span class="w"> </span><span class="nx">opts</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="k">if</span><span class="w"> </span><span class="nx">err</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="kc">nil</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="k">return</span><span class="w"> </span><span class="nx">err</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nx">fmt</span><span class="p">.</span><span class="nf">Printf</span><span class="p">(</span><span class="s">&#34;%s: %d bytes\n&#34;</span><span class="p">,</span><span class="w"> </span><span class="nx">doc</span><span class="p">.</span><span class="nx">Title</span><span class="p">,</span><span class="w"> </span><span class="nb">len</span><span class="p">(</span><span class="nx">doc</span><span class="p">.</span><span class="nx">HTML</span><span class="p">))</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="s">```</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">The CLI contains no private rendering path; library callers get the same input
+</span></span><span class="line"><span class="cl">detection and standalone pages.
+</span></span><span class="line"><span class="cl">:::
+</span></span><span class="line"><span class="cl">::::
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## A complete page in one object
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Embedded assets
+</span></span><span class="line"><span class="cl">: Page CSS, interaction JavaScript, and syntax-highlighting styles are included
+</span></span><span class="line"><span class="cl">  directly in the generated HTML.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Conditional asset
+</span></span><span class="line"><span class="cl">: Mermaid is loaded only when the document contains an exact lowercase
+</span></span><span class="line"><span class="cl">  <span class="sb">`mermaid`</span> fence and external assets are allowed.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Original source
+</span></span><span class="line"><span class="cl">: Markdown and source uploads retain the authored bytes for source view, copy,
+</span></span><span class="line"><span class="cl">  download, and raw links.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">| Input      | Page treatment                 | Original uploaded |
+</span></span><span class="line"><span class="cl">| ---------- | ------------------------------ | ----------------- |
+</span></span><span class="line"><span class="cl">| Markdown   | Rendered with navigation       | Yes, by default   |
+</span></span><span class="line"><span class="cl">| Source     | Syntax-highlighted, gist-like  | Yes, by default   |
+</span></span><span class="line"><span class="cl">| HTML       | Uploaded as authored           | No                |
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Storage configuration
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Airplan accepts profiles for separate buckets or environments. A minimal
+</span></span><span class="line"><span class="cl">S3-compatible profile looks like this:
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="s">```toml
+</span></span></span><span class="line"><span class="cl"><span class="p">[</span><span class="nx">profiles</span><span class="p">.</span><span class="nx">demo</span><span class="p">]</span>
+</span></span><span class="line"><span class="cl"><span class="nx">endpoint</span> <span class="p">=</span> <span class="s2">&#34;https://example.r2.cloudflarestorage.com&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nx">bucket</span> <span class="p">=</span> <span class="s2">&#34;airplan-demo&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nx">public_base_url</span> <span class="p">=</span> <span class="s2">&#34;https://plans.example.com&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nx">region</span> <span class="p">=</span> <span class="s2">&#34;auto&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nx">access_key_id</span> <span class="p">=</span> <span class="s2">&#34;...&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="nx">secret_access_key</span> <span class="p">=</span> <span class="s2">&#34;...&#34;</span>
+</span></span><span class="line"><span class="cl"><span class="s">```</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Credentials stay on the machine running airplan. Generated pages contain no
+</span></span><span class="line"><span class="cl">storage API credentials.
+</span></span><span class="line"><span class="cl"><span class="k">
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">[!IMPORTANT]
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">An unguessable URL is not access control. Anyone who receives the URL can
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">open it, and Markdown or HTML may contain active authored content. Upload only
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">documents intended for every recipient of the link.
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Designed for agents
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Airplan&#39;s output contract is intentionally narrow:
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="s">```text
+</span></span></span><span class="line"><span class="cl">success  -&gt; URL on stdout, exit 0
+</span></span><span class="line"><span class="cl">warning  -&gt; message on stderr, URL still on stdout
+</span></span><span class="line"><span class="cl">failure  -&gt; error on stderr, no URL, non-zero exit
+</span></span><span class="line"><span class="cl"><span class="s">```</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">That makes the result easy to capture and return in chat without parsing logs.
+</span></span><span class="line"><span class="cl">The bundled
+</span></span><span class="line"><span class="cl">[<span class="nt">agent skill</span>](<span class="na">https://github.com/jimeh/airplan/blob/main/skills/airplan/SKILL.md</span>)
+</span></span><span class="line"><span class="cl">teaches compatible coding agents when and how to upload a requested document.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Where to learn more
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">-</span> The
+</span></span><span class="line"><span class="cl">  [<span class="nt">README</span>](<span class="na">https://github.com/jimeh/airplan/blob/main/README.md</span>)
+</span></span><span class="line"><span class="cl">  covers installation and everyday usage.
+</span></span><span class="line"><span class="cl"><span class="k">-</span> The
+</span></span><span class="line"><span class="cl">  [<span class="nt">behavior specification</span>](<span class="na">https://github.com/jimeh/airplan/blob/main/SPEC.md</span>)
+</span></span><span class="line"><span class="cl">  is the authoritative contract.
+</span></span><span class="line"><span class="cl"><span class="k">-</span> The
+</span></span><span class="line"><span class="cl">  [<span class="nt">implementation guide</span>](<span class="na">https://github.com/jimeh/airplan/blob/main/IMPLEMENTATION.md</span>)
+</span></span><span class="line"><span class="cl">  maps that contract onto the Go codebase.
+</span></span><span class="line"><span class="cl"><span class="k">-</span> The
+</span></span><span class="line"><span class="cl">  [<span class="nt">Go package reference</span>](<span class="na">https://pkg.go.dev/github.com/jimeh/airplan/airplan</span>)
+</span></span><span class="line"><span class="cl">  documents the importable API.[^package]
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">[^package]: The package and CLI share the same renderer, configuration model,
+</span></span><span class="line"><span class="cl">    and upload client.
+</span></span></code></pre>
+</main>
+</div>
+<script>
+(function () {
+  'use strict';
+  var d = document;
+
+  d.querySelectorAll('.js-only').forEach(function (el) {
+    el.hidden = false;
+  });
+
+  var live = d.createElement('div');
+  live.className = 'sr-status';
+  live.setAttribute('aria-live', 'polite');
+  d.body.appendChild(live);
+
+  function flash(btn, text, ok) {
+    live.textContent = text;
+    var label = btn.querySelector('.action-label');
+    var previousLabel = label ? label.textContent : '';
+    if (label) label.textContent = ok ? 'Copied' : 'Failed';
+    btn.classList.add(ok ? 'is-copied' : 'is-failed');
+    btn.disabled = true;
+    setTimeout(function () {
+      btn.classList.remove('is-copied', 'is-failed');
+      btn.disabled = false;
+      if (label) label.textContent = previousLabel;
+    }, 1200);
+  }
+
+  function copyText(text, btn) {
+    if (!navigator.clipboard) {
+      flash(btn, 'Copy failed', false);
+      return;
+    }
+    navigator.clipboard.writeText(text).then(
+      function () { flash(btn, 'Copied!', true); },
+      function () { flash(btn, 'Copy failed', false); }
+    );
+  }
+
+  var iconCopy = '<svg class="icon icon-copy" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0' +
+    ' 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0' +
+    '-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5' +
+    'a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.7' +
+    '5 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5' +
+    'C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1' +
+    '.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .13' +
+    '8.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25' +
+    '-.25Z"/></svg>';
+  var iconCheck = '<svg class="icon icon-check" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22' +
+    'a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28' +
+    'a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6' +
+    '.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>';
+  var iconX = '<svg class="icon icon-x" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72' +
+    'a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.32' +
+    '6.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326' +
+    ' 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0' +
+    ' 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.7' +
+    '5 0 0 1 0-1.06Z"/></svg>';
+  var iconToc = '<svg class="icon" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="none" stroke="currentColor"' +
+    ' stroke-width="1.5" stroke-linecap="round">' +
+    '<path d="M5 4h9M5 8h9M5 12h9"/>' +
+    '<circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/>' +
+    '<circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/>' +
+    '<circle cx="2" cy="12" r=".75" fill="currentColor"' +
+    ' stroke="none"/></svg>';
+  var iconClose = '<svg class="icon" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72' +
+    'a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1' +
+    ' 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749' +
+    '.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3' +
+    '.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1' +
+    '.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>';
+
+  var rendered = d.getElementById('rendered');
+  var source = d.getElementById('source');
+  var toc = d.getElementById('toc');
+  var tocTrigger = null;
+  var tocDialog = null;
+  var tocMedia = window.matchMedia('(max-width: 78rem)');
+
+  function closeTocDialog() {
+    if (tocDialog && tocDialog.open) tocDialog.close();
+  }
+
+  function syncTocTrigger() {
+    if (!toc || !tocTrigger || !tocDialog) return;
+    var show = tocMedia.matches && !rendered.hidden &&
+      toc.getBoundingClientRect().bottom < 0 && !tocDialog.open;
+    tocTrigger.classList.toggle('is-visible', show);
+    tocTrigger.tabIndex = show ? 0 : -1;
+    tocTrigger.setAttribute('aria-hidden', show ? 'false' : 'true');
+    if (tocDialog.open && (!tocMedia.matches || rendered.hidden)) {
+      closeTocDialog();
+    }
+  }
+
+  d.querySelectorAll('.viewtoggle button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var showSource = btn.dataset.view === 'source';
+      source.hidden = !showSource;
+      rendered.hidden = showSource;
+      if (toc) toc.hidden = showSource;
+      d.querySelectorAll('.viewtoggle button').forEach(function (b) {
+        b.classList.toggle('active', b === btn);
+        b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+      });
+      syncTocTrigger();
+    });
+  });
+
+  if (toc) {
+    var tocLinks = Array.from(toc.querySelectorAll('a[href^="#"]'));
+    var tocList = toc.querySelector('.toc-list');
+
+    if (tocList) {
+      tocDialog = d.createElement('dialog');
+      if (typeof tocDialog.showModal === 'function') {
+        tocDialog.className = 'toc-dialog';
+        tocDialog.id = 'toc-dialog';
+        tocDialog.setAttribute('aria-labelledby', 'toc-dialog-title');
+
+        var tocPanel = d.createElement('div');
+        tocPanel.className = 'toc-dialog-panel';
+        var tocHeader = d.createElement('div');
+        tocHeader.className = 'toc-dialog-header';
+        var tocTitle = d.createElement('h2');
+        tocTitle.className = 'toc-dialog-title';
+        tocTitle.id = 'toc-dialog-title';
+        tocTitle.textContent = 'Contents';
+        var tocClose = d.createElement('button');
+        tocClose.className = 'toc-dialog-close';
+        tocClose.type = 'button';
+        tocClose.setAttribute('aria-label', 'Close table of contents');
+        tocClose.innerHTML = iconClose;
+        tocHeader.appendChild(tocTitle);
+        tocHeader.appendChild(tocClose);
+
+        var tocNav = d.createElement('nav');
+        tocNav.className = 'toc-dialog-nav';
+        tocNav.setAttribute('aria-label', 'Table of contents');
+        tocNav.appendChild(tocList.cloneNode(true));
+        tocPanel.appendChild(tocHeader);
+        tocPanel.appendChild(tocNav);
+        tocDialog.appendChild(tocPanel);
+
+        tocTrigger = d.createElement('button');
+        tocTrigger.className = 'toc-trigger';
+        tocTrigger.type = 'button';
+        tocTrigger.tabIndex = -1;
+        tocTrigger.setAttribute('aria-label', 'Open table of contents');
+        tocTrigger.setAttribute('aria-controls', 'toc-dialog');
+        tocTrigger.setAttribute('aria-haspopup', 'dialog');
+        tocTrigger.setAttribute('aria-hidden', 'true');
+        tocTrigger.innerHTML = iconToc;
+
+        d.body.appendChild(tocTrigger);
+        d.body.appendChild(tocDialog);
+
+        tocTrigger.addEventListener('click', function () {
+          tocDialog.showModal();
+          d.body.classList.add('toc-dialog-open');
+          syncTocTrigger();
+          var active = tocDialog.querySelector('a.active');
+          if (active) active.scrollIntoView({ block: 'nearest' });
+        });
+        tocClose.addEventListener('click', closeTocDialog);
+        tocDialog.addEventListener('click', function (event) {
+          if (event.target === tocDialog) closeTocDialog();
+        });
+        tocDialog.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            closeTocDialog();
+          }
+        });
+        tocDialog.addEventListener('close', function () {
+          d.body.classList.remove('toc-dialog-open');
+          syncTocTrigger();
+          if (tocTrigger.classList.contains('is-visible')) {
+            setTimeout(function () {
+              tocTrigger.focus();
+            }, 50);
+          }
+        });
+        tocNav.querySelectorAll('a').forEach(function (link) {
+          link.addEventListener('click', closeTocDialog);
+        });
+      } else {
+        tocDialog = null;
+      }
+    }
+
+    var allTocLinks = tocLinks.slice();
+    if (tocDialog) {
+      allTocLinks = allTocLinks.concat(
+        Array.from(tocDialog.querySelectorAll('a[href^="#"]'))
+      );
+    }
+    var tocHeadings = tocLinks.map(function (link) {
+      return d.getElementById(link.getAttribute('href').slice(1));
+    });
+    function updateToc() {
+      var current = 0;
+      tocHeadings.forEach(function (heading, index) {
+        if (heading && heading.getBoundingClientRect().top <= 128) {
+          current = index;
+        }
+      });
+      if (window.innerHeight + window.scrollY >=
+          d.documentElement.scrollHeight - 2) {
+        current = tocLinks.length - 1;
+      }
+      var activeHref = tocLinks[current].getAttribute('href');
+      allTocLinks.forEach(function (link) {
+        var active = link.getAttribute('href') === activeHref;
+        link.classList.toggle('active', active);
+        if (active) {
+          link.setAttribute('aria-current', 'location');
+        } else {
+          link.removeAttribute('aria-current');
+        }
+      });
+      syncTocTrigger();
+    }
+    var tocFramePending = false;
+    function scheduleTocUpdate() {
+      if (tocFramePending) return;
+      tocFramePending = true;
+      window.requestAnimationFrame(function () {
+        tocFramePending = false;
+        updateToc();
+      });
+    }
+    d.addEventListener('scroll', scheduleTocUpdate, { passive: true });
+    window.addEventListener('resize', updateToc);
+    updateToc();
+  }
+
+  var copySource = d.querySelector('.copy-source');
+  if (copySource && source) {
+    copySource.addEventListener('click', function () {
+      var pre = source.querySelector('pre');
+      copyText(pre ? pre.textContent : '', copySource);
+    });
+  }
+
+  rendered.querySelectorAll('pre').forEach(function (pre) {
+    if (pre.classList.contains('mermaid')) return;
+    var wrap = d.createElement('div');
+    wrap.className = 'codewrap';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+
+    var btn = d.createElement('button');
+    btn.className = 'codecopy';
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Copy code');
+    btn.title = 'Copy code';
+    btn.innerHTML = iconCopy + iconCheck + iconX;
+    btn.addEventListener('click', function () {
+      var code = pre.querySelector('code');
+      copyText((code || pre).textContent, btn);
+    });
+    wrap.appendChild(btn);
+  });
+})();
+
+</script>
+<script type="module" referrerpolicy="no-referrer">
+const diagrams = Array.from(document.querySelectorAll('pre.mermaid'));
+const sources = diagrams.map((diagram) => diagram.textContent);
+try {
+  const {default: mermaid} = await import("https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.esm.min.mjs");
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    theme: dark ? 'dark' : 'default'
+  });
+  for (const [index, diagram] of diagrams.entries()) {
+    try {
+      await mermaid.run({nodes: [diagram]});
+      diagram.classList.add('mermaid-rendered');
+    } catch (error) {
+      diagram.textContent = sources[index];
+      diagram.classList.add('mermaid-failed');
+      console.warn('airplan: Mermaid diagram rendering failed', error);
+    }
+  }
+} catch (error) {
+  diagrams.forEach((diagram, index) => {
+    diagram.textContent = sources[index];
+    diagram.classList.add('mermaid-failed');
+  });
+  console.warn('airplan: Mermaid rendering failed', error);
+}
+</script>
+</body>
+</html>

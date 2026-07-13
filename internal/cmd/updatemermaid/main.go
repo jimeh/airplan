@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,8 +18,9 @@ import (
 )
 
 const (
-	manifestPath = "internal/deps/mermaid.json"
-	minimumAge   = 72 * time.Hour
+	manifestPath        = "internal/deps/mermaid.json"
+	renderGoldenPattern = "airplan/testdata/TestRenderMarkdownGolden/*.html"
+	minimumAge          = 72 * time.Hour
 )
 
 type manifest struct {
@@ -48,12 +50,15 @@ func main() {
 	}
 }
 
-func update(now time.Time, client *http.Client, dryRun bool) error {
-	trackedPaths := []string{
+func update(now time.Time, client *http.Client, dryRun bool) (retErr error) {
+	renderGoldenPaths, err := findRenderGoldens()
+	if err != nil {
+		return err
+	}
+	trackedPaths := append([]string{
 		manifestPath,
 		"airplan/mermaid_generated.go",
-		"airplan/testdata/basic.html",
-	}
+	}, renderGoldenPaths...)
 	originals := make(map[string][]byte, len(trackedPaths))
 	for _, path := range trackedPaths {
 		data, err := os.ReadFile(path)
@@ -138,26 +143,30 @@ func update(now time.Time, client *http.Client, dryRun bool) error {
 		return err
 	}
 	encoded = append(encoded, '\n')
-	if err := os.WriteFile(manifestPath, encoded, 0o644); err != nil {
-		return err
-	}
 	rollback := true
 	defer func() {
 		if rollback {
-			for path, data := range originals {
-				_ = os.WriteFile(path, data, 0o644)
+			if err := restoreFiles(originals); err != nil {
+				retErr = errors.Join(
+					retErr,
+					fmt.Errorf("restore Mermaid update files: %w", err),
+				)
 			}
 		}
 	}()
+	if err := os.WriteFile(manifestPath, encoded, 0o644); err != nil {
+		return err
+	}
 	commands := [][]string{
 		{
 			"go", "run", "./internal/cmd/genmermaid",
 			manifestPath, "airplan/mermaid_generated.go",
 		},
-		{"go", "test", "./airplan", "-run", "TestRenderMarkdownGolden", "-update"},
+		{"go", "test", "./airplan", "-run", "TestRenderMarkdownGolden"},
 	}
 	for _, args := range commands {
 		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Env = append(os.Environ(), "GOLDEN_UPDATE=1")
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("run %s: %w", strings.Join(args, " "), err)
@@ -166,6 +175,55 @@ func update(now time.Time, client *http.Client, dryRun bool) error {
 	rollback = false
 	fmt.Printf("updated Mermaid %s -> %s\n", current.Version, next.raw)
 	return nil
+}
+
+func findRenderGoldens() ([]string, error) {
+	paths, err := globRenderGoldens()
+	if err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 {
+		return nil, fmt.Errorf(
+			"no render golden files match %q", renderGoldenPattern,
+		)
+	}
+	return paths, nil
+}
+
+func restoreFiles(originals map[string][]byte) error {
+	var restoreErr error
+	currentGoldens, err := globRenderGoldens()
+	if err != nil {
+		restoreErr = errors.Join(
+			restoreErr,
+			fmt.Errorf("find current render goldens: %w", err),
+		)
+	} else {
+		for _, path := range currentGoldens {
+			if _, existed := originals[path]; existed {
+				continue
+			}
+			if err := os.Remove(path); err != nil {
+				restoreErr = errors.Join(
+					restoreErr,
+					fmt.Errorf("remove %s: %w", path, err),
+				)
+			}
+		}
+	}
+	for path, data := range originals {
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			restoreErr = errors.Join(
+				restoreErr,
+				fmt.Errorf("restore %s: %w", path, err),
+			)
+		}
+	}
+	return restoreErr
+}
+
+func globRenderGoldens() ([]string, error) {
+	return filepath.Glob(filepath.FromSlash(renderGoldenPattern))
 }
 
 func fetchRegistry(client *http.Client) (registryDocument, error) {

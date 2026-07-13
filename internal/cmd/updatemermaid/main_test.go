@@ -138,6 +138,90 @@ func TestUpdateSelectsEligibleReleaseWithinCurrentMajor(t *testing.T) {
 	}
 }
 
+func TestRestoreFilesRestoresGoldenDirectory(t *testing.T) {
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+
+	originalPath := filepath.Join(
+		"airplan", "testdata", "TestRenderMarkdownGolden", "original.html",
+	)
+	newPath := filepath.Join(
+		"airplan", "testdata", "TestRenderMarkdownGolden", "new.html",
+	)
+	if err := os.MkdirAll(filepath.Dir(originalPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(originalPath, []byte("changed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newPath, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := restoreFiles(map[string][]byte{
+		originalPath: []byte("original"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := os.ReadFile(originalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "original" {
+		t.Fatalf("restored contents = %q, want %q", got, "original")
+	}
+	if _, err := os.Stat(newPath); !os.IsNotExist(err) {
+		t.Fatalf("new golden still exists: %v", err)
+	}
+}
+
+func TestRestoreFilesReportsFailures(t *testing.T) {
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+
+	goldenDir := filepath.Join(
+		"airplan", "testdata", "TestRenderMarkdownGolden",
+	)
+	removePath := filepath.Join(goldenDir, "new.html")
+	if err := os.MkdirAll(removePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(removePath, "child"), []byte("data"), 0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+	restorePath := filepath.Join(goldenDir, "original")
+	if err := os.MkdirAll(restorePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	err = restoreFiles(map[string][]byte{restorePath: []byte("original")})
+	if err == nil {
+		t.Fatal("restoreFiles succeeded despite remove and restore failures")
+	}
+	for _, path := range []string{removePath, restorePath} {
+		if !strings.Contains(err.Error(), path) {
+			t.Errorf("error %q does not mention %q", err, path)
+		}
+	}
+}
+
 func withManifest(t *testing.T, contents string) {
 	t.Helper()
 	old, err := os.Getwd()
@@ -152,9 +236,11 @@ func withManifest(t *testing.T, contents string) {
 		[]byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{
-		"airplan/mermaid_generated.go", "airplan/testdata/basic.html",
-	} {
+	trackedPaths := []string{
+		"airplan/mermaid_generated.go",
+		"airplan/testdata/TestRenderMarkdownGolden/basic.html",
+	}
+	for _, path := range trackedPaths {
 		full := filepath.Join(dir, path)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)

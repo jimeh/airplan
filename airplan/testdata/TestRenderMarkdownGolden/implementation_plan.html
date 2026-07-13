@@ -1,0 +1,1807 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta name="robots" content="noindex, nofollow">
+<title>Zero-downtime token migration</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --fg: #1f2328;
+  --heading: #1f2328;
+  --subheading: #3d444d;
+  --muted: #59636e;
+  --link: #0969da;
+  --border: #d1d9e0;
+  --surface-subtle: #f6f8fa;
+  --code-inline-bg: #eff1f3;
+  --code-bg: #f6f8fa;
+  --code-border: #d1d9e0;
+  --control-track: #eff1f3;
+  --control-active: #ffffff;
+  --control-hover: #eff1f3;
+  --control-divider: #d8dee4;
+  --on-link: #ffffff;
+  --dialog-backdrop: rgba(31, 35, 40, 0.45);
+  --mark-bg: #fff8c5;
+  --alert-note: #0969da;
+  --alert-note-bg: #ddf4ff;
+  --alert-tip: #1a7f37;
+  --alert-tip-bg: #dafbe1;
+  --alert-important: #8250df;
+  --alert-important-bg: #fbefff;
+  --alert-warning: #9a6700;
+  --alert-warning-bg: #fff8c5;
+  --alert-caution: #cf222e;
+  --alert-caution-bg: #ffebe9;
+  --page-width: 54rem;
+  --prose-width: 78ch;
+  --toc-width: 14rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --heading: #f0f6fc;
+    --subheading: #c9d1d9;
+    --muted: #9198a1;
+    --link: #4493f8;
+    --border: #3d444d;
+    --surface-subtle: #151b23;
+    --code-inline-bg: #212830;
+    --code-bg: #151b23;
+    --code-border: #30363d;
+    --control-track: #21262d;
+    --control-active: #30363d;
+    --control-hover: #21262d;
+    --control-divider: #30363d;
+    --on-link: #0d1117;
+    --dialog-backdrop: rgba(0, 0, 0, 0.66);
+    --mark-bg: #693e00;
+    --alert-note: #4493f8;
+    --alert-note-bg: #121d2f;
+    --alert-tip: #3fb950;
+    --alert-tip-bg: #12261e;
+    --alert-important: #a371f7;
+    --alert-important-bg: #211a2e;
+    --alert-warning: #d29922;
+    --alert-warning-bg: #272115;
+    --alert-caution: #f85149;
+    --alert-caution-bg: #2d1618;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
+    Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-size: 16px;
+  line-height: 1.7;
+  -webkit-text-size-adjust: 100%;
+}
+
+.page-shell {
+  display: grid;
+  grid-template-columns:
+    minmax(12rem, 1fr) minmax(0, var(--page-width)) minmax(12rem, 1fr);
+  grid-template-rows: auto 1fr;
+  min-height: 100vh;
+}
+
+.toolbar {
+  grid-column: 2;
+  grid-row: 1;
+  width: 100%;
+  padding: 0.75rem 1.25rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.toc {
+  grid-column: 1;
+  grid-row: 2;
+  position: sticky;
+  top: 1.5rem;
+  align-self: start;
+  justify-self: end;
+  width: min(var(--toc-width), calc(100% - 2rem));
+  max-height: calc(100vh - 3rem);
+  margin: 1.5rem 1.25rem 0 0;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+
+.toc-title {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.toc-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toc-list li + li {
+  margin-top: 0.1rem;
+}
+
+.toc-list a {
+  display: block;
+  padding: 0.3rem 0;
+  color: var(--muted);
+  line-height: 1.35;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.toc-list a:hover,
+.toc-list a:focus-visible {
+  color: var(--fg);
+}
+
+.toc-list a.active {
+  color: var(--link);
+}
+
+.toc-level-1 {
+  margin-top: 0.65rem;
+  font-weight: 650;
+}
+
+.toc-level-1:first-child {
+  margin-top: 0;
+}
+
+.toc-level-3 a {
+  padding-left: 1rem;
+  font-size: 0.8rem;
+}
+
+.toc-trigger {
+  display: none;
+  position: fixed;
+  right: 1.25rem;
+  bottom: calc(1.25rem + env(safe-area-inset-bottom));
+  z-index: 20;
+  width: 3rem;
+  height: 3rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--on-link);
+  background: var(--link);
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(0.5rem);
+  transition:
+    opacity 0.15s ease-in-out,
+    visibility 0.15s ease-in-out,
+    transform 0.15s ease-in-out,
+    box-shadow 0.15s ease-in-out;
+}
+
+.toc-trigger.is-visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.toc-trigger:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28);
+}
+
+.toc-trigger .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.toc-trigger:focus-visible,
+.toc-dialog-close:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 3px;
+}
+
+.toc-dialog {
+  position: fixed;
+  inset: auto 0 0;
+  width: min(100%, 42rem);
+  max-width: none;
+  max-height: 70vh;
+  max-height: 70svh;
+  margin: 0 auto;
+  padding: 0;
+  color: var(--fg);
+  background: var(--bg);
+  border: 0;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.toc-dialog::backdrop {
+  background: var(--dialog-backdrop);
+}
+
+.toc-dialog-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+}
+
+.toc-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: 1.25rem 1.25rem 0.75rem;
+}
+
+.toc-dialog-title {
+  margin: 0;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.toc-dialog-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.toc-dialog-close:hover {
+  color: var(--fg);
+  background: var(--control-hover);
+}
+
+.toc-dialog-nav {
+  min-height: 0;
+  padding: 0.25rem 1.25rem
+    calc(1.5rem + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.toc-dialog .toc-list a {
+  padding-block: 0.55rem;
+}
+
+body.toc-dialog-open {
+  overflow: hidden;
+}
+
+.toolbar a,
+.toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  font: inherit;
+  color: var(--muted);
+  background: transparent;
+  text-decoration: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 0.4rem 0.65rem;
+  cursor: pointer;
+  transition:
+    color 0.15s ease-in-out,
+    background-color 0.15s ease-in-out;
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.icon-check,
+.icon-x {
+  display: none;
+}
+
+.is-copied .icon-copy,
+.is-failed .icon-copy {
+  display: none;
+}
+
+.is-copied .icon-check,
+.is-failed .icon-x {
+  display: inline;
+}
+
+.toolbar a:hover,
+.toolbar button:hover {
+  color: var(--fg);
+  background: var(--control-hover);
+}
+
+.toolbar a:focus-visible,
+.toolbar button:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.viewtoggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--control-track);
+  border: 0;
+  border-radius: 8px;
+}
+
+.viewtoggle button {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.3rem 0.55rem;
+}
+
+.viewtoggle button:hover {
+  color: var(--fg);
+}
+
+.viewtoggle button.active {
+  color: var(--fg);
+  background: var(--control-active);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.viewtoggle + .copy-source {
+  position: relative;
+  margin-left: 0.5rem;
+}
+
+.viewtoggle + .copy-source::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -0.5rem;
+  width: 1px;
+  height: 1rem;
+  background: var(--control-divider);
+  transform: translateY(-50%);
+}
+
+[hidden] {
+  display: none !important;
+}
+
+.codewrap {
+  position: relative;
+  margin: 0 0 1.5em;
+}
+
+.codewrap pre {
+  margin: 0;
+}
+
+.codecopy {
+  position: absolute;
+  top: 0.5em;
+  right: 0.5em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: inherit;
+  color: var(--muted);
+  background: var(--code-bg);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 0.35rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease-in-out;
+}
+
+.codecopy .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.codewrap:hover .codecopy,
+.codecopy:focus-visible {
+  opacity: 1;
+}
+
+.codecopy:hover {
+  color: var(--fg);
+  border-color: var(--muted);
+}
+
+@media (hover: none) {
+  .codecopy {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .toolbar a,
+  .toolbar button,
+  .toc-trigger,
+  .codecopy {
+    transition: none;
+  }
+}
+
+.content {
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  min-width: 0;
+  padding: 1.5rem 1.5rem 4rem;
+  overflow-wrap: break-word;
+}
+
+.content > p,
+.content > ul,
+.content > ol,
+.content > blockquote,
+.content > .footnotes {
+  max-width: var(--prose-width);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--heading);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  margin: 2em 0 0.75em;
+  scroll-margin-top: 0.75em;
+}
+
+h1 {
+  font-size: 2em;
+  margin-top: 0.35em;
+  letter-spacing: -0.025em;
+}
+
+h2 {
+  font-size: 1.5em;
+  margin-top: 2.25em;
+}
+
+h3 {
+  font-size: 1.2em;
+  color: var(--subheading);
+}
+h4 { font-size: 1.05em; }
+h5, h6 { font-size: 1em; }
+h6 { color: var(--muted); }
+
+p, ul, ol, blockquote, table, pre {
+  margin: 0 0 1.25em;
+}
+
+dl {
+  margin: 1.25rem 0;
+}
+
+dt {
+  font-weight: 650;
+  margin-top: 0.8rem;
+}
+
+dd {
+  color: var(--muted);
+  margin: 0.25rem 0 0 1.25rem;
+}
+
+.frontmatter {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  margin: 0 0 1.75rem;
+  overflow: hidden;
+}
+
+.frontmatter summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.55rem 0.75rem;
+  user-select: none;
+}
+
+.frontmatter summary span {
+  font-weight: 400;
+  margin-left: 0.35rem;
+  text-transform: uppercase;
+}
+
+.frontmatter .chroma {
+  border: 0;
+  border-radius: 0;
+  margin: 0;
+}
+
+.columns {
+  display: flex;
+  gap: 1.5rem;
+  margin: 1.5rem 0;
+  min-width: 0;
+}
+
+.column {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.column[style] {
+  flex: 0 1 var(--column-width);
+}
+
+.column > :first-child { margin-top: 0; }
+.column > :last-child { margin-bottom: 0; }
+
+a {
+  color: var(--link);
+}
+
+ul, ol {
+  padding-left: 1.75em;
+}
+
+li + li {
+  margin-top: 0.2em;
+}
+
+li > ul, li > ol {
+  margin-bottom: 0;
+}
+
+ul:has(> li > input[type="checkbox"]) {
+  list-style: none;
+  padding-left: 0.5em;
+}
+
+li > input[type="checkbox"] {
+  margin: 0 0.4em 0.2em 0;
+  vertical-align: middle;
+}
+
+blockquote {
+  border-left: 0.25em solid var(--border);
+  padding: 0 1em;
+  color: var(--muted);
+}
+
+blockquote > :first-child { margin-top: 0; }
+blockquote > :last-child { margin-bottom: 0; }
+
+.markdown-alert {
+  --alert-color: var(--alert-note);
+  --alert-bg: var(--alert-note-bg);
+  margin: 1.5em 0;
+  padding: 0.85em 1em;
+  border-left: 3px solid var(--alert-color);
+  border-radius: 6px;
+  background: var(--alert-bg);
+  color: var(--fg);
+}
+
+.markdown-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin: 0 0 0.55em;
+  color: var(--alert-color);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.markdown-alert-icon {
+  width: 1em;
+  height: 1em;
+  flex: none;
+}
+
+.markdown-alert > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown-alert-tip {
+  --alert-color: var(--alert-tip);
+  --alert-bg: var(--alert-tip-bg);
+}
+
+.markdown-alert-important {
+  --alert-color: var(--alert-important);
+  --alert-bg: var(--alert-important-bg);
+}
+
+.markdown-alert-warning {
+  --alert-color: var(--alert-warning);
+  --alert-bg: var(--alert-warning-bg);
+}
+
+.markdown-alert-caution {
+  --alert-color: var(--alert-caution);
+  --alert-bg: var(--alert-caution-bg);
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  height: 0;
+  margin: 2em 0;
+}
+
+img {
+  max-width: 100%;
+}
+
+table {
+  border-collapse: collapse;
+  border-spacing: 0;
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+th, td {
+  border: 1px solid var(--border);
+  padding: 0.35em 0.8em;
+}
+
+th {
+  font-weight: 600;
+}
+
+thead tr, tbody tr:nth-child(even) {
+  background: var(--code-bg);
+}
+
+code, pre, kbd, samp {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+}
+
+code {
+  background: var(--code-inline-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+  font-size: 0.875em;
+}
+
+pre {
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 8px;
+  padding: 1em 1.25em;
+  overflow-x: auto;
+  line-height: 1.6;
+  scrollbar-color: var(--border) transparent;
+  scrollbar-width: thin;
+}
+
+pre::-webkit-scrollbar {
+  height: 6px;
+}
+
+pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+pre::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+  font-size: 0.875em;
+}
+
+.chroma {
+  background: var(--code-bg) !important;
+}
+
+pre.mermaid {
+  max-width: 100%;
+  white-space: pre-wrap;
+}
+
+pre.mermaid.mermaid-rendered {
+  display: flex;
+  justify-content: center;
+}
+
+pre.mermaid.mermaid-rendered svg {
+  height: auto;
+  max-width: 100%;
+}
+
+pre.mermaid.mermaid-failed {
+  display: block;
+  color: var(--muted);
+}
+
+.filehead {
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--code-border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  padding: 0.6em 1em;
+}
+
+.filehead code {
+  background: none;
+  padding: 0;
+  color: var(--fg);
+}
+
+.filehead + pre {
+  border-radius: 0 0 8px 8px;
+  margin-top: 0;
+}
+
+.source-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.source-heading .icon {
+  width: 14px;
+  height: 14px;
+}
+
+mark {
+  background: var(--mark-bg);
+  color: inherit;
+}
+
+.footnotes {
+  margin-top: 3em;
+  padding-top: 1em;
+  border-top: 1px solid var(--border);
+  font-size: 0.9em;
+  color: var(--muted);
+}
+
+.footnotes hr {
+  display: none;
+}
+
+.sr-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 78rem) {
+  .page-shell {
+    display: block;
+  }
+
+  .toolbar,
+  .toc,
+  .content {
+    width: 100%;
+    max-width: var(--page-width);
+    margin-inline: auto;
+  }
+
+  .toc {
+    position: static;
+    max-height: none;
+    padding: 1.25rem 1.5rem 0;
+    overflow: visible;
+  }
+
+  .toc-trigger {
+    display: inline-flex;
+  }
+
+  .toc-trigger.is-visible {
+    pointer-events: auto;
+  }
+}
+
+@media (max-width: 36rem) {
+  .toolbar {
+    display: grid;
+    grid-template-columns: repeat(3, max-content);
+    justify-content: flex-start;
+    padding-inline: 1rem;
+  }
+
+  .toolbar .viewtoggle {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .viewtoggle + .copy-source {
+    margin-left: 0;
+  }
+
+  .viewtoggle + .copy-source::before {
+    display: none;
+  }
+
+  .toc,
+  .content {
+    padding-inline: 1.25rem;
+  }
+}
+
+@media (max-width: 48rem), print {
+  .columns {
+    display: block;
+  }
+
+  .column + .column {
+    margin-top: 1.5rem;
+  }
+}
+
+@media print {
+  .toolbar,
+  .toc,
+  .toc-trigger,
+  .toc-dialog,
+  .codecopy,
+  .source-view {
+    display: none !important;
+  }
+
+  #rendered {
+    display: block !important;
+  }
+
+  body {
+    background: #fff;
+    color: #000;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+/* Background */ .bg { background-color: #f7f7f7; }
+/* PreWrapper */ .chroma { background-color: #f7f7f7; -webkit-text-size-adjust: none; }
+/* Error */ .chroma .err { color: #f6f8fa; background-color: #82071e }
+/* LineLink */ .chroma .lnlinks { outline: none; text-decoration: none; color: inherit }
+/* LineTableTD */ .chroma .lntd { vertical-align: top; padding: 0; margin: 0; border: 0; }
+/* LineTable */ .chroma .lntable { border-spacing: 0; padding: 0; margin: 0; border: 0; }
+/* LineHighlight */ .chroma .hl { background-color: #dedede }
+/* LineNumbersTable */ .chroma .lnt { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+/* LineNumbers */ .chroma .ln { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #7f7f7f }
+/* Line */ .chroma .line { display: flex; }
+/* Keyword */ .chroma .k { color: #cf222e }
+/* KeywordConstant */ .chroma .kc { color: #cf222e }
+/* KeywordDeclaration */ .chroma .kd { color: #cf222e }
+/* KeywordNamespace */ .chroma .kn { color: #cf222e }
+/* KeywordPseudo */ .chroma .kp { color: #cf222e }
+/* KeywordReserved */ .chroma .kr { color: #cf222e }
+/* KeywordType */ .chroma .kt { color: #cf222e }
+/* NameAttribute */ .chroma .na { color: #1f2328 }
+/* NameClass */ .chroma .nc { color: #1f2328 }
+/* NameConstant */ .chroma .no { color: #0550ae }
+/* NameDecorator */ .chroma .nd { color: #0550ae }
+/* NameEntity */ .chroma .ni { color: #6639ba }
+/* NameLabel */ .chroma .nl { color: #990000; font-weight: bold }
+/* NameNamespace */ .chroma .nn { color: #24292e }
+/* NameOther */ .chroma .nx { color: #1f2328 }
+/* NameTag */ .chroma .nt { color: #0550ae }
+/* NameBuiltin */ .chroma .nb { color: #6639ba }
+/* NameBuiltinPseudo */ .chroma .bp { color: #6a737d }
+/* NameVariable */ .chroma .nv { color: #953800 }
+/* NameVariableClass */ .chroma .vc { color: #953800 }
+/* NameVariableGlobal */ .chroma .vg { color: #953800 }
+/* NameVariableInstance */ .chroma .vi { color: #953800 }
+/* NameVariableMagic */ .chroma .vm { color: #953800 }
+/* NameFunction */ .chroma .nf { color: #6639ba }
+/* NameFunctionMagic */ .chroma .fm { color: #6639ba }
+/* LiteralString */ .chroma .s { color: #0a3069 }
+/* LiteralStringAffix */ .chroma .sa { color: #0a3069 }
+/* LiteralStringBacktick */ .chroma .sb { color: #0a3069 }
+/* LiteralStringChar */ .chroma .sc { color: #0a3069 }
+/* LiteralStringDelimiter */ .chroma .dl { color: #0a3069 }
+/* LiteralStringDoc */ .chroma .sd { color: #0a3069 }
+/* LiteralStringDouble */ .chroma .s2 { color: #0a3069 }
+/* LiteralStringEscape */ .chroma .se { color: #0a3069 }
+/* LiteralStringHeredoc */ .chroma .sh { color: #0a3069 }
+/* LiteralStringInterpol */ .chroma .si { color: #0a3069 }
+/* LiteralStringOther */ .chroma .sx { color: #0a3069 }
+/* LiteralStringRegex */ .chroma .sr { color: #0a3069 }
+/* LiteralStringSingle */ .chroma .s1 { color: #0a3069 }
+/* LiteralStringSymbol */ .chroma .ss { color: #032f62 }
+/* LiteralNumber */ .chroma .m { color: #0550ae }
+/* LiteralNumberBin */ .chroma .mb { color: #0550ae }
+/* LiteralNumberFloat */ .chroma .mf { color: #0550ae }
+/* LiteralNumberHex */ .chroma .mh { color: #0550ae }
+/* LiteralNumberInteger */ .chroma .mi { color: #0550ae }
+/* LiteralNumberIntegerLong */ .chroma .il { color: #0550ae }
+/* LiteralNumberOct */ .chroma .mo { color: #0550ae }
+/* Operator */ .chroma .o { color: #0550ae }
+/* OperatorWord */ .chroma .ow { color: #0550ae }
+/* OperatorReserved */ .chroma .or { color: #0550ae }
+/* Punctuation */ .chroma .p { color: #1f2328 }
+/* Comment */ .chroma .c { color: #57606a }
+/* CommentHashbang */ .chroma .ch { color: #57606a }
+/* CommentMultiline */ .chroma .cm { color: #57606a }
+/* CommentSingle */ .chroma .c1 { color: #57606a }
+/* CommentSpecial */ .chroma .cs { color: #57606a }
+/* CommentPreproc */ .chroma .cp { color: #57606a }
+/* CommentPreprocFile */ .chroma .cpf { color: #57606a }
+/* GenericDeleted */ .chroma .gd { color: #82071e; background-color: #ffebe9 }
+/* GenericEmph */ .chroma .ge { color: #1f2328 }
+/* GenericInserted */ .chroma .gi { color: #116329; background-color: #dafbe1 }
+/* GenericOutput */ .chroma .go { color: #1f2328 }
+/* GenericUnderline */ .chroma .gl { text-decoration: underline }
+/* TextWhitespace */ .chroma .w { color: #ffffff }
+}
+@media (prefers-color-scheme: dark) {
+/* Background */ .bg { color: #e6edf3; background-color: #0d1117; }
+/* PreWrapper */ .chroma { color: #e6edf3; background-color: #0d1117; -webkit-text-size-adjust: none; }
+/* Error */ .chroma .err { color: #f85149 }
+/* LineLink */ .chroma .lnlinks { outline: none; text-decoration: none; color: inherit }
+/* LineTableTD */ .chroma .lntd { vertical-align: top; padding: 0; margin: 0; border: 0; }
+/* LineTable */ .chroma .lntable { border-spacing: 0; padding: 0; margin: 0; border: 0; }
+/* LineHighlight */ .chroma .hl { background-color: #6e7681 }
+/* LineNumbersTable */ .chroma .lnt { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #737679 }
+/* LineNumbers */ .chroma .ln { white-space: pre; -webkit-user-select: none; user-select: none; margin-right: 0.4em; padding: 0 0.4em 0 0.4em;color: #6e7681 }
+/* Line */ .chroma .line { display: flex; }
+/* Keyword */ .chroma .k { color: #ff7b72 }
+/* KeywordConstant */ .chroma .kc { color: #79c0ff }
+/* KeywordDeclaration */ .chroma .kd { color: #ff7b72 }
+/* KeywordNamespace */ .chroma .kn { color: #ff7b72 }
+/* KeywordPseudo */ .chroma .kp { color: #79c0ff }
+/* KeywordReserved */ .chroma .kr { color: #ff7b72 }
+/* KeywordType */ .chroma .kt { color: #ff7b72 }
+/* NameClass */ .chroma .nc { color: #f0883e; font-weight: bold }
+/* NameConstant */ .chroma .no { color: #79c0ff; font-weight: bold }
+/* NameDecorator */ .chroma .nd { color: #d2a8ff; font-weight: bold }
+/* NameEntity */ .chroma .ni { color: #ffa657 }
+/* NameException */ .chroma .ne { color: #f0883e; font-weight: bold }
+/* NameLabel */ .chroma .nl { color: #79c0ff; font-weight: bold }
+/* NameNamespace */ .chroma .nn { color: #ff7b72 }
+/* NameProperty */ .chroma .py { color: #79c0ff }
+/* NameTag */ .chroma .nt { color: #7ee787 }
+/* NameVariable */ .chroma .nv { color: #79c0ff }
+/* NameVariableClass */ .chroma .vc { color: #79c0ff }
+/* NameVariableGlobal */ .chroma .vg { color: #79c0ff }
+/* NameVariableInstance */ .chroma .vi { color: #79c0ff }
+/* NameVariableMagic */ .chroma .vm { color: #79c0ff }
+/* NameFunction */ .chroma .nf { color: #d2a8ff; font-weight: bold }
+/* NameFunctionMagic */ .chroma .fm { color: #d2a8ff; font-weight: bold }
+/* Literal */ .chroma .l { color: #a5d6ff }
+/* LiteralDate */ .chroma .ld { color: #79c0ff }
+/* LiteralString */ .chroma .s { color: #a5d6ff }
+/* LiteralStringAffix */ .chroma .sa { color: #79c0ff }
+/* LiteralStringBacktick */ .chroma .sb { color: #a5d6ff }
+/* LiteralStringChar */ .chroma .sc { color: #a5d6ff }
+/* LiteralStringDelimiter */ .chroma .dl { color: #79c0ff }
+/* LiteralStringDoc */ .chroma .sd { color: #a5d6ff }
+/* LiteralStringDouble */ .chroma .s2 { color: #a5d6ff }
+/* LiteralStringEscape */ .chroma .se { color: #79c0ff }
+/* LiteralStringHeredoc */ .chroma .sh { color: #79c0ff }
+/* LiteralStringInterpol */ .chroma .si { color: #a5d6ff }
+/* LiteralStringOther */ .chroma .sx { color: #a5d6ff }
+/* LiteralStringRegex */ .chroma .sr { color: #79c0ff }
+/* LiteralStringSingle */ .chroma .s1 { color: #a5d6ff }
+/* LiteralStringSymbol */ .chroma .ss { color: #a5d6ff }
+/* LiteralNumber */ .chroma .m { color: #a5d6ff }
+/* LiteralNumberBin */ .chroma .mb { color: #a5d6ff }
+/* LiteralNumberFloat */ .chroma .mf { color: #a5d6ff }
+/* LiteralNumberHex */ .chroma .mh { color: #a5d6ff }
+/* LiteralNumberInteger */ .chroma .mi { color: #a5d6ff }
+/* LiteralNumberIntegerLong */ .chroma .il { color: #a5d6ff }
+/* LiteralNumberOct */ .chroma .mo { color: #a5d6ff }
+/* Operator */ .chroma .o { color: #ff7b72; font-weight: bold }
+/* OperatorWord */ .chroma .ow { color: #ff7b72; font-weight: bold }
+/* OperatorReserved */ .chroma .or { color: #ff7b72; font-weight: bold }
+/* Comment */ .chroma .c { color: #8b949e; font-style: italic }
+/* CommentHashbang */ .chroma .ch { color: #8b949e; font-style: italic }
+/* CommentMultiline */ .chroma .cm { color: #8b949e; font-style: italic }
+/* CommentSingle */ .chroma .c1 { color: #8b949e; font-style: italic }
+/* CommentSpecial */ .chroma .cs { color: #8b949e; font-weight: bold; font-style: italic }
+/* CommentPreproc */ .chroma .cp { color: #8b949e; font-weight: bold; font-style: italic }
+/* CommentPreprocFile */ .chroma .cpf { color: #8b949e; font-weight: bold; font-style: italic }
+/* GenericDeleted */ .chroma .gd { color: #ffa198; background-color: #490202 }
+/* GenericEmph */ .chroma .ge { font-style: italic }
+/* GenericError */ .chroma .gr { color: #ffa198 }
+/* GenericHeading */ .chroma .gh { color: #79c0ff; font-weight: bold }
+/* GenericInserted */ .chroma .gi { color: #56d364; background-color: #0f5323 }
+/* GenericOutput */ .chroma .go { color: #8b949e }
+/* GenericPrompt */ .chroma .gp { color: #8b949e }
+/* GenericStrong */ .chroma .gs { font-weight: bold }
+/* GenericSubheading */ .chroma .gu { color: #79c0ff }
+/* GenericTraceback */ .chroma .gt { color: #ff7b72 }
+/* GenericUnderline */ .chroma .gl { text-decoration: underline }
+/* TextWhitespace */ .chroma .w { color: #6e7681 }
+}
+
+</style>
+</head>
+<body>
+<div class="page-shell">
+<nav class="toolbar" aria-label="Document controls">
+  <div class="viewtoggle js-only" hidden>
+    <button type="button" class="active" data-view="rendered"
+      aria-pressed="true" aria-label="Rendered view"
+      title="Rendered view"><svg class="icon" aria-hidden="true"
+      viewBox="0 0 16 16" fill="currentColor"><path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.825.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"/></svg><span>Rendered</span></button>
+    <button type="button" data-view="source"
+      aria-pressed="false" aria-label="Source view"
+      title="Source view"><svg class="icon" aria-hidden="true"
+      viewBox="0 0 16 16" fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Source</span></button>
+  </div>
+  <button type="button" class="copy-source js-only" hidden
+    aria-label="Copy markdown" title="Copy markdown"><svg
+    class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg><svg
+    class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg><svg
+    class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg><span class="action-label">Copy</span></button>
+  <a class="download" href="./implementation-plan.md" download
+    aria-label="Download markdown"
+    title="Download markdown"><svg
+    class="icon" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg><span>Download</span></a>
+  <a class="raw" href="./implementation-plan.md"
+    aria-label="Open raw markdown"
+    title="Open raw markdown"><svg
+    class="icon" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Raw</span></a>
+</nav>
+<nav class="toc" id="toc" aria-label="Table of contents">
+  <p class="toc-title">Contents</p>
+  <ol class="toc-list">
+    <li class="toc-level-2"><a href="#outcome">Outcome</a></li>
+    <li class="toc-level-3"><a href="#goals">Goals</a></li>
+    <li class="toc-level-3"><a href="#non-goals">Non-goals</a></li>
+    <li class="toc-level-2"><a href="#migration-flow">Migration flow</a></li>
+    <li class="toc-level-2"><a href="#compatibility-contract">Compatibility contract</a></li>
+    <li class="toc-level-2"><a href="#delivery-tracking">Delivery tracking</a></li>
+    <li class="toc-level-2"><a href="#implementation">Implementation</a></li>
+    <li class="toc-level-3"><a href="#1-add-dual-validation">1. Add dual validation</a></li>
+    <li class="toc-level-3"><a href="#2-migrate-active-sessions">2. Migrate active sessions</a></li>
+    <li class="toc-level-3"><a href="#3-prefer-tokens">3. Prefer tokens</a></li>
+    <li class="toc-level-3"><a href="#4-remove-compatibility-code">4. Remove compatibility code</a></li>
+    <li class="toc-level-2"><a href="#observability">Observability</a></li>
+    <li class="toc-level-2"><a href="#rollback">Rollback</a></li>
+    <li class="toc-level-2"><a href="#open-questions">Open questions</a></li>
+  </ol>
+</nav>
+<main class="content" id="rendered">
+<details class="frontmatter">
+  <summary>Frontmatter <span>yaml</span></summary>
+  <pre class="chroma"><code><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="l">Zero-downtime token migration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">owner</span><span class="p">:</span><span class="w"> </span><span class="l">Identity Platform</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="l">Proposed</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">target</span><span class="p">:</span><span class="w"> </span><span class="m">2026</span>-<span class="l">Q3</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span></code></pre>
+</details>
+<h1 id="zero-downtime-token-migration">Zero-downtime token migration</h1>
+<p>This fictional plan shows how a team can replace session cookies with signed
+access tokens without interrupting active users. The rollout is deliberately
+phased: compatibility first, migration second, cleanup last.</p>
+<div class="markdown-alert markdown-alert-note">
+<p class="markdown-alert-title"><svg class="markdown-alert-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8m8-6.5a6.5 6.5 0 1 0 0 13a6.5 6.5 0 0 0 0-13M6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75M8 6a1 1 0 1 1 0-2a1 1 0 0 1 0 2"/></svg>Note</p>
+<p>This is a demonstration document. The systems, metrics, and contacts below
+are illustrative rather than production guidance.</p>
+</div>
+<h2 id="outcome">Outcome</h2>
+<div class="columns">
+<div class="column" style="--column-width: 55%">
+<h3 id="goals">Goals</h3>
+<ul>
+<li>Keep existing sessions valid throughout the migration.</li>
+<li>Make rollback a configuration change, not a deployment.</li>
+<li>Give support a clear explanation for every rejected request.</li>
+</ul>
+</div>
+<div class="column" style="--column-width: 45%">
+<h3 id="non-goals">Non-goals</h3>
+<ul>
+<li>Replacing the identity provider.</li>
+<li>Redesigning account recovery.</li>
+<li>Supporting <del>indefinite</del> permanent legacy sessions.</li>
+</ul>
+</div>
+</div>
+<dl>
+<dt>Success</dt>
+<dd>At least 99.95% of authenticated requests complete without a token-related
+retry.</dd>
+<dt>Rollback</dt>
+<dd>Operators can restore cookie-first validation within five minutes.</dd>
+</dl>
+<h2 id="migration-flow">Migration flow</h2>
+<pre class="mermaid">flowchart LR
+    A[Cookie session] --&gt; B[Dual validation]
+    B --&gt; C[Token preferred]
+    C --&gt; D[Token only]
+    B -. rollback .-&gt; A
+    C -. rollback .-&gt; B
+</pre>
+<p>Every phase has an explicit observation window. Promotion is manual until the
+error budget and support signals agree.</p>
+<h2 id="compatibility-contract">Compatibility contract</h2>
+<table>
+<thead>
+<tr>
+<th>Client state</th>
+<th>Read cookie</th>
+<th>Read token</th>
+<th>Issue token</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Existing session</td>
+<td>Yes</td>
+<td>No</td>
+<td>Yes</td>
+<td>Transparent</td>
+</tr>
+<tr>
+<td>Migrated session</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Refresh</td>
+<td>Token-first</td>
+</tr>
+<tr>
+<td>New authentication</td>
+<td>No</td>
+<td>Yes</td>
+<td>Yes</td>
+<td>Token-only</td>
+</tr>
+<tr>
+<td>Invalid credentials</td>
+<td>No</td>
+<td>No</td>
+<td>No</td>
+<td>Reauthenticate</td>
+</tr>
+</tbody>
+</table>
+<div class="markdown-alert markdown-alert-important">
+<p class="markdown-alert-title"><svg class="markdown-alert-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.75.75 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0M9 9a1 1 0 1 1-2 0a1 1 0 0 1 2 0"/></svg>Important</p>
+<p>Token and cookie validation must share the same revocation source. Running
+two independent authorization models would make rollback unsafe.</p>
+</div>
+<h2 id="delivery-tracking">Delivery tracking</h2>
+<p>The rollout is coordinated in <a href="https://github.com/octo-org/identity-platform/issues/184">#184</a>. Dual-validation middleware lands in PR
+<a href="https://github.com/octo-org/identity-platform/issues/231">#231</a>, followed by token-first authentication in PR <a href="https://github.com/octo-org/identity-platform/issues/248">#248</a>. The mobile client
+dependency is tracked separately in <a href="https://github.com/octo-mobile/auth-client/issues/77">octo-mobile/auth-client#77</a>.</p>
+<p>These references use the fictional <code>octo-org/identity-platform</code> repository
+configured for this demonstration.</p>
+<h2 id="implementation">Implementation</h2>
+<h3 id="1-add-dual-validation">1. Add dual validation</h3>
+<p>The middleware accepts either credential while recording which path succeeded.
+The public handler contract remains unchanged.</p>
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="kd">func</span><span class="w"> </span><span class="nf">authenticate</span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">http</span><span class="p">.</span><span class="nx">Request</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">Identity</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="k">if</span><span class="w"> </span><span class="nx">token</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nf">bearerToken</span><span class="p">(</span><span class="nx">r</span><span class="p">);</span><span class="w"> </span><span class="nx">token</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="s">&#34;&#34;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="k">return</span><span class="w"> </span><span class="nx">tokens</span><span class="p">.</span><span class="nf">Validate</span><span class="p">(</span><span class="nx">r</span><span class="p">.</span><span class="nf">Context</span><span class="p">(),</span><span class="w"> </span><span class="nx">token</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="k">return</span><span class="w"> </span><span class="nx">sessions</span><span class="p">.</span><span class="nf">Validate</span><span class="p">(</span><span class="nx">r</span><span class="p">.</span><span class="nf">Context</span><span class="p">(),</span><span class="w"> </span><span class="nx">r</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span></code></pre><ul>
+<li><input checked="" disabled="" type="checkbox"> Define token claims and clock-skew policy.</li>
+<li><input checked="" disabled="" type="checkbox"> Add structured outcomes for both validators.</li>
+<li><input disabled="" type="checkbox"> Shadow-validate tokens without changing request decisions.</li>
+<li><input disabled="" type="checkbox"> Enable dual validation for internal users.</li>
+</ul>
+<h3 id="2-migrate-active-sessions">2. Migrate active sessions</h3>
+<p>On a successful cookie request, issue a short-lived token and let the client
+adopt it on its next request. Limit each migration cohort to 10% of eligible
+sessions per hour.</p>
+<div class="markdown-alert markdown-alert-warning">
+<p class="markdown-alert-title"><svg class="markdown-alert-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0M9 11a1 1 0 1 1-2 0a1 1 0 0 1 2 0"/></svg>Warning</p>
+<p>Do not infer migration success from token issuance alone. Count the first
+request authenticated by that token.</p>
+</div>
+<h3 id="3-prefer-tokens">3. Prefer tokens</h3>
+<p>After two stable observation windows, check tokens before cookies. Keep cookie
+fallback enabled until the oldest supported client has crossed one complete
+release cycle.<sup id="fnref:1"><a href="#fn:1" class="footnote-ref" role="doc-noteref">1</a></sup></p>
+<h3 id="4-remove-compatibility-code">4. Remove compatibility code</h3>
+<ul>
+<li><input disabled="" type="checkbox"> Disable new cookie creation.</li>
+<li><input disabled="" type="checkbox"> Wait through the maximum session lifetime.</li>
+<li><input disabled="" type="checkbox"> Remove cookie validation and migration metrics.</li>
+<li><input disabled="" type="checkbox"> Archive the operational dashboard and decision log.</li>
+</ul>
+<h2 id="observability">Observability</h2>
+<table>
+<thead>
+<tr>
+<th>Signal</th>
+<th>Promotion gate</th>
+<th>Rollback threshold</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Authentication failures</td>
+<td>Below 0.05%</td>
+<td>Above 0.20%</td>
+</tr>
+<tr>
+<td>Token validation latency</td>
+<td>p95 under 20ms</td>
+<td>p95 above 50ms</td>
+</tr>
+<tr>
+<td>Cookie fallback rate</td>
+<td>Below 2%</td>
+<td>Above 10%</td>
+</tr>
+<tr>
+<td>Related support contacts</td>
+<td>No increase</td>
+<td>Five in 30 minutes</td>
+</tr>
+</tbody>
+</table>
+<p>The dashboard separates invalid credentials, expired credentials, verifier
+errors, and dependency timeouts. Aggregating them as “authentication failed”
+would hide the failure mode we need to act on.</p>
+<h2 id="rollback">Rollback</h2>
+<ol>
+<li>Set <code>auth_preference=cookie</code> in the runtime configuration.</li>
+<li>Confirm cookie-first traffic exceeds 95% within five minutes.</li>
+<li>Preserve token issuance logs for analysis.</li>
+<li>Open an incident only if user-visible failures remain elevated.</li>
+</ol>
+<div class="markdown-alert markdown-alert-caution">
+<p class="markdown-alert-title"><svg class="markdown-alert-icon" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4.47.22A.75.75 0 0 1 5 0h6c.199 0 .389.079.53.22l4.25 4.25c.141.14.22.331.22.53v6a.75.75 0 0 1-.22.53l-4.25 4.25A.75.75 0 0 1 11 16H5a.75.75 0 0 1-.53-.22L.22 11.53A.75.75 0 0 1 0 11V5c0-.199.079-.389.22-.53Zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4m0 8a1 1 0 1 1 0-2a1 1 0 0 1 0 2"/></svg>Caution</p>
+<p>Never revoke all issued tokens as the first rollback step. Existing clients
+may already have discarded their cookies.</p>
+</div>
+<h2 id="open-questions">Open questions</h2>
+<ul>
+<li><input disabled="" type="checkbox"> Should service-to-service tokens use the same signing keys?</li>
+<li><input disabled="" type="checkbox"> Who owns the final legacy-session deletion approval?</li>
+<li><input disabled="" type="checkbox"> Do mobile clients need an additional release cycle?</li>
+</ul>
+<p>Questions and rollout decisions go to <code>identity-platform@example.com</code>.</p>
+<div class="footnotes" role="doc-endnotes">
+<hr>
+<ol>
+<li id="fn:1">
+<p>For this example, one release cycle means fourteen days with no
+supported client version older than the token-capable release.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-backlink">&#x21a9;&#xfe0e;</a></p>
+</li>
+</ol>
+</div>
+
+</main>
+<main class="content source-view" id="source" hidden>
+<p class="source-heading"><svg class="icon" aria-hidden="true"
+  viewBox="0 0 16 16" fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Markdown source</span></p>
+<pre class="chroma"><code><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">title</span><span class="p">:</span><span class="w"> </span><span class="l">Zero-downtime token migration</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">owner</span><span class="p">:</span><span class="w"> </span><span class="l">Identity Platform</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">status</span><span class="p">:</span><span class="w"> </span><span class="l">Proposed</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nt">target</span><span class="p">:</span><span class="w"> </span><span class="m">2026</span>-<span class="l">Q3</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="nn">---</span><span class="w">
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gh"># Zero-downtime token migration
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">This fictional plan shows how a team can replace session cookies with signed
+</span></span><span class="line"><span class="cl">access tokens without interrupting active users. The rollout is deliberately
+</span></span><span class="line"><span class="cl">phased: compatibility first, migration second, cleanup last.
+</span></span><span class="line"><span class="cl"><span class="k">
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">[!NOTE]
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">This is a demonstration document. The systems, metrics, and contacts below
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">are illustrative rather than production guidance.
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Outcome
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">:::: {.columns}
+</span></span><span class="line"><span class="cl">::: {.column width=&#34;55%&#34;}
+</span></span><span class="line"><span class="cl"><span class="gu">### Goals
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">-</span> Keep existing sessions valid throughout the migration.
+</span></span><span class="line"><span class="cl"><span class="k">-</span> Make rollback a configuration change, not a deployment.
+</span></span><span class="line"><span class="cl"><span class="k">-</span> Give support a clear explanation for every rejected request.
+</span></span><span class="line"><span class="cl">:::
+</span></span><span class="line"><span class="cl">::: {.column width=&#34;45%&#34;}
+</span></span><span class="line"><span class="cl"><span class="gu">### Non-goals
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">-</span> Replacing the identity provider.
+</span></span><span class="line"><span class="cl"><span class="k">-</span> Redesigning account recovery.
+</span></span><span class="line"><span class="cl"><span class="k">-</span> Supporting <span class="gd">~~indefinite~~</span> permanent legacy sessions.
+</span></span><span class="line"><span class="cl">:::
+</span></span><span class="line"><span class="cl">::::
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Success
+</span></span><span class="line"><span class="cl">: At least 99.95% of authenticated requests complete without a token-related
+</span></span><span class="line"><span class="cl">  retry.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Rollback
+</span></span><span class="line"><span class="cl">: Operators can restore cookie-first validation within five minutes.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Migration flow
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="s">```mermaid
+</span></span></span><span class="line"><span class="cl">flowchart LR
+</span></span><span class="line"><span class="cl">    A[Cookie session] --&gt; B[Dual validation]
+</span></span><span class="line"><span class="cl">    B --&gt; C[Token preferred]
+</span></span><span class="line"><span class="cl">    C --&gt; D[Token only]
+</span></span><span class="line"><span class="cl">    B -. rollback .-&gt; A
+</span></span><span class="line"><span class="cl">    C -. rollback .-&gt; B
+</span></span><span class="line"><span class="cl"><span class="s">```</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Every phase has an explicit observation window. Promotion is manual until the
+</span></span><span class="line"><span class="cl">error budget and support signals agree.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Compatibility contract
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">| Client state        | Read cookie | Read token | Issue token | Result       |
+</span></span><span class="line"><span class="cl">| ------------------- | ----------- | ---------- | ----------- | ------------ |
+</span></span><span class="line"><span class="cl">| Existing session    | Yes         | No         | Yes         | Transparent  |
+</span></span><span class="line"><span class="cl">| Migrated session    | Yes         | Yes        | Refresh     | Token-first  |
+</span></span><span class="line"><span class="cl">| New authentication  | No          | Yes        | Yes         | Token-only   |
+</span></span><span class="line"><span class="cl">| Invalid credentials | No          | No         | No          | Reauthenticate |
+</span></span><span class="line"><span class="cl"><span class="k">
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">[!IMPORTANT]
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">Token and cookie validation must share the same revocation source. Running
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">two independent authorization models would make rollback unsafe.
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Delivery tracking
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">The rollout is coordinated in <span class="ni">#184</span>. Dual-validation middleware lands in PR
+</span></span><span class="line"><span class="cl"><span class="gh">#231, followed by token-first authentication in PR #248. The mobile client
+</span></span></span><span class="line"><span class="cl">dependency is tracked separately in octo-mobile/auth-client<span class="ni">#77</span>.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">These references use the fictional <span class="sb">`octo-org/identity-platform`</span> repository
+</span></span><span class="line"><span class="cl">configured for this demonstration.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Implementation
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">### 1. Add dual validation
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">The middleware accepts either credential while recording which path succeeded.
+</span></span><span class="line"><span class="cl">The public handler contract remains unchanged.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="s">```go
+</span></span></span><span class="line"><span class="cl"><span class="kd">func</span><span class="w"> </span><span class="nf">authenticate</span><span class="p">(</span><span class="nx">r</span><span class="w"> </span><span class="o">*</span><span class="nx">http</span><span class="p">.</span><span class="nx">Request</span><span class="p">)</span><span class="w"> </span><span class="p">(</span><span class="o">*</span><span class="nx">Identity</span><span class="p">,</span><span class="w"> </span><span class="kt">error</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="k">if</span><span class="w"> </span><span class="nx">token</span><span class="w"> </span><span class="o">:=</span><span class="w"> </span><span class="nf">bearerToken</span><span class="p">(</span><span class="nx">r</span><span class="p">);</span><span class="w"> </span><span class="nx">token</span><span class="w"> </span><span class="o">!=</span><span class="w"> </span><span class="s">&#34;&#34;</span><span class="w"> </span><span class="p">{</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">		</span><span class="k">return</span><span class="w"> </span><span class="nx">tokens</span><span class="p">.</span><span class="nf">Validate</span><span class="p">(</span><span class="nx">r</span><span class="p">.</span><span class="nf">Context</span><span class="p">(),</span><span class="w"> </span><span class="nx">token</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="w">	</span><span class="k">return</span><span class="w"> </span><span class="nx">sessions</span><span class="p">.</span><span class="nf">Validate</span><span class="p">(</span><span class="nx">r</span><span class="p">.</span><span class="nf">Context</span><span class="p">(),</span><span class="w"> </span><span class="nx">r</span><span class="p">)</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="p">}</span><span class="w">
+</span></span></span><span class="line"><span class="cl"><span class="s">```</span>
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">- [x]</span> Define token claims and clock-skew policy.
+</span></span><span class="line"><span class="cl"><span class="k">- [x]</span> Add structured outcomes for both validators.
+</span></span><span class="line"><span class="cl"><span class="k">- [ ]</span> Shadow-validate tokens without changing request decisions.
+</span></span><span class="line"><span class="cl"><span class="k">- [ ]</span> Enable dual validation for internal users.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">### 2. Migrate active sessions
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">On a successful cookie request, issue a short-lived token and let the client
+</span></span><span class="line"><span class="cl">adopt it on its next request. Limit each migration cohort to 10% of eligible
+</span></span><span class="line"><span class="cl">sessions per hour.
+</span></span><span class="line"><span class="cl"><span class="k">
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">[!WARNING]
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">Do not infer migration success from token issuance alone. Count the first
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">request authenticated by that token.
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">### 3. Prefer tokens
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">After two stable observation windows, check tokens before cookies. Keep cookie
+</span></span><span class="line"><span class="cl">fallback enabled until the oldest supported client has crossed one complete
+</span></span><span class="line"><span class="cl">release cycle.[^window]
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">### 4. Remove compatibility code
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">- [ ]</span> Disable new cookie creation.
+</span></span><span class="line"><span class="cl"><span class="k">- [ ]</span> Wait through the maximum session lifetime.
+</span></span><span class="line"><span class="cl"><span class="k">- [ ]</span> Remove cookie validation and migration metrics.
+</span></span><span class="line"><span class="cl"><span class="k">- [ ]</span> Archive the operational dashboard and decision log.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Observability
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">| Signal                    | Promotion gate | Rollback threshold |
+</span></span><span class="line"><span class="cl">| ------------------------- | -------------- | ------------------ |
+</span></span><span class="line"><span class="cl">| Authentication failures   | Below 0.05%    | Above 0.20%        |
+</span></span><span class="line"><span class="cl">| Token validation latency  | p95 under 20ms | p95 above 50ms     |
+</span></span><span class="line"><span class="cl">| Cookie fallback rate      | Below 2%       | Above 10%          |
+</span></span><span class="line"><span class="cl">| Related support contacts  | No increase    | Five in 30 minutes |
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">The dashboard separates invalid credentials, expired credentials, verifier
+</span></span><span class="line"><span class="cl">errors, and dependency timeouts. Aggregating them as “authentication failed”
+</span></span><span class="line"><span class="cl">would hide the failure mode we need to act on.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Rollback
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">1.</span> Set <span class="sb">`auth_preference=cookie`</span> in the runtime configuration.
+</span></span><span class="line"><span class="cl"><span class="k">2.</span> Confirm cookie-first traffic exceeds 95% within five minutes.
+</span></span><span class="line"><span class="cl"><span class="k">3.</span> Preserve token issuance logs for analysis.
+</span></span><span class="line"><span class="cl"><span class="k">4.</span> Open an incident only if user-visible failures remain elevated.
+</span></span><span class="line"><span class="cl"><span class="k">
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">[!CAUTION]
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">Never revoke all issued tokens as the first rollback step. Existing clients
+</span></span></span><span class="line"><span class="cl"><span class="k">&gt; </span><span class="ge">may already have discarded their cookies.
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="gu">## Open questions
+</span></span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl"><span class="k">- [ ]</span> Should service-to-service tokens use the same signing keys?
+</span></span><span class="line"><span class="cl"><span class="k">- [ ]</span> Who owns the final legacy-session deletion approval?
+</span></span><span class="line"><span class="cl"><span class="k">- [ ]</span> Do mobile clients need an additional release cycle?
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">Questions and rollout decisions go to <span class="sb">`identity-platform@example.com`</span>.
+</span></span><span class="line"><span class="cl">
+</span></span><span class="line"><span class="cl">[^window]: For this example, one release cycle means fourteen days with no
+</span></span><span class="line"><span class="cl">    supported client version older than the token-capable release.
+</span></span></code></pre>
+</main>
+</div>
+<script>
+(function () {
+  'use strict';
+  var d = document;
+
+  d.querySelectorAll('.js-only').forEach(function (el) {
+    el.hidden = false;
+  });
+
+  var live = d.createElement('div');
+  live.className = 'sr-status';
+  live.setAttribute('aria-live', 'polite');
+  d.body.appendChild(live);
+
+  function flash(btn, text, ok) {
+    live.textContent = text;
+    var label = btn.querySelector('.action-label');
+    var previousLabel = label ? label.textContent : '';
+    if (label) label.textContent = ok ? 'Copied' : 'Failed';
+    btn.classList.add(ok ? 'is-copied' : 'is-failed');
+    btn.disabled = true;
+    setTimeout(function () {
+      btn.classList.remove('is-copied', 'is-failed');
+      btn.disabled = false;
+      if (label) label.textContent = previousLabel;
+    }, 1200);
+  }
+
+  function copyText(text, btn) {
+    if (!navigator.clipboard) {
+      flash(btn, 'Copy failed', false);
+      return;
+    }
+    navigator.clipboard.writeText(text).then(
+      function () { flash(btn, 'Copied!', true); },
+      function () { flash(btn, 'Copy failed', false); }
+    );
+  }
+
+  var iconCopy = '<svg class="icon icon-copy" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0' +
+    ' 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0' +
+    '-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5' +
+    'a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.7' +
+    '5 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5' +
+    'C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1' +
+    '.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .13' +
+    '8.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25' +
+    '-.25Z"/></svg>';
+  var iconCheck = '<svg class="icon icon-check" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22' +
+    'a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28' +
+    'a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6' +
+    '.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>';
+  var iconX = '<svg class="icon icon-x" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72' +
+    'a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.32' +
+    '6.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326' +
+    ' 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0' +
+    ' 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.7' +
+    '5 0 0 1 0-1.06Z"/></svg>';
+  var iconToc = '<svg class="icon" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="none" stroke="currentColor"' +
+    ' stroke-width="1.5" stroke-linecap="round">' +
+    '<path d="M5 4h9M5 8h9M5 12h9"/>' +
+    '<circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/>' +
+    '<circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/>' +
+    '<circle cx="2" cy="12" r=".75" fill="currentColor"' +
+    ' stroke="none"/></svg>';
+  var iconClose = '<svg class="icon" aria-hidden="true"' +
+    ' viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72' +
+    'a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1' +
+    ' 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749' +
+    '.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3' +
+    '.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1' +
+    '.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>';
+
+  var rendered = d.getElementById('rendered');
+  var source = d.getElementById('source');
+  var toc = d.getElementById('toc');
+  var tocTrigger = null;
+  var tocDialog = null;
+  var tocMedia = window.matchMedia('(max-width: 78rem)');
+
+  function closeTocDialog() {
+    if (tocDialog && tocDialog.open) tocDialog.close();
+  }
+
+  function syncTocTrigger() {
+    if (!toc || !tocTrigger || !tocDialog) return;
+    var show = tocMedia.matches && !rendered.hidden &&
+      toc.getBoundingClientRect().bottom < 0 && !tocDialog.open;
+    tocTrigger.classList.toggle('is-visible', show);
+    tocTrigger.tabIndex = show ? 0 : -1;
+    tocTrigger.setAttribute('aria-hidden', show ? 'false' : 'true');
+    if (tocDialog.open && (!tocMedia.matches || rendered.hidden)) {
+      closeTocDialog();
+    }
+  }
+
+  d.querySelectorAll('.viewtoggle button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var showSource = btn.dataset.view === 'source';
+      source.hidden = !showSource;
+      rendered.hidden = showSource;
+      if (toc) toc.hidden = showSource;
+      d.querySelectorAll('.viewtoggle button').forEach(function (b) {
+        b.classList.toggle('active', b === btn);
+        b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');
+      });
+      syncTocTrigger();
+    });
+  });
+
+  if (toc) {
+    var tocLinks = Array.from(toc.querySelectorAll('a[href^="#"]'));
+    var tocList = toc.querySelector('.toc-list');
+
+    if (tocList) {
+      tocDialog = d.createElement('dialog');
+      if (typeof tocDialog.showModal === 'function') {
+        tocDialog.className = 'toc-dialog';
+        tocDialog.id = 'toc-dialog';
+        tocDialog.setAttribute('aria-labelledby', 'toc-dialog-title');
+
+        var tocPanel = d.createElement('div');
+        tocPanel.className = 'toc-dialog-panel';
+        var tocHeader = d.createElement('div');
+        tocHeader.className = 'toc-dialog-header';
+        var tocTitle = d.createElement('h2');
+        tocTitle.className = 'toc-dialog-title';
+        tocTitle.id = 'toc-dialog-title';
+        tocTitle.textContent = 'Contents';
+        var tocClose = d.createElement('button');
+        tocClose.className = 'toc-dialog-close';
+        tocClose.type = 'button';
+        tocClose.setAttribute('aria-label', 'Close table of contents');
+        tocClose.innerHTML = iconClose;
+        tocHeader.appendChild(tocTitle);
+        tocHeader.appendChild(tocClose);
+
+        var tocNav = d.createElement('nav');
+        tocNav.className = 'toc-dialog-nav';
+        tocNav.setAttribute('aria-label', 'Table of contents');
+        tocNav.appendChild(tocList.cloneNode(true));
+        tocPanel.appendChild(tocHeader);
+        tocPanel.appendChild(tocNav);
+        tocDialog.appendChild(tocPanel);
+
+        tocTrigger = d.createElement('button');
+        tocTrigger.className = 'toc-trigger';
+        tocTrigger.type = 'button';
+        tocTrigger.tabIndex = -1;
+        tocTrigger.setAttribute('aria-label', 'Open table of contents');
+        tocTrigger.setAttribute('aria-controls', 'toc-dialog');
+        tocTrigger.setAttribute('aria-haspopup', 'dialog');
+        tocTrigger.setAttribute('aria-hidden', 'true');
+        tocTrigger.innerHTML = iconToc;
+
+        d.body.appendChild(tocTrigger);
+        d.body.appendChild(tocDialog);
+
+        tocTrigger.addEventListener('click', function () {
+          tocDialog.showModal();
+          d.body.classList.add('toc-dialog-open');
+          syncTocTrigger();
+          var active = tocDialog.querySelector('a.active');
+          if (active) active.scrollIntoView({ block: 'nearest' });
+        });
+        tocClose.addEventListener('click', closeTocDialog);
+        tocDialog.addEventListener('click', function (event) {
+          if (event.target === tocDialog) closeTocDialog();
+        });
+        tocDialog.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            closeTocDialog();
+          }
+        });
+        tocDialog.addEventListener('close', function () {
+          d.body.classList.remove('toc-dialog-open');
+          syncTocTrigger();
+          if (tocTrigger.classList.contains('is-visible')) {
+            setTimeout(function () {
+              tocTrigger.focus();
+            }, 50);
+          }
+        });
+        tocNav.querySelectorAll('a').forEach(function (link) {
+          link.addEventListener('click', closeTocDialog);
+        });
+      } else {
+        tocDialog = null;
+      }
+    }
+
+    var allTocLinks = tocLinks.slice();
+    if (tocDialog) {
+      allTocLinks = allTocLinks.concat(
+        Array.from(tocDialog.querySelectorAll('a[href^="#"]'))
+      );
+    }
+    var tocHeadings = tocLinks.map(function (link) {
+      return d.getElementById(link.getAttribute('href').slice(1));
+    });
+    function updateToc() {
+      var current = 0;
+      tocHeadings.forEach(function (heading, index) {
+        if (heading && heading.getBoundingClientRect().top <= 128) {
+          current = index;
+        }
+      });
+      if (window.innerHeight + window.scrollY >=
+          d.documentElement.scrollHeight - 2) {
+        current = tocLinks.length - 1;
+      }
+      var activeHref = tocLinks[current].getAttribute('href');
+      allTocLinks.forEach(function (link) {
+        var active = link.getAttribute('href') === activeHref;
+        link.classList.toggle('active', active);
+        if (active) {
+          link.setAttribute('aria-current', 'location');
+        } else {
+          link.removeAttribute('aria-current');
+        }
+      });
+      syncTocTrigger();
+    }
+    var tocFramePending = false;
+    function scheduleTocUpdate() {
+      if (tocFramePending) return;
+      tocFramePending = true;
+      window.requestAnimationFrame(function () {
+        tocFramePending = false;
+        updateToc();
+      });
+    }
+    d.addEventListener('scroll', scheduleTocUpdate, { passive: true });
+    window.addEventListener('resize', updateToc);
+    updateToc();
+  }
+
+  var copySource = d.querySelector('.copy-source');
+  if (copySource && source) {
+    copySource.addEventListener('click', function () {
+      var pre = source.querySelector('pre');
+      copyText(pre ? pre.textContent : '', copySource);
+    });
+  }
+
+  rendered.querySelectorAll('pre').forEach(function (pre) {
+    if (pre.classList.contains('mermaid')) return;
+    var wrap = d.createElement('div');
+    wrap.className = 'codewrap';
+    pre.parentNode.insertBefore(wrap, pre);
+    wrap.appendChild(pre);
+
+    var btn = d.createElement('button');
+    btn.className = 'codecopy';
+    btn.type = 'button';
+    btn.setAttribute('aria-label', 'Copy code');
+    btn.title = 'Copy code';
+    btn.innerHTML = iconCopy + iconCheck + iconX;
+    btn.addEventListener('click', function () {
+      var code = pre.querySelector('code');
+      copyText((code || pre).textContent, btn);
+    });
+    wrap.appendChild(btn);
+  });
+})();
+
+</script>
+<script type="module" referrerpolicy="no-referrer">
+const diagrams = Array.from(document.querySelectorAll('pre.mermaid'));
+const sources = diagrams.map((diagram) => diagram.textContent);
+try {
+  const {default: mermaid} = await import("https://cdn.jsdelivr.net/npm/mermaid@11.16.0/dist/mermaid.esm.min.mjs");
+  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    theme: dark ? 'dark' : 'default'
+  });
+  for (const [index, diagram] of diagrams.entries()) {
+    try {
+      await mermaid.run({nodes: [diagram]});
+      diagram.classList.add('mermaid-rendered');
+    } catch (error) {
+      diagram.textContent = sources[index];
+      diagram.classList.add('mermaid-failed');
+      console.warn('airplan: Mermaid diagram rendering failed', error);
+    }
+  }
+} catch (error) {
+  diagrams.forEach((diagram, index) => {
+    diagram.textContent = sources[index];
+    diagram.classList.add('mermaid-failed');
+  });
+  console.warn('airplan: Mermaid rendering failed', error);
+}
+</script>
+</body>
+</html>

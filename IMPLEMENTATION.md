@@ -311,7 +311,7 @@ deletion has succeeded.
   LIST-only grouping, inspection states, delete request ordering, manifest
   lock cancellation, and purge safety filters.
 - Golden files: markdown fixtures → rendered HTML snapshots
-  (`testdata/`, `-update` flag convention).
+  (`testdata/`, `GOLDEN_UPDATE=1` convention).
 - Integration: MinIO in a container (CI service / testcontainers);
   round-trip upload, marker bytes and headers, remote indexing, complete /
   incomplete / invalid inspection states, markerless invisibility, invalid
