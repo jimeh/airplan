@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.14.0.
+may contradict it. Targets spec version 0.18.0.
 
 ---
 
@@ -224,6 +224,10 @@ field-source metadata; `LoadConfig` delegates to it to keep one resolution
 path. Field traces retain ordered source identities but no shadowed values,
 avoiding duplicate credential material. `config show` is a thin table/JSON
 formatter over that result and redacts both credential fields.
+`ListConfigProfiles` shares strict config parsing, config-path selection,
+dangling-default validation, and credential permission warnings, but bypasses
+profile and field resolution entirely. `config profiles` only formats that
+sorted inventory as a table or JSON array.
 
 ## 5. Config JSON Schema Generation
 

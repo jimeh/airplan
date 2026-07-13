@@ -52,6 +52,9 @@ pins live in `mise.lock` (commit both when bumping tools).
 - **Worktree bootstrap** (`.treeboot.toml`): copy the root checkout's
   ignored `mise.local.toml` once, then run `mise run setup`. Existing
   worktree-local copies are intentionally preserved.
+- **Removed worktree lint cache**: if `golangci-lint` reports source paths from
+  a deleted worktree, run `golangci-lint cache clean` before retrying. Cached
+  issues otherwise keep references to files that no longer exist.
 - **Config schema**: `schema/airplan.schema.json` is generated from
   the config structs and golden-tested; refresh with
   `go test ./airplan/ -run TestConfigSchema -update`. Unknown config

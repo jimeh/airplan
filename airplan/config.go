@@ -184,6 +184,30 @@ type ConfigOptions struct {
 	Overrides Settings
 }
 
+// ConfigProfilesOptions controls ListConfigProfiles.
+type ConfigProfilesOptions struct {
+	// Path of the config file. An explicitly named missing file is an
+	// error. "" means AIRPLAN_CONFIG, then the platform default.
+	Path string
+
+	// Getenv is the environment lookup used for AIRPLAN_CONFIG,
+	// injectable for tests. nil means os.Getenv. Other environment
+	// variables do not affect profile inventory.
+	Getenv func(string) string
+}
+
+// ConfigProfile describes one named profile in an airplan config file.
+type ConfigProfile struct {
+	Name    string `json:"name"`
+	Default bool   `json:"default"`
+}
+
+// ConfigProfilesResult is the profile inventory and non-fatal load warnings.
+type ConfigProfilesResult struct {
+	Profiles []ConfigProfile
+	Warnings []string
+}
+
 // ConfigSourceKind identifies one layer in config resolution.
 type ConfigSourceKind string
 
@@ -246,6 +270,57 @@ func LoadConfig(opts ConfigOptions) (*Config, error) {
 	return resolution.Config, nil
 }
 
+// ListConfigProfiles reads the selected config file and returns its named
+// profiles in lexical order. It does not resolve an active profile, merge
+// environment settings, validate field values, or access credentials or
+// storage.
+func ListConfigProfiles(
+	opts ConfigProfilesOptions,
+) (*ConfigProfilesResult, error) {
+	getenv := opts.Getenv
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+
+	configPath, explicitPath, err := resolveConfigPath(opts.Path, getenv)
+	if err != nil {
+		return nil, err
+	}
+	fileConfig, _, loaded, err := loadFileConfig(configPath.Path)
+	if err != nil {
+		return nil, err
+	}
+	if explicitPath && !loaded {
+		return nil, fmt.Errorf(
+			"airplan: config file %q does not exist", configPath.Path,
+		)
+	}
+	if err := validateDefaultProfile(fileConfig); err != nil {
+		return nil, err
+	}
+
+	profiles := make([]ConfigProfile, 0, len(fileConfig.Profiles))
+	for _, name := range profileNames(fileConfig.Profiles) {
+		profiles = append(profiles, ConfigProfile{
+			Name: name,
+			Default: fileConfig.DefaultProfile != "" &&
+				name == fileConfig.DefaultProfile,
+		})
+	}
+	warnings := make([]string, 0, 1)
+	if loaded {
+		warnings = append(
+			warnings,
+			readableCredentialWarnings(configPath.Path, fileConfig)...,
+		)
+	}
+
+	return &ConfigProfilesResult{
+		Profiles: profiles,
+		Warnings: warnings,
+	}, nil
+}
+
 // ResolveConfig performs the same merge as LoadConfig while retaining the
 // winning source and complete source chain for every field.
 func ResolveConfig(opts ConfigOptions) (*ConfigResolution, error) {
@@ -254,28 +329,11 @@ func ResolveConfig(opts ConfigOptions) (*ConfigResolution, error) {
 		getenv = os.Getenv
 	}
 
-	path := opts.Path
-	explicitPath := path != ""
-	pathSource := ConfigSource{
-		Kind: ConfigSourceOverride, Name: "--config",
+	configPath, explicitPath, err := resolveConfigPath(opts.Path, getenv)
+	if err != nil {
+		return nil, err
 	}
-	if path == "" {
-		path = getenv("AIRPLAN_CONFIG")
-		explicitPath = path != ""
-		pathSource = ConfigSource{
-			Kind: ConfigSourceEnv, Name: "AIRPLAN_CONFIG",
-		}
-	}
-	if path == "" {
-		var err error
-		path, err = DefaultConfigPath()
-		if err != nil {
-			return nil, err
-		}
-		pathSource = ConfigSource{
-			Kind: ConfigSourceBuiltin, Name: "default config path",
-		}
-	}
+	path := configPath.Path
 
 	fileConfig, meta, loaded, err := loadFileConfig(path)
 	if err != nil {
@@ -321,7 +379,7 @@ func ResolveConfig(opts ConfigOptions) (*ConfigResolution, error) {
 	return &ConfigResolution{
 		Config: cfg,
 		ConfigPath: ConfigPathResolution{
-			Path: path, Exists: loaded, Source: pathSource,
+			Path: path, Exists: loaded, Source: configPath.Source,
 		},
 		Profile: profileResolution(opts, getenv, fileConfig, profile, path),
 		Fields: configFieldResolutions(
@@ -725,6 +783,34 @@ func DefaultConfigPath() (string, error) {
 	return filepath.Join(home, ".config", "airplan", "config.toml"), nil
 }
 
+func resolveConfigPath(
+	path string,
+	getenv func(string) string,
+) (ConfigPathResolution, bool, error) {
+	explicit := path != ""
+	source := ConfigSource{
+		Kind: ConfigSourceOverride, Name: "--config",
+	}
+	if path == "" {
+		path = getenv("AIRPLAN_CONFIG")
+		explicit = path != ""
+		source = ConfigSource{
+			Kind: ConfigSourceEnv, Name: "AIRPLAN_CONFIG",
+		}
+	}
+	if path == "" {
+		var err error
+		path, err = DefaultConfigPath()
+		if err != nil {
+			return ConfigPathResolution{}, false, err
+		}
+		source = ConfigSource{
+			Kind: ConfigSourceBuiltin, Name: "default config path",
+		}
+	}
+	return ConfigPathResolution{Path: path, Source: source}, explicit, nil
+}
+
 func loadFileConfig(path string) (FileConfig, toml.MetaData, bool, error) {
 	var fileConfig FileConfig
 
@@ -796,19 +882,10 @@ func resolveProfile(
 	// A dangling default_profile is likewise an error regardless of
 	// how many profiles exist (SPEC.md §7, resolution step 2).
 	if fileConfig.DefaultProfile != "" {
-		if _, ok := fileConfig.Profiles[fileConfig.DefaultProfile]; ok {
-			return fileConfig.DefaultProfile, nil
+		if err := validateDefaultProfile(fileConfig); err != nil {
+			return "", err
 		}
-		available := "none defined"
-		if len(names) > 0 {
-			available = strings.Join(names, ", ")
-		}
-		return "", fmt.Errorf(
-			"airplan: default_profile %q does not exist; "+
-				"available profiles: %s",
-			fileConfig.DefaultProfile,
-			available,
-		)
+		return fileConfig.DefaultProfile, nil
 	}
 
 	if len(names) == 0 {
@@ -836,6 +913,25 @@ func resolveProfile(
 		"airplan: no profile selected and root-level values are "+
 			"incomplete; available profiles: %s",
 		strings.Join(names, ", "),
+	)
+}
+
+func validateDefaultProfile(fileConfig FileConfig) error {
+	if fileConfig.DefaultProfile == "" {
+		return nil
+	}
+	if _, ok := fileConfig.Profiles[fileConfig.DefaultProfile]; ok {
+		return nil
+	}
+	names := profileNames(fileConfig.Profiles)
+	available := "none defined"
+	if len(names) > 0 {
+		available = strings.Join(names, ", ")
+	}
+	return fmt.Errorf(
+		"airplan: default_profile %q does not exist; available profiles: %s",
+		fileConfig.DefaultProfile,
+		available,
 	)
 }
 
@@ -1012,26 +1108,35 @@ func warnReadableCredentials(
 	path string,
 	fileConfig FileConfig,
 ) {
+	cfg.Warnings = append(
+		cfg.Warnings,
+		readableCredentialWarnings(path, fileConfig)...,
+	)
+}
+
+func readableCredentialWarnings(
+	path string,
+	fileConfig FileConfig,
+) []string {
 	if runtime.GOOS == "windows" || !containsCredentials(fileConfig) {
-		return
+		return nil
 	}
 
 	info, err := os.Stat(path)
 	if err != nil {
-		return
+		return nil
 	}
 	if info.Mode().Perm()&0o077 == 0 {
-		return
+		return nil
 	}
 
-	cfg.Warnings = append(
-		cfg.Warnings,
+	return []string{
 		fmt.Sprintf(
 			"config file %s contains credentials and is group- or "+
 				"world-readable",
 			path,
 		),
-	)
+	}
 }
 
 func containsCredentials(fileConfig FileConfig) bool {

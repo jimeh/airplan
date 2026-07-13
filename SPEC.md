@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.17.0**
+**Spec version: 0.18.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -502,6 +502,7 @@ stays reserved for the success object).
 
 ```
 airplan config schema
+airplan config profiles [--config PATH] [--json]
 airplan template
 airplan preview [flags] [file]
 airplan completion bash|zsh|fish
@@ -617,6 +618,34 @@ public_base_url = "https://jimeh-plans.s3.eu-west-2.amazonaws.com"
 
 In every case the selected profile is merged over the root-level
 values per the precedence above.
+
+### Configured profile inventory
+
+`airplan config profiles` lists the named Airplan profiles defined by
+`[profiles.*]` in the selected config file. It does not include the root-level
+configuration as a pseudo-profile or inspect profiles from the standard AWS
+credential chain. Names are sorted lexicographically. The default table has
+the exact columns `PROFILE` and `DEFAULT`; the latter is `yes` only for the
+profile named by `default_profile` and `no` otherwise. It does not indicate an
+active or inferred profile. A config with no named profiles writes no table
+output. Empty names and names containing non-graphic Unicode characters are
+rendered as Go-quoted strings in the table so each profile stays on one safe
+terminal row; JSON retains the exact name.
+
+`--json` / `-j` returns an array of objects with string `name` and boolean
+`default` fields in the same order. An empty inventory is `[]`, not `null`.
+The command accepts only `--config` and `--json`; in particular, `--profile`
+and normal config override flags do not apply. Config path selection remains
+explicit `--config`, then `AIRPLAN_CONFIG`, then the optional platform default.
+
+Profile inventory parses the config file strictly and verifies that
+`default_profile`, when present, names a defined profile. Malformed TOML,
+unknown keys, a dangling default, and a missing explicitly selected path are
+errors. The command does not perform active-profile resolution, merge or parse
+other `AIRPLAN_*` values, validate config field values or completeness, resolve
+credentials, access storage or the network, or write local state. Thus an
+ambiguous, incomplete multi-profile config remains listable. Config permission
+warnings go to stderr under the same rules as normal configuration loading.
 
 Environment variables (highest-priority credential source in
 practice, agent-harness friendly):
