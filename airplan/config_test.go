@@ -3,6 +3,7 @@ package airplan
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -49,6 +50,7 @@ no_external_assets = true
 			"AIRPLAN_REGION":             "env-region",
 			"AIRPLAN_SECRET_ACCESS_KEY":  "env-secret",
 			"AIRPLAN_PUBLIC_BASE_URL":    "env-public",
+			"AIRPLAN_KEY_PREFIX":         "env-prefix",
 			"AIRPLAN_TEMPLATE":           "env-template",
 			"AIRPLAN_MERMAID_URL":        "https://env.example/mermaid.mjs",
 			"AIRPLAN_REPO":               "https://github.com/env/project.git",
@@ -66,7 +68,7 @@ no_external_assets = true
 	assertEqual(t, cfg.AccessKeyID, "profile-access")
 	assertEqual(t, cfg.SecretAccessKey, "env-secret")
 	assertEqual(t, cfg.PublicBaseURL, "env-public")
-	assertEqual(t, cfg.KeyPrefix, "root-prefix")
+	assertEqual(t, cfg.KeyPrefix, "env-prefix")
 	assertEqual(t, cfg.Template, "env-template")
 	assertEqual(t, cfg.NoSource, true)
 	assertEqual(t, cfg.Indexable, false)
@@ -995,6 +997,243 @@ bucket   = "work-bucket"
 		assertEqual(t, cfg.Bucket, "flag-bucket")
 	})
 }
+
+func TestResolveConfigTracksWinningSourcesAndChains(t *testing.T) {
+	path := writeConfig(t, `
+endpoint       = "https://root.example.com"
+bucket         = "same-bucket"
+default_profile = "work"
+
+[profiles.work]
+bucket = "same-bucket"
+`, 0o600)
+	env := map[string]string{
+		"AIRPLAN_PROFILE": "work",
+		"AIRPLAN_BUCKET":  "same-bucket",
+	}
+	resolution, err := ResolveConfig(ConfigOptions{
+		Path:   path,
+		Getenv: envMap(env),
+		Overrides: Settings{
+			Bucket:           "same-bucket",
+			NoSource:         boolPointer(false),
+			Indexable:        boolPointer(true),
+			NoExternalAssets: boolPointer(true),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolution.ConfigPath.Path != path || !resolution.ConfigPath.Exists ||
+		resolution.ConfigPath.Source.Name != "--config" {
+		t.Fatalf("config path resolution = %+v", resolution.ConfigPath)
+	}
+	if resolution.Profile.Name != "work" ||
+		resolution.Profile.Source.Name != "AIRPLAN_PROFILE" {
+		t.Fatalf("profile resolution = %+v", resolution.Profile)
+	}
+	bucket := resolution.Fields["bucket"]
+	if bucket.Source == nil || bucket.Source.Name != "--bucket" {
+		t.Fatalf("bucket source = %+v", bucket.Source)
+	}
+	wantSources := []string{
+		"root.bucket", "profiles.work.bucket", "AIRPLAN_BUCKET", "--bucket",
+	}
+	if len(bucket.Sources) != len(wantSources) {
+		t.Fatalf("bucket sources = %+v", bucket.Sources)
+	}
+	for i, want := range wantSources {
+		if bucket.Sources[i].Name != want {
+			t.Fatalf("bucket source %d = %+v, want %q",
+				i, bucket.Sources[i], want)
+		}
+	}
+	noSource := resolution.Fields["no_source"]
+	if noSource.Source == nil || noSource.Source.Name != "--no-source" ||
+		resolution.Config.NoSource {
+		t.Fatalf("no_source resolution = %+v, value %v",
+			noSource, resolution.Config.NoSource)
+	}
+	for field, wantValue := range map[string]bool{
+		"indexable": true, "no_external_assets": true,
+	} {
+		resolved := resolution.Fields[field]
+		if resolved.Source == nil ||
+			resolved.Source.Kind != ConfigSourceOverride {
+			t.Fatalf("%s resolution = %+v", field, resolved)
+		}
+		var value bool
+		switch field {
+		case "indexable":
+			value = resolution.Config.Indexable
+		case "no_external_assets":
+			value = resolution.Config.NoExternalAssets
+		}
+		if value != wantValue {
+			t.Fatalf("%s value = %v, want %v", field, value, wantValue)
+		}
+	}
+	region := resolution.Fields["region"]
+	if region.Source == nil || region.Source.Kind != ConfigSourceBuiltin {
+		t.Fatalf("region source = %+v", region.Source)
+	}
+}
+
+func TestResolveConfigTracksDefaultAndRootProfileSelection(t *testing.T) {
+	t.Run("default profile", func(t *testing.T) {
+		path := writeConfig(t, `
+default_profile = "work"
+[profiles.work]
+`, 0o600)
+		resolution, err := ResolveConfig(ConfigOptions{
+			Path: path, Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolution.Profile.Name != "work" ||
+			resolution.Profile.Source.Name != "default_profile" ||
+			resolution.Profile.Source.Path != path {
+			t.Fatalf("profile resolution = %+v", resolution.Profile)
+		}
+	})
+
+	t.Run("explicit profile", func(t *testing.T) {
+		path := writeConfig(t, `
+[profiles.home]
+[profiles.work]
+`, 0o600)
+		resolution, err := ResolveConfig(ConfigOptions{
+			Path: path, Profile: "home", Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolution.Profile.Name != "home" ||
+			resolution.Profile.Source.Name != "--profile" {
+			t.Fatalf("profile resolution = %+v", resolution.Profile)
+		}
+	})
+
+	t.Run("single profile", func(t *testing.T) {
+		path := writeConfig(t, "[profiles.only]\n", 0o600)
+		resolution, err := ResolveConfig(ConfigOptions{
+			Path: path, Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolution.Profile.Name != "only" ||
+			resolution.Profile.Source.Name != "single named profile" {
+			t.Fatalf("profile resolution = %+v", resolution.Profile)
+		}
+	})
+
+	t.Run("no profiles", func(t *testing.T) {
+		resolution, err := ResolveConfig(ConfigOptions{
+			Path: missingPath(t), Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolution.Profile.Name != "" ||
+			resolution.Profile.Source.Name != "no named profiles" {
+			t.Fatalf("profile resolution = %+v", resolution.Profile)
+		}
+		if resolution.ConfigPath.Exists ||
+			resolution.ConfigPath.Source.Kind != ConfigSourceBuiltin {
+			t.Fatalf("config path resolution = %+v", resolution.ConfigPath)
+		}
+	})
+
+	t.Run("environment config path", func(t *testing.T) {
+		path := writeConfig(t, "bucket = \"plans\"\n", 0o600)
+		resolution, err := ResolveConfig(ConfigOptions{
+			Getenv: envMap(map[string]string{"AIRPLAN_CONFIG": path}),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolution.ConfigPath.Path != path ||
+			resolution.ConfigPath.Source.Name != "AIRPLAN_CONFIG" {
+			t.Fatalf("config path resolution = %+v", resolution.ConfigPath)
+		}
+	})
+
+	t.Run("complete root-level resolution", func(t *testing.T) {
+		path := writeConfig(t, `
+[profiles.home]
+[profiles.work]
+`, 0o600)
+		resolution, err := ResolveConfig(ConfigOptions{
+			Path: path, Getenv: envMap(nil),
+			Overrides: Settings{
+				Endpoint: "https://flag.example.com", Bucket: "plans",
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if resolution.Profile.Name != "" ||
+			resolution.Profile.Source.Name != "complete root-level resolution" {
+			t.Fatalf("profile resolution = %+v", resolution.Profile)
+		}
+	})
+}
+
+func TestConfigFieldDefinitionsCoverSettings(t *testing.T) {
+	want := make(map[string]bool)
+	typeOfSettings := reflect.TypeOf(Settings{})
+	for i := range typeOfSettings.NumField() {
+		name := strings.Split(typeOfSettings.Field(i).Tag.Get("toml"), ",")[0]
+		want[name] = true
+	}
+
+	got := make(map[string]bool)
+	envNames := make(map[string]bool)
+	for _, field := range configFieldDefinitions {
+		if got[field.name] {
+			t.Fatalf("duplicate config field definition %q", field.name)
+		}
+		got[field.name] = true
+		if field.overrideSource == "" {
+			t.Fatalf("field %q has no override source", field.name)
+		}
+		if field.envName != "" {
+			if envNames[field.envName] {
+				t.Fatalf("duplicate config env name %q", field.envName)
+			}
+			envNames[field.envName] = true
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("config field definitions = %v, want Settings fields %v",
+			got, want)
+	}
+}
+
+func TestResolveConfigLabelsLibraryCredentialOverridesAccurately(t *testing.T) {
+	resolution, err := ResolveConfig(ConfigOptions{
+		Getenv: envMap(nil),
+		Overrides: Settings{
+			AccessKeyID: "access", SecretAccessKey: "secret",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for field, want := range map[string]string{
+		"access_key_id":     "ConfigOptions.Overrides.access_key_id",
+		"secret_access_key": "ConfigOptions.Overrides.secret_access_key",
+	} {
+		source := resolution.Fields[field].Source
+		if source == nil || source.Name != want {
+			t.Fatalf("%s source = %+v, want %q", field, source, want)
+		}
+	}
+}
+
+func boolPointer(value bool) *bool { return &value }
 
 func TestParseTimeout(t *testing.T) {
 	tests := []struct {

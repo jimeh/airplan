@@ -19,6 +19,7 @@ import (
 
 	"github.com/jimeh/airplan/airplan"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
 // version is stamped by the release build via ldflags.
@@ -96,6 +97,25 @@ func newRootCmd() *cobra.Command {
 		"filename portion of the URL (default: from filename)")
 	f.StringVarP(&opts.title, "title", "t", "",
 		"page title (default: from content)")
+	f.StringVar(&opts.maxSize, "max-size", "10MiB",
+		"input size limit, e.g. 10MiB, 512k, 1048576; 0 = no limit")
+	f.BoolVarP(&opts.json, "json", "j", false,
+		"print a single JSON object instead of the URL")
+	f.BoolVarP(&opts.open, "open", "o", false,
+		"open the resulting URL in the default browser")
+	addConfigResolutionFlags(f, opts)
+
+	cmd.AddCommand(newConfigCmd())
+	cmd.AddCommand(newTemplateCmd())
+	cmd.AddCommand(newPreviewCmd())
+	cmd.AddCommand(newListCmd())
+	cmd.AddCommand(newShowCmd())
+	cmd.AddCommand(newDeleteCmd())
+	cmd.AddCommand(newPurgeCmd())
+	return cmd
+}
+
+func addConfigResolutionFlags(f *pflag.FlagSet, opts *rootOptions) {
 	f.BoolVar(&opts.noSource, "no-source", false,
 		"don't upload the original source alongside the page")
 	f.BoolVar(&opts.indexable, "indexable", false,
@@ -106,19 +126,12 @@ func newRootCmd() *cobra.Command {
 		"Mermaid ECMAScript module URL")
 	f.StringVar(&opts.repository, "repo", "",
 		"repository context: auto, none, or URL (default: auto)")
-	f.StringVar(&opts.maxSize, "max-size", "10MiB",
-		"input size limit, e.g. 10MiB, 512k, 1048576; 0 = no limit")
 	f.StringVar(&opts.timeout, "timeout", "",
 		"operation timeout, e.g. 30s, 1m30s; 0 = none (default 30s)")
-	f.BoolVarP(&opts.json, "json", "j", false,
-		"print a single JSON object instead of the URL")
-	f.BoolVarP(&opts.open, "open", "o", false,
-		"open the resulting URL in the default browser")
 	f.StringVarP(&opts.profile, "profile", "p", "",
 		"config profile name (default: config default)")
 	f.StringVar(&opts.config, "config", "",
 		"config file path (default: XDG config dir)")
-
 	f.StringVar(&opts.endpoint, "endpoint", "", "S3 endpoint URL")
 	f.StringVar(&opts.bucket, "bucket", "", "bucket name")
 	f.StringVar(&opts.region, "region", "", "region (default: auto)")
@@ -128,15 +141,6 @@ func newRootCmd() *cobra.Command {
 		"custom page template file (md and text input)")
 	f.StringVar(&opts.keyPrefix, "key-prefix", "",
 		"prefix prepended to object keys")
-
-	cmd.AddCommand(newConfigCmd())
-	cmd.AddCommand(newTemplateCmd())
-	cmd.AddCommand(newPreviewCmd())
-	cmd.AddCommand(newListCmd())
-	cmd.AddCommand(newShowCmd())
-	cmd.AddCommand(newDeleteCmd())
-	cmd.AddCommand(newPurgeCmd())
-	return cmd
 }
 
 func buildVersion() string {

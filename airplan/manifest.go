@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/gofrs/flock"
@@ -160,6 +162,10 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 				if readErr == io.EOF {
 					break
 				}
+				if readErr != nil {
+					return records, warnings,
+						fmt.Errorf("read manifest: %w", readErr)
+				}
 				continue
 			}
 
@@ -168,7 +174,7 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 				warnings = append(warnings,
 					fmt.Sprintf("skipping malformed manifest line %d", lineNo))
 			} else if rec.Type == "upload" {
-				if rec.MarkerVersion != MarkerVersion {
+				if rec.MarkerVersion != 0 && rec.MarkerVersion != MarkerVersion {
 					warnings = append(warnings, fmt.Sprintf(
 						"skipping manifest line %d with unsupported marker_version %d",
 						lineNo, rec.MarkerVersion,
@@ -303,9 +309,10 @@ func ReadManifest(path string) ([]ManifestRecord, []string, error) {
 	return readManifest(path)
 }
 
-// ActiveUploads filters manifest records to upload entries without a
-// matching delete tombstone, preserving file order.
-func ActiveUploads(records []ManifestRecord) []ManifestRecord {
+// ManifestUploads filters manifest records to upload entries without a
+// matching delete tombstone, preserving file order. It includes legacy
+// uploads recorded before ownership markers were introduced.
+func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 	deleted := make(map[string]bool)
 	for _, r := range records {
 		if r.Type == "delete" {
@@ -315,10 +322,82 @@ func ActiveUploads(records []ManifestRecord) []ManifestRecord {
 
 	var out []ManifestRecord
 	for _, r := range records {
-		if r.Type == "upload" && r.MarkerVersion == MarkerVersion &&
-			!deleted[r.Key] {
+		if r.Type == "upload" && !deleted[r.Key] {
 			out = append(out, r)
 		}
 	}
 	return out
+}
+
+// ActiveUploads returns marker-managed manifest uploads that have no matching
+// delete tombstone. Legacy records remain available through ManifestUploads.
+func ActiveUploads(records []ManifestRecord) []ManifestRecord {
+	var out []ManifestRecord
+	for _, r := range ManifestUploads(records) {
+		if r.MarkerVersion == MarkerVersion {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// MatchingManifestUploads returns active manifest history entries naming
+// target as their URL, directory, marker, page, or source object. URL query
+// strings and fragments are ignored.
+func MatchingManifestUploads(
+	records []ManifestRecord, target string,
+) []ManifestRecord {
+	var matches []ManifestRecord
+	for _, rec := range ManifestUploads(records) {
+		if manifestUploadMatchesTarget(rec, target) {
+			matches = append(matches, rec)
+		}
+	}
+	return matches
+}
+
+func manifestUploadMatchesTarget(rec ManifestRecord, target string) bool {
+	targetKey := strings.Trim(target, "/")
+	isURL := strings.Contains(target, "://")
+	if isURL {
+		targetURL, err := url.Parse(target)
+		if err != nil || !isHTTPURL(targetURL) {
+			return false
+		}
+		recordURL, err := url.Parse(rec.URL)
+		if err != nil || !isHTTPURL(recordURL) ||
+			!strings.EqualFold(targetURL.Host, recordURL.Host) {
+			return false
+		}
+		targetKey = strings.Trim(targetURL.Path, "/")
+		if targetURL.Path == recordURL.Path {
+			return true
+		}
+	}
+
+	candidates := []string{
+		rec.Key,
+		rec.SourceKey,
+	}
+	if dirPrefix, err := uploadDirPrefix(rec.Key); err == nil {
+		candidates = append(candidates,
+			strings.TrimSuffix(dirPrefix, "/"),
+			dirPrefix+MarkerFilename,
+		)
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if targetKey == candidate ||
+			(isURL && strings.HasSuffix(targetKey, "/"+candidate)) {
+			return true
+		}
+	}
+	return false
+}
+
+func isHTTPURL(value *url.URL) bool {
+	return (value.Scheme == "http" || value.Scheme == "https") &&
+		value.Host != ""
 }

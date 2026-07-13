@@ -23,6 +23,7 @@ release-hardening work and evidence gates.
 | `mise run setup`                   | install tools + git hooks (run once)                        |
 | `mise run check`                   | fast handoff gate: lint + generated files + format + tests  |
 | `mise run test`                    | unit tests (no Docker needed)                               |
+| `mise run test:coverage`           | unit tests + text and HTML statement coverage reports       |
 | `mise run test-integration`        | MinIO round-trip via testcontainers (needs Docker)          |
 | `mise run lint`                    | all lints: `lint:go`, `lint:workflows`                      |
 | `mise run format` / `format:check` | write / check formatting (`:go`, `:markdown`)               |
@@ -51,6 +52,8 @@ pins live in `mise.lock` (commit both when bumping tools).
   the config structs and golden-tested; refresh with
   `go test ./airplan/ -run TestConfigSchema -update`. Unknown config
   keys are a hard error — parser and schema must not drift (SPEC §7).
+- **Manifest reads**: handle empty non-EOF reads as errors before continuing;
+  reading a directory can otherwise spin without making progress.
 - **Page assets** (`airplan/assets/`): embedded via go:embed. Mermaid is the
   only airplan-managed external load and is conditional. Update its pin with
   `mise run update:mermaid`; dependency-only updates never bump SPEC.md.

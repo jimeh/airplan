@@ -22,6 +22,14 @@ outputs = ["bin/airplan"]
 description = "Run all tests"
 run = "go test ./..."
 
+[tasks."test:coverage"]
+description = "Run all tests and write statement coverage reports"
+run = [
+  "go test -covermode=atomic -coverprofile=coverage.out ./...",
+  "go tool cover -func=coverage.out",
+  "go tool cover -html=coverage.out -o coverage.html",
+]
+
 [tasks.test-integration]
 description = "Round-trip tests against a throwaway MinIO container"
 run = "go test -tags integration -count=1 -v -run TestIntegration ./airplan/"

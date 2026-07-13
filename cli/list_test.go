@@ -23,7 +23,8 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
 			`"key":"active/plan.html",` +
 			`"url":"https://plans.example.com/active/plan.html",` +
-			`"bucket":"plans","title":"Active plan","bytes":18432,` +
+			`"bucket":"plans","profile":"work",` +
+			`"title":"Active plan","bytes":18432,` +
 			`"marker_version":1}`,
 		`{"type":"upload","time":"2026-07-08T15:04:12Z",` +
 			`"key":"deleted/plan.html",` +
@@ -47,7 +48,8 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"DATE", "TITLE", "SIZE", "URL",
+		"DATE", "PROFILE", "STATE", "TITLE", "SIZE", "URL",
+		"work", "managed",
 		"2026-07-08 14:03", "Active plan", "18 KiB",
 		"https://plans.example.com/active/plan.html",
 		"2026-07-08 16:05", "7 B",
@@ -64,6 +66,29 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 		if strings.Contains(stdout, unwanted) {
 			t.Fatalf("stdout contains tombstoned upload %q:\n%s",
 				unwanted, stdout)
+		}
+	}
+}
+
+func TestListShowsLegacyUploadsWithoutWarnings(t *testing.T) {
+	path := setListState(t)
+	writeManifest(t, path,
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",`+
+			`"key":"legacy/plan.html",`+
+			`"url":"https://plans.example.com/legacy/plan.html",`+
+			`"bucket":"plans","profile":"work",`+
+			`"title":"Legacy plan","bytes":42}`+"\n")
+
+	stdout, stderr, err := executeList(t)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	for _, want := range []string{"work", "legacy", "Legacy plan"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
 		}
 	}
 }

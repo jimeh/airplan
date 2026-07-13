@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.15.0**
+**Spec version: 0.17.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -711,6 +711,45 @@ Validation at startup: missing bucket/endpoint/creds produce a clear
 error naming the missing field, which profile was resolved (or that
 root-level values were used), and the three ways to set it.
 
+### Resolved config inspection
+
+`airplan config show` prints the resolved configuration without accessing the
+network, resolving the standard AWS credential chain, validating storage
+completeness, or writing local state. It accepts `--config`, `--profile`, and
+the same config override flags as an upload. Those flags describe the current
+inspection invocation; flags from an earlier process cannot be observed.
+
+The default table reports the selected config path, active profile, credential
+mode, and every config field's resolved value and winning source. Sources are
+one of a built-in default, root config key, selected-profile config key,
+`AIRPLAN_*` environment variable, or explicit flag. Config-path and profile
+rows likewise distinguish flag, environment, default path/profile, and
+profile inference. Root-level selection made complete by any combination of
+root config, environment, and flags is described as a complete root-level
+resolution. Unset fields remain visible as `<unset>`.
+
+`--json` returns one object with `config_file`, `profile`, `credential_mode`,
+and `fields`. Each field object contains `value`, `set`, `sensitive`, and
+`source`; each source contains stable `kind` and `name` strings plus optional
+`path` and `profile`. Source kinds are `builtin`, `config_root`,
+`config_profile`, `environment`, `override`, and `inferred`. Root profile
+selection is represented by `name: null` and `root: true`. Field order is not
+significant in JSON.
+
+`access_key_id` and `secret_access_key` values are always redacted. The table
+prints only `<set>` or `<unset>`; JSON always uses `value: null` together with
+the `set` and `sensitive` booleans. When neither is explicitly configured,
+credential mode reports the standard AWS chain without attempting to resolve
+it. When both fields are configured, the human-readable credential mode is
+`explicit access keys`. Endpoint values remain visible.
+
+Incomplete endpoint, bucket, or credential settings are displayable because
+inspection is diagnostic. Errors that prevent deterministic resolution still
+fail the command, including malformed TOML, unknown keys, invalid parsed
+environment values, a missing explicit config path, or an invalid/ambiguous
+profile selection. Config load warnings go to stderr; inspection output goes
+to stdout.
+
 ### Config JSON Schema
 
 The config file format is described by a published JSON Schema that
@@ -825,16 +864,19 @@ conforming implementations can share a manifest:
   under `--no-source`; `title` is omitted when empty; `bytes`
   describes the page object; `profile` is the resolved profile
   name, omitted when root-level values were used; `marker_version`
-  is the ownership-marker version written for the upload.
+  is the ownership-marker version written for the upload. Current
+  writers always include `marker_version`; its absence identifies a
+  legacy upload recorded before ownership markers were introduced.
 - `delete` tombstones reference the upload by its page `key` — the
   random directory is the unit of deletion, so every sibling object
   (whatever its extension, §3) goes with it and nothing more is
   needed in the record.
 - Forward compatibility: readers ignore unknown fields and skip
   records with an unknown `type`. The record itself needs no schema
-  version; `marker_version` describes the remote upload format and
-  is required on every upload record. An upload record with a missing
-  or unsupported `marker_version` is invalid and skipped with a
+  version; `marker_version` describes the remote upload format.
+  Readers retain an otherwise-valid upload with no `marker_version`
+  as legacy history, but it never authorizes delete or purge. An
+  unsupported nonzero `marker_version` is invalid and skipped with a
   warning.
 
 Concurrent invocations are expected (parallel agents on one
@@ -859,10 +901,12 @@ machine) and must be safe:
 
 ### Commands
 
-- `airplan list`: past uploads from the manifest (date, title,
-  human-readable binary size, URL); `--json` for scripting with exact
-  byte counts. Only valid upload records with the supported
-  `marker_version` appear in list output.
+- `airplan list`: past uploads from the manifest (date, profile,
+  management state, title, human-readable binary size, URL); `--json`
+  for scripting with exact byte counts. Table state is `managed` for
+  the supported `marker_version` and `legacy` when the field is absent.
+  Both appear in history without warning; legacy entries remain
+  ineligible for delete reconciliation and purge.
 - `airplan list --remote`: cheaply discovers marker directories made
   from any machine. It performs only paginated bucket LIST operations
   beneath the active profile's `key_prefix`; it does not GET markers,
@@ -939,21 +983,40 @@ machine) and must be safe:
   leaves the local upload untombstoned so retry can resume while the
   marker still establishes ownership. A successful marker deletion is
   followed by the append-only local tombstone.
+- Before `delete` resolves its connection, it consults a uniquely
+  matching active, marker-managed local manifest record. When neither
+  `--profile` nor `AIRPLAN_PROFILE` is set and that record names a
+  profile, the recorded profile overrides the general config default;
+  stderr notes the selection. URL targets participate in this inference
+  only when they are HTTP(S) URLs whose host matches the recorded public
+  URL; URL query strings and fragments are ignored. With zero or multiple
+  matching records, normal config resolution proceeds without inference.
+  Explicit flag or environment selection always wins and is never silently
+  changed. If marker lookup then fails and the matching record names another
+  profile, stderr warns that the mismatch may be the cause and identifies
+  both `--profile` and `AIRPLAN_PROFILE` as retry mechanisms. When the record
+  used root-level settings but named-profile resolution is active, the hint
+  instead directs the user to a config path that resolves root-level settings.
 - There is one narrow ensure-gone reconciliation path for a marker
   deletion that succeeded before its local tombstone could be written.
   When the marker is absent, airplan may append a tombstone without
   issuing any S3 deletion only if an active local upload record names
   the same page directory, has a supported `marker_version`, and
-  matches the active bucket and profile. If the manifest is missing,
-  unreadable, incomplete, invalid, or belongs to another
-  connection, deletion fails. This exception repairs local history; it
-  never grants authority to delete unmarked bucket objects.
+  matches the active bucket and profile. Invalid unrelated lines do not
+  mask a complete matching record; they remain relevant when no such
+  record can be established. If the manifest is missing, unreadable,
+  lacks a complete matching record, or belongs to another connection,
+  deletion fails. This exception repairs local history; it never grants
+  authority to delete unmarked bucket objects.
 - `airplan purge`: bulk delete driven by the manifest with filters —
   `--older-than 30d`, `--slug PATTERN`, `--profile P`. Durations
   accept `d`/`w` units. `--profile`/`-p` behaves as on every other
-  command — it selects the connection profile — and on `purge` it
-  additionally filters to uploads recorded with that profile, so
-  purging a profile's uploads uses that profile's credentials.
+  command by selecting the connection profile. Local purge always
+  considers only uploads recorded with the resolved active profile,
+  whether it came from `--profile`, `AIRPLAN_PROFILE`,
+  `default_profile`, single-profile inference, or root-level config.
+  Thus a profile's uploads are only purged with that profile's
+  connection and credentials.
   Requires at least one filter or an explicit `--all`. `--dry-run`
   previews; confirmation prompt unless `--yes`. EOF before an answer
   is an error that directs non-interactive callers to use `--yes`; an

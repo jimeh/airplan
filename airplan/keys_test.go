@@ -271,6 +271,9 @@ func TestDeleteUploadMissingMarkerReconciliation(t *testing.T) {
 	fake := newDeleteLifecycleS3(t, nil, nil)
 	fake.markerMissing = true
 	manifest := t.TempDir() + "/manifest.jsonl"
+	if err := os.WriteFile(manifest, []byte("not json\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	pageKey := testDir + "/plan.html"
 	if err := appendManifestRecord(context.Background(), manifest, ManifestRecord{
 		Type: "upload", Time: time.Now().UTC(), Key: pageKey,
@@ -291,7 +294,11 @@ func TestDeleteUploadMissingMarkerReconciliation(t *testing.T) {
 		len(res.Warnings) == 0 {
 		t.Fatalf("result = %+v, delete calls = %d", res, fake.deleteCalls())
 	}
-	if active := mustActiveUploads(t, manifest); len(active) != 0 {
+	records, warnings, err := ReadManifest(manifest)
+	if err != nil || len(warnings) != 1 {
+		t.Fatalf("manifest warnings = %v, error = %v", warnings, err)
+	}
+	if active := ActiveUploads(records); len(active) != 0 {
 		t.Fatalf("active uploads = %+v", active)
 	}
 }
@@ -344,31 +351,56 @@ func TestDeleteTombstoneFailureRecoversOnRetry(t *testing.T) {
 }
 
 func TestDeleteUploadMissingMarkerRequiresExactManifest(t *testing.T) {
+	record := func(profile, bucket string, markerVersion int) *ManifestRecord {
+		return &ManifestRecord{
+			Type: "upload", Time: time.Now().UTC(),
+			Key:    testDir + "/plan.html",
+			URL:    "https://plans.example.com/" + testDir + "/plan.html",
+			Bucket: bucket, Profile: profile, Bytes: 1,
+			MarkerVersion: markerVersion,
+		}
+	}
 	for _, tt := range []struct {
-		name   string
-		record *ManifestRecord
-		target string
+		name      string
+		record    *ManifestRecord
+		target    string
+		prefix    string
+		wantError string
 	}{
-		{name: "no record"},
-		{name: "unsupported record", record: &ManifestRecord{
-			Type: "upload", Key: testDir + "/plan.html", Bucket: "plans",
-		}},
-		{name: "wrong bucket", record: &ManifestRecord{
-			Type: "upload", Key: testDir + "/plan.html", Bucket: "archive",
-			MarkerVersion: MarkerVersion,
-		}},
+		{name: "no record", wantError: "no matching active"},
+		{
+			name: "invalid manifest", prefix: "not json\n",
+			wantError: "local manifest is incomplete",
+		},
+		{
+			name: "legacy record", record: record("", "plans", 0),
+			wantError: "no matching active",
+		},
+		{
+			name: "wrong profile", record: record("work", "plans", MarkerVersion),
+			wantError: `belongs to profile "work"; active connection uses profile "<root>"`,
+		},
+		{
+			name: "wrong bucket", record: record("", "archive", MarkerVersion),
+			wantError: `belongs to bucket "archive"`,
+		},
 		{
 			name: "undeclared target", target: testDir + "/other.txt",
-			record: &ManifestRecord{
-				Type: "upload", Key: testDir + "/plan.html", Bucket: "plans",
-				MarkerVersion: MarkerVersion,
-			},
+			record:    record("", "plans", MarkerVersion),
+			wantError: "is not the directory, marker, or recorded payload",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := newDeleteLifecycleS3(t, nil, nil)
 			fake.markerMissing = true
 			manifest := t.TempDir() + "/manifest.jsonl"
+			if tt.prefix != "" {
+				if err := os.WriteFile(
+					manifest, []byte(tt.prefix), 0o600,
+				); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if tt.record != nil {
 				if err := appendManifestRecord(
 					context.Background(), manifest, *tt.record,
@@ -381,8 +413,49 @@ func TestDeleteUploadMissingMarkerRequiresExactManifest(t *testing.T) {
 			if target == "" {
 				target = testDir
 			}
-			if _, err := client.DeleteUpload(context.Background(), target); err == nil {
-				t.Fatal("reconciliation succeeded")
+			_, err := client.DeleteUpload(context.Background(), target)
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("error = %v, want %q", err, tt.wantError)
+			}
+			if fake.deleteCalls() != 0 {
+				t.Fatalf("delete calls = %d", fake.deleteCalls())
+			}
+		})
+	}
+}
+
+func TestDeleteUploadMissingMarkerReportsManifestAccessFailures(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		disableManifest bool
+		manifestIsDir   bool
+		wantError       string
+	}{
+		{
+			name: "disabled", disableManifest: true,
+			wantError: "local manifest is disabled",
+		},
+		{
+			name: "unreadable", manifestIsDir: true,
+			wantError: "read local manifest",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := newDeleteLifecycleS3(t, nil, nil)
+			fake.markerMissing = true
+			manifest := t.TempDir() + "/manifest.jsonl"
+			if tt.manifestIsDir {
+				if err := os.Mkdir(manifest, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			client := newDeleteTestClient(
+				t, fake.server.URL, manifest, tt.disableManifest,
+			)
+
+			_, err := client.DeleteUpload(context.Background(), testDir)
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf("error = %v, want %q", err, tt.wantError)
 			}
 			if fake.deleteCalls() != 0 {
 				t.Fatalf("delete calls = %d", fake.deleteCalls())

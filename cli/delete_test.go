@@ -67,6 +67,233 @@ func TestDeleteCommand(t *testing.T) {
 	}
 }
 
+func TestDeleteInfersManifestProfileWithoutExplicitSelector(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	recorded := newFakeDeleteS3(t, map[string][]string{
+		deleteDirA + "/": {deleteDirA + "/plan.html"},
+	}, nil)
+	defaultProfile := newFakeDeleteS3(t, nil, nil)
+	writeDeleteManifest(t, stateHome, deleteDirA, "jimeh", "")
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"delete", "--config", writeDeleteProfilesConfig(
+			t, defaultProfile.server.URL, recorded.server.URL,
+		),
+		deleteDirA+"/plan.html",
+	)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	if !strings.Contains(stderr,
+		`airplan: note: using profile "jimeh" recorded in the local manifest`) {
+		t.Fatalf("stderr = %q, want inferred-profile note", stderr)
+	}
+	if recorded.deleteCalls() != 1 || recorded.markerDeleteCalls() != 1 {
+		t.Fatalf("recorded profile deletes = %d/%d, want 1/1",
+			recorded.deleteCalls(), recorded.markerDeleteCalls())
+	}
+	if defaultProfile.deleteCalls() != 0 ||
+		defaultProfile.markerDeleteCalls() != 0 {
+		t.Fatal("default profile performed deletion")
+	}
+}
+
+func TestDeleteProfileFlagOverridesManifestInference(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	recorded := newFakeDeleteS3(t, nil, nil)
+	active := newFakeDeleteS3(t, map[string][]string{
+		deleteDirA + "/": {deleteDirA + "/plan.html"},
+	}, nil)
+	writeDeleteManifest(t, stateHome, deleteDirA, "jimeh", "")
+
+	_, stderr, err := executeCommand(t, "", "",
+		"delete", "--profile", "airplan-dev",
+		"--config", writeDeleteProfilesConfig(
+			t, active.server.URL, recorded.server.URL,
+		),
+		deleteDirA+"/plan.html",
+	)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if strings.Contains(stderr, "using profile") {
+		t.Fatalf("stderr = %q, explicit profile must bypass inference", stderr)
+	}
+	if active.deleteCalls() != 1 || recorded.deleteCalls() != 0 {
+		t.Fatalf("active deletes = %d, recorded deletes = %d",
+			active.deleteCalls(), recorded.deleteCalls())
+	}
+}
+
+func TestDeleteAmbiguousManifestRecordsFallBackToConfigResolution(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	path := filepath.Join(stateHome, "airplan", "manifest.jsonl")
+	writeManifest(t, path,
+		deleteManifestLine(deleteDirA, "")+
+			deleteManifestLine(deleteDirA, "jimeh"))
+
+	profile, inferred := deleteProfile(deleteDirA+"/plan.html", "")
+	if profile != "" || inferred {
+		t.Fatalf("deleteProfile = %q, %v; want normal config resolution",
+			profile, inferred)
+	}
+}
+
+func TestDeleteUnreadableManifestFallsBackToConfigResolution(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	manifest := filepath.Join(stateHome, "airplan", "manifest.jsonl")
+	if err := os.MkdirAll(manifest, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	profile, inferred := deleteProfile(deleteDirA+"/plan.html", "")
+	if profile != "" || inferred {
+		t.Fatalf("deleteProfile = %q, %v; want normal config resolution",
+			profile, inferred)
+	}
+}
+
+func TestDeleteInferredProfileMustExist(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	writeDeleteManifest(t, stateHome, deleteDirA, "removed", "")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(`
+endpoint = "https://example.com"
+bucket = "plans"
+default_profile = "work"
+[profiles.work]
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := executeCommand(t, "", "",
+		"delete", "--config", path, deleteDirA+"/plan.html")
+	if err == nil || !strings.Contains(err.Error(),
+		`upload was recorded with profile "removed", but it could not be selected`) {
+		t.Fatalf("error = %v, want missing inferred-profile guidance", err)
+	}
+}
+
+func TestDeleteExplicitProfileMismatchPrintsHint(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	recorded := newFakeDeleteS3(t, map[string][]string{
+		deleteDirA + "/": {deleteDirA + "/plan.html"},
+	}, nil)
+	active := newFakeDeleteS3(t, nil, nil)
+	writeDeleteManifest(t, stateHome, deleteDirA, "jimeh", "not json\n")
+
+	_, stderr, err := executeCommand(t, "", "airplan-dev",
+		"delete", "--config", writeDeleteProfilesConfig(
+			t, active.server.URL, recorded.server.URL,
+		),
+		deleteDirA+"/plan.html",
+	)
+	if err == nil || !strings.Contains(err.Error(), "ownership marker is missing") {
+		t.Fatalf("error = %v, want missing-marker failure", err)
+	}
+	want := `airplan: warning: upload was recorded with profile "jimeh", ` +
+		`but the active profile is "airplan-dev"; retry with ` +
+		`--profile jimeh or AIRPLAN_PROFILE=jimeh`
+	if !strings.Contains(stderr, want) {
+		t.Fatalf("stderr = %q, want profile hint %q", stderr, want)
+	}
+	if strings.Contains(err.Error(), "local manifest is incomplete") {
+		t.Fatalf("unrelated malformed line masked profile mismatch: %v", err)
+	}
+	if active.deleteCalls() != 0 || recorded.deleteCalls() != 0 {
+		t.Fatal("profile mismatch performed deletion")
+	}
+}
+
+func TestDeleteRootProfileMismatchPrintsActionableHint(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	recorded := newFakeDeleteS3(t, nil, nil)
+	active := newFakeDeleteS3(t, nil, nil)
+	writeDeleteManifest(t, stateHome, deleteDirA, "", "")
+
+	_, stderr, err := executeCommand(t, "", "",
+		"delete", "--config", writeDeleteProfilesConfig(
+			t, active.server.URL, recorded.server.URL,
+		),
+		deleteDirA+"/plan.html",
+	)
+	if err == nil || !strings.Contains(err.Error(), "ownership marker is missing") {
+		t.Fatalf("error = %v, want missing-marker failure", err)
+	}
+	for _, want := range []string{
+		"upload was recorded with root-level config",
+		"--config or AIRPLAN_CONFIG",
+		"config that resolves root-level settings",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr missing %q: %s", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "unset AIRPLAN_PROFILE") {
+		t.Fatalf("stderr contains non-working retry advice: %s", stderr)
+	}
+}
+
+func writeDeleteManifest(
+	t *testing.T, stateHome, dir, profile, prefix string,
+) {
+	t.Helper()
+	path := filepath.Join(stateHome, "airplan", "manifest.jsonl")
+	writeManifest(t, path, prefix+deleteManifestLine(dir, profile))
+}
+
+func deleteManifestLine(dir, profile string) string {
+	return (`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+		`"key":"` + dir + `/plan.html",` +
+		`"url":"https://plans.example.com/` + dir + `/plan.html",` +
+		`"bucket":"plans","profile":"` + profile + `",` +
+		`"bytes":10,"marker_version":1}` + "\n")
+}
+
+func writeDeleteProfilesConfig(
+	t *testing.T, defaultEndpoint, recordedEndpoint string,
+) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	data := fmt.Sprintf(`
+bucket = "plans"
+public_base_url = "https://plans.example.com"
+timeout = "0"
+default_profile = "airplan-dev"
+
+[profiles.airplan-dev]
+endpoint = %q
+
+[profiles.jimeh]
+endpoint = %q
+`, defaultEndpoint, recordedEndpoint)
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 type fakeDeleteS3 struct {
 	server        *httptest.Server
 	mu            sync.Mutex
@@ -153,7 +380,10 @@ func (f *fakeDeleteS3) handleMarker(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if page == "" {
+		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusNotFound)
+		_, _ = io.WriteString(w,
+			`<Error><Code>NoSuchKey</Code><Message>missing</Message></Error>`)
 		return
 	}
 	body, err := airplan.EncodeUploadMarker(airplan.UploadMarker{

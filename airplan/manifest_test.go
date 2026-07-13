@@ -44,6 +44,18 @@ func TestReadManifestMissingFile(t *testing.T) {
 	}
 }
 
+func TestReadManifestReturnsEmptyReadErrors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.jsonl")
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := readManifest(path); err == nil ||
+		!strings.Contains(err.Error(), "read manifest") {
+		t.Fatalf("error = %v, want manifest read failure", err)
+	}
+}
+
 func TestAppendManifestRecordCreatesManifestAndRoundTrips(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state", "airplan", "manifest.jsonl")
 	firstTime := time.Date(2026, 7, 8, 14, 3, 11, 0, time.UTC)
@@ -201,10 +213,14 @@ func TestAppendManifestRecordLockWaitHonorsContext(t *testing.T) {
 	}
 }
 
-func TestReadManifestSkipsUnsupportedMarkerVersion(t *testing.T) {
+func TestReadManifestRecognizesLegacyAndSkipsUnsupportedMarkerVersion(
+	t *testing.T,
+) {
 	path := filepath.Join(t.TempDir(), "manifest.jsonl")
 	data := strings.Join([]string{
-		`{"type":"upload","key":"missing.html"}`,
+		`{"type":"upload","time":"2026-07-08T13:03:11Z",` +
+			`"key":"legacy.html","url":"https://plans.example.com/legacy.html",` +
+			`"bucket":"plans","bytes":1}`,
 		`{"type":"upload","key":"future.html","marker_version":2}`,
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
 			`"key":"current.html","url":"https://plans.example.com/current.html",` +
@@ -218,9 +234,85 @@ func TestReadManifestSkipsUnsupportedMarkerVersion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].Key != "current.html" ||
-		len(warnings) != 2 {
+	if len(records) != 2 || records[0].Key != "legacy.html" ||
+		records[1].Key != "current.html" || len(warnings) != 1 {
 		t.Fatalf("records = %+v, warnings = %v", records, warnings)
+	}
+	if uploads := ManifestUploads(records); len(uploads) != 2 {
+		t.Fatalf("ManifestUploads = %+v, want legacy and current", uploads)
+	}
+	if uploads := ActiveUploads(records); len(uploads) != 1 ||
+		uploads[0].Key != "current.html" {
+		t.Fatalf("ActiveUploads = %+v, want current only", uploads)
+	}
+}
+
+func TestMatchingManifestUploadsRequiresMatchingURLHost(t *testing.T) {
+	dir := "aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	record := ManifestRecord{
+		Type:          "upload",
+		Key:           dir + "/plan.html",
+		SourceKey:     dir + "/plan.md",
+		URL:           "https://plans.example.com/base/" + dir + "/plan.html",
+		MarkerVersion: MarkerVersion,
+	}
+	records := []ManifestRecord{record}
+
+	for _, target := range []string{
+		"https://other.example.com/base/" + dir + "/plan.html",
+		"https://other.example.com/" + dir + "/.airplan.json",
+		"ftp://plans.example.com/base/" + dir + "/plan.html",
+		"https://plans.example.com/%zz",
+		"https://plans.example.com/base/another/plan.html",
+	} {
+		if matches := MatchingManifestUploads(records, target); len(matches) != 0 {
+			t.Fatalf("target %q matched unrelated URL: %+v", target, matches)
+		}
+	}
+	for _, target := range []string{
+		"http://plans.example.com/base/" + dir + "/plan.html?download=1#page",
+		"https://plans.example.com/base/" + dir + "/.airplan.json",
+		dir + "/plan.md",
+	} {
+		if matches := MatchingManifestUploads(records, target); len(matches) != 1 {
+			t.Fatalf("target %q matches = %+v, want record", target, matches)
+		}
+	}
+	for _, invalid := range []ManifestRecord{
+		{Type: "upload", Key: dir + "/plan.html", URL: "://bad"},
+		{
+			Type: "upload", Key: dir + "/plan.html",
+			URL: "ftp://plans.example.com/" + dir + "/plan.html",
+		},
+		{
+			Type: "upload", Key: "invalid/plan.html",
+			URL: "https://plans.example.com/invalid/plan.html",
+		},
+	} {
+		if matches := MatchingManifestUploads(
+			[]ManifestRecord{invalid},
+			"https://plans.example.com/"+dir+"/plan.html",
+		); len(matches) != 0 {
+			t.Fatalf("invalid record matched URL: %+v", invalid)
+		}
+	}
+}
+
+func TestMatchingManifestUploadsMatchesFlatLegacyKeys(t *testing.T) {
+	record := ManifestRecord{
+		Type: "upload", Key: "legacy.html", SourceKey: "legacy.md",
+		URL: "https://plans.example.com/legacy.html",
+	}
+	for _, target := range []string{
+		"legacy.html",
+		"/legacy.md",
+		"https://plans.example.com/base/legacy.md",
+	} {
+		matches := MatchingManifestUploads([]ManifestRecord{record}, target)
+		if len(matches) != 1 || matches[0].Key != record.Key {
+			t.Fatalf("target %q matches = %+v, want legacy record",
+				target, matches)
+		}
 	}
 }
 

@@ -20,6 +20,20 @@ type DeleteResult struct {
 	Warnings []string
 }
 
+// ManifestProfileMismatchError reports that local history associates a delete
+// target with a different profile than the active connection.
+type ManifestProfileMismatchError struct {
+	Recorded string
+	Active   string
+}
+
+func (e *ManifestProfileMismatchError) Error() string {
+	return fmt.Sprintf(
+		"manifest record belongs to profile %q; active connection uses profile %q",
+		profileLabel(e.Recorded), profileLabel(e.Active),
+	)
+}
+
 // DeleteUpload validates the upload's ownership marker, removes every
 // non-marker object, removes the marker separately, and appends a manifest
 // tombstone (SPEC.md §9).
@@ -159,22 +173,21 @@ func (c *Client) ensureGonePageKey(dirPrefix, target string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read local manifest: %w", err)
 	}
-	if len(warnings) > 0 {
-		return "", fmt.Errorf("local manifest is incomplete: %s", warnings[0])
-	}
 	for _, record := range ActiveUploads(records) {
-		if record.MarkerVersion != MarkerVersion {
-			continue
-		}
 		recordDir, err := uploadDirPrefix(record.Key)
 		if err != nil || recordDir != dirPrefix {
 			continue
 		}
-		if record.Bucket != c.cfg.Bucket || record.Profile != c.cfg.Profile {
+		if record.Profile != c.cfg.Profile {
+			return "", &ManifestProfileMismatchError{
+				Recorded: record.Profile,
+				Active:   c.cfg.Profile,
+			}
+		}
+		if record.Bucket != c.cfg.Bucket {
 			return "", fmt.Errorf(
-				"manifest record belongs to bucket %q, profile %q; active connection uses bucket %q, profile %q",
-				record.Bucket, profileLabel(record.Profile),
-				c.cfg.Bucket, profileLabel(c.cfg.Profile),
+				"manifest record belongs to bucket %q; active connection uses bucket %q",
+				record.Bucket, c.cfg.Bucket,
 			)
 		}
 		dirKey := strings.TrimSuffix(dirPrefix, "/")
@@ -186,6 +199,9 @@ func (c *Client) ensureGonePageKey(dirPrefix, target string) (string, error) {
 			)
 		}
 		return record.Key, nil
+	}
+	if len(warnings) > 0 {
+		return "", fmt.Errorf("local manifest is incomplete: %s", warnings[0])
 	}
 	return "", errors.New("no matching active marker-versioned manifest record")
 }

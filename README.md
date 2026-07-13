@@ -139,6 +139,12 @@ For multiple buckets, add `[profiles.name]` tables and select one with
 `--profile`/`-p`. For a shared bucket, give each person a distinct
 `key_prefix`.
 
+Use `airplan config show` to inspect the active profile, resolved values, and
+the winning source for each field. `airplan config show --json` provides the
+same information for scripts. Access and secret key values are always
+redacted; the command does not contact storage or resolve the standard AWS
+credential chain.
+
 ### Cloudflare R2 setup
 
 [Cloudflare R2](https://developers.cloudflare.com/r2/) is a good default when
@@ -323,6 +329,7 @@ The project uses [mise](https://mise.jdx.dev/) for its task surface:
 ```sh
 mise run setup              # install tools and Git hooks
 mise run check              # lint, generated files, format, and unit tests
+mise run test:coverage      # statement summary + coverage.html report
 mise run test-integration   # MinIO round trip; requires Docker
 mise run verify             # CI-equivalent validation
 mise run update:mermaid     # update an eligible, 72-hour-old Mermaid pin

@@ -217,6 +217,14 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
   `%LocalAppData%` on Windows — Go stdlib has no state-dir
   function).
 
+Config resolution derives provenance from the same definition metadata and
+explicit inputs used by each precedence layer. `ResolveConfig` returns the
+same `Config` as `LoadConfig` plus config-path, profile-selection, and
+field-source metadata; `LoadConfig` delegates to it to keep one resolution
+path. Field traces retain ordered source identities but no shadowed values,
+avoiding duplicate credential material. `config show` is a thin table/JSON
+formatter over that result and redacts both credential fields.
+
 ## 5. Config JSON Schema Generation
 
 Generated from the core package's config structs via
@@ -278,6 +286,15 @@ information.
    when trusted metadata or completeness state is needed.
 6. Validate the marker before delete or purge. Delete all payload and extra
    objects first, remove the marker last, then append the local tombstone.
+
+Manifest reads retain pre-marker upload records as read-only legacy history.
+Delete profile inference requires exactly one requested URL or key match in
+active, marker-managed history before config resolution. URL matches require
+the recorded public host; explicit flag or environment profile selection
+remains authoritative. A typed profile-mismatch error lets the CLI add a
+targeted retry hint when marker lookup fails.
+Local purge likewise filters manifest candidates by the fully resolved active
+profile before applying its user-supplied age and slug filters.
 
 This ordering intentionally exposes interrupted creation as incomplete and
 removes a directory from airplan's management surface only after payload
