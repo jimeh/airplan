@@ -251,10 +251,10 @@ post-publication smoke tests close the remaining gates.
       exposing secret values.
 - [x] GitHub release immutability is enabled before merging the release PR; it
       only applies to releases published after the setting is enabled.
-- [ ] Merging the release PR creates a draft, uploads and verifies checksums,
-      platform archives, SBOMs, and the standalone schema asset, records
-      attestations, updates the Homebrew cask, then publishes immutable release
-      `v0.1.0` and its tag.
+- [ ] Merging the release PR creates tag `v0.1.0` and a draft, uploads and
+      verifies checksums, platform archives, SBOMs, and the standalone schema
+      asset, records attestations, updates the Homebrew cask, then publishes
+      the immutable release and locks its tag and assets.
 - [ ] Fresh-install smoke tests pass through Homebrew, mise, Go, and a downloaded
       release archive.
 - [ ] Published `airplan --version`, schema URL, release badge, and Go package
