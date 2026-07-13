@@ -270,12 +270,12 @@ Syft, Homebrew tap (cask);
 standalone release asset (the `#:schema` URL). Shell completions are
 generated at runtime by `airplan completion` rather than shipped.
 Releases are cut by release-please from conventional commits. Merging
-the release PR creates a notes-bearing draft without a remote tag and
-passes its tag and commit to the GoReleaser workflow. GoReleaser uploads
-archives, checksums, SBOMs, and the standalone schema into that draft.
-The workflow records GitHub SLSA provenance attestations, verifies the
-complete asset inventory and GitHub SHA-256 digests, then publishes the
-release. Publication creates the tag and makes the release immutable.
+the release PR creates a remote tag and a notes-bearing draft, then passes
+the tag and commit to the GoReleaser workflow. GoReleaser uploads archives,
+checksums, SBOMs, and the standalone schema into that draft. The workflow
+records GitHub SLSA provenance attestations, verifies the complete asset
+inventory and GitHub SHA-256 digests, then publishes the release. Publication
+locks the existing tag and assets and makes the release immutable.
 `go install` works as a fallback and derives its version from Go build
 information.
 

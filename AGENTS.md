@@ -82,6 +82,9 @@ pins live in `mise.lock` (commit both when bumping tools).
 - **GoReleaser PR checks are opt-in**: apply the `ci:goreleaser`
   label when a PR changes `.goreleaser.yaml` or release packaging.
   The check remains unconditional on pushes to `main`.
+- **Draft releases require an eager tag**: keep release-please's
+  `force-tag-creation` enabled. It builds the next release PR immediately
+  after creating a draft; without the tag it replays released commits.
 - **MinIO is immutable-pinned** in `airplan/integration_test.go`:
   update the release tag and multi-platform digest together, inspect
   the image labels, then run `mise run test-integration`.
@@ -112,11 +115,11 @@ For an isolated module-version `go install` smoke test, invoke
 ## Releases
 
 Merge to main → release-please maintains the release PR → merging it
-creates a notes-bearing draft release → the reusable release workflow
-builds with GoReleaser, uploads and verifies every asset, records
+creates a tag and notes-bearing draft release → the reusable release
+workflow builds with GoReleaser, uploads and verifies every asset, records
 attestations, pushes the Homebrew cask, then publishes the immutable
-release and tag. Retry failed publications with the release workflow's
-manual tag/SHA inputs while the release remains a draft. Credentials
+release and locks its tag. Retry failed publications with the release
+workflow's manual tag/SHA inputs while the release remains a draft. Credentials
 come from the release bot GitHub App; no PATs. Keep the release-please
 release name and GoReleaser `name_template` equal to the full tag:
 GoReleaser finds an existing draft by title, not `tag_name`.
