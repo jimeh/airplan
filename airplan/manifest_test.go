@@ -298,6 +298,24 @@ func TestMatchingManifestUploadsRequiresMatchingURLHost(t *testing.T) {
 	}
 }
 
+func TestMatchingManifestUploadsMatchesFlatLegacyKeys(t *testing.T) {
+	record := ManifestRecord{
+		Type: "upload", Key: "legacy.html", SourceKey: "legacy.md",
+		URL: "https://plans.example.com/legacy.html",
+	}
+	for _, target := range []string{
+		"legacy.html",
+		"/legacy.md",
+		"https://plans.example.com/base/legacy.md",
+	} {
+		matches := MatchingManifestUploads([]ManifestRecord{record}, target)
+		if len(matches) != 1 || matches[0].Key != record.Key {
+			t.Fatalf("target %q matches = %+v, want legacy record",
+				target, matches)
+		}
+	}
+}
+
 func TestReadManifestSkipsMalformedAndUnknownType(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.jsonl")
 	data := strings.Join([]string{

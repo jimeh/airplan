@@ -375,15 +375,15 @@ func manifestUploadMatchesTarget(rec ManifestRecord, target string) bool {
 		}
 	}
 
-	dirPrefix, err := uploadDirPrefix(rec.Key)
-	if err != nil {
-		return false
-	}
 	candidates := []string{
 		rec.Key,
 		rec.SourceKey,
-		strings.TrimSuffix(dirPrefix, "/"),
-		dirPrefix + MarkerFilename,
+	}
+	if dirPrefix, err := uploadDirPrefix(rec.Key); err == nil {
+		candidates = append(candidates,
+			strings.TrimSuffix(dirPrefix, "/"),
+			dirPrefix+MarkerFilename,
+		)
 	}
 	for _, candidate := range candidates {
 		if candidate == "" {
