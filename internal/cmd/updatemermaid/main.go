@@ -173,7 +173,7 @@ func update(now time.Time, client *http.Client, dryRun bool) error {
 }
 
 func findRenderGoldens() ([]string, error) {
-	paths, err := filepath.Glob(renderGoldenPattern)
+	paths, err := globRenderGoldens()
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +186,7 @@ func findRenderGoldens() ([]string, error) {
 }
 
 func restoreFiles(originals map[string][]byte) {
-	currentGoldens, _ := filepath.Glob(renderGoldenPattern)
+	currentGoldens, _ := globRenderGoldens()
 	for _, path := range currentGoldens {
 		if _, existed := originals[path]; !existed {
 			_ = os.Remove(path)
@@ -195,6 +195,10 @@ func restoreFiles(originals map[string][]byte) {
 	for path, data := range originals {
 		_ = os.WriteFile(path, data, 0o644)
 	}
+}
+
+func globRenderGoldens() ([]string, error) {
+	return filepath.Glob(filepath.FromSlash(renderGoldenPattern))
 }
 
 func fetchRegistry(client *http.Client) (registryDocument, error) {
