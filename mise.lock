@@ -46,6 +46,52 @@ url = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_
 url_api = "https://api.github.com/repos/rhysd/actionlint/releases/assets/384924919"
 provenance = "github-attestations"
 
+[[tools."github:jimeh/treeboot"]]
+version = "0.9.0"
+backend = "github:jimeh/treeboot"
+
+[tools."github:jimeh/treeboot"."platforms.linux-arm64"]
+checksum = "sha256:895da866ba763db358236029a45db5023675be241895900a505ee0f86020a72d"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.9.0/treeboot-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/466447653"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.linux-arm64-musl"]
+checksum = "sha256:895da866ba763db358236029a45db5023675be241895900a505ee0f86020a72d"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.9.0/treeboot-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/466447653"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.linux-x64"]
+checksum = "sha256:c8f6d8483173fce5813289782cc8d54f249459b3e175f85a1667d61a49f3f3dc"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.9.0/treeboot-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/466447667"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.linux-x64-musl"]
+checksum = "sha256:c8f6d8483173fce5813289782cc8d54f249459b3e175f85a1667d61a49f3f3dc"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.9.0/treeboot-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/466447667"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.macos-arm64"]
+checksum = "sha256:6b040d26fdb4bcd2e3dee57c291bb855601be010bd3ed48d69fcf6a8a5a854bf"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.9.0/treeboot-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/466447632"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.macos-x64"]
+checksum = "sha256:d6bd948930b2243446f62fd2873da05500825e9af8e7c8ad1d4cebd0e809d8ad"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.9.0/treeboot-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/466447662"
+provenance = "github-attestations"
+
+[tools."github:jimeh/treeboot"."platforms.windows-x64"]
+checksum = "sha256:42a779b1d979fbb7605af863b2e0a508bf650bee2bdaf54b735900aa2da464bf"
+url = "https://github.com/jimeh/treeboot/releases/download/v0.9.0/treeboot-x86_64-pc-windows-msvc.zip"
+url_api = "https://api.github.com/repos/jimeh/treeboot/releases/assets/466447665"
+provenance = "github-attestations"
+
 [[tools.go]]
 version = "1.26.5"
 backend = "core:go"

@@ -327,6 +327,7 @@ it because Go cannot interrupt an arbitrary `io.Reader`.
 The project uses [mise](https://mise.jdx.dev/) for its task surface:
 
 ```sh
+mise run treeboot           # bootstrap a new linked worktree
 mise run setup              # install tools and Git hooks
 mise run check              # lint, generated files, format, and unit tests
 mise run test:coverage      # statement summary + coverage.html report
