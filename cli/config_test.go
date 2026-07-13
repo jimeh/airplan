@@ -241,7 +241,8 @@ default_profile = "alpha"
 func TestConfigProfilesJSONAndEmptyOutput(t *testing.T) {
 	isolateEnv(t)
 	path := filepath.Join(t.TempDir(), "config.toml")
-	contents := "[profiles.work]\n[profiles.personal]\n"
+	contents := `default_profile = "personal"` + "\n" +
+		"[profiles.work]\n[profiles.personal]\n"
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -255,7 +256,7 @@ func TestConfigProfilesJSONAndEmptyOutput(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	wantJSON := "[{\"name\":\"personal\",\"default\":false}," +
+	wantJSON := "[{\"name\":\"personal\",\"default\":true}," +
 		"{\"name\":\"work\",\"default\":false}]\n"
 	if stdout != wantJSON {
 		t.Fatalf("stdout = %q, want %q", stdout, wantJSON)
@@ -283,6 +284,28 @@ func TestConfigProfilesJSONAndEmptyOutput(t *testing.T) {
 	}
 	if stdout != "[]\n" || stderr != "" {
 		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
+	}
+}
+
+func TestConfigProfileTableNameQuotesUnsafeNames(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{name: "empty", input: "", want: `""`},
+		{name: "newline", input: "line\nbreak", want: `"line\nbreak"`},
+		{name: "tab", input: "tab\tname", want: `"tab\tname"`},
+		{name: "carriage return", input: "one\rtwo", want: `"one\rtwo"`},
+		{name: "escape", input: "ansi\x1bname", want: `"ansi\x1bname"`},
+		{name: "safe", input: "work profile", want: "work profile"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := configProfileTableName(tc.input); got != tc.want {
+				t.Fatalf("configProfileTableName(%q) = %q, want %q",
+					tc.input, got, tc.want)
+			}
+		})
 	}
 }
 

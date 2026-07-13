@@ -1415,6 +1415,21 @@ access_key_id = "access"
 	}
 }
 
+func TestListConfigProfilesDoesNotDefaultEmptyProfileName(t *testing.T) {
+	path := writeConfig(t, `[profiles.""]`+"\n", 0o600)
+
+	result, err := ListConfigProfiles(ConfigProfilesOptions{
+		Path: path, Getenv: envMap(nil),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ConfigProfile{{Name: "", Default: false}}
+	if !reflect.DeepEqual(result.Profiles, want) {
+		t.Fatalf("Profiles = %#v, want %#v", result.Profiles, want)
+	}
+}
+
 func TestListConfigProfilesPathPrecedenceAndMissingFiles(t *testing.T) {
 	envPath := writeConfig(t, "[profiles.environment]\n", 0o600)
 	explicitPath := writeConfig(t, "[profiles.explicit]\n", 0o600)

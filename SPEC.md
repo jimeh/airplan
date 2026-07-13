@@ -502,7 +502,6 @@ stays reserved for the success object).
 
 ```
 airplan config schema
-airplan config show [flags]
 airplan config profiles [--config PATH] [--json]
 airplan template
 airplan preview [flags] [file]
@@ -629,7 +628,9 @@ credential chain. Names are sorted lexicographically. The default table has
 the exact columns `PROFILE` and `DEFAULT`; the latter is `yes` only for the
 profile named by `default_profile` and `no` otherwise. It does not indicate an
 active or inferred profile. A config with no named profiles writes no table
-output.
+output. Empty names and names containing non-graphic Unicode characters are
+rendered as Go-quoted strings in the table so each profile stays on one safe
+terminal row; JSON retains the exact name.
 
 `--json` / `-j` returns an array of objects with string `name` and boolean
 `default` fields in the same order. An empty inventory is `[]`, not `null`.

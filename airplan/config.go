@@ -302,7 +302,9 @@ func ListConfigProfiles(
 	profiles := make([]ConfigProfile, 0, len(fileConfig.Profiles))
 	for _, name := range profileNames(fileConfig.Profiles) {
 		profiles = append(profiles, ConfigProfile{
-			Name: name, Default: name == fileConfig.DefaultProfile,
+			Name: name,
+			Default: fileConfig.DefaultProfile != "" &&
+				name == fileConfig.DefaultProfile,
 		})
 	}
 	warnings := make([]string, 0, 1)

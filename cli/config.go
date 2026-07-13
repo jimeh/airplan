@@ -6,6 +6,7 @@ import (
 	"io"
 	"strconv"
 	"text/tabwriter"
+	"unicode"
 
 	"github.com/jimeh/airplan/airplan"
 	"github.com/spf13/cobra"
@@ -98,12 +99,24 @@ func printConfigProfiles(w io.Writer, profiles []airplan.ConfigProfile) error {
 			isDefault = "yes"
 		}
 		if _, err := fmt.Fprintf(
-			tw, "%s\t%s\n", profile.Name, isDefault,
+			tw, "%s\t%s\n", configProfileTableName(profile.Name), isDefault,
 		); err != nil {
 			return err
 		}
 	}
 	return tw.Flush()
+}
+
+func configProfileTableName(name string) string {
+	if name == "" {
+		return strconv.Quote(name)
+	}
+	for _, r := range name {
+		if !unicode.IsGraphic(r) {
+			return strconv.Quote(name)
+		}
+	}
+	return name
 }
 
 func newConfigShowCmd() *cobra.Command {
