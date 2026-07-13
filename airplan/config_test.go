@@ -1465,12 +1465,12 @@ func TestListConfigProfilesPathPrecedenceAndMissingFiles(t *testing.T) {
 	_, err = ListConfigProfiles(ConfigProfilesOptions{
 		Path: missing, Getenv: envMap(nil),
 	})
-	assertErrorContains(t, err, "does not exist", missing)
+	assertErrorContains(t, err, "does not exist", strconv.Quote(missing))
 
 	_, err = ListConfigProfiles(ConfigProfilesOptions{
 		Getenv: envMap(map[string]string{"AIRPLAN_CONFIG": missing}),
 	})
-	assertErrorContains(t, err, "does not exist", missing)
+	assertErrorContains(t, err, "does not exist", strconv.Quote(missing))
 }
 
 func TestListConfigProfilesEmptyDefaultAndRootOnlyConfig(t *testing.T) {
