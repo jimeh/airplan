@@ -1,0 +1,4 @@
+#:schema https://github.com/jimeh/treeboot/releases/latest/download/config.schema.json
+
+copy = ["mise.local.toml"]
+commands = ["mise run setup"]

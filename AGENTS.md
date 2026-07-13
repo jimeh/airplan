@@ -20,6 +20,7 @@ release-hardening work and evidence gates.
 
 | Task                               | Purpose                                                     |
 | ---------------------------------- | ----------------------------------------------------------- |
+| `mise run treeboot`                | bootstrap a linked worktree from the root checkout          |
 | `mise run setup`                   | install tools + git hooks (run once)                        |
 | `mise run check`                   | fast handoff gate: lint + generated files + format + tests  |
 | `mise run test`                    | unit tests (no Docker needed)                               |
@@ -48,6 +49,9 @@ pins live in `mise.lock` (commit both when bumping tools).
 - **Repository text files use LF on every platform** via
   `.gitattributes`; byte-exact golden and generated-file tests depend
   on this even when Git runs on Windows.
+- **Worktree bootstrap** (`.treeboot.toml`): copy the root checkout's
+  ignored `mise.local.toml` once, then run `mise run setup`. Existing
+  worktree-local copies are intentionally preserved.
 - **Config schema**: `schema/airplan.schema.json` is generated from
   the config structs and golden-tested; refresh with
   `go test ./airplan/ -run TestConfigSchema -update`. Unknown config

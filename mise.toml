@@ -1,6 +1,9 @@
 [settings]
 lockfile = true
 
+[settings.task]
+run_auto_install = true
+
 [tools]
 go = "1"
 goreleaser = "2"
@@ -11,6 +14,7 @@ zizmor = "1"
 pinact = "4"
 oxfmt = "0"
 syft = "1"
+"github:jimeh/treeboot" = "0"
 
 [tasks.build]
 description = "Build the airplan binary (skipped when nothing changed)"
@@ -101,3 +105,7 @@ run = "goreleaser check"
 [tasks.setup]
 description = "Install tools and git hooks"
 run = ["mise install", "lefthook install"]
+
+[tasks.treeboot]
+description = "Bootstrap the current worktree with treeboot"
+run = "treeboot"
