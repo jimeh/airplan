@@ -152,9 +152,10 @@ func withManifest(t *testing.T, contents string) {
 		[]byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{
-		"airplan/mermaid_generated.go", "airplan/testdata/basic.html",
-	} {
+	trackedPaths := append(
+		[]string{"airplan/mermaid_generated.go"}, renderGoldenPaths...,
+	)
+	for _, path := range trackedPaths {
 		full := filepath.Join(dir, path)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)

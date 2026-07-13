@@ -47,7 +47,7 @@ jobs:
           git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH" || true
           git switch -C "$BRANCH"
           git add internal/deps/mermaid.json airplan/mermaid_generated.go \
-            airplan/testdata/basic.html
+            airplan/testdata/TestRenderMarkdownGolden/*.html
           git commit -m "chore(deps): update Mermaid"
           git remote set-url origin \
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"

@@ -39,6 +39,16 @@ server or using a paste service.
 - Files live in a bucket you own. There are no accounts or background services.
 - The command has a predictable output contract for scripts and agents.
 
+## Live examples
+
+- [Zero-downtime token migration](https://demo.airplan.dev/u5o3rv77okwcscoxj6lkzldkue/implementation-plan.html)
+  is a realistic Markdown implementation plan with a diagram, responsive
+  columns, alerts, tables, task lists, and highlighted code.
+- [How airplan works](https://demo.airplan.dev/lsbpxbvfucyu6zkp5scelp6ni4/how-airplan-works.html)
+  is a concise architecture overview showing the CLI and library workflows.
+- [The GitHub-style alert renderer](https://demo.airplan.dev/6uidkbcadi7uafoztdtelipd7e/alert.html)
+  is a real Go source file presented as a highlighted, gist-like page.
+
 The exact behavior is defined in [SPEC.md](SPEC.md).
 
 ## Install

@@ -21,6 +21,13 @@ const (
 	minimumAge   = 72 * time.Hour
 )
 
+var renderGoldenPaths = []string{
+	"airplan/testdata/TestRenderMarkdownGolden/alert_go.html",
+	"airplan/testdata/TestRenderMarkdownGolden/basic.html",
+	"airplan/testdata/TestRenderMarkdownGolden/how_airplan_works.html",
+	"airplan/testdata/TestRenderMarkdownGolden/implementation_plan.html",
+}
+
 type manifest struct {
 	Package    string `json:"package"`
 	Version    string `json:"version"`
@@ -49,11 +56,10 @@ func main() {
 }
 
 func update(now time.Time, client *http.Client, dryRun bool) error {
-	trackedPaths := []string{
+	trackedPaths := append([]string{
 		manifestPath,
 		"airplan/mermaid_generated.go",
-		"airplan/testdata/basic.html",
-	}
+	}, renderGoldenPaths...)
 	originals := make(map[string][]byte, len(trackedPaths))
 	for _, path := range trackedPaths {
 		data, err := os.ReadFile(path)
@@ -154,10 +160,11 @@ func update(now time.Time, client *http.Client, dryRun bool) error {
 			"go", "run", "./internal/cmd/genmermaid",
 			manifestPath, "airplan/mermaid_generated.go",
 		},
-		{"go", "test", "./airplan", "-run", "TestRenderMarkdownGolden", "-update"},
+		{"go", "test", "./airplan", "-run", "TestRenderMarkdownGolden"},
 	}
 	for _, args := range commands {
 		cmd := exec.Command(args[0], args[1:]...)
+		cmd.Env = append(os.Environ(), "GOLDEN_UPDATE=1")
 		cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("run %s: %w", strings.Join(args, " "), err)
