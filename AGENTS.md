@@ -29,13 +29,15 @@ this implementation is built and must not contradict the spec.
 | `mise run generate`                | refresh committed generated files                          |
 | `mise run generate:check`          | fail if generated files are stale                          |
 | `mise run release:snapshot`        | build release artifacts without publishing                 |
-| `mise run verify`                  | CI-equivalent: check + integration + release snapshot      |
+| `mise run verify`                  | broad local check + integration + release snapshot         |
 | `mise run build`                   | binary at `bin/airplan` (skipped when unchanged)           |
 
 Run `mise run check` before handing off; `verify` for broad or risky
 changes. Lefthook pre-commit hooks lint/format-check staged files.
 Tool versions: major-version constraints live in `mise.toml`; exact
 pins live in `mise.lock` (commit both when bumping tools).
+CI additionally executes the unit tests on native Windows; that platform
+coverage has no equivalent local task on non-Windows hosts.
 
 ## Conventions that bite
 

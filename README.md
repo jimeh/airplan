@@ -475,7 +475,7 @@ mise run check              # lint, generated files, format, and unit tests
 mise run test:coverage      # statement summary + coverage.html report
 mise run test-integration   # MinIO round trip; requires Docker
 mise run release:snapshot   # build release artifacts without publishing
-mise run verify             # CI-equivalent validation
+mise run verify             # broad local validation
 mise run update:mermaid     # update an eligible, 72-hour-old Mermaid pin
 ```
 

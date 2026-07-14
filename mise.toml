@@ -99,10 +99,13 @@ depends = ["lint", "generate:check", "format:check", "test"]
 
 [tasks."release:snapshot"]
 description = "Build a release snapshot without publishing"
-run = "goreleaser release --snapshot --clean --skip=publish"
+run = [
+  "goreleaser check",
+  "goreleaser release --snapshot --clean --skip=publish",
+]
 
 [tasks.verify]
-description = "CI-equivalent validation before handoff"
+description = "Broad local validation before handoff"
 depends = ["check", "test-integration", "release:snapshot"]
 
 [tasks.setup]
