@@ -108,6 +108,22 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
       window.matchMedia(`(prefers-color-scheme: ${scheme})`).matches
     ), dark ? 'dark' : 'light'),
   ).toBe(true);
+  const theme = await page.evaluate(() => {
+    const styles = window.getComputedStyle(document.body);
+    const brightness = (value) => (
+      value.match(/\d+/g).slice(0, 3).map(Number)
+        .reduce((sum, channel) => sum + channel, 0)
+    );
+    return {
+      background: brightness(styles.backgroundColor),
+      foreground: brightness(styles.color),
+    };
+  });
+  if (dark) {
+    expect(theme.background).toBeLessThan(theme.foreground);
+  } else {
+    expect(theme.background).toBeGreaterThan(theme.foreground);
+  }
 
   const inlineToc = page.locator('#toc');
   await inlineToc.getByRole('link', { name: 'Details' }).click();
