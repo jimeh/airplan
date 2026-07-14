@@ -45,9 +45,14 @@ test.beforeAll(async () => {
     Object.entries(process.env).filter(([name]) => !name.startsWith('AIRPLAN_')),
   );
   env.XDG_CONFIG_HOME = configRoot;
+  // Bypass the mise shim so worktree-local env cannot restore
+  // AIRPLAN_* variables removed above.
+  const { stdout: goPath } = await execFileAsync(
+    'mise', ['which', 'go'], { cwd: repoRoot },
+  );
 
   await execFileAsync(
-    'go',
+    goPath.trim(),
     [
       'run',
       '.',

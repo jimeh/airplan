@@ -74,6 +74,8 @@ coverage has no equivalent local task on non-Windows hosts.
   through `airplan preview` with isolated configuration, then covers Chromium
   across desktop/narrow and light/dark projects. Keep selectors behavioral and
   accessible; screenshots and traces are failure evidence, not golden files.
+  Resolve Go with `mise which go`; the shim can re-inject stripped `AIRPLAN_*`
+  variables from worktree-local mise environment configuration.
 - **Markdown input is trusted content**: Goldmark's unsafe renderer is
   intentionally enabled so authored HTML and URL destinations survive.
   Do not add sanitization without changing the product trust boundary
