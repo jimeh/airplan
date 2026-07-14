@@ -6,6 +6,7 @@ run_auto_install = true
 
 [tools]
 go = "1"
+node = "24"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1"
 goreleaser = "2"
 golangci-lint = "2"
@@ -39,9 +40,17 @@ run = [
 description = "Round-trip tests against a throwaway MinIO container"
 run = "go test -tags integration -count=1 -v -run TestIntegration ./airplan/"
 
+[tasks."test:browser"]
+description = "Run rendered-page browser smoke tests in Chromium"
+run = [
+  "npm ci",
+  "npx playwright install chromium",
+  "npx playwright test",
+]
+
 [tasks."audit:deps"]
-description = "Verify Go modules and scan dependencies for known vulnerabilities"
-run = ["go mod verify", "govulncheck ./..."]
+description = "Verify and scan Go and npm dependencies"
+run = ["go mod verify", "govulncheck ./...", "npm audit --audit-level=high"]
 
 [tasks.generate]
 description = "Regenerate committed generated files"
