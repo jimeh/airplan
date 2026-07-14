@@ -80,6 +80,7 @@ release:
 
 homebrew_casks:
   - name: airplan
+    skip_upload: true
     ids:
       - airplan
     binaries:
@@ -88,7 +89,6 @@ homebrew_casks:
       owner: jimeh
       name: homebrew-tap
       branch: main
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     directory: Casks
     homepage: https://github.com/jimeh/airplan
     description: >-

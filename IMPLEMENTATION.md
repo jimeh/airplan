@@ -296,14 +296,18 @@ GitHub SLSA provenance attestations and verifies the complete asset inventory
 and GitHub SHA-256 digests. Native Apple Silicon and Intel jobs then download
 the exact draft archives with read-only GitHub access, verify their checksums,
 signature team and authority, hardened runtime, timestamp, notarization,
-Gatekeeper assessment, architecture, and reported version. Only after both
-jobs pass does the workflow publish the draft. Publication locks the existing
-tag and assets and makes the release immutable.
+architecture, and reported version. The online notarization-ticket check has a
+bounded retry for transient Apple or network failures. Only after both jobs
+pass does the workflow publish and verify the draft. Publication locks the
+existing tag and assets and makes the release immutable.
 
-GoReleaser OSS pushes the Homebrew Cask during its build/publish phase, before
-the separate native verification jobs can run. If native verification fails,
-the GitHub release remains a draft, but the tap update must be reverted before
-retrying the release. The workflow does not use GoReleaser Pro split/merge.
+GoReleaser OSS generates the Homebrew Cask without uploading it. The workflow
+carries that exact file between jobs as an immutable, same-run workflow
+artifact. After release publication and verification, it mints a short-lived
+release bot token and atomically replaces the tap's existing Cask through the
+GitHub Contents API. A failed Cask write leaves the prior tap file in place and
+opens a post-publication issue. The workflow does not use GoReleaser Pro
+split/merge.
 
 The signed executable remains inside the existing `.tar.gz`; Quill submits
 the executable to Apple without changing the distribution format. Raw Mach-O

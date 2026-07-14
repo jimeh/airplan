@@ -90,10 +90,10 @@ pins live in `mise.lock` (commit both when bumping tools).
   packaging, and publish only after native Intel and Apple Silicon checks.
   Snapshots stay secretless. Raw executables cannot carry stapled notarization
   tickets, so first Gatekeeper assessment may require internet access.
-- **Cask updates precede native release checks**: GoReleaser OSS pushes the
-  Homebrew Cask during the build, before the separate native verification jobs.
-  If either native check fails, leave the GitHub release as a draft and revert
-  the tap update before retrying.
+- **Cask publication is the final release step**: GoReleaser OSS generates the
+  Cask without uploading it. Preserve it as a same-run immutable artifact, then
+  atomically update the tap only after native checks and immutable release
+  publication pass. A failed update must leave the prior Cask working.
 - **MinIO is immutable-pinned** in `airplan/integration_test.go`:
   update the release tag and multi-platform digest together, inspect
   the image labels, then run `mise run test-integration`.
@@ -126,9 +126,9 @@ For an isolated module-version `go install` smoke test, invoke
 Merge to main → release-please maintains the release PR → merging it
 creates a tag and notes-bearing draft release → the reusable release
 workflow builds with GoReleaser, uploads and verifies every asset, records
-attestations, pushes the Homebrew cask, then publishes the immutable
-release and locks its tag. Retry failed publications with the release
-workflow's manual tag/SHA inputs while the release remains a draft. Credentials
-come from the release bot GitHub App; no PATs. Keep the release-please
+attestations, publishes the immutable release and locks its tag, then pushes
+the generated Homebrew Cask. Retry failed draft publications with the release
+workflow's manual tag/SHA inputs. Credentials come from the release bot GitHub
+App; no PATs. Keep the release-please
 release name and GoReleaser `name_template` equal to the full tag:
 GoReleaser finds an existing draft by title, not `tag_name`.

@@ -52,6 +52,7 @@ jobs:
       artifact-metadata: write
     outputs:
       release_id: ${{ steps.draft.outputs.release_id }}
+      cask_artifact: ${{ steps.cask-artifact.outputs.name }}
     env:
       RELEASE_SHA: ${{ inputs.sha }}
       RELEASE_TAG: ${{ inputs.tag }}
@@ -128,22 +129,10 @@ jobs:
           # injection vector for published artifacts (zizmor
           # cache-poisoning).
           cache: false
-      # Mint a short-lived app token scoped to the Homebrew tap repo
-      # for the cask push — same release bot app release-please uses,
-      # so no long-lived PAT to rotate.
-      - id: tap-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ vars.RELEASE_BOT_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
-          owner: jimeh
-          repositories: homebrew-tap
-          permission-contents: write
       - name: Build and upload draft release
         run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
           MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
           MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
           MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
@@ -187,6 +176,18 @@ jobs:
                   exit 1
                 fi
               done
+      - id: cask-artifact
+        name: Name generated Homebrew Cask artifact
+        run: |
+          echo "name=homebrew-cask-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            >>"$GITHUB_OUTPUT"
+      - name: Preserve generated Homebrew Cask
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.cask-artifact.outputs.name }}
+          path: dist/homebrew/Casks/airplan.rb
+          if-no-files-found: error
+          retention-days: 1
 
   verify-macos:
     needs: build-release
@@ -290,7 +291,9 @@ jobs:
             echo "binary is signed by an unexpected Apple team" >&2
             exit 1
           fi
-          if ! grep -Eq '^flags=.*\(runtime\)' <<<"$signature"; then
+          if ! grep -Eq \
+            '^CodeDirectory .* flags=0x[0-9a-fA-F]+\([^)]*runtime[^)]*\)' \
+            <<<"$signature"; then
             echo "binary lacks the hardened runtime flag" >&2
             exit 1
           fi
@@ -300,8 +303,21 @@ jobs:
             exit 1
           fi
 
-          codesign -vvvv -R='notarized' --check-notarization "$binary"
-          spctl --assess --type execute --verbose=4 "$binary"
+          notarization_verified=false
+          for attempt in {1..3}; do
+            if codesign -vvvv -R='notarized' \
+              --check-notarization "$binary"; then
+              notarization_verified=true
+              break
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              sleep "$((attempt * 2))"
+            fi
+          done
+          if [[ "$notarization_verified" != "true" ]]; then
+            echo "online notarization-ticket verification failed" >&2
+            exit 1
+          fi
 
           version_output="$("$binary" --version)"
           actual_version="${version_output#airplan version }"
@@ -354,16 +370,54 @@ jobs:
           done
           echo "immutable release attestation was not ready" >&2
           exit 1
-      - name: Report published release verification failure
+      - name: Restore generated Homebrew Cask
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build-release.outputs.cask_artifact }}
+          path: dist/homebrew/Casks
+      # Mint a short-lived app token only after the release and both native
+      # binaries have passed their gates. The Contents API update below is
+      # atomic, so a failed write leaves the prior Cask in place.
+      - id: tap-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: jimeh
+          repositories: homebrew-tap
+          permission-contents: write
+      - name: Publish Homebrew Cask
+        env:
+          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
+        run: |
+          cask=dist/homebrew/Casks/airplan.rb
+          if [[ ! -s "$cask" ]]; then
+            echo "generated Homebrew Cask is missing or empty" >&2
+            exit 1
+          fi
+
+          path=Casks/airplan.rb
+          existing_sha="$(gh api \
+            "repos/jimeh/homebrew-tap/contents/${path}?ref=main" \
+            --jq '.sha')"
+          content="$(base64 -w 0 <"$cask")"
+          gh api --method PUT \
+            "repos/jimeh/homebrew-tap/contents/${path}" \
+            -f message="chore: update airplan cask to $RELEASE_TAG" \
+            -f content="$content" \
+            -f sha="$existing_sha" \
+            -f branch=main \
+            --jq '.commit.sha'
+      - name: Report post-publication workflow failure
         if: failure() && steps.publish.outputs.published == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_URL: >-
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          title="Release verification failed for $RELEASE_TAG"
-          message="The immutable release was published, but its release "
-          message+="attestation could not be verified."
+          title="Post-publication workflow failed for $RELEASE_TAG"
+          message="The immutable release was published, but a later "
+          message+="verification or Homebrew Cask publication step failed."
           body="$(printf '%s\n\n%s\n%s\n%s\n' \
             "$message" \
             "- Release: $RELEASE_TAG" \
