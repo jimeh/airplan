@@ -48,7 +48,7 @@ func (g commandGit) run(args ...string) (string, error) {
 		}
 		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), detail)
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	return stdout.String(), nil
 }
 
 type versions struct {
@@ -95,12 +95,13 @@ func inspect(git gitRunner, base string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolve merge base for %q: %w", base, err)
 	}
+	mergeBase = strings.TrimSpace(mergeBase)
 	if mergeBase == "" {
 		return nil, errors.New("git merge-base returned an empty revision")
 	}
 
 	changedOutput, err := git.run(
-		"diff", "--name-only", "--no-renames", "--diff-filter=ACMRD",
+		"diff", "--name-only", "-z", "--no-renames", "--diff-filter=ACMRD",
 		mergeBase, "HEAD", "--",
 	)
 	if err != nil {
@@ -131,7 +132,11 @@ func splitPaths(output string) []string {
 	if output == "" {
 		return nil
 	}
-	return strings.Split(output, "\n")
+	paths := strings.Split(output, "\x00")
+	if paths[len(paths)-1] == "" {
+		paths = paths[:len(paths)-1]
+	}
+	return paths
 }
 
 func parseVersions(baseSpec, currentSpec, implementation string) (versions, error) {
@@ -173,7 +178,7 @@ func parseSingleVersion(name, content string, pattern *regexp.Regexp) (string, e
 func analyze(paths []string, v versions) []string {
 	var sensitive []string
 	for _, path := range paths {
-		path = filepath.ToSlash(strings.TrimSpace(path))
+		path = filepath.ToSlash(path)
 		if isContractSensitive(path) {
 			sensitive = append(sensitive, path)
 		}

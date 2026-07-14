@@ -61,13 +61,13 @@ func TestAnalyze(t *testing.T) {
 		},
 		{
 			name:  "sensitive path without bump",
-			paths: []string{"cli/root.go"},
+			paths: []string{"cli/café.go"},
 			v: versions{
 				baseSpec: "0.19.1", currentSpec: "0.19.1",
 				implementation: "0.19.1",
 			},
 			want: []string{
-				"contract-sensitive paths changed without a SPEC.md version bump: cli/root.go",
+				"contract-sensitive paths changed without a SPEC.md version bump: cli/café.go",
 			},
 		},
 		{
@@ -127,6 +127,16 @@ func TestAnalyze(t *testing.T) {
 				t.Fatalf("analyze() = %#v, want %#v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSplitPathsPreservesGitNULTerminatedNames(t *testing.T) {
+	t.Parallel()
+
+	want := []string{"cli/café.go", "airplan/line\nbreak.go"}
+	got := splitPaths("cli/café.go\x00airplan/line\nbreak.go\x00")
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("splitPaths() = %#v, want %#v", got, want)
 	}
 }
 
@@ -196,11 +206,11 @@ func TestRunPolicyExitModes(t *testing.T) {
 	t.Parallel()
 
 	git := fakeGit{responses: map[string]string{
-		"merge-base origin/main HEAD":                                      "abc123",
-		"diff --name-only --no-renames --diff-filter=ACMRD abc123 HEAD --": "cli/root.go",
-		"show abc123:SPEC.md":                                              "**Spec version: 0.19.1**",
-		"show HEAD:SPEC.md":                                                "**Spec version: 0.19.1**",
-		"show HEAD:IMPLEMENTATION.md":                                      "Targets spec version 0.19.1.",
+		"merge-base origin/main HEAD":                                         "abc123\n",
+		"diff --name-only -z --no-renames --diff-filter=ACMRD abc123 HEAD --": "cli/root.go\x00",
+		"show abc123:SPEC.md":                                                 "**Spec version: 0.19.1**",
+		"show HEAD:SPEC.md":                                                   "**Spec version: 0.19.1**",
+		"show HEAD:IMPLEMENTATION.md":                                         "Targets spec version 0.19.1.",
 	}}
 
 	for _, tt := range []struct {
