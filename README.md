@@ -474,11 +474,20 @@ mise run setup              # install tools and Git hooks
 mise run check              # lint, generated files, format, and unit tests
 mise run test:coverage      # statement summary + coverage.html report
 mise run test-integration   # MinIO round trip; requires Docker
-mise run audit:deps         # verify modules and scan known vulnerabilities
+mise run test:browser       # Chromium page smoke tests; installs browser
+mise run audit:deps         # audit Go modules and npm dependencies
 mise run release:snapshot   # build release artifacts without publishing
 mise run verify             # broad local validation
 mise run update:mermaid     # update an eligible, 72-hour-old Mermaid pin
 ```
+
+The browser suite requires Node.js and Chromium. The shared task installs the
+locked npm dependencies and matching Chromium build on demand. CI also installs
+Chromium's Linux system dependencies first. Failed CI runs retain the Playwright
+HTML report, traces, screenshots, and other test results for seven days.
+On a Linux development host missing those system libraries, run `npm ci`
+followed by `npx playwright install-deps chromium` once; the latter may require
+elevated privileges.
 
 See [AGENTS.md](AGENTS.md) for the repository map and contribution constraints.
 Releases are managed by release-please and GoReleaser from conventional commits.

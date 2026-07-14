@@ -1,4 +1,7 @@
 /bin/
 /dist/
+/node_modules/
 /coverage.html
 /coverage.out
+/playwright-report/
+/test-results/

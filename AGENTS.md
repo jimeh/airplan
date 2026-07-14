@@ -24,7 +24,8 @@ this implementation is built and must not contradict the spec.
 | `mise run test`                    | unit tests (no Docker needed)                              |
 | `mise run test:coverage`           | unit tests + text and HTML statement coverage reports      |
 | `mise run test-integration`        | MinIO round-trip via testcontainers (needs Docker)         |
-| `mise run audit:deps`              | verify modules + scan known dependency vulnerabilities     |
+| `mise run test:browser`            | Chromium page smoke tests (installs browser on demand)     |
+| `mise run audit:deps`              | verify modules + scan Go and npm dependencies              |
 | `mise run lint`                    | all lints: `lint:go`, `lint:workflows`                     |
 | `mise run format` / `format:check` | write / check formatting (`:go`, `:markdown`)              |
 | `mise run generate`                | refresh committed generated files                          |
@@ -69,6 +70,10 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Page assets** (`airplan/assets/`): embedded via go:embed. Mermaid is the
   only airplan-managed external load and is conditional. Update its pin with
   `mise run update:mermaid`; dependency-only updates never bump SPEC.md.
+- **Browser smoke tests** (`tests/browser/`): Playwright generates its fixture
+  through `airplan preview` with isolated configuration, then covers Chromium
+  across desktop/narrow and light/dark projects. Keep selectors behavioral and
+  accessible; screenshots and traces are failure evidence, not golden files.
 - **Markdown input is trusted content**: Goldmark's unsafe renderer is
   intentionally enabled so authored HTML and URL destinations survive.
   Do not add sanitization without changing the product trust boundary
@@ -84,9 +89,10 @@ coverage has no equivalent local task on non-Windows hosts.
   from squash-merged titles.
 - **Actions are SHA-pinned** (pinact); `mise run lint:workflows`
   fails on tag-pinned actions. `pinact run` re-pins after bumping.
-- **Dependency intake is delayed by seven days** for routine Go module and
-  GitHub Actions updates. Security updates bypass the Dependabot cooldown.
-  `mise run audit:deps` verifies modules and checks reachable vulnerabilities.
+- **Dependency intake is delayed by seven days** for routine Go module, npm,
+  and GitHub Actions updates. Security updates bypass the Dependabot cooldown.
+  `mise run audit:deps` verifies Go modules, checks reachable Go
+  vulnerabilities, and audits npm development dependencies at high severity.
 - **Cross-compilation target variables belong on the build step**, not the CI
   job. Job-level `GOOS`/`GOARCH` values make mise install target-platform Go
   tools that cannot run on the host runner.
