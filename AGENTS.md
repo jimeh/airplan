@@ -91,9 +91,10 @@ pins live in `mise.lock` (commit both when bumping tools).
   Snapshots stay secretless. Raw executables cannot carry stapled notarization
   tickets, so first Gatekeeper assessment may require internet access.
 - **Cask publication is the final release step**: GoReleaser OSS generates the
-  Cask without uploading it. Preserve it as a same-run immutable artifact, then
-  atomically update the tap only after native checks and immutable release
-  publication pass. A failed update must leave the prior Cask working.
+  Cask without uploading it. Preserve it for seven days as a same-run immutable
+  artifact. A separate downstream job atomically updates the tap only after
+  native checks and immutable release publication pass. A failed update must
+  leave the prior Cask working; re-run failed jobs to retry only that job.
 - **MinIO is immutable-pinned** in `airplan/integration_test.go`:
   update the release tag and multi-platform digest together, inspect
   the image labels, then run `mise run test-integration`.

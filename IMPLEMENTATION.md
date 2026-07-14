@@ -303,11 +303,12 @@ existing tag and assets and makes the release immutable.
 
 GoReleaser OSS generates the Homebrew Cask without uploading it. The workflow
 carries that exact file between jobs as an immutable, same-run workflow
-artifact. After release publication and verification, it mints a short-lived
-release bot token and atomically replaces the tap's existing Cask through the
-GitHub Contents API. A failed Cask write leaves the prior tap file in place and
-opens a post-publication issue. The workflow does not use GoReleaser Pro
-split/merge.
+artifact retained for seven days. After release publication and verification,
+a separate downstream job mints a short-lived release bot token and atomically
+replaces the tap's existing Cask through the GitHub Contents API. A failed Cask
+write leaves the prior tap file in place and opens a Cask-specific issue. GitHub
+can re-run that failed job without re-entering the successful, draft-only
+release publication job. The workflow does not use GoReleaser Pro split/merge.
 
 The signed executable remains inside the existing `.tar.gz`; Quill submits
 the executable to Apple without changing the distribution format. Raw Mach-O
