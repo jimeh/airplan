@@ -6,6 +6,7 @@ run_auto_install = true
 
 [tools]
 go = "1"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1"
 goreleaser = "2"
 golangci-lint = "2"
 lefthook = "2"
@@ -37,6 +38,10 @@ run = [
 [tasks.test-integration]
 description = "Round-trip tests against a throwaway MinIO container"
 run = "go test -tags integration -count=1 -v -run TestIntegration ./airplan/"
+
+[tasks."audit:deps"]
+description = "Verify Go modules and scan dependencies for known vulnerabilities"
+run = ["go mod verify", "govulncheck ./..."]
 
 [tasks.generate]
 description = "Regenerate committed generated files"
@@ -106,7 +111,7 @@ run = [
 
 [tasks.verify]
 description = "Broad local validation before handoff"
-depends = ["check", "test-integration", "release:snapshot"]
+depends = ["check", "audit:deps", "test-integration", "release:snapshot"]
 
 [tasks.setup]
 description = "Install tools and git hooks"

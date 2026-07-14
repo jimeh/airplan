@@ -24,6 +24,7 @@ this implementation is built and must not contradict the spec.
 | `mise run test`                    | unit tests (no Docker needed)                              |
 | `mise run test:coverage`           | unit tests + text and HTML statement coverage reports      |
 | `mise run test-integration`        | MinIO round-trip via testcontainers (needs Docker)         |
+| `mise run audit:deps`              | verify modules + scan known dependency vulnerabilities     |
 | `mise run lint`                    | all lints: `lint:go`, `lint:workflows`                     |
 | `mise run format` / `format:check` | write / check formatting (`:go`, `:markdown`)              |
 | `mise run generate`                | refresh committed generated files                          |
@@ -83,6 +84,9 @@ coverage has no equivalent local task on non-Windows hosts.
   from squash-merged titles.
 - **Actions are SHA-pinned** (pinact); `mise run lint:workflows`
   fails on tag-pinned actions. `pinact run` re-pins after bumping.
+- **Dependency intake is delayed by seven days** for routine Go module and
+  GitHub Actions updates. Security updates bypass the Dependabot cooldown.
+  `mise run audit:deps` verifies modules and checks reachable vulnerabilities.
 - **GoReleaser PR checks are opt-in**: apply the `ci:goreleaser`
   label when a PR changes `.goreleaser.yaml` or release packaging.
   The check remains unconditional on pushes to `main`.
