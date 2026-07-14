@@ -15,6 +15,15 @@ on:
       RELEASE_BOT_PRIVATE_KEY:
         description: Private key for the release bot GitHub App
         required: true
+      MACOS_SIGN_P12:
+        description: Base64-encoded Developer ID Application identity
+        required: true
+      MACOS_SIGN_PASSWORD:
+        description: Password for the Developer ID PKCS#12 identity
+        required: true
+      MACOS_NOTARY_KEY:
+        description: Base64-encoded App Store Connect API private key
+        required: true
   workflow_dispatch:
     inputs:
       sha:
@@ -30,19 +39,21 @@ concurrency:
   group: release-${{ inputs.tag }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  id-token: write
-  attestations: write
-  artifact-metadata: write
-  issues: write
+permissions: {}
 
 jobs:
-  release:
+  build-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      release_id: ${{ steps.draft.outputs.release_id }}
+      cask_artifact: ${{ steps.cask-artifact.outputs.name }}
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       RELEASE_SHA: ${{ inputs.sha }}
       RELEASE_TAG: ${{ inputs.tag }}
     steps:
@@ -51,8 +62,31 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ inputs.sha }}
+      - name: Validate macOS signing configuration
+        env:
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ vars.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ vars.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_TEAM_ID: ${{ vars.MACOS_TEAM_ID }}
+        run: |
+          for name in \
+            MACOS_SIGN_P12 \
+            MACOS_SIGN_PASSWORD \
+            MACOS_NOTARY_KEY \
+            MACOS_NOTARY_KEY_ID \
+            MACOS_NOTARY_ISSUER_ID \
+            MACOS_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "$name is required for a production release" >&2
+              exit 1
+            fi
+          done
       - id: draft
         name: Validate draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           release="$({
             gh api --paginate "repos/${GITHUB_REPOSITORY}/releases"
@@ -72,7 +106,13 @@ jobs:
             echo "checkout does not match release SHA" >&2
             exit 1
           fi
-          echo "release_id=$(jq -r '.id' <<<"$release")" >>"$GITHUB_OUTPUT"
+          if ! git merge-base --is-ancestor \
+            "$RELEASE_SHA" refs/remotes/origin/main; then
+            echo "release SHA is not contained in origin/main" >&2
+            exit 1
+          fi
+          echo "release_id=$(jq -r '.id' <<<"$release")" \
+            >>"$GITHUB_OUTPUT"
       - name: Prepare local release tag
         run: |
           if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
@@ -89,27 +129,21 @@ jobs:
           # injection vector for published artifacts (zizmor
           # cache-poisoning).
           cache: false
-      # Mint a short-lived app token scoped to the Homebrew tap repo
-      # for the cask push — same release bot app release-please uses,
-      # so no long-lived PAT to rotate.
-      - id: tap-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ vars.RELEASE_BOT_CLIENT_ID }}
-          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
-          owner: jimeh
-          repositories: homebrew-tap
-          permission-contents: write
       - name: Build and upload draft release
         run: goreleaser release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ vars.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ vars.MACOS_NOTARY_ISSUER_ID }}
       - uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-checksums: dist/checksums.txt
       - name: Verify draft release assets
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ID: ${{ steps.draft.outputs.release_id }}
         run: |
           (cd dist && sha256sum --check checksums.txt)
@@ -142,11 +176,184 @@ jobs:
                   exit 1
                 fi
               done
+      - id: cask-artifact
+        name: Name generated Homebrew Cask artifact
+        run: |
+          echo "name=homebrew-cask-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            >>"$GITHUB_OUTPUT"
+      - name: Preserve generated Homebrew Cask
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.cask-artifact.outputs.name }}
+          path: dist/homebrew/Casks/airplan.rb
+          if-no-files-found: error
+          retention-days: 7
+
+  verify-macos:
+    needs: build-release
+    name: verify macOS (${{ matrix.goarch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            goarch: arm64
+            runner_arch: arm64
+            binary_arch: arm64
+          - runner: macos-15-intel
+            goarch: amd64
+            runner_arch: x86_64
+            binary_arch: x86_64
+    env:
+      RELEASE_ID: ${{ needs.build-release.outputs.release_id }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      EXPECTED_GOARCH: ${{ matrix.goarch }}
+      EXPECTED_RUNNER_ARCH: ${{ matrix.runner_arch }}
+      EXPECTED_BINARY_ARCH: ${{ matrix.binary_arch }}
+      MACOS_TEAM_ID: ${{ vars.MACOS_TEAM_ID }}
+    steps:
+      - name: Download and verify native macOS archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          cd "$work"
+
+          version="${RELEASE_TAG#v}"
+          archive="airplan_${version}_darwin_${EXPECTED_GOARCH}.tar.gz"
+          assets="$({
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets"
+          } | jq -s 'add')"
+
+          download_asset() {
+            local name="$1"
+            local count id
+            count="$(jq --arg name "$name" \
+              '[.[] | select(.name == $name)] | length' <<<"$assets")"
+            if [[ "$count" != "1" ]]; then
+              echo "expected one $name asset, found $count" >&2
+              exit 1
+            fi
+            id="$(jq -r --arg name "$name" \
+              '.[] | select(.name == $name) | .id' <<<"$assets")"
+            gh api -H 'Accept: application/octet-stream' \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${id}" >"$name"
+          }
+
+          download_asset "$archive"
+          download_asset checksums.txt
+
+          checksum_entry="$(awk -v name="$archive" \
+            '$2 == name { print }' checksums.txt)"
+          checksum_count="$(awk -v name="$archive" \
+            '$2 == name { count++ } END { print count + 0 }' checksums.txt)"
+          if [[ "$checksum_count" != "1" ]]; then
+            echo "expected one checksum for $archive" >&2
+            exit 1
+          fi
+          printf '%s\n' "$checksum_entry" >checksums-entry.txt
+          shasum -a 256 -c checksums-entry.txt
+
+          if [[ "$(uname -m)" != "$EXPECTED_RUNNER_ARCH" ]]; then
+            echo "unexpected runner architecture: $(uname -m)" >&2
+            exit 1
+          fi
+
+          mkdir extracted
+          tar -xzf "$archive" -C extracted
+          binary="$work/extracted/airplan"
+          if [[ ! -x "$binary" ]]; then
+            echo "archive does not contain an executable airplan binary" >&2
+            exit 1
+          fi
+          if [[ "$(lipo -archs "$binary")" != "$EXPECTED_BINARY_ARCH" ]]; then
+            echo "binary does not match the expected native architecture" >&2
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=4 "$binary"
+          signature="$(codesign -dvvv "$binary" 2>&1)"
+          printf '%s\n' "$signature"
+
+          if ! grep -q '^Authority=Developer ID Application:' \
+            <<<"$signature"; then
+            echo "binary lacks a Developer ID Application authority" >&2
+            exit 1
+          fi
+          if ! grep -Fxq "TeamIdentifier=$MACOS_TEAM_ID" \
+            <<<"$signature"; then
+            echo "binary is signed by an unexpected Apple team" >&2
+            exit 1
+          fi
+          if ! grep -Eq \
+            '^CodeDirectory .* flags=0x[0-9a-fA-F]+\([^)]*runtime[^)]*\)' \
+            <<<"$signature"; then
+            echo "binary lacks the hardened runtime flag" >&2
+            exit 1
+          fi
+          timestamp="$(sed -n 's/^Timestamp=//p' <<<"$signature")"
+          if [[ -z "$timestamp" || "$timestamp" == "none" ]]; then
+            echo "binary lacks a secure signing timestamp" >&2
+            exit 1
+          fi
+
+          notarization_verified=false
+          for attempt in {1..3}; do
+            if codesign -vvvv -R='notarized' \
+              --check-notarization "$binary"; then
+              notarization_verified=true
+              break
+            fi
+            if [[ "$attempt" -lt 3 ]]; then
+              sleep "$((attempt * 2))"
+            fi
+          done
+          if [[ "$notarization_verified" != "true" ]]; then
+            echo "online notarization-ticket verification failed" >&2
+            exit 1
+          fi
+
+          version_output="$("$binary" --version)"
+          actual_version="${version_output#airplan version }"
+          if [[ "$actual_version" == "$version_output" || \
+            "$actual_version" != "$version" ]]; then
+            echo "unexpected version output: $version_output" >&2
+            exit 1
+          fi
+
+  publish:
+    needs:
+      - build-release
+      - verify-macos
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+    env:
+      RELEASE_ID: ${{ needs.build-release.outputs.release_id }}
+      RELEASE_SHA: ${{ inputs.sha }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
       - id: publish
         name: Publish immutable release
         env:
-          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          release="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
+          jq -e \
+            --arg tag "$RELEASE_TAG" \
+            --arg sha "$RELEASE_SHA" \
+            '.draft and .tag_name == $tag and .target_commitish == $sha' \
+            <<<"$release" >/dev/null
+
           published="$(gh api --method PATCH \
             "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
             -F draft=false -f make_latest=true)"
@@ -166,12 +373,81 @@ jobs:
       - name: Report published release verification failure
         if: failure() && steps.publish.outputs.published == 'true'
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_URL: >-
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           title="Release verification failed for $RELEASE_TAG"
           message="The immutable release was published, but its release "
           message+="attestation could not be verified."
+          body="$(printf '%s\n\n%s\n%s\n%s\n' \
+            "$message" \
+            "- Release: $RELEASE_TAG" \
+            "- Repository: $GITHUB_REPOSITORY" \
+            "- Workflow run: $RUN_URL")"
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "$title" --body "$body"
+
+  publish-cask:
+    needs:
+      - build-release
+      - publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Restore generated Homebrew Cask
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build-release.outputs.cask_artifact }}
+          path: dist/homebrew/Casks
+      # This downstream job is independently rerunnable after publication.
+      # The Contents API update below is atomic, so a failed write leaves the
+      # prior Cask in place.
+      - id: tap-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_BOT_PRIVATE_KEY }}
+          owner: jimeh
+          repositories: homebrew-tap
+          permission-contents: write
+      - name: Publish Homebrew Cask
+        env:
+          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
+        run: |
+          cask=dist/homebrew/Casks/airplan.rb
+          if [[ ! -s "$cask" ]]; then
+            echo "generated Homebrew Cask is missing or empty" >&2
+            exit 1
+          fi
+
+          path=Casks/airplan.rb
+          existing_sha="$(gh api \
+            "repos/jimeh/homebrew-tap/contents/${path}?ref=main" \
+            --jq '.sha')"
+          content="$(base64 -w 0 <"$cask")"
+          gh api --method PUT \
+            "repos/jimeh/homebrew-tap/contents/${path}" \
+            -f message="chore: update airplan cask to $RELEASE_TAG" \
+            -f content="$content" \
+            -f sha="$existing_sha" \
+            -f branch=main \
+            --jq '.commit.sha'
+      - name: Report Homebrew Cask publication failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: >-
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Homebrew Cask publication failed for $RELEASE_TAG"
+          message="The immutable release was published and verified, but the "
+          message+="downstream Homebrew Cask publication job failed."
           body="$(printf '%s\n\n%s\n%s\n%s\n' \
             "$message" \
             "- Release: $RELEASE_TAG" \
