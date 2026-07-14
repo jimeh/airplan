@@ -21,6 +21,7 @@ this implementation is built and must not contradict the spec.
 | `mise run treeboot`                | bootstrap a linked worktree from the root checkout         |
 | `mise run setup`                   | install tools + git hooks (run once)                       |
 | `mise run check`                   | fast handoff gate: lint + generated files + format + tests |
+| `mise run check:spec-sync`         | check contract changes update spec versions                |
 | `mise run test`                    | unit tests (no Docker needed)                              |
 | `mise run test:coverage`           | unit tests + text and HTML statement coverage reports      |
 | `mise run test-integration`        | MinIO round-trip via testcontainers (needs Docker)         |
@@ -46,6 +47,12 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Output contract (SPEC §1)**: stdout carries the result URL (or
   one JSON object) and _nothing else_; everything else → stderr.
   Tests assert this; don't print to stdout casually in `cli/`.
+- **SPEC synchronization sensor**: `mise run check:spec-sync` compares against
+  `SPEC_SYNC_BASE` (default `origin/main`). It treats `main.go`, non-test Go
+  files under `cli/` and `airplan/`, `airplan/assets/`, and
+  `schema/airplan.schema.json` as contract-sensitive, including deletions and
+  moves out of those paths. Local policy findings fail; PR CI reports them as
+  warnings while signal quality matures. Git and parsing errors always fail.
 - **Golden files**: rendering snapshots live in `airplan/testdata/`;
   run `GOLDEN_UPDATE=1 go test ./airplan/ -run TestRenderMarkdownGolden`
   after template/CSS/JS changes.
