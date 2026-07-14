@@ -13,30 +13,31 @@ same PR**, including its version per the semver rules at the top of
 the file. Code comments reference spec sections (`SPEC.md §7`); keep
 them accurate. [IMPLEMENTATION.md](IMPLEMENTATION.md) describes how
 this implementation is built and must not contradict the spec.
-[RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) tracks the v0.1.0
-release-hardening work and evidence gates.
 
 ## Task surface (mise)
 
-| Task                               | Purpose                                                     |
-| ---------------------------------- | ----------------------------------------------------------- |
-| `mise run treeboot`                | bootstrap a linked worktree from the root checkout          |
-| `mise run setup`                   | install tools + git hooks (run once)                        |
-| `mise run check`                   | fast handoff gate: lint + generated files + format + tests  |
-| `mise run test`                    | unit tests (no Docker needed)                               |
-| `mise run test:coverage`           | unit tests + text and HTML statement coverage reports       |
-| `mise run test-integration`        | MinIO round-trip via testcontainers (needs Docker)          |
-| `mise run lint`                    | all lints: `lint:go`, `lint:workflows`                      |
-| `mise run format` / `format:check` | write / check formatting (`:go`, `:markdown`)               |
-| `mise run generate`                | refresh committed generated files                           |
-| `mise run generate:check`          | fail if generated files are stale                           |
-| `mise run verify`                  | CI-equivalent: check + workflows + integration + goreleaser |
-| `mise run build`                   | binary at `bin/airplan` (skipped when unchanged)            |
+| Task                               | Purpose                                                    |
+| ---------------------------------- | ---------------------------------------------------------- |
+| `mise run treeboot`                | bootstrap a linked worktree from the root checkout         |
+| `mise run setup`                   | install tools + git hooks (run once)                       |
+| `mise run check`                   | fast handoff gate: lint + generated files + format + tests |
+| `mise run test`                    | unit tests (no Docker needed)                              |
+| `mise run test:coverage`           | unit tests + text and HTML statement coverage reports      |
+| `mise run test-integration`        | MinIO round-trip via testcontainers (needs Docker)         |
+| `mise run lint`                    | all lints: `lint:go`, `lint:workflows`                     |
+| `mise run format` / `format:check` | write / check formatting (`:go`, `:markdown`)              |
+| `mise run generate`                | refresh committed generated files                          |
+| `mise run generate:check`          | fail if generated files are stale                          |
+| `mise run release:snapshot`        | build release artifacts without publishing                 |
+| `mise run verify`                  | broad local check + integration + release snapshot         |
+| `mise run build`                   | binary at `bin/airplan` (skipped when unchanged)           |
 
 Run `mise run check` before handing off; `verify` for broad or risky
 changes. Lefthook pre-commit hooks lint/format-check staged files.
 Tool versions: major-version constraints live in `mise.toml`; exact
 pins live in `mise.lock` (commit both when bumping tools).
+CI additionally executes the unit tests on native Windows; that platform
+coverage has no equivalent local task on non-Windows hosts.
 
 ## Conventions that bite
 
