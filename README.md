@@ -74,6 +74,10 @@ go install github.com/jimeh/airplan@latest
 
 Prebuilt binaries are available from
 [GitHub Releases](https://github.com/jimeh/airplan/releases).
+The macOS release archives contain Developer ID-signed, hardened-runtime,
+Apple-notarized binaries. Because a raw executable cannot carry a stapled
+notarization ticket, its first Gatekeeper assessment may require internet
+access. Binaries built locally with `go install` are not project-signed.
 
 ### Install the agent skill
 

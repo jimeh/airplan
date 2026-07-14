@@ -85,6 +85,15 @@ pins live in `mise.lock` (commit both when bumping tools).
 - **Draft releases require an eager tag**: keep release-please's
   `force-tag-creation` enabled. It builds the next release PR immediately
   after creating a draft; without the tag it replays released commits.
+- **macOS releases fail closed**: production GoReleaser runs require all three
+  Apple secrets and three identity variables, sign and notarize before
+  packaging, and publish only after native Intel and Apple Silicon checks.
+  Snapshots stay secretless. Raw executables cannot carry stapled notarization
+  tickets, so first Gatekeeper assessment may require internet access.
+- **Cask updates precede native release checks**: GoReleaser OSS pushes the
+  Homebrew Cask during the build, before the separate native verification jobs.
+  If either native check fails, leave the GitHub release as a draft and revert
+  the tap update before retrying.
 - **MinIO is immutable-pinned** in `airplan/integration_test.go`:
   update the release tag and multi-platform digest together, inspect
   the image labels, then run `mise run test-integration`.

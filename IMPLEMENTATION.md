@@ -271,13 +271,47 @@ standalone release asset (the `#:schema` URL). Shell completions are
 generated at runtime by `airplan completion` rather than shipped.
 Releases are cut by release-please from conventional commits. Merging
 the release PR creates a remote tag and a notes-bearing draft, then passes
-the tag and commit to the GoReleaser workflow. GoReleaser uploads archives,
-checksums, SBOMs, and the standalone schema into that draft. The workflow
-records GitHub SLSA provenance attestations, verifies the complete asset
-inventory and GitHub SHA-256 digests, then publishes the release. Publication
-locks the existing tag and assets and makes the release immutable.
-`go install` works as a fallback and derives its version from Go build
-information.
+the tag and commit to the GoReleaser workflow. For production releases,
+GoReleaser's OSS macOS notarization pipeline signs both Darwin executables
+with the repository's Developer ID Application PKCS#12 identity, enables the
+hardened runtime and secure timestamp, and waits for Apple notarization. It
+does this before archives, archive SBOMs, checksums, and Homebrew cask hashes
+are produced. Snapshot builds explicitly skip this stage and need no Apple
+credentials. No entitlements are used.
+
+The repository-scoped `MACOS_SIGN_P12`, `MACOS_SIGN_PASSWORD`, and
+`MACOS_NOTARY_KEY` secrets provide the signing identity and Notary API key.
+The repository variables `MACOS_NOTARY_KEY_ID` and
+`MACOS_NOTARY_ISSUER_ID` identify that key. `MACOS_TEAM_ID` is a separate
+repository variable used only to verify the finished signatures; it is not a
+signing input. The automatic release-please call passes the three secrets
+directly to the reusable release workflow, with no GitHub environment or
+approval gate.
+
+GoReleaser uploads archives, checksums, SBOMs, and the standalone schema into
+the draft. The release workflow fails closed when any of the three Apple
+secrets or three identity variables is empty, when the release commit is not
+contained in `origin/main`, or when Apple rejects or times out. It records
+GitHub SLSA provenance attestations and verifies the complete asset inventory
+and GitHub SHA-256 digests. Native Apple Silicon and Intel jobs then download
+the exact draft archives with read-only GitHub access, verify their checksums,
+signature team and authority, hardened runtime, timestamp, notarization,
+Gatekeeper assessment, architecture, and reported version. Only after both
+jobs pass does the workflow publish the draft. Publication locks the existing
+tag and assets and makes the release immutable.
+
+GoReleaser OSS pushes the Homebrew Cask during its build/publish phase, before
+the separate native verification jobs can run. If native verification fails,
+the GitHub release remains a draft, but the tap update must be reverted before
+retrying the release. The workflow does not use GoReleaser Pro split/merge.
+
+The signed executable remains inside the existing `.tar.gz`; Quill submits
+the executable to Apple without changing the distribution format. Raw Mach-O
+executables cannot carry stapled tickets, so the first Gatekeeper assessment
+may require internet access. A future offline installation path would need a
+staple-capable container such as a PKG. `go install` remains a fallback,
+derives its version from Go build information, and produces a local executable
+outside the project's signing and notarization pipeline.
 
 ## 8. Upload Lifecycle
 

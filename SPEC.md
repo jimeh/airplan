@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.18.0**
+**Spec version: 0.19.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -446,6 +446,15 @@ the Go module path derive it from embedded Go build information.
 Module pseudo-versions are reported without their leading `v`.
 Unversioned local development builds, including dirty builds, report
 `dev`.
+
+Official macOS release archives contain native `amd64` or `arm64`
+executables signed with a Developer ID Application identity, hardened
+runtime enabled, and a secure timestamp. Apple must accept each executable
+for notarization before its release is published. A raw executable cannot
+carry a stapled notarization ticket, so its first Gatekeeper assessment may
+require internet access to retrieve the ticket from Apple. This guarantee
+does not cover `go install`, whose locally built executable is not Developer
+ID-signed or Apple-notarized by the project.
 
 Context-aware execution phases are bounded by a timeout — default **30
 seconds** — so stalled input and storage operations fail with a clear error

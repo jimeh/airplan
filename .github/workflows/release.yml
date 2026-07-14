@@ -15,6 +15,15 @@ on:
       RELEASE_BOT_PRIVATE_KEY:
         description: Private key for the release bot GitHub App
         required: true
+      MACOS_SIGN_P12:
+        description: Base64-encoded Developer ID Application identity
+        required: true
+      MACOS_SIGN_PASSWORD:
+        description: Password for the Developer ID PKCS#12 identity
+        required: true
+      MACOS_NOTARY_KEY:
+        description: Base64-encoded App Store Connect API private key
+        required: true
   workflow_dispatch:
     inputs:
       sha:
@@ -30,19 +39,20 @@ concurrency:
   group: release-${{ inputs.tag }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  id-token: write
-  attestations: write
-  artifact-metadata: write
-  issues: write
+permissions: {}
 
 jobs:
-  release:
+  build-release:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    outputs:
+      release_id: ${{ steps.draft.outputs.release_id }}
     env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       RELEASE_SHA: ${{ inputs.sha }}
       RELEASE_TAG: ${{ inputs.tag }}
     steps:
@@ -51,8 +61,31 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ inputs.sha }}
+      - name: Validate macOS signing configuration
+        env:
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ vars.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ vars.MACOS_NOTARY_ISSUER_ID }}
+          MACOS_TEAM_ID: ${{ vars.MACOS_TEAM_ID }}
+        run: |
+          for name in \
+            MACOS_SIGN_P12 \
+            MACOS_SIGN_PASSWORD \
+            MACOS_NOTARY_KEY \
+            MACOS_NOTARY_KEY_ID \
+            MACOS_NOTARY_ISSUER_ID \
+            MACOS_TEAM_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "$name is required for a production release" >&2
+              exit 1
+            fi
+          done
       - id: draft
         name: Validate draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           release="$({
             gh api --paginate "repos/${GITHUB_REPOSITORY}/releases"
@@ -72,7 +105,13 @@ jobs:
             echo "checkout does not match release SHA" >&2
             exit 1
           fi
-          echo "release_id=$(jq -r '.id' <<<"$release")" >>"$GITHUB_OUTPUT"
+          if ! git merge-base --is-ancestor \
+            "$RELEASE_SHA" refs/remotes/origin/main; then
+            echo "release SHA is not contained in origin/main" >&2
+            exit 1
+          fi
+          echo "release_id=$(jq -r '.id' <<<"$release")" \
+            >>"$GITHUB_OUTPUT"
       - name: Prepare local release tag
         run: |
           if git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"; then
@@ -105,11 +144,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HOMEBREW_TAP_GITHUB_TOKEN: ${{ steps.tap-token.outputs.token }}
+          MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
+          MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
+          MACOS_NOTARY_KEY: ${{ secrets.MACOS_NOTARY_KEY }}
+          MACOS_NOTARY_KEY_ID: ${{ vars.MACOS_NOTARY_KEY_ID }}
+          MACOS_NOTARY_ISSUER_ID: ${{ vars.MACOS_NOTARY_ISSUER_ID }}
       - uses: actions/attest@a1948c3f048ba23858d222213b7c278aabede763 # v4.1.1
         with:
           subject-checksums: dist/checksums.txt
       - name: Verify draft release assets
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ID: ${{ steps.draft.outputs.release_id }}
         run: |
           (cd dist && sha256sum --check checksums.txt)
@@ -142,11 +187,157 @@ jobs:
                   exit 1
                 fi
               done
+
+  verify-macos:
+    needs: build-release
+    name: verify macOS (${{ matrix.goarch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            goarch: arm64
+            runner_arch: arm64
+            binary_arch: arm64
+          - runner: macos-15-intel
+            goarch: amd64
+            runner_arch: x86_64
+            binary_arch: x86_64
+    env:
+      RELEASE_ID: ${{ needs.build-release.outputs.release_id }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      EXPECTED_GOARCH: ${{ matrix.goarch }}
+      EXPECTED_RUNNER_ARCH: ${{ matrix.runner_arch }}
+      EXPECTED_BINARY_ARCH: ${{ matrix.binary_arch }}
+      MACOS_TEAM_ID: ${{ vars.MACOS_TEAM_ID }}
+    steps:
+      - name: Download and verify native macOS archive
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          cd "$work"
+
+          version="${RELEASE_TAG#v}"
+          archive="airplan_${version}_darwin_${EXPECTED_GOARCH}.tar.gz"
+          assets="$({
+            gh api --paginate \
+              "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets"
+          } | jq -s 'add')"
+
+          download_asset() {
+            local name="$1"
+            local count id
+            count="$(jq --arg name "$name" \
+              '[.[] | select(.name == $name)] | length' <<<"$assets")"
+            if [[ "$count" != "1" ]]; then
+              echo "expected one $name asset, found $count" >&2
+              exit 1
+            fi
+            id="$(jq -r --arg name "$name" \
+              '.[] | select(.name == $name) | .id' <<<"$assets")"
+            gh api -H 'Accept: application/octet-stream' \
+              "repos/${GITHUB_REPOSITORY}/releases/assets/${id}" >"$name"
+          }
+
+          download_asset "$archive"
+          download_asset checksums.txt
+
+          checksum_entry="$(awk -v name="$archive" \
+            '$2 == name { print }' checksums.txt)"
+          checksum_count="$(awk -v name="$archive" \
+            '$2 == name { count++ } END { print count + 0 }' checksums.txt)"
+          if [[ "$checksum_count" != "1" ]]; then
+            echo "expected one checksum for $archive" >&2
+            exit 1
+          fi
+          printf '%s\n' "$checksum_entry" >checksums-entry.txt
+          shasum -a 256 -c checksums-entry.txt
+
+          if [[ "$(uname -m)" != "$EXPECTED_RUNNER_ARCH" ]]; then
+            echo "unexpected runner architecture: $(uname -m)" >&2
+            exit 1
+          fi
+
+          mkdir extracted
+          tar -xzf "$archive" -C extracted
+          binary="$work/extracted/airplan"
+          if [[ ! -x "$binary" ]]; then
+            echo "archive does not contain an executable airplan binary" >&2
+            exit 1
+          fi
+          if [[ "$(lipo -archs "$binary")" != "$EXPECTED_BINARY_ARCH" ]]; then
+            echo "binary does not match the expected native architecture" >&2
+            exit 1
+          fi
+
+          codesign --verify --deep --strict --verbose=4 "$binary"
+          signature="$(codesign -dvvv "$binary" 2>&1)"
+          printf '%s\n' "$signature"
+
+          if ! grep -q '^Authority=Developer ID Application:' \
+            <<<"$signature"; then
+            echo "binary lacks a Developer ID Application authority" >&2
+            exit 1
+          fi
+          if ! grep -Fxq "TeamIdentifier=$MACOS_TEAM_ID" \
+            <<<"$signature"; then
+            echo "binary is signed by an unexpected Apple team" >&2
+            exit 1
+          fi
+          if ! grep -Eq '^flags=.*\(runtime\)' <<<"$signature"; then
+            echo "binary lacks the hardened runtime flag" >&2
+            exit 1
+          fi
+          timestamp="$(sed -n 's/^Timestamp=//p' <<<"$signature")"
+          if [[ -z "$timestamp" || "$timestamp" == "none" ]]; then
+            echo "binary lacks a secure signing timestamp" >&2
+            exit 1
+          fi
+
+          codesign -vvvv -R='notarized' --check-notarization "$binary"
+          spctl --assess --type execute --verbose=4 "$binary"
+
+          version_output="$("$binary" --version)"
+          actual_version="${version_output#airplan version }"
+          if [[ "$actual_version" == "$version_output" || \
+            "$actual_version" != "$version" ]]; then
+            echo "unexpected version output: $version_output" >&2
+            exit 1
+          fi
+
+  publish:
+    needs:
+      - build-release
+      - verify-macos
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+    env:
+      RELEASE_ID: ${{ needs.build-release.outputs.release_id }}
+      RELEASE_SHA: ${{ inputs.sha }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
       - id: publish
         name: Publish immutable release
         env:
-          RELEASE_ID: ${{ steps.draft.outputs.release_id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          release="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")"
+          jq -e \
+            --arg tag "$RELEASE_TAG" \
+            --arg sha "$RELEASE_SHA" \
+            '.draft and .tag_name == $tag and .target_commitish == $sha' \
+            <<<"$release" >/dev/null
+
           published="$(gh api --method PATCH \
             "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" \
             -F draft=false -f make_latest=true)"
@@ -166,6 +357,7 @@ jobs:
       - name: Report published release verification failure
         if: failure() && steps.publish.outputs.published == 'true'
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_URL: >-
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
