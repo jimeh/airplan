@@ -148,22 +148,9 @@ when its permissions are too broad. The `#:schema` comment enables validation
 and completion in editors with [Taplo](https://taplo.tamasfe.dev/) or the Even
 Better TOML extension.
 
-Run `airplan config schema` to inspect every available setting. Configuration
-can also come from `AIRPLAN_*` environment variables or command-line flags.
-For multiple buckets, add `[profiles.name]` tables and select one with
-`--profile`/`-p`. For a shared bucket, give each person a distinct
-`key_prefix`.
-
-Use `airplan config profiles` to list configured profile names and identify an
-explicit `default_profile`. Add `--json` / `-j` for scriptable output. This
-inventory does not require profiles to contain complete or valid storage
-settings and does not inspect AWS credential profiles.
-
-Use `airplan config show` to inspect the active profile, resolved values, and
-the winning source for each field. `airplan config show --json` provides the
-same information for scripts. Access and secret key values are always
-redacted; the command does not contact storage or resolve the standard AWS
-credential chain.
+Run `airplan config schema` to inspect every available file setting. See the
+[configuration reference](#configuration-reference) for profiles,
+environment-only setup, precedence, and diagnostic commands.
 
 ### Cloudflare R2 setup
 
@@ -282,6 +269,141 @@ url=$(airplan --json plan.md | jq -r .url)
 
 Do not invent or reuse a URL after a failed command. For the complete CLI,
 config, key, and manifest contracts, use [SPEC.md](SPEC.md).
+
+## Configuration reference
+
+airplan resolves settings in this order, from highest to lowest priority:
+
+1. Command-line flags
+2. `AIRPLAN_*` environment variables
+3. The selected named profile
+4. Root-level config file values
+5. Built-in defaults
+
+The default config path is `$XDG_CONFIG_HOME/airplan/config.toml`, normally
+`~/.config/airplan/config.toml` on Linux and macOS, with the corresponding
+platform config directory used on Windows. Select another file with
+`--config PATH` or `AIRPLAN_CONFIG`. An explicitly selected file must exist;
+only the platform-default file is optional.
+
+### Config files and profiles
+
+Root-level values are shared defaults. Named profiles inherit them and
+override only what differs:
+
+```toml
+# Root-level keys must appear before the first [profiles.*] table.
+endpoint = "https://<account-id>.r2.cloudflarestorage.com"
+region = "auto"
+key_prefix = "jimeh"
+default_profile = "work"
+
+[profiles.work]
+bucket = "work-plans"
+public_base_url = "https://plans.work.example.com"
+
+[profiles.personal]
+bucket = "personal-plans"
+public_base_url = "https://plans.example.com"
+```
+
+Select a profile for one command with `--profile` / `-p`, or for profile-aware
+commands in a project-specific shell environment with `AIRPLAN_PROFILE`:
+
+```sh
+# For example, in a project shell setup, task runner, or .envrc:
+export AIRPLAN_PROFILE="work"
+```
+
+airplan does not load `.env` files itself; the variable must be exported by
+your shell or another environment manager. An explicitly selected profile must
+exist in the config file. Without an explicit selection, airplan uses
+`default_profile`, the only named profile, or complete root-level values, in
+that order.
+
+For a shared bucket, give each person a distinct `key_prefix`. The prefix also
+scopes remote list and purge operations.
+
+### Environment variables
+
+A config file is not required. You can provide the complete storage setup
+through environment variables instead:
+
+```sh
+export AIRPLAN_ENDPOINT="https://<account-id>.r2.cloudflarestorage.com"
+export AIRPLAN_BUCKET="plans"
+export AIRPLAN_REGION="auto"
+export AIRPLAN_PUBLIC_BASE_URL="https://plans.example.com"
+export AIRPLAN_ACCESS_KEY_ID="..."
+export AIRPLAN_SECRET_ACCESS_KEY="..."
+
+airplan plan.md
+```
+
+Avoid committing credential values in project environment files. Explicit
+access and secret keys must be set as a pair. If neither is set through
+`AIRPLAN_*` variables or the config file, airplan uses the standard AWS
+credential chain, including `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
+the shared credentials file.
+
+| Variable                     | Purpose                                       |
+| ---------------------------- | --------------------------------------------- |
+| `AIRPLAN_CONFIG`             | Select an alternate config file               |
+| `AIRPLAN_PROFILE`            | Select a named `[profiles.*]` profile         |
+| `AIRPLAN_ENDPOINT`           | Set the S3-compatible API endpoint            |
+| `AIRPLAN_BUCKET`             | Set the destination bucket                    |
+| `AIRPLAN_REGION`             | Set the S3 signing region                     |
+| `AIRPLAN_ACCESS_KEY_ID`      | Set the explicit access key ID                |
+| `AIRPLAN_SECRET_ACCESS_KEY`  | Set the matching secret access key            |
+| `AIRPLAN_PUBLIC_BASE_URL`    | Set the base URL used for public links        |
+| `AIRPLAN_KEY_PREFIX`         | Prefix and scope uploaded object keys         |
+| `AIRPLAN_TEMPLATE`           | Select a custom HTML page template            |
+| `AIRPLAN_NO_EXTERNAL_ASSETS` | Disable airplan-managed external loads        |
+| `AIRPLAN_MERMAID_URL`        | Set an alternate HTTPS Mermaid module URL     |
+| `AIRPLAN_REPO`               | Set `auto`, `none`, or a repository URL       |
+| `AIRPLAN_TIMEOUT`            | Set a duration such as `30s`; `0` disables it |
+
+`no_source` and `indexable` do not have environment variables. Configure them
+in TOML or override them with `--no-source` and `--indexable`.
+
+### Inspect configuration
+
+```sh
+airplan config profiles        # list named profiles and the explicit default
+airplan config show            # show resolved values and their winning source
+airplan config show --json     # return the same diagnostics for scripts
+airplan config schema          # print the complete config file JSON Schema
+```
+
+`config show` always redacts access and secret key values. It resolves the
+active configuration without contacting storage or resolving the standard AWS
+credential chain. `config profiles --json` provides a scriptable profile
+inventory without requiring each profile to be complete.
+
+## Shell completion
+
+airplan generates completion scripts at runtime for Bash, Zsh, Fish, and
+PowerShell:
+
+```sh
+# Bash
+source <(airplan completion bash)
+
+# Zsh
+source <(airplan completion zsh)
+
+# Fish
+airplan completion fish | source
+```
+
+```powershell
+# PowerShell
+airplan completion powershell | Out-String | Invoke-Expression
+```
+
+These commands enable completion for the current session. Run
+`airplan completion <shell> --help` for persistent installation instructions
+specific to that shell and platform.
 
 ## Privacy model
 

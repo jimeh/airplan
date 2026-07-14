@@ -49,6 +49,9 @@ pins live in `mise.lock` (commit both when bumping tools).
 - **Repository text files use LF on every platform** via
   `.gitattributes`; byte-exact golden and generated-file tests depend
   on this even when Git runs on Windows.
+- **Shell completions are Cobra-generated at runtime** for Bash, Zsh, Fish,
+  and PowerShell. Keep the supported shell lists in README.md and SPEC.md
+  aligned with the generated `airplan completion` subcommands.
 - **Worktree bootstrap** (`.treeboot.toml`): copy the root checkout's
   ignored `mise.local.toml` once, then run `mise run setup`. Existing
   worktree-local copies are intentionally preserved.

@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.19.0**
+**Spec version: 0.19.1**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -433,8 +433,8 @@ one-off use.
 
 Frequent flags get short forms: `-p` (`--profile`), `-s` (`--slug`),
 `-t` (`--title`), `-j` (`--json`), `-o` (`--open`). Connection
-overrides stay long-only. `airplan completion bash|zsh|fish` emits
-shell completions.
+overrides stay long-only.
+`airplan completion bash|zsh|fish|powershell` emits shell completions.
 
 If `--open` fails to launch a browser (common in headless/agent
 environments), a warning goes to stderr and the exit code is
@@ -514,7 +514,7 @@ airplan config schema
 airplan config profiles [--config PATH] [--json]
 airplan template
 airplan preview [flags] [file]
-airplan completion bash|zsh|fish
+airplan completion bash|zsh|fish|powershell
 airplan list [--remote] [--json]
 airplan show [--json] <url|key>
 airplan delete <url|key>
