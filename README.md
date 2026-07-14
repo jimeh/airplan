@@ -472,6 +472,7 @@ The project uses [mise](https://mise.jdx.dev/) for its task surface:
 mise run treeboot           # bootstrap a new linked worktree
 mise run setup              # install tools and Git hooks
 mise run check              # lint, generated files, format, and unit tests
+mise run check:spec-sync    # check contract changes update spec versions
 mise run test:coverage      # statement summary + coverage.html report
 mise run test-integration   # MinIO round trip; requires Docker
 mise run test:browser       # Chromium page smoke tests; installs browser
@@ -488,6 +489,15 @@ HTML report, traces, screenshots, and other test results for seven days.
 On a Linux development host missing those system libraries, run `npm ci`
 followed by `npx playwright install-deps chromium` once; the latter may require
 elevated privileges.
+
+`mise run check:spec-sync` compares the branch with `origin/main` by default.
+Set `SPEC_SYNC_BASE` to check against another revision. It requires a SPEC.md
+version bump when `main.go`, non-test Go files in `cli/` or `airplan/`, page
+assets, or the generated configuration schema are added, changed, moved, or
+removed. It also keeps the target version in IMPLEMENTATION.md aligned with a
+bumped spec. The PR job currently reports policy findings as warning
+annotations while the signal matures; operational failures still fail CI.
+Local policy findings fail the task.
 
 See [AGENTS.md](AGENTS.md) for the repository map and contribution constraints.
 Releases are managed by release-please and GoReleaser from conventional commits.

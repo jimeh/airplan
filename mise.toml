@@ -63,6 +63,10 @@ run = [
   "go run ./internal/cmd/genmermaid --check internal/deps/mermaid.json airplan/mermaid_generated.go",
 ]
 
+[tasks."check:spec-sync"]
+description = "Check contract changes include specification version updates"
+run = "go run ./internal/cmd/checkspecsync"
+
 [tasks."update:mermaid"]
 description = "Update the pinned Mermaid release after its minimum age"
 run = "go run ./internal/cmd/updatemermaid"
