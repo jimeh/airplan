@@ -87,6 +87,9 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Dependency intake is delayed by seven days** for routine Go module and
   GitHub Actions updates. Security updates bypass the Dependabot cooldown.
   `mise run audit:deps` verifies modules and checks reachable vulnerabilities.
+- **Cross-compilation target variables belong on the build step**, not the CI
+  job. Job-level `GOOS`/`GOARCH` values make mise install target-platform Go
+  tools that cannot run on the host runner.
 - **GoReleaser PR checks are opt-in**: apply the `ci:goreleaser`
   label when a PR changes `.goreleaser.yaml` or release packaging.
   The check remains unconditional on pushes to `main`.
