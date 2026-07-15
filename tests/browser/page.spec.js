@@ -219,15 +219,22 @@ test('print view is compact and expands disclosures', async ({ browser, page },
       .toBeVisible();
     await expect(noJSPage.locator('#print-disclosure')
       .getByText('Print must include')).toBeVisible();
-    await expect(noJSPage.locator('[data-print-hidden]')).toBeHidden();
-    await expect(noJSPage.locator('[data-print-script]')).toBeHidden();
-    await expect(noJSPage.locator('[data-print-style]')).toBeHidden();
+    for (const selector of [
+      '[data-print-hidden]',
+      '[data-print-script]',
+      '[data-print-style]',
+    ]) {
+      await expect(noJSPage.locator(selector)).toHaveCount(1);
+      await expect(noJSPage.locator(selector)).toBeHidden();
+    }
   } finally {
     await noJSContext.close();
   }
 
   await page.emulateMedia({ media: 'screen' });
-  const closedDetails = await page.locator('details:not([open])').count();
+  const initialStates = await page.locator('details').evaluateAll(
+    (details) => details.map((detail) => detail.open),
+  );
   await page.evaluate(() => {
     window.printDisclosureStates = [];
     window.addEventListener('beforeprint', () => {
@@ -246,9 +253,12 @@ test('print view is compact and expands disclosures', async ({ browser, page },
   await page.pdf({ format: 'Letter', printBackground: true });
   const states = await page.evaluate(() => window.printDisclosureStates);
   expect(states).toHaveLength(2);
-  expect(states[0]).toHaveLength(closedDetails);
+  expect(states[0]).toHaveLength(initialStates.length);
   expect(states[0].every((open) => open)).toBe(true);
-  expect(states[1].every((open) => !open)).toBe(true);
+  expect(states[1]).toEqual(initialStates);
   await expect(frontmatter).not.toHaveAttribute('open', '');
   await expect(disclosure).not.toHaveAttribute('open', '');
+  await expect(page.locator('#print-open-disclosure')).toHaveAttribute(
+    'open', '',
+  );
 });
