@@ -84,9 +84,9 @@ coverage has no equivalent local task on non-Windows hosts.
   Resolve Go with `mise which go`; the shim can re-inject stripped `AIRPLAN_*`
   variables from worktree-local mise environment configuration.
 - **Print disclosures**: Chromium hides closed `details` content through its
-  `::details-content` box, so overriding child display alone does not reveal
-  it. Keep the print CSS fallback and `beforeprint`/`afterprint` state handling
-  aligned, with browser coverage for frontmatter and authored disclosures.
+  `::details-content` box. Forced child display can expose hidden, script, or
+  style content; use the pseudo-element fallback plus `beforeprint`/`afterprint`
+  state handling. Cover frontmatter and authored disclosures in browser tests.
 - **Markdown input is trusted content**: Goldmark's unsafe renderer is
   intentionally enabled so authored HTML and URL destinations survive.
   Do not add sanitization without changing the product trust boundary

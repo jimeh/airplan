@@ -163,8 +163,10 @@ described below.
   has a quiet border and thin horizontal scrollbar. Print uses a compact
   10.5-point body with a 1.45 line height, removes screen-only content padding,
   tightens vertical spacing, and keeps headings with the following content
-  when pagination permits. All `details` elements are expanded while printing
-  and return to their prior open or closed state afterward.
+  when pagination permits. With scripting enabled, all `details` elements are
+  expanded while printing and return to their prior open or closed state
+  afterward. Print CSS also reveals closed disclosure content without scripting
+  in browsers that support `::details-content`.
 - A responsive table of contents is rendered from markdown headings:
   - H1, H2, and H3 headings are included. If an H1 is the first visible
     block in the document, it is treated as the document title and is

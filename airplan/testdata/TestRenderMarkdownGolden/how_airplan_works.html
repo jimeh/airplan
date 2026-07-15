@@ -42,7 +42,7 @@
   --toc-width: 14rem;
 }
 
-@media (prefers-color-scheme: dark) {
+@media screen and (prefers-color-scheme: dark) {
   :root {
     --bg: #0d1117;
     --fg: #e6edf3;
@@ -972,13 +972,9 @@ mark {
   details::details-content {
     content-visibility: visible !important;
   }
-
-  details:not([open]) > :not(summary) {
-    display: block !important;
-  }
 }
 
-@media (prefers-color-scheme: light) {
+@media (prefers-color-scheme: light), print {
 /* Background */ .bg { background-color: #f7f7f7; }
 /* PreWrapper */ .chroma { background-color: #f7f7f7; -webkit-text-size-adjust: none; }
 /* Error */ .chroma .err { color: #f6f8fa; background-color: #82071e }
@@ -1053,7 +1049,7 @@ mark {
 /* GenericUnderline */ .chroma .gl { text-decoration: underline }
 /* TextWhitespace */ .chroma .w { color: #ffffff }
 }
-@media (prefers-color-scheme: dark) {
+@media screen and (prefers-color-scheme: dark) {
 /* Background */ .bg { color: #e6edf3; background-color: #0d1117; }
 /* PreWrapper */ .chroma { color: #e6edf3; background-color: #0d1117; -webkit-text-size-adjust: none; }
 /* Error */ .chroma .err { color: #f85149 }

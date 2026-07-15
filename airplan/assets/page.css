@@ -33,7 +33,7 @@
   --toc-width: 14rem;
 }
 
-@media (prefers-color-scheme: dark) {
+@media screen and (prefers-color-scheme: dark) {
   :root {
     --bg: #0d1117;
     --fg: #e6edf3;
@@ -965,13 +965,9 @@ mark {
     margin-block: 1.4em;
   }
 
-  /* Reveal disclosure content when JavaScript is disabled. The print event
-     handlers also open details for browsers without ::details-content. */
+  /* Reveal disclosure content without JavaScript in supporting browsers.
+     The print event handlers provide the cross-browser path. */
   details::details-content {
     content-visibility: visible !important;
-  }
-
-  details:not([open]) > :not(summary) {
-    display: block !important;
   }
 }

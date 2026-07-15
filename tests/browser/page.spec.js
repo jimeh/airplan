@@ -178,10 +178,10 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
     .toBe(expectedCode);
 });
 
-test('print view is compact and expands disclosures', async ({ page },
+test('print view is compact and expands disclosures', async ({ browser, page },
   testInfo) => {
-  test.skip(testInfo.project.name !== 'desktop-light',
-    'print behavior is independent of viewport and color scheme');
+  test.skip(!testInfo.project.name.startsWith('desktop-'),
+    'desktop projects cover both print color schemes');
 
   await page.goto(baseURL);
   const frontmatter = page.locator('.frontmatter');
@@ -197,8 +197,37 @@ test('print view is compact and expands disclosures', async ({ page },
   await expect(disclosure.getByText('Print must include')).toBeVisible();
   await expect(page.locator('body')).toHaveCSS('font-size', '14px');
   await expect(page.locator('body')).toHaveCSS('line-height', '20.3px');
+  await expect(page.locator('body')).toHaveCSS(
+    'background-color', 'rgb(255, 255, 255)',
+  );
+  await expect(page.getByRole('heading', {
+    level: 1,
+    name: 'Browser smoke plan',
+  })).toHaveCSS('color', 'rgb(31, 35, 40)');
+  await expect(page.locator('.chroma .k, .chroma .kd').first())
+    .toHaveCSS('color', 'rgb(207, 34, 46)');
+
+  const noJSContext = await browser.newContext({
+    colorScheme: testInfo.project.name.endsWith('-dark') ? 'dark' : 'light',
+    javaScriptEnabled: false,
+  });
+  try {
+    const noJSPage = await noJSContext.newPage();
+    await noJSPage.goto(baseURL);
+    await noJSPage.emulateMedia({ media: 'print' });
+    await expect(noJSPage.locator('.frontmatter').getByText('Print coverage'))
+      .toBeVisible();
+    await expect(noJSPage.locator('#print-disclosure')
+      .getByText('Print must include')).toBeVisible();
+    await expect(noJSPage.locator('[data-print-hidden]')).toBeHidden();
+    await expect(noJSPage.locator('[data-print-script]')).toBeHidden();
+    await expect(noJSPage.locator('[data-print-style]')).toBeHidden();
+  } finally {
+    await noJSContext.close();
+  }
 
   await page.emulateMedia({ media: 'screen' });
+  const closedDetails = await page.locator('details:not([open])').count();
   await page.evaluate(() => {
     window.printDisclosureStates = [];
     window.addEventListener('beforeprint', () => {
@@ -215,8 +244,11 @@ test('print view is compact and expands disclosures', async ({ page },
     });
   });
   await page.pdf({ format: 'Letter', printBackground: true });
-  expect(await page.evaluate(() => window.printDisclosureStates))
-    .toEqual([[true, true], [false, false]]);
+  const states = await page.evaluate(() => window.printDisclosureStates);
+  expect(states).toHaveLength(2);
+  expect(states[0]).toHaveLength(closedDetails);
+  expect(states[0].every((open) => open)).toBe(true);
+  expect(states[1].every((open) => !open)).toBe(true);
   await expect(frontmatter).not.toHaveAttribute('open', '');
   await expect(disclosure).not.toHaveAttribute('open', '');
 });

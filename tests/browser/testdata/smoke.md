@@ -10,6 +10,9 @@ This fixture verifies airplan's rendered-page browser behavior.
 <details id="print-disclosure">
 <summary>Collapsed details</summary>
 <p>Print must include this disclosure content.</p>
+<div hidden data-print-hidden>Hidden disclosure content.</div>
+<script type="application/json" data-print-script>{"hidden":true}</script>
+<style data-print-style>.print-hidden-fixture { color: red; }</style>
 </details>
 
 ## Overview

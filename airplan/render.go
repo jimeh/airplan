@@ -172,23 +172,23 @@ func newMarkdownWithRepository(repository string, source []byte) goldmark.Markdo
 }
 
 // syntaxCSS renders chroma's class-based stylesheets for the light and
-// dark palettes, each scoped to its own prefers-color-scheme media
-// query so highlighting follows the page theme (SPEC.md §3). Both
-// palettes must be fully scoped: the styles define different token
-// class sets, so an unscoped light palette would leak dark-on-dark
-// colors into dark mode for classes the dark style doesn't override.
+// dark palettes, scoped so highlighting follows the screen theme while
+// print always uses the light palette (SPEC.md §3). Both palettes must
+// be fully scoped: the styles define different token class sets, so an
+// unscoped light palette would leak dark-on-dark colors into dark mode
+// for classes the dark style doesn't override.
 var syntaxCSS = sync.OnceValues(func() (string, error) {
 	f := chromahtml.New(chromahtml.WithClasses(true))
 
 	var b strings.Builder
-	b.WriteString("@media (prefers-color-scheme: light) {\n")
+	b.WriteString("@media (prefers-color-scheme: light), print {\n")
 	err := f.WriteCSS(&b, styles.Get(syntaxStyleLight))
 	if err != nil {
 		return "", fmt.Errorf("render light syntax css: %w", err)
 	}
 	b.WriteString("}\n")
 
-	b.WriteString("@media (prefers-color-scheme: dark) {\n")
+	b.WriteString("@media screen and (prefers-color-scheme: dark) {\n")
 	err = f.WriteCSS(&b, styles.Get(syntaxStyleDark))
 	if err != nil {
 		return "", fmt.Errorf("render dark syntax css: %w", err)
