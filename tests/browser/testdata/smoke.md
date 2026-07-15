@@ -1,6 +1,16 @@
++++
+title = "Browser smoke plan"
+purpose = "Print coverage"
++++
+
 # Browser smoke plan
 
 This fixture verifies airplan's rendered-page browser behavior.
+
+<details id="print-disclosure">
+<summary>Collapsed details</summary>
+<p>Print must include this disclosure content.</p>
+</details>
 
 ## Overview
 

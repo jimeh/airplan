@@ -160,7 +160,11 @@ described below.
   divider rules. Code blocks and tables may use the full shell width so an
   80-column source line fits without horizontal scrolling at the default
   font size. Inline and block code use separate subtle surfaces; block code
-  has a quiet border and thin horizontal scrollbar.
+  has a quiet border and thin horizontal scrollbar. Print uses a compact
+  10.5-point body with a 1.45 line height, removes screen-only content padding,
+  tightens vertical spacing, and keeps headings with the following content
+  when pagination permits. All `details` elements are expanded while printing
+  and return to their prior open or closed state afterward.
 - A responsive table of contents is rendered from markdown headings:
   - H1, H2, and H3 headings are included. If an H1 is the first visible
     block in the document, it is treated as the document title and is

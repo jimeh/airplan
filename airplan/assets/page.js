@@ -14,6 +14,26 @@
   live.setAttribute('aria-live', 'polite');
   d.body.appendChild(live);
 
+  // Printing should never omit collapsed disclosure content. Restore the
+  // reader's open/closed state after the print dialog finishes.
+  var printClosedDetails = null;
+  function expandDetailsForPrint() {
+    if (printClosedDetails !== null) return;
+    printClosedDetails = Array.from(d.querySelectorAll('details:not([open])'));
+    printClosedDetails.forEach(function (details) {
+      details.open = true;
+    });
+  }
+  function restoreDetailsAfterPrint() {
+    if (printClosedDetails === null) return;
+    printClosedDetails.forEach(function (details) {
+      details.open = false;
+    });
+    printClosedDetails = null;
+  }
+  window.addEventListener('beforeprint', expandDetailsForPrint);
+  window.addEventListener('afterprint', restoreDetailsAfterPrint);
+
   // Buttons are icon-only: feedback is an icon swap (check on
   // success, x on failure) plus the live-region announcement.
   function flash(btn, text, ok) {

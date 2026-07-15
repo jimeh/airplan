@@ -177,3 +177,46 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe(expectedCode);
 });
+
+test('print view is compact and expands disclosures', async ({ page },
+  testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-light',
+    'print behavior is independent of viewport and color scheme');
+
+  await page.goto(baseURL);
+  const frontmatter = page.locator('.frontmatter');
+  const disclosure = page.locator('#print-disclosure');
+  await expect(frontmatter).not.toHaveAttribute('open', '');
+  await expect(frontmatter.getByText('Print coverage')).toBeHidden();
+  await expect(disclosure).not.toHaveAttribute('open', '');
+  await expect(disclosure.getByText('Print must include')).toBeHidden();
+
+  await page.emulateMedia({ media: 'print' });
+  await expect(page.locator('.toolbar')).toBeHidden();
+  await expect(frontmatter.getByText('Print coverage')).toBeVisible();
+  await expect(disclosure.getByText('Print must include')).toBeVisible();
+  await expect(page.locator('body')).toHaveCSS('font-size', '14px');
+  await expect(page.locator('body')).toHaveCSS('line-height', '20.3px');
+
+  await page.emulateMedia({ media: 'screen' });
+  await page.evaluate(() => {
+    window.printDisclosureStates = [];
+    window.addEventListener('beforeprint', () => {
+      window.printDisclosureStates.push(
+        Array.from(document.querySelectorAll('details'))
+          .map((details) => details.open),
+      );
+    });
+    window.addEventListener('afterprint', () => {
+      window.printDisclosureStates.push(
+        Array.from(document.querySelectorAll('details'))
+          .map((details) => details.open),
+      );
+    });
+  });
+  await page.pdf({ format: 'Letter', printBackground: true });
+  expect(await page.evaluate(() => window.printDisclosureStates))
+    .toEqual([[true, true], [false, false]]);
+  await expect(frontmatter).not.toHaveAttribute('open', '');
+  await expect(disclosure).not.toHaveAttribute('open', '');
+});
