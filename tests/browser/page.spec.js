@@ -136,7 +136,11 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
     page.locator('#rendered').getByText('This fixture verifies'),
   ).toBeVisible();
   const toolbar = page.getByRole('navigation', { name: 'Document controls' });
-  await expect(toolbar).toHaveCSS('justify-content', 'center');
+  const narrow = testInfo.project.name.startsWith('narrow-');
+  await expect(toolbar).toHaveCSS(
+    'justify-content',
+    narrow ? 'center' : 'flex-end',
+  );
   await expect.poll(() => toolbar.evaluate((element) => (
     Array.from(element.children)
       .filter((child) => !child.hidden)
@@ -149,13 +153,35 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
     'copy-source',
     'themetoggle',
   ]);
-  if (testInfo.project.name.startsWith('narrow-')) {
+  const dividerDisplay = await page.locator('.themetoggle').evaluate(
+    (element) => getComputedStyle(element, '::before').display,
+  );
+  if (narrow) {
     const themeBounds = await page.locator('.themetoggle').boundingBox();
     const toolbarBounds = await toolbar.boundingBox();
     expect(themeBounds.x + themeBounds.width / 2).toBeCloseTo(
       toolbarBounds.x + toolbarBounds.width / 2,
       0,
     );
+    expect(dividerDisplay).toBe('none');
+  } else {
+    const alignment = await toolbar.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const styles = getComputedStyle(element);
+      const view = element.querySelector('.viewtoggle')
+        .getBoundingClientRect();
+      const theme = element.querySelector('.themetoggle')
+        .getBoundingClientRect();
+      return {
+        left: view.left - bounds.left,
+        leftPadding: Number.parseFloat(styles.paddingLeft),
+        right: bounds.right - theme.right,
+        rightPadding: Number.parseFloat(styles.paddingRight),
+      };
+    });
+    expect(alignment.left).toBeCloseTo(alignment.leftPadding, 0);
+    expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
+    expect(dividerDisplay).not.toBe('none');
   }
   expect(
     await page.evaluate((scheme) => (

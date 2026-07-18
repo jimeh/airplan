@@ -201,8 +201,10 @@ described below.
     persist in browser storage and apply to other built-in pages on the same
     origin; choosing System clears that override. With scripting disabled,
     the page follows the system preference and does not show the control. The
-    toolbar is centered, with the theme toggle placed after the view and file
-    controls.
+    theme toggle follows the file controls. At wider sizes the rendered/source
+    toggle aligns left while file controls align right, with the theme toggle
+    at the far-right edge and quiet dividers separating the three groups. At
+    narrow sizes the groups wrap into centered rows.
   - Rendered/source toggle: switch between the rendered plan and a
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter

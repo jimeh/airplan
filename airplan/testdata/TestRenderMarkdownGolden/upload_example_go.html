@@ -95,7 +95,7 @@ body {
   padding: 0.75rem 1.25rem 0;
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
+  justify-content: flex-end;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
@@ -385,12 +385,18 @@ body.toc-dialog-open {
   padding-inline: 0;
 }
 
-.viewtoggle + .copy-source {
+.viewtoggle {
+  margin-right: auto;
+}
+
+.viewtoggle + .copy-source,
+.themetoggle:not(:first-child) {
   position: relative;
   margin-left: 0.5rem;
 }
 
-.viewtoggle + .copy-source::before {
+.viewtoggle + .copy-source::before,
+.themetoggle:not(:first-child)::before {
   content: "";
   position: absolute;
   top: 50%;
@@ -872,11 +878,17 @@ mark {
     justify-self: center;
   }
 
-  .viewtoggle + .copy-source {
+  .toolbar .viewtoggle {
+    margin-right: 0;
+  }
+
+  .viewtoggle + .copy-source,
+  .themetoggle:not(:first-child) {
     margin-left: 0;
   }
 
-  .viewtoggle + .copy-source::before {
+  .viewtoggle + .copy-source::before,
+  .themetoggle:not(:first-child)::before {
     display: none;
   }
 
