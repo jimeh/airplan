@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.20.0.
+may contradict it. Targets spec version 0.21.0.
 
 ---
 
@@ -147,15 +147,15 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
   column AST nodes, and a node renderer emits the fixed div markup. Goldmark
   parses all child Markdown in one document, preserving heading IDs and
   table-of-contents order; invalid structures remain ordinary Markdown nodes.
-- Highlighting: chroma emitting class-based markup with CSS custom
-  properties for the palette — required so highlighting can follow
-  `prefers-color-scheme` (inline styles can't switch light/dark).
-  The spec's source view is chroma's markdown lexer run at render
-  time.
+- Highlighting: chroma emitting class-based markup with generated system-theme
+  media queries plus explicit-theme selector scopes (inline styles cannot
+  switch light/dark). The spec's source view is chroma's markdown lexer run at
+  render time.
 - Mermaid: a stateless Goldmark node renderer intercepts only exact
   `mermaid` fences ahead of Chroma and emits escaped source containers. The
-  built-in template conditionally imports the generated exact module URL and
-  explicitly runs Mermaid with strict security. The pin manifest under
+  built-in template conditionally imports the generated exact module URL,
+  renders cached light and dark SVG variants with strict security, and swaps
+  them synchronously for theme and print changes. The pin manifest under
   `internal/deps` generates exported constants; a networked updater observes a
   72-hour minimum age, stays within the current major, verifies jsDelivr, and
   refreshes generated/rendered artifacts. Dependency-only updates do not alter

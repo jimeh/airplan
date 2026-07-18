@@ -179,24 +179,72 @@ func newMarkdownWithRepository(repository string, source []byte) goldmark.Markdo
 // for classes the dark style doesn't override.
 var syntaxCSS = sync.OnceValues(func() (string, error) {
 	f := chromahtml.New(chromahtml.WithClasses(true))
+	renderStyle := func(name string) (string, error) {
+		var css strings.Builder
+		if err := f.WriteCSS(&css, styles.Get(name)); err != nil {
+			return "", err
+		}
+		return css.String(), nil
+	}
 
-	var b strings.Builder
-	b.WriteString("@media (prefers-color-scheme: light), print {\n")
-	err := f.WriteCSS(&b, styles.Get(syntaxStyleLight))
+	light, err := renderStyle(syntaxStyleLight)
 	if err != nil {
 		return "", fmt.Errorf("render light syntax css: %w", err)
 	}
-	b.WriteString("}\n")
-
-	b.WriteString("@media screen and (prefers-color-scheme: dark) {\n")
-	err = f.WriteCSS(&b, styles.Get(syntaxStyleDark))
+	dark, err := renderStyle(syntaxStyleDark)
 	if err != nil {
 		return "", fmt.Errorf("render dark syntax css: %w", err)
 	}
+
+	var b strings.Builder
+	b.WriteString("@media screen and (prefers-color-scheme: light) {\n")
+	b.WriteString(scopeSyntaxCSS(light, ":root:not([data-theme])"))
+	b.WriteString("}\n")
+
+	b.WriteString("@media print {\n")
+	b.WriteString(light)
+	b.WriteString("}\n")
+
+	b.WriteString("@media screen and (prefers-color-scheme: dark) {\n")
+	b.WriteString(scopeSyntaxCSS(dark, ":root:not([data-theme])"))
+	b.WriteString("}\n")
+
+	b.WriteString("@media screen {\n")
+	b.WriteString(scopeSyntaxCSS(light, `:root[data-theme="light"]`))
+	b.WriteString(scopeSyntaxCSS(dark, `:root[data-theme="dark"]`))
 	b.WriteString("}\n")
 
 	return b.String(), nil
 })
+
+func scopeSyntaxCSS(css, scope string) string {
+	var out strings.Builder
+	for line := range strings.SplitSeq(css, "\n") {
+		commentEnd := strings.Index(line, "*/ ")
+		brace := strings.Index(line, "{")
+		if commentEnd < 0 || brace < commentEnd {
+			out.WriteString(line)
+			out.WriteByte('\n')
+			continue
+		}
+
+		selectorStart := commentEnd + len("*/ ")
+		selectors := strings.Split(line[selectorStart:brace], ",")
+		out.WriteString(line[:selectorStart])
+		for i, selector := range selectors {
+			if i > 0 {
+				out.WriteString(", ")
+			}
+			out.WriteString(scope)
+			out.WriteByte(' ')
+			out.WriteString(strings.TrimSpace(selector))
+		}
+		out.WriteByte(' ')
+		out.WriteString(line[brace:])
+		out.WriteByte('\n')
+	}
+	return out.String()
+}
 
 // RenderMarkdown renders markdown source to an HTML page with embedded CSS,
 // dark/light-aware syntax highlighting, and conditional Mermaid support

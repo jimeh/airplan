@@ -13,15 +13,40 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..');
 const fixturePath = join(here, 'testdata', 'smoke.md');
 const expectedCode = 'const answer = 42;\nconsole.log(answer);\n';
+const mermaidModule = `
+let theme = 'default';
+function escapeHTML(value) {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+export default {
+  initialize(config) {
+    theme = config.theme;
+  },
+  async render(id, source) {
+    const name = theme === 'dark' ? 'dark' : 'light';
+    return {
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="40"' +
+        ' role="img" data-mermaid-theme="' + name + '" id="' + id + '">' +
+        '<text x="8" y="24">' + escapeHTML(source) + '</text></svg>',
+    };
+  },
+};
+`;
 
 let baseURL;
 let fixtureSource;
+let mermaidURL;
 let server;
 let tempRoot;
 
 const test = base.extend({
   page: async ({ page }, use) => {
     const errors = [];
+    await page.route(mermaidURL, (route) => route.fulfill({
+      body: mermaidModule,
+      contentType: 'text/javascript; charset=utf-8',
+    }));
     page.on('pageerror', (error) => {
       errors.push(`page error: ${error.message}`);
     });
@@ -57,7 +82,6 @@ test.beforeAll(async () => {
       'run',
       '.',
       'preview',
-      '--no-external-assets',
       '--repo',
       'none',
       '--output',
@@ -67,6 +91,9 @@ test.beforeAll(async () => {
     { cwd: repoRoot, env },
   );
   const html = await readFile(outputPath);
+  const match = html.toString().match(/await import\("([^"]+)"\)/);
+  if (!match) throw new Error('rendered fixture has no Mermaid module URL');
+  [, mermaidURL] = match;
 
   server = createServer((request, response) => {
     if (request.url !== '/') {
@@ -130,6 +157,40 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
     expect(theme.background).toBeGreaterThan(theme.foreground);
   }
 
+  const lightTheme = page.getByRole('button', { name: 'Light theme' });
+  const systemTheme = page.getByRole('button', { name: 'System theme' });
+  const darkTheme = page.getByRole('button', { name: 'Dark theme' });
+  const diagram = page.locator('pre.mermaid svg');
+  await expect(systemTheme).toHaveAttribute('aria-pressed', 'true');
+  await expect(diagram).toHaveAttribute(
+    'data-mermaid-theme', dark ? 'dark' : 'light',
+  );
+
+  await lightTheme.click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(lightTheme).toHaveAttribute('aria-pressed', 'true');
+  await expect(diagram).toHaveAttribute('data-mermaid-theme', 'light');
+  await expect(page.locator('.chroma .nx').first()).toHaveCSS(
+    'color', 'rgb(31, 35, 40)',
+  );
+
+  await darkTheme.click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(darkTheme).toHaveAttribute('aria-pressed', 'true');
+  await expect(diagram).toHaveAttribute('data-mermaid-theme', 'dark');
+  await expect(page.locator('.chroma .nx').first()).toHaveCSS(
+    'color', 'rgb(230, 237, 243)',
+  );
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+  await expect(darkTheme).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('pre.mermaid svg')).toHaveAttribute(
+    'data-mermaid-theme', 'dark',
+  );
+  await systemTheme.click();
+  await expect(page.locator('html')).not.toHaveAttribute('data-theme', /.+/);
+  await expect(systemTheme).toHaveAttribute('aria-pressed', 'true');
+
   const inlineToc = page.locator('#toc');
   await inlineToc.getByRole('link', { name: 'Details' }).click();
   await expect(page).toHaveURL(/#details$/);
@@ -191,6 +252,11 @@ test('print view is compact and expands disclosures', async ({ browser, page },
   await expect(disclosure).not.toHaveAttribute('open', '');
   await expect(disclosure.getByText('Print must include')).toBeHidden();
 
+  const darkTheme = page.getByRole('button', { name: 'Dark theme' });
+  await darkTheme.click();
+  await expect(page.locator('pre.mermaid svg')).toHaveAttribute(
+    'data-mermaid-theme', 'dark',
+  );
   await page.emulateMedia({ media: 'print' });
   await expect(page.locator('.toolbar')).toBeHidden();
   await expect(frontmatter.getByText('Print coverage')).toBeVisible();
@@ -206,6 +272,9 @@ test('print view is compact and expands disclosures', async ({ browser, page },
   })).toHaveCSS('color', 'rgb(31, 35, 40)');
   await expect(page.locator('.chroma .k, .chroma .kd').first())
     .toHaveCSS('color', 'rgb(207, 34, 46)');
+  await expect(page.locator('pre.mermaid svg')).toHaveAttribute(
+    'data-mermaid-theme', 'light',
+  );
 
   const noJSContext = await browser.newContext({
     colorScheme: testInfo.project.name.endsWith('-dark') ? 'dark' : 'light',
@@ -232,6 +301,9 @@ test('print view is compact and expands disclosures', async ({ browser, page },
   }
 
   await page.emulateMedia({ media: 'screen' });
+  await expect(page.locator('pre.mermaid svg')).toHaveAttribute(
+    'data-mermaid-theme', 'dark',
+  );
   const initialStates = await page.locator('details').evaluateAll(
     (details) => details.map((detail) => detail.open),
   );
@@ -256,6 +328,9 @@ test('print view is compact and expands disclosures', async ({ browser, page },
   expect(states[0]).toHaveLength(initialStates.length);
   expect(states[0].every((open) => open)).toBe(true);
   expect(states[1]).toEqual(initialStates);
+  await expect(page.locator('pre.mermaid svg')).toHaveAttribute(
+    'data-mermaid-theme', 'dark',
+  );
   await expect(frontmatter).not.toHaveAttribute('open', '');
   await expect(disclosure).not.toHaveAttribute('open', '');
   await expect(page.locator('#print-open-disclosure')).toHaveAttribute(

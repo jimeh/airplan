@@ -22,7 +22,7 @@ This fixture verifies airplan's rendered-page browser behavior.
 
 ## Overview
 
-The generated page should work without external assets or developer config.
+The generated page should work independently of developer config.
 
 ## Details
 
@@ -34,6 +34,13 @@ The generated page should work without external assets or developer config.
 ```js
 const answer = 42;
 console.log(answer);
+```
+
+## Diagram
+
+```mermaid
+flowchart LR
+  Plan --> Review --> Print
 ```
 
 ## Final checks

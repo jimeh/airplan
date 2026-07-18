@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.20.0**
+**Spec version: 0.21.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -141,19 +141,23 @@ described below.
   may execute active content when someone opens the resulting page.
   The original Markdown remains exact in source view and in the
   uploaded sibling.
-- Fenced code blocks are syntax-highlighted at render time. The
-  highlighting must follow `prefers-color-scheme` (light and dark
-  palettes).
+- Fenced code blocks are syntax-highlighted at render time. The highlighting
+  follows the selected page theme, with separate light and dark palettes;
+  System follows `prefers-color-scheme`. Print always uses the light palette.
 - An exact lowercase `mermaid` fenced code block is rendered as a Mermaid
   diagram. Its readable, HTML-escaped source remains the no-JavaScript and
   load-failure fallback and remains exact in source view. The built-in page
   loads Mermaid only when such a block exists and external assets are allowed,
   using an exact pinned ECMAScript module URL, strict security, explicit
-  rendering, and the initial light or dark system theme. Custom templates
-  receive the Mermaid template data below but do not receive injected assets.
-- Page styling: dark/light aware via `prefers-color-scheme`, with support
-  for both schemes advertised through the standard document-level
-  `color-scheme` hint. The page uses a centered document shell around 54rem
+  rendering, and Airplan-controlled light and dark theme variants. The
+  selected page theme chooses the screen variant, while print always uses the
+  light variant; per-diagram theme configuration cannot override these
+  variants. Custom templates receive the Mermaid template data below but do
+  not receive injected assets.
+- Page styling: supports Light, System, and Dark themes. System follows
+  `prefers-color-scheme`; support for both schemes is advertised through the
+  standard document-level `color-scheme` hint. The page uses a centered
+  document shell around 54rem
   wide, prose constrained to a readable measure around 78ch, comfortable
   line height, distinct heading/body/muted color roles, and section
   hierarchy carried primarily by type and spacing rather than repeated
@@ -192,6 +196,11 @@ described below.
 - Baseline interactive niceties use a small amount of embedded vanilla JS with
   no framework. Mermaid's conditional module is the only airplan-managed
   external script:
+  - Theme toggle: an icon-only Light/System/Dark segmented control with
+    accessible names. System is the initial default. Light and Dark choices
+    persist in browser storage and apply to other built-in pages on the same
+    origin; choosing System clears that override. With scripting disabled,
+    the page follows the system preference and does not show the control.
   - Rendered/source toggle: switch between the rendered plan and a
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter
