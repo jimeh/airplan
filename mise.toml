@@ -21,7 +21,14 @@ syft = "1"
 [tasks.build]
 description = "Build the airplan binary (skipped when nothing changed)"
 run = "go build -o bin/airplan ."
-sources = ["main.go", "go.mod", "go.sum", "cli/**/*.go", "airplan/**/*"]
+sources = [
+  "main.go",
+  "go.mod",
+  "go.sum",
+  "cli/**/*.go",
+  "airplan/**/*",
+  "skills/**/*",
+]
 outputs = ["bin/airplan"]
 
 [tasks.test]

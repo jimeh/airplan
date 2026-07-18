@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.19.1**
+**Spec version: 0.20.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -43,7 +43,7 @@ input (file|stdin)
   → print public URL to stdout
 ```
 
-Output contract (critical for agent use):
+Upload output contract (critical for agent use):
 
 - **stdout**: the final public URL and nothing else. With `--json`,
   a single JSON object and nothing else.
@@ -512,6 +512,7 @@ stays reserved for the success object).
 ```
 airplan config schema
 airplan config profiles [--config PATH] [--json]
+airplan skill
 airplan template
 airplan preview [flags] [file]
 airplan completion bash|zsh|fish|powershell
@@ -523,6 +524,13 @@ airplan purge [--remote] [--older-than 30d]
 ```
 
 `config schema` prints the config file's JSON Schema (see §7).
+`skill` prints the complete canonical airplan agent skill to stdout,
+byte-for-byte, including its YAML frontmatter and trailing newline. It accepts
+no arguments or command-specific flags and emits nothing to stderr on success.
+It does not load configuration, inspect credentials, access storage or the
+network, or write state, so it works with only the installed binary and from
+any working directory. The same content is available through the public core
+library API.
 `template` prints the built-in page template (see §3).
 `preview` runs input detection and page rendering locally, writing the
 resulting HTML to stdout or to `--output PATH`. It supports the rendering
