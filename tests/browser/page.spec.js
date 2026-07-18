@@ -183,15 +183,14 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
         themeCenter: theme.top + theme.height / 2,
         firstRowBottom: Math.max(view.bottom, theme.bottom),
         copyTop: copy.top,
-        actionCenter: fileActions.left + fileActions.width / 2,
-        toolbarCenter: bounds.left + bounds.width / 2,
+        actionsLeft: fileActions.left - bounds.left,
       };
     });
     expect(alignment.left).toBeCloseTo(alignment.leftPadding, 0);
     expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
     expect(alignment.viewCenter).toBeCloseTo(alignment.themeCenter, 0);
     expect(alignment.copyTop).toBeGreaterThan(alignment.firstRowBottom);
-    expect(alignment.actionCenter).toBeCloseTo(alignment.toolbarCenter, 0);
+    expect(alignment.actionsLeft).toBeCloseTo(alignment.leftPadding, 0);
     expect(dividerDisplay).toBe('none');
   } else {
     const alignment = await toolbar.evaluate((element) => {

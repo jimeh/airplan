@@ -878,7 +878,7 @@ mark {
   .toolbar .file-actions {
     grid-column: 1 / -1;
     grid-row: 2;
-    justify-self: center;
+    justify-self: start;
   }
 
   .themetoggle:not(:first-child) {
