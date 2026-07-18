@@ -374,6 +374,12 @@ body.toc-dialog-open {
   margin-right: auto;
 }
 
+.file-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .themetoggle:not(:first-child) {
   position: relative;
   margin-left: 0.5rem;
@@ -869,22 +875,10 @@ mark {
     justify-self: end;
   }
 
-  .toolbar .copy-source {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: start;
-  }
-
-  .toolbar .download {
-    grid-column: 2;
+  .toolbar .file-actions {
+    grid-column: 1 / -1;
     grid-row: 2;
     justify-self: center;
-  }
-
-  .toolbar .raw {
-    grid-column: 3;
-    grid-row: 2;
-    justify-self: end;
   }
 
   .themetoggle:not(:first-child) {

@@ -142,7 +142,9 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
     narrow ? 'stretch' : 'flex-end',
   );
   await expect.poll(() => toolbar.evaluate((element) => (
-    Array.from(element.children)
+    Array.from(element.querySelectorAll(
+      '.viewtoggle, .copy-source, .download, .raw, .themetoggle',
+    ))
       .filter((child) => !child.hidden)
       .map((child) => Array.from(child.classList).find((name) => (
         ['viewtoggle', 'copy-source', 'download', 'raw', 'themetoggle']
@@ -170,6 +172,8 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
         .getBoundingClientRect();
       const copy = element.querySelector('.copy-source')
         .getBoundingClientRect();
+      const fileActions = element.querySelector('.file-actions')
+        .getBoundingClientRect();
       return {
         left: view.left - bounds.left,
         leftPadding: Number.parseFloat(styles.paddingLeft),
@@ -179,12 +183,15 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
         themeCenter: theme.top + theme.height / 2,
         firstRowBottom: Math.max(view.bottom, theme.bottom),
         copyTop: copy.top,
+        actionCenter: fileActions.left + fileActions.width / 2,
+        toolbarCenter: bounds.left + bounds.width / 2,
       };
     });
     expect(alignment.left).toBeCloseTo(alignment.leftPadding, 0);
     expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
     expect(alignment.viewCenter).toBeCloseTo(alignment.themeCenter, 0);
     expect(alignment.copyTop).toBeGreaterThan(alignment.firstRowBottom);
+    expect(alignment.actionCenter).toBeCloseTo(alignment.toolbarCenter, 0);
     expect(dividerDisplay).toBe('none');
   } else {
     const alignment = await toolbar.evaluate((element) => {
@@ -208,7 +215,8 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
       (element) => {
         const bounds = element.getBoundingClientRect();
         const divider = getComputedStyle(element, '::before');
-        const previousLabel = element.previousElementSibling.lastElementChild
+        const previousAction = element.previousElementSibling.lastElementChild;
+        const previousLabel = previousAction.lastElementChild
           .getBoundingClientRect();
         const dividerX = bounds.left + Number.parseFloat(divider.left);
         return {

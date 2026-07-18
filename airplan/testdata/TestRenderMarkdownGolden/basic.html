@@ -389,6 +389,12 @@ body.toc-dialog-open {
   margin-right: auto;
 }
 
+.file-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .themetoggle:not(:first-child) {
   position: relative;
   margin-left: 0.5rem;
@@ -883,22 +889,10 @@ mark {
     justify-self: end;
   }
 
-  .toolbar .copy-source {
-    grid-column: 1;
-    grid-row: 2;
-    justify-self: start;
-  }
-
-  .toolbar .download {
-    grid-column: 2;
+  .toolbar .file-actions {
+    grid-column: 1 / -1;
     grid-row: 2;
     justify-self: center;
-  }
-
-  .toolbar .raw {
-    grid-column: 3;
-    grid-row: 2;
-    justify-self: end;
   }
 
   .themetoggle:not(:first-child) {
@@ -1407,6 +1401,7 @@ mark {
       title="Source view"><svg class="icon" aria-hidden="true"
       viewBox="0 0 16 16" fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Source</span></button>
   </div>
+  <div class="file-actions">
   <button type="button" class="copy-source js-only" hidden
     aria-label="Copy markdown" title="Copy markdown"><svg
     class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16"
@@ -1425,6 +1420,7 @@ mark {
     title="Open raw markdown"><svg
     class="icon" aria-hidden="true" viewBox="0 0 16 16"
     fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Raw</span></a>
+  </div>
   <div class="themetoggle mode-toggle js-only" hidden
     role="group" aria-label="Color theme">
     <button type="button" data-theme="light" aria-pressed="false"
