@@ -135,6 +135,28 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
   await expect(
     page.locator('#rendered').getByText('This fixture verifies'),
   ).toBeVisible();
+  const toolbar = page.getByRole('navigation', { name: 'Document controls' });
+  await expect(toolbar).toHaveCSS('justify-content', 'center');
+  await expect.poll(() => toolbar.evaluate((element) => (
+    Array.from(element.children)
+      .filter((child) => !child.hidden)
+      .map((child) => Array.from(child.classList).find((name) => (
+        ['viewtoggle', 'copy-source', 'download', 'raw', 'themetoggle']
+          .includes(name)
+      )))
+  ))).toEqual([
+    'viewtoggle',
+    'copy-source',
+    'themetoggle',
+  ]);
+  if (testInfo.project.name.startsWith('narrow-')) {
+    const themeBounds = await page.locator('.themetoggle').boundingBox();
+    const toolbarBounds = await toolbar.boundingBox();
+    expect(themeBounds.x + themeBounds.width / 2).toBeCloseTo(
+      toolbarBounds.x + toolbarBounds.width / 2,
+      0,
+    );
+  }
   expect(
     await page.evaluate((scheme) => (
       window.matchMedia(`(prefers-color-scheme: ${scheme})`).matches

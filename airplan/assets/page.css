@@ -78,7 +78,7 @@ body {
   padding: 0.75rem 1.25rem 0;
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: center;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
@@ -847,13 +847,14 @@ mark {
   .toolbar {
     display: grid;
     grid-template-columns: repeat(3, max-content);
-    justify-content: flex-start;
+    justify-content: center;
     padding-inline: 1rem;
   }
 
-  .toolbar .viewtoggle {
+  .toolbar .viewtoggle,
+  .toolbar .themetoggle {
     grid-column: 1 / -1;
-    justify-self: start;
+    justify-self: center;
   }
 
   .viewtoggle + .copy-source {

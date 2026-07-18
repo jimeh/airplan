@@ -134,6 +134,21 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		if !strings.Contains(out, `class="raw" href="./plan.md"`) {
 			t.Error("missing raw source anchor")
 		}
+
+		last := -1
+		for _, fragment := range []string{
+			`class="viewtoggle`,
+			`class="copy-source`,
+			`class="download`,
+			`class="raw`,
+			`class="themetoggle`,
+		} {
+			position := strings.Index(out, fragment)
+			if position <= last {
+				t.Fatalf("toolbar control %q is out of order", fragment)
+			}
+			last = position
+		}
 	})
 
 	t.Run("no download link without SourcePath", func(t *testing.T) {

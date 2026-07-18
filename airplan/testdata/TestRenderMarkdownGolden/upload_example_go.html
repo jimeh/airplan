@@ -95,7 +95,7 @@ body {
   padding: 0.75rem 1.25rem 0;
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: center;
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
@@ -862,13 +862,14 @@ mark {
   .toolbar {
     display: grid;
     grid-template-columns: repeat(3, max-content);
-    justify-content: flex-start;
+    justify-content: center;
     padding-inline: 1rem;
   }
 
-  .toolbar .viewtoggle {
+  .toolbar .viewtoggle,
+  .toolbar .themetoggle {
     grid-column: 1 / -1;
-    justify-self: start;
+    justify-self: center;
   }
 
   .viewtoggle + .copy-source {
@@ -1367,6 +1368,16 @@ mark {
 <body>
 <div class="page-shell">
 <nav class="toolbar" aria-label="Document controls">
+  <a class="download" href="./upload-example.go" download
+    aria-label="Download source"
+    title="Download source"><svg
+    class="icon" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg><span>Download</span></a>
+  <a class="raw" href="./upload-example.go"
+    aria-label="Open raw source"
+    title="Open raw source"><svg
+    class="icon" aria-hidden="true" viewBox="0 0 16 16"
+    fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Raw</span></a>
   <div class="themetoggle mode-toggle js-only" hidden
     role="group" aria-label="Color theme">
     <button type="button" data-theme="light" aria-pressed="false"
@@ -1387,16 +1398,6 @@ mark {
       aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path
       d="M6.2 1.35a.75.75 0 0 1 .56.9A5.45 5.45 0 0 0 13.75 8.7a.75.75 0 0 1 .93.51.75.75 0 0 1-.22.77A7.15 7.15 0 1 1 5.43 1.46a.75.75 0 0 1 .77-.11Zm-1.18 1.9a5.65 5.65 0 1 0 7.54 7.13 6.95 6.95 0 0 1-7.54-7.13Z"/></svg></button>
   </div>
-  <a class="download" href="./upload-example.go" download
-    aria-label="Download source"
-    title="Download source"><svg
-    class="icon" aria-hidden="true" viewBox="0 0 16 16"
-    fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg><span>Download</span></a>
-  <a class="raw" href="./upload-example.go"
-    aria-label="Open raw source"
-    title="Open raw source"><svg
-    class="icon" aria-hidden="true" viewBox="0 0 16 16"
-    fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Raw</span></a>
 </nav>
 <main class="content" id="rendered">
 <div class="filehead"><code>upload-example.go</code></div>
