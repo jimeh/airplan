@@ -203,8 +203,8 @@ described below.
     the page follows the system preference and does not show the control. The
     theme toggle follows the file controls. At wider sizes the rendered/source
     toggle aligns left while file controls align right, with the theme toggle
-    at the far-right edge and quiet dividers separating the three groups. At
-    narrow sizes the groups wrap into centered rows.
+    at the far-right edge and a quiet divider separating it from the file
+    controls. At narrow sizes the groups wrap into centered rows.
   - Rendered/source toggle: switch between the rendered plan and a
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter

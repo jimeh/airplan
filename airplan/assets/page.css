@@ -374,18 +374,17 @@ body.toc-dialog-open {
   margin-right: auto;
 }
 
-.viewtoggle + .copy-source,
 .themetoggle:not(:first-child) {
   position: relative;
   margin-left: 0.5rem;
 }
 
-.viewtoggle + .copy-source::before,
 .themetoggle:not(:first-child)::before {
   content: "";
   position: absolute;
   top: 50%;
-  left: -0.5rem;
+  /* Balance against the preceding action's 0.65rem inline padding. */
+  left: -0.825rem;
   width: 1px;
   height: 1rem;
   background: var(--control-divider);
@@ -867,12 +866,10 @@ mark {
     margin-right: 0;
   }
 
-  .viewtoggle + .copy-source,
   .themetoggle:not(:first-child) {
     margin-left: 0;
   }
 
-  .viewtoggle + .copy-source::before,
   .themetoggle:not(:first-child)::before {
     display: none;
   }

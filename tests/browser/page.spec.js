@@ -156,6 +156,10 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
   const dividerDisplay = await page.locator('.themetoggle').evaluate(
     (element) => getComputedStyle(element, '::before').display,
   );
+  const copyDivider = await page.locator('.copy-source').evaluate(
+    (element) => getComputedStyle(element, '::before').content,
+  );
+  expect(copyDivider).toBe('none');
   if (narrow) {
     const themeBounds = await page.locator('.themetoggle').boundingBox();
     const toolbarBounds = await toolbar.boundingBox();
@@ -182,6 +186,20 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
     expect(alignment.left).toBeCloseTo(alignment.leftPadding, 0);
     expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
     expect(dividerDisplay).not.toBe('none');
+    const dividerSpacing = await page.locator('.themetoggle').evaluate(
+      (element) => {
+        const bounds = element.getBoundingClientRect();
+        const divider = getComputedStyle(element, '::before');
+        const previousLabel = element.previousElementSibling.lastElementChild
+          .getBoundingClientRect();
+        const dividerX = bounds.left + Number.parseFloat(divider.left);
+        return {
+          before: dividerX - previousLabel.right,
+          after: bounds.left - dividerX,
+        };
+      },
+    );
+    expect(dividerSpacing.before).toBeCloseTo(dividerSpacing.after, 0);
   }
   expect(
     await page.evaluate((scheme) => (
