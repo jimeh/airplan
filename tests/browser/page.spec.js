@@ -139,7 +139,7 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
   const narrow = testInfo.project.name.startsWith('narrow-');
   await expect(toolbar).toHaveCSS(
     'justify-content',
-    narrow ? 'center' : 'flex-end',
+    narrow ? 'stretch' : 'flex-end',
   );
   await expect.poll(() => toolbar.evaluate((element) => (
     Array.from(element.children)
@@ -161,12 +161,30 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
   );
   expect(copyDivider).toBe('none');
   if (narrow) {
-    const themeBounds = await page.locator('.themetoggle').boundingBox();
-    const toolbarBounds = await toolbar.boundingBox();
-    expect(themeBounds.x + themeBounds.width / 2).toBeCloseTo(
-      toolbarBounds.x + toolbarBounds.width / 2,
-      0,
-    );
+    const alignment = await toolbar.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const styles = getComputedStyle(element);
+      const view = element.querySelector('.viewtoggle')
+        .getBoundingClientRect();
+      const theme = element.querySelector('.themetoggle')
+        .getBoundingClientRect();
+      const copy = element.querySelector('.copy-source')
+        .getBoundingClientRect();
+      return {
+        left: view.left - bounds.left,
+        leftPadding: Number.parseFloat(styles.paddingLeft),
+        right: bounds.right - theme.right,
+        rightPadding: Number.parseFloat(styles.paddingRight),
+        viewCenter: view.top + view.height / 2,
+        themeCenter: theme.top + theme.height / 2,
+        firstRowBottom: Math.max(view.bottom, theme.bottom),
+        copyTop: copy.top,
+      };
+    });
+    expect(alignment.left).toBeCloseTo(alignment.leftPadding, 0);
+    expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
+    expect(alignment.viewCenter).toBeCloseTo(alignment.themeCenter, 0);
+    expect(alignment.copyTop).toBeGreaterThan(alignment.firstRowBottom);
     expect(dividerDisplay).toBe('none');
   } else {
     const alignment = await toolbar.evaluate((element) => {

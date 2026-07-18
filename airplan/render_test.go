@@ -153,7 +153,7 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 
 	t.Run("no download link without SourcePath", func(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "Hi"})
-		if strings.Contains(out, "download") {
+		if strings.Contains(out, `<a class="download"`) {
 			t.Error("unexpected download anchor")
 		}
 	})
