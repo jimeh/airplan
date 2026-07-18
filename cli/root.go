@@ -106,6 +106,7 @@ func newRootCmd() *cobra.Command {
 	addConfigResolutionFlags(f, opts)
 
 	cmd.AddCommand(newConfigCmd())
+	cmd.AddCommand(newSkillCmd())
 	cmd.AddCommand(newTemplateCmd())
 	cmd.AddCommand(newPreviewCmd())
 	cmd.AddCommand(newListCmd())

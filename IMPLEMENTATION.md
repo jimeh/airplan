@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.19.1.
+may contradict it. Targets spec version 0.20.0.
 
 ---
 
@@ -84,6 +84,7 @@ airplan/                core library (public Go API): config
                         manifest history, URL assembly; embeds assets
                         via go:embed; Mermaid is the sole conditional
                         runtime asset
+skills/embed.go         go:embed bridge for the canonical agent skill
 schema/airplan.schema.json   generated config schema (committed)
 skills/airplan/SKILL.md      agent skill: using airplan from harnesses
 ```
@@ -112,6 +113,8 @@ res, err := client.Upload(ctx, airplan.Input{
     Name:   "plan.md", // "" for stdin
 })
 // res.URL, res.Key, res.SourceURL, res.Bytes, res.ContentType
+
+skill := airplan.AgentSkill() // exact canonical skills/airplan/SKILL.md
 
 uploads, err := client.ListRemote(ctx) // one LIST traversal, no marker GETs
 inspection, err := client.InspectUpload(ctx, uploads[0].MarkerKey)
@@ -254,6 +257,12 @@ JSON Schema all fall out of one struct definition.
   clickable link; note that stdout carries only the URL. Frontmatter
   description tuned to trigger on "share this plan", "upload the
   plan", "give me a link to the plan" and similar.
+  This file remains the single canonical source. `skills/embed.go`
+  embeds it in the binary, the core package exposes the exact content
+  through `AgentSkill`, and the thin `airplan skill` command writes it
+  byte-for-byte without loading configuration or touching external
+  state. The cached `mise run build` task tracks the skill tree as a
+  source so edits invalidate the binary.
 - README: R2 setup walkthrough (bucket, custom domain, token scoped
   to Object Read & Write on the one bucket), `#:schema` editor
   setup, installing the agent skill (copy into `.agents/skills/`
@@ -268,7 +277,9 @@ GoReleaser: cross-platform archives, checksums, SPDX JSON SBOMs from
 Syft, Homebrew tap (cask);
 `airplan.schema.json` bundled into archives and published as a
 standalone release asset (the `#:schema` URL). Shell completions are
-generated at runtime by `airplan completion` rather than shipped.
+generated at runtime by `airplan completion` rather than shipped. The
+canonical agent skill is embedded in every binary and available at runtime
+through `airplan skill`; it does not need a separate release asset.
 Releases are cut by release-please from conventional commits. Merging
 the release PR creates a remote tag and a notes-bearing draft, then passes
 the tag and commit to the GoReleaser workflow. For production releases,

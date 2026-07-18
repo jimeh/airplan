@@ -91,6 +91,20 @@ Install it globally with the [Skills CLI](https://skills.sh/):
 npx skills add jimeh/airplan --skill airplan --global
 ```
 
+The installed binary also contains the canonical skill. An agent that only has
+the CLI can read it directly with:
+
+```sh
+airplan skill
+```
+
+Or install that exact embedded copy without checking out the repository:
+
+```sh
+mkdir -p ~/.agents/skills/airplan
+airplan skill > ~/.agents/skills/airplan/SKILL.md
+```
+
 The `airplan` CLI must also be installed and configured on the machine where
 the agent runs. Once it is, ask the agent to share a plan as a link and open the
 result from your phone, tablet, or any other browser.
