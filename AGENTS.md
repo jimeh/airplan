@@ -42,7 +42,9 @@ changes. Lefthook pre-commit hooks lint/format-check staged files.
 Tool versions: major-version constraints live in `mise.toml`; exact
 pins live in `mise.lock` (commit both when bumping tools).
 The exact Go version lives in `.go-version`, is consumed by local mise and
-Actions setup-go, and must match the `go` directive in `go.mod`.
+Actions setup-go, and must match the `go` directive in `go.mod` and the Go
+entry in `mise.lock`. When bumping Go, update `.go-version` and `go.mod`, then
+run `mise lock go` and commit the refreshed lockfile.
 CI additionally executes the unit tests on native Windows; that platform
 coverage has no equivalent local task on non-Windows hosts.
 

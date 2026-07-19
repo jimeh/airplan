@@ -186,4 +186,5 @@ jobs:
         with:
           add_shims_to_path: false
           cache_save: ${{ github.event_name != 'pull_request' }}
-      - run: mise run lint:workflows
+          install_args: actionlint zizmor pinact
+      - run: mise run --skip-tools lint:workflows
