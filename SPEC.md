@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.21.0**
+**Spec version: 0.21.1**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -206,7 +206,8 @@ described below.
     at the far-right edge and a quiet divider separating it from the file
     controls. At narrow sizes the rendered/source and theme toggles share the
     first row at opposite edges, with available file controls clustered and
-    left-aligned below.
+    left-aligned below. When no rendered/source toggle is available, the file
+    controls instead occupy the first row opposite the theme toggle.
   - Rendered/source toggle: switch between the rendered plan and a
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter
