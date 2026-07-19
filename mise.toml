@@ -1,11 +1,11 @@
 [settings]
+idiomatic_version_file_enable_tools = ["go"]
 lockfile = true
 
 [settings.task]
 run_auto_install = true
 
 [tools]
-go = "1"
 node = "24"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1"
 goreleaser = "2"
@@ -74,6 +74,10 @@ run = [
 description = "Check contract changes include specification version updates"
 run = "go run ./internal/cmd/checkspecsync"
 
+[tasks."check:go-version"]
+description = "Check .go-version matches the go.mod Go directive"
+run = "go run ./internal/cmd/checkgoversion"
+
 [tasks."update:mermaid"]
 description = "Update the pinned Mermaid release after its minimum age"
 run = "go run ./internal/cmd/updatemermaid"
@@ -120,7 +124,17 @@ run = "oxfmt --check \"**/*.md\""
 
 [tasks.check]
 description = "Fast confidence gate: lints, generation, format checks, tests"
-depends = ["lint", "generate:check", "format:check", "test"]
+depends = ["check:go", "lint:workflows", "format:markdown:check"]
+
+[tasks."check:go"]
+description = "Go confidence gate: lint, generation, format, version, tests"
+depends = [
+  "lint:go",
+  "generate:check",
+  "format:go:check",
+  "check:go-version",
+  "test",
+]
 
 [tasks."release:snapshot"]
 description = "Build a release snapshot without publishing"

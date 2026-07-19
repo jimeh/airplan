@@ -19,6 +19,9 @@ permissions:
   contents: read
   pull-requests: read
 
+env:
+  MISE_DISABLE_TOOLS: go
+
 jobs:
   update:
     if: github.ref_name == github.event.repository.default_branch
@@ -30,8 +33,14 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
-      - run: mise run check
+        with:
+          add_shims_to_path: false
+      - run: go test ./internal/cmd/updatedemos
       - run: mise run build
       - id: candidate
         env:
@@ -74,7 +83,7 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
       - if: steps.sync.outputs.changed == 'true'
-        run: mise run format:check
+        run: mise run format:markdown:check
       - if: steps.sync.outputs.changed == 'true'
         id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0

@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  MISE_DISABLE_TOOLS: go
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -15,8 +18,15 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
-      - run: mise run lint
+        with:
+          add_shims_to_path: false
+          cache_save: ${{ github.event_name != 'pull_request' }}
+      - run: mise run lint:go
 
   test:
     strategy:
@@ -28,7 +38,14 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          add_shims_to_path: false
+          cache_save: ${{ github.event_name != 'pull_request' }}
       - run: mise run test
 
   format:
@@ -37,7 +54,14 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          add_shims_to_path: false
+          cache_save: ${{ github.event_name != 'pull_request' }}
       - run: mise run format:check
 
   generated:
@@ -46,8 +70,16 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          add_shims_to_path: false
+          cache_save: ${{ github.event_name != 'pull_request' }}
       - run: mise run generate:check
+      - run: mise run check:go-version
 
   spec-sync:
     if: ${{ github.event_name == 'pull_request' }}
@@ -57,7 +89,14 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          add_shims_to_path: false
+          cache_save: false
       - run: mise run check:spec-sync
         env:
           SPEC_SYNC_BASE: ${{ github.event.pull_request.base.sha }}
@@ -69,7 +108,14 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          add_shims_to_path: false
+          cache_save: ${{ github.event_name != 'pull_request' }}
       - run: mise run test-integration
 
   browser:
@@ -78,10 +124,17 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: mise run test:browser
+        with:
+          add_shims_to_path: false
+          cache_save: ${{ github.event_name != 'pull_request' }}
+      - run: mise exec -- npm ci
+      - run: mise exec -- npx playwright install --with-deps chromium
+      - run: mise exec -- npm run test:browser
       - if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -107,7 +160,14 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          add_shims_to_path: false
+          cache_save: ${{ github.event_name != 'pull_request' }}
       # -o to a scratch path: a bare "go build ." would try to write a
       # binary named airplan over the airplan/ package directory.
       - run: go build -o "$RUNNER_TEMP/airplan" .
@@ -123,4 +183,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
+        with:
+          add_shims_to_path: false
+          cache_save: ${{ github.event_name != 'pull_request' }}
       - run: mise run lint:workflows
