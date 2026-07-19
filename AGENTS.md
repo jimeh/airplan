@@ -21,6 +21,8 @@ this implementation is built and must not contradict the spec.
 | `mise run treeboot`                | bootstrap a linked worktree from the root checkout         |
 | `mise run setup`                   | install tools + git hooks (run once)                       |
 | `mise run check`                   | fast handoff gate: lint + generated files + format + tests |
+| `mise run check:go`                | Go-only gate: lint + generated files + format + tests      |
+| `mise run check:go-version`        | check `.go-version` matches `go.mod`                       |
 | `mise run check:spec-sync`         | check contract changes update spec versions                |
 | `mise run test`                    | unit tests (no Docker needed)                              |
 | `mise run test:coverage`           | unit tests + text and HTML statement coverage reports      |
@@ -39,6 +41,10 @@ Run `mise run check` before handing off; `verify` for broad or risky
 changes. Lefthook pre-commit hooks lint/format-check staged files.
 Tool versions: major-version constraints live in `mise.toml`; exact
 pins live in `mise.lock` (commit both when bumping tools).
+The exact Go version lives in `.go-version`, is consumed by local mise and
+Actions setup-go, and must match the `go` directive in `go.mod` and the Go
+entry in `mise.lock`. When bumping Go, update `.go-version` and `go.mod`, then
+run `mise lock go` and commit the refreshed lockfile.
 CI additionally executes the unit tests on native Windows; that platform
 coverage has no equivalent local task on non-Windows hosts.
 
@@ -85,8 +91,9 @@ coverage has no equivalent local task on non-Windows hosts.
   through `airplan preview` with isolated configuration, then covers Chromium
   across desktop/narrow and light/dark projects. Keep selectors behavioral and
   accessible; screenshots and traces are failure evidence, not golden files.
-  Resolve Go with `mise which go`; the shim can re-inject stripped `AIRPLAN_*`
-  variables from worktree-local mise environment configuration.
+  Resolve the active toolchain with `go env GOROOT`, then invoke its binary
+  directly; a mise shim can re-inject stripped `AIRPLAN_*` variables from
+  worktree-local mise environment configuration.
 - **Print disclosures**: Chromium hides closed `details` content through its
   `::details-content` box. Forced child display can expose hidden, script, or
   style content; use the pseudo-element fallback plus `beforeprint`/`afterprint`
@@ -113,6 +120,11 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Cross-compilation target variables belong on the build step**, not the CI
   job. Job-level `GOOS`/`GOARCH` values make mise install target-platform Go
   tools that cannot run on the host runner.
+- **Actions Go ownership**: setup-go installs Go from `.go-version` and owns
+  module/build caching. Actions sets `MISE_DISABLE_TOOLS=go` so mise only
+  installs non-Go tools, and mise shims stay off `PATH` so setup-go remains
+  authoritative. Pull requests restore but do not save mise tool caches;
+  production releases disable both setup-go and mise caches.
 - **GoReleaser PR checks are opt-in**: apply the `ci:goreleaser`
   label when a PR changes `.goreleaser.yaml` or release packaging.
   The check remains unconditional on pushes to `main`.
