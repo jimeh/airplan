@@ -57,7 +57,7 @@ func runGet(cmd *cobra.Command, opts *getOptions, target string) error {
 		_, err = cmd.OutOrStdout().Write(result.Body)
 		return err
 	}
-	if err := writeFileAtomic(opts.output, result.Body); err != nil {
+	if err := writeFileAtomic(opts.output, result.Body, 0o600); err != nil {
 		return fmt.Errorf("write get output %s: %w", opts.output, err)
 	}
 	return nil

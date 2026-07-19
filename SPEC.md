@@ -1049,8 +1049,10 @@ machine) and must be safe:
   Raw fetched bytes, with no added newline or other output, go to stdout by
   default. `--output PATH` writes the complete bytes to a temporary file
   beside the destination and atomically renames it into place; `--output -`
-  is equivalent to stdout. `get` never writes the local manifest or changes
-  remote storage.
+  is equivalent to stdout. Written files are user-only (0600 on POSIX
+  systems); fetched bytes are not shared with other local users by
+  default. `get` never writes the local manifest or changes remote
+  storage.
 - `airplan delete <url|key>` only deletes a marker-managed upload.
   The target may be the random directory, its `.airplan.json` marker,
   or the page/source named by a valid marker. Any other sibling key is

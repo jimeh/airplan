@@ -142,8 +142,7 @@ airplan works with any S3-compatible object store. You need a bucket, a public
 base URL, and API credentials with the permissions required by the commands you
 use. Uploads need object-write access. Remote listing and all delete or purge
 operations need bucket-list access; deletion also needs object-delete access.
-Object-read access powers `show` and `get`, and lets remote listings retrieve
-titles.
+Object-read access powers `show` and `get`.
 
 Create `~/.config/airplan/config.toml`:
 
@@ -224,7 +223,7 @@ airplan preview --output plan.html plan.md
 airplan list                     # uploads recorded on this machine
 airplan list --remote            # airplan uploads currently in the bucket
 airplan show <url-or-key>         # validate and inspect one remote upload
-airplan get <url-or-key>          # download an uploaded page
+airplan get [--source] <url-or-key>  # raw page or source bytes
 airplan delete <url-or-key>      # delete one upload
 airplan purge --older-than 30d   # review and delete older uploads
 ```

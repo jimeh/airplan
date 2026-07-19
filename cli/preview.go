@@ -163,7 +163,7 @@ func runPreview(
 		_, err = cmd.OutOrStdout().Write(doc.HTML)
 		return err
 	}
-	if err := writeFileAtomic(opts.output, doc.HTML); err != nil {
+	if err := writeFileAtomic(opts.output, doc.HTML, 0o644); err != nil {
 		return fmt.Errorf("write preview %s: %w", opts.output, err)
 	}
 	return nil

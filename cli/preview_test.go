@@ -169,7 +169,7 @@ func TestWritePreviewAtomicLeavesDestinationOnRenameFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := writeFileAtomic(destination, []byte("new")); err == nil {
+	if err := writeFileAtomic(destination, []byte("new"), 0o644); err == nil {
 		t.Fatal("writeFileAtomic error = nil, want rename failure")
 	}
 	got, err := os.ReadFile(sentinel)

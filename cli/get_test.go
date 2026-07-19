@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -61,6 +62,15 @@ func TestGetCommandWritesOutputFileAtomically(t *testing.T) {
 	))
 	if err != nil || len(temps) != 0 {
 		t.Fatalf("temporary files = %v, error = %v", temps, err)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(output)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Fatalf("output mode = %o, want 600", perm)
+		}
 	}
 }
 
