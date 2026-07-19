@@ -64,6 +64,24 @@ func TestGetCommandWritesOutputFileAtomically(t *testing.T) {
 	}
 }
 
+func TestGetCommandOutputDashWritesStdout(t *testing.T) {
+	isolateEnv(t)
+	objects := getCLIObjects(t, "source bytes\n")
+	server := newFakeGetS3(t, objects)
+	page := objects[deleteDirA+"/plan.html"]
+
+	stdout, stderr, err := executeCommand(
+		t, "", "", "get", "--output", "-",
+		"--config", writeCLIConfig(t, server.URL), deleteDirA,
+	)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if stderr != "" || !bytes.Equal([]byte(stdout), page) {
+		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
+	}
+}
+
 func TestGetCommandFetchesSource(t *testing.T) {
 	isolateEnv(t)
 	objects := getCLIObjects(t, "source bytes\x00\n")
