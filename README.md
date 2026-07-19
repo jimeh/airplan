@@ -50,9 +50,9 @@ server or using a paste service.
 - [Upload with airplan's Go API][airplan-demo-go-api]
   is a runnable Go example presented as a highlighted, gist-like page.
 
-[airplan-demo-implementation-plan]: https://demo.airplan.dev/xyeknypg6lgzwpawpg4vshygeq/implementation-plan.html
-[airplan-demo-how-it-works]: https://demo.airplan.dev/lsbpxbvfucyu6zkp5scelp6ni4/how-airplan-works.html
-[airplan-demo-go-api]: https://demo.airplan.dev/vdsuzbk6qkstspjbod4242rfge/upload-example.html
+[airplan-demo-implementation-plan]: https://demo.airplan.dev/6rwafp5de6xw2prbcrlesyvwxi/implementation-plan.html
+[airplan-demo-how-it-works]: https://demo.airplan.dev/lubguqayc6pzamciid6evuhvce/how-airplan-works.html
+[airplan-demo-go-api]: https://demo.airplan.dev/vairdhe5dgpetqyf54alnuvjsm/upload-example.html
 
 The exact behavior is defined in [SPEC.md](SPEC.md).
 
