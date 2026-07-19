@@ -41,7 +41,6 @@ jobs:
             --json number,headRepositoryOwner \
             --jq "map(select(.headRepositoryOwner.login == \
               \"${GITHUB_REPOSITORY_OWNER}\"))[0].number // \"\"")"
-          echo "pr-number=$pr_number" >> "$GITHUB_OUTPUT"
           if [[ -z "$pr_number" ]]; then
             exit 0
           fi
@@ -85,27 +84,17 @@ jobs:
           permission-contents: write
           permission-pull-requests: write
       - if: steps.sync.outputs.changed == 'true'
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          PR_NUMBER: ${{ steps.candidate.outputs.pr-number }}
-        run: |
-          git config user.name "airplan-release-bot[bot]"
-          git config user.email \
-            "airplan-release-bot[bot]@users.noreply.github.com"
-          git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH" || true
-          git switch -C "$BRANCH"
-          git add -- README.md
-          git commit -m "docs: refresh live demo links"
-          git remote set-url origin \
-            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git push --force-with-lease origin "$BRANCH"
-          body="Refreshes README demo links after comparing the published page \
-          and source bytes with the repository's upload-mode fixtures. Published \
-          demo URLs are permanent and are never deleted by this workflow."
-          if [[ -n "$PR_NUMBER" ]]; then
-            gh pr edit "$PR_NUMBER" \
-              --title "docs: refresh live demo links" --body "$body"
-          else
-            gh pr create --draft --base main --head "$BRANCH" \
-              --title "docs: refresh live demo links" --body "$body"
-          fi
+        uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8.1.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          sign-commits: true
+          add-paths: README.md
+          branch: ${{ env.BRANCH }}
+          base: main
+          commit-message: "docs: refresh live demo links"
+          title: "docs: refresh live demo links"
+          body: |
+            Refreshes README demo links after comparing the published page and
+            source bytes with the repository's upload-mode fixtures. Published
+            demo URLs are permanent and are never deleted by this workflow.
+          draft: always-true
