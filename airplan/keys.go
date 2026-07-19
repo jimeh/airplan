@@ -21,11 +21,10 @@ func isRandomDir(seg string) bool {
 	return true
 }
 
-// KeyFromURLOrKey resolves a delete/purge target (SPEC.md §9): a full
-// URL (public_base_url-based or path-style), a bare object key, or
-// the random directory itself. When a key_prefix is configured, the
-// target must fall under it — deletion never reaches outside the
-// configured scope in a shared bucket. cfg may be nil for bare keys.
+// KeyFromURLOrKey resolves a remote management target (SPEC.md §9): a full
+// URL (public_base_url-based or path-style), a bare object key, or the random
+// directory itself. When a key_prefix is configured, the target must fall
+// under it. cfg may be nil for bare keys.
 func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 	key := s
 	if strings.Contains(s, "://") {
@@ -97,7 +96,7 @@ func stripURLBucket(path, bucket, rawURL string) (string, error) {
 
 // baseURLMatches reports whether u is served from the configured
 // public_base_url (same host, path under the base's path). HTTP and
-// HTTPS are equivalent here because parsing a delete target does not
+// HTTPS are equivalent here because parsing a management target does not
 // fetch the supplied URL.
 func baseURLMatches(base string, u *url.URL) bool {
 	if base == "" {

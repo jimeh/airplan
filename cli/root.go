@@ -1,8 +1,8 @@
 // Package cli implements the airplan command-line interface. It
 // contains no business logic: it parses flags, calls the core airplan
-// package, and formats upload output per SPEC.md §1 — final URL on
-// stdout, everything else on stderr, non-zero exit on failure. Local
-// preview output is defined separately in SPEC.md §6.
+// package, and formats output per SPEC.md §1 — upload URLs or fetched
+// bytes on stdout, everything else on stderr, non-zero exit on failure.
+// Local preview output is defined separately in SPEC.md §6.
 package cli
 
 import (
@@ -111,6 +111,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newPreviewCmd())
 	cmd.AddCommand(newListCmd())
 	cmd.AddCommand(newShowCmd())
+	cmd.AddCommand(newGetCmd())
 	cmd.AddCommand(newDeleteCmd())
 	cmd.AddCommand(newPurgeCmd())
 	return cmd

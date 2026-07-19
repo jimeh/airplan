@@ -1,5 +1,6 @@
-// Command updatedemos refreshes README demo links when their published bytes
-// differ from the repository's upload-mode golden pages and source files.
+// Command updatedemos refreshes README demo links when their origin storage
+// bytes differ from the repository's upload-mode golden pages and source files.
+// Reading through the storage API avoids false staleness from CDN transforms.
 package main
 
 import (
@@ -9,14 +10,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/jimeh/airplan/airplan"
 )
 
 const defaultReadmePath = "README.md"
@@ -71,6 +72,34 @@ var repositoryDemos = []demo{
 	},
 }
 
+type fetcher interface {
+	Fetch(context.Context, string, bool) ([]byte, error)
+}
+
+type airplanFetcher struct {
+	client *airplan.Client
+}
+
+func (f airplanFetcher) Fetch(
+	ctx context.Context, pageURL string, source bool,
+) ([]byte, error) {
+	target := pageURL
+	if source {
+		var err error
+		target, err = uploadDirectoryURL(pageURL)
+		if err != nil {
+			return nil, err
+		}
+	}
+	result, err := f.client.GetUpload(ctx, target, airplan.GetOptions{
+		Source: source,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.Body, nil
+}
+
 type publisher interface {
 	Publish(context.Context, demo) (string, error)
 }
@@ -113,10 +142,20 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	client := &http.Client{Timeout: 30 * time.Second}
+	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "update demos:", err)
+		os.Exit(1)
+	}
+	client, err := airplan.New(ctx, cfg)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "update demos:", err)
+		os.Exit(1)
+	}
+	fetch := airplanFetcher{client: client}
 	publisher := commandPublisher{path: *airplanPath, stderr: os.Stderr}
 	if err := updateReadme(
-		ctx, client, publisher, repositoryDemos, *readmePath,
+		ctx, fetch, publisher, repositoryDemos, *readmePath,
 		*candidatePath, *force, os.Stderr,
 	); err != nil {
 		fmt.Fprintln(os.Stderr, "update demos:", err)
@@ -126,7 +165,7 @@ func main() {
 
 func updateReadme(
 	ctx context.Context,
-	client *http.Client,
+	fetch fetcher,
 	publisher publisher,
 	demos []demo,
 	readmePath string,
@@ -164,13 +203,13 @@ func updateReadme(
 		selected := ""
 		if !force && candidates != nil {
 			selected = selectFresh(
-				ctx, client, d, content, candidates[d.reference],
+				ctx, fetch, d, content, candidates[d.reference],
 				"candidate", log,
 			)
 		}
 		if !force && selected == "" {
 			selected = selectFresh(
-				ctx, client, d, content, current[d.reference], "current", log,
+				ctx, fetch, d, content, current[d.reference], "current", log,
 			)
 		}
 		if selected == "" {
@@ -206,7 +245,7 @@ func updateReadme(
 
 func selectFresh(
 	ctx context.Context,
-	client *http.Client,
+	fetch fetcher,
 	d demo,
 	content demoContent,
 	pageURL string,
@@ -216,7 +255,7 @@ func selectFresh(
 	if pageURL == "" {
 		return ""
 	}
-	fresh, reason := demoIsFresh(ctx, client, d, content, pageURL)
+	fresh, reason := demoIsFresh(ctx, fetch, d, content, pageURL)
 	if fresh {
 		fmt.Fprintf(log, "%s: reusing %s demo\n", d.id, kind)
 		return pageURL
@@ -227,7 +266,7 @@ func selectFresh(
 
 func demoIsFresh(
 	ctx context.Context,
-	client *http.Client,
+	fetch fetcher,
 	d demo,
 	content demoContent,
 	pageURL string,
@@ -235,18 +274,18 @@ func demoIsFresh(
 	if err := validatePageURL(pageURL, d); err != nil {
 		return false, err.Error()
 	}
-	pageMatches, err := remoteMatches(ctx, client, pageURL, content.page)
+	pageMatches, err := remoteMatches(
+		ctx, fetch, pageURL, false, content.page,
+	)
 	if err != nil {
 		return false, "page: " + err.Error()
 	}
 	if !pageMatches {
 		return false, "page bytes differ"
 	}
-	sourceURL, err := siblingURL(pageURL, filepath.Base(d.sourcePath))
-	if err != nil {
-		return false, err.Error()
-	}
-	sourceMatches, err := remoteMatches(ctx, client, sourceURL, content.source)
+	sourceMatches, err := remoteMatches(
+		ctx, fetch, pageURL, true, content.source,
+	)
 	if err != nil {
 		return false, "source: " + err.Error()
 	}
@@ -270,26 +309,12 @@ func loadDemoContent(d demo) (demoContent, error) {
 
 func remoteMatches(
 	ctx context.Context,
-	client *http.Client,
-	remoteURL string,
+	fetch fetcher,
+	pageURL string,
+	source bool,
 	expected []byte,
 ) (bool, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, remoteURL, nil)
-	if err != nil {
-		return false, err
-	}
-	req.Header.Set("Cache-Control", "no-cache")
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("HTTP %s", resp.Status)
-	}
-	actual, err := io.ReadAll(io.LimitReader(
-		resp.Body, int64(len(expected))+1,
-	))
+	actual, err := fetch.Fetch(ctx, pageURL, source)
 	if err != nil {
 		return false, err
 	}
@@ -346,6 +371,16 @@ func replaceDemoURL(
 	return bytes.Replace(readme, oldLine, newLine, 1), nil
 }
 
+func uploadDirectoryURL(pageURL string) (string, error) {
+	parsed, err := url.Parse(pageURL)
+	if err != nil {
+		return "", err
+	}
+	parsed.Path = path.Dir(parsed.Path)
+	parsed.RawPath = ""
+	return parsed.String(), nil
+}
+
 func validatePageURL(raw string, d demo) error {
 	parsed, err := url.Parse(raw)
 	if err != nil {
@@ -361,13 +396,4 @@ func validatePageURL(raw string, d demo) error {
 		return fmt.Errorf("demo URL page does not match slug %q", d.slug)
 	}
 	return nil
-}
-
-func siblingURL(pageURL string, name string) (string, error) {
-	parsed, err := url.Parse(pageURL)
-	if err != nil {
-		return "", err
-	}
-	parsed.Path = path.Join(path.Dir(parsed.Path), name)
-	return parsed.String(), nil
 }

@@ -16,14 +16,14 @@ const replaceFileWriteThrough = 0x1
 var replaceFileW = windows.NewLazySystemDLL("kernel32.dll").
 	NewProc("ReplaceFileW")
 
-func renamePreviewAtomic(oldPath, newPath string) error {
+func renameFileAtomic(oldPath, newPath string) error {
 	oldPtr, err := windows.UTF16PtrFromString(oldPath)
 	if err != nil {
-		return renamePreviewError(oldPath, newPath, err)
+		return renameFileError(oldPath, newPath, err)
 	}
 	newPtr, err := windows.UTF16PtrFromString(newPath)
 	if err != nil {
-		return renamePreviewError(oldPath, newPath, err)
+		return renameFileError(oldPath, newPath, err)
 	}
 
 	result, _, callErr := replaceFileW.Call(
@@ -48,10 +48,10 @@ func renamePreviewAtomic(oldPath, newPath string) error {
 	if callErr == syscall.Errno(0) {
 		callErr = syscall.EINVAL
 	}
-	return renamePreviewError(oldPath, newPath, callErr)
+	return renameFileError(oldPath, newPath, callErr)
 }
 
-func renamePreviewError(oldPath, newPath string, err error) error {
+func renameFileError(oldPath, newPath string, err error) error {
 	return &os.LinkError{
 		Op: "rename", Old: oldPath, New: newPath, Err: err,
 	}
