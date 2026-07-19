@@ -41,14 +41,18 @@ server or using a paste service.
 
 ## Live examples
 
-- [Zero-downtime token migration](https://demo.airplan.dev/xyeknypg6lgzwpawpg4vshygeq/implementation-plan.html)
+- [Zero-downtime token migration][airplan-demo-implementation-plan]
   is a realistic Markdown implementation plan with a diagram, responsive
   columns, alerts, tables, task lists, highlighted code, and automatic GitHub
   issue and pull-request links.
-- [How airplan works](https://demo.airplan.dev/lsbpxbvfucyu6zkp5scelp6ni4/how-airplan-works.html)
+- [How airplan works][airplan-demo-how-it-works]
   is a concise architecture overview showing the CLI and library workflows.
-- [Upload with airplan's Go API](https://demo.airplan.dev/vdsuzbk6qkstspjbod4242rfge/upload-example.html)
+- [Upload with airplan's Go API][airplan-demo-go-api]
   is a runnable Go example presented as a highlighted, gist-like page.
+
+[airplan-demo-implementation-plan]: https://demo.airplan.dev/xyeknypg6lgzwpawpg4vshygeq/implementation-plan.html
+[airplan-demo-how-it-works]: https://demo.airplan.dev/lsbpxbvfucyu6zkp5scelp6ni4/how-airplan-works.html
+[airplan-demo-go-api]: https://demo.airplan.dev/vdsuzbk6qkstspjbod4242rfge/upload-example.html
 
 The exact behavior is defined in [SPEC.md](SPEC.md).
 

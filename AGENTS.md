@@ -77,6 +77,10 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Page assets** (`airplan/assets/`): embedded via go:embed. Mermaid is the
   only airplan-managed external load and is conditional. Update its pin with
   `mise run update:mermaid`; dependency-only updates never bump SPEC.md.
+- **Live demos**: README demo links are maintained by
+  `.github/workflows/update-demos.yml` from the sources and upload-mode goldens
+  in `airplan/testdata/`. Published demo URLs are permanent; automation may
+  replace README links but never deletes old or superseded uploads.
 - **Browser smoke tests** (`tests/browser/`): Playwright generates its fixture
   through `airplan preview` with isolated configuration, then covers Chromium
   across desktop/narrow and light/dark projects. Keep selectors behavioral and

@@ -270,6 +270,11 @@ JSON Schema all fall out of one struct definition.
   an optional belt-and-braces note: serving `X-Robots-Tag: noindex`
   via a Cloudflare Transform Rule on the custom domain (S3/R2 can't
   emit custom response headers themselves).
+- Live demo automation: `.github/workflows/update-demos.yml` compares
+  the public page and source bytes with the upload-mode render goldens,
+  uploads only stale demos after pushes to `main`, and opens or updates
+  a bot-owned README PR. Manual runs may force fresh URLs. Published
+  demo uploads are permanent and are never deleted by the workflow.
 
 ## 7. Distribution
 
