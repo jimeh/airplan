@@ -97,4 +97,4 @@ jobs:
             Refreshes README demo links after comparing the published page and
             source bytes with the repository's upload-mode fixtures. Published
             demo URLs are permanent and are never deleted by this workflow.
-          draft: always-true
+          draft: false

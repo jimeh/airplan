@@ -12,6 +12,13 @@ const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..');
 const fixturePath = join(here, 'testdata', 'smoke.md');
+const sourceFixturePath = join(
+  repoRoot,
+  'airplan',
+  'testdata',
+  'TestRenderMarkdownGolden',
+  'upload_example_go.html',
+);
 const expectedCode = 'const answer = 42;\nconsole.log(answer);\n';
 const mermaidModule = `
 let theme = 'default';
@@ -38,6 +45,7 @@ let baseURL;
 let fixtureSource;
 let mermaidURL;
 let server;
+let sourceURL;
 let tempRoot;
 
 const test = base.extend({
@@ -91,17 +99,23 @@ test.beforeAll(async () => {
     { cwd: repoRoot, env },
   );
   const html = await readFile(outputPath);
+  const sourceHTML = await readFile(sourceFixturePath);
   const match = html.toString().match(/await import\("([^"]+)"\)/);
   if (!match) throw new Error('rendered fixture has no Mermaid module URL');
   [, mermaidURL] = match;
 
   server = createServer((request, response) => {
-    if (request.url !== '/') {
+    let body;
+    if (request.url === '/') {
+      body = html;
+    } else if (request.url === '/source') {
+      body = sourceHTML;
+    } else {
       response.writeHead(404).end();
       return;
     }
     response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    response.end(html);
+    response.end(body);
   });
   await new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -109,6 +123,7 @@ test.beforeAll(async () => {
   });
   const address = server.address();
   baseURL = `http://127.0.0.1:${address.port}`;
+  sourceURL = `${baseURL}/source`;
 });
 
 test.afterAll(async () => {
@@ -329,6 +344,43 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe(expectedCode);
 });
+
+test('uploaded source controls share the first row on narrow screens',
+  async ({ page }, testInfo) => {
+    test.skip(!testInfo.project.name.startsWith('narrow-'),
+      'the regression only applies to the narrow toolbar grid');
+
+    await page.goto(sourceURL);
+
+    const toolbar = page.getByRole('navigation', {
+      name: 'Document controls',
+    });
+    await expect(toolbar.locator('.viewtoggle')).toHaveCount(0);
+    await expect(toolbar.getByRole('link', { name: 'Download source' }))
+      .toBeVisible();
+    await expect(toolbar.getByRole('link', { name: 'Open raw source' }))
+      .toBeVisible();
+
+    const alignment = await toolbar.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const styles = getComputedStyle(element);
+      const actions = element.querySelector('.file-actions')
+        .getBoundingClientRect();
+      const theme = element.querySelector('.themetoggle')
+        .getBoundingClientRect();
+      return {
+        actionsCenter: actions.top + actions.height / 2,
+        actionsLeft: actions.left - bounds.left,
+        leftPadding: Number.parseFloat(styles.paddingLeft),
+        right: bounds.right - theme.right,
+        rightPadding: Number.parseFloat(styles.paddingRight),
+        themeCenter: theme.top + theme.height / 2,
+      };
+    });
+    expect(alignment.actionsCenter).toBeCloseTo(alignment.themeCenter, 0);
+    expect(alignment.actionsLeft).toBeCloseTo(alignment.leftPadding, 0);
+    expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
+  });
 
 test('print view is compact and expands disclosures', async ({ browser, page },
   testInfo) => {
