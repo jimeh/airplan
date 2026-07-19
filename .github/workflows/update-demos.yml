@@ -17,6 +17,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   update:
@@ -40,6 +41,7 @@ jobs:
             --json number,headRepositoryOwner \
             --jq "map(select(.headRepositoryOwner.login == \
               \"${GITHUB_REPOSITORY_OWNER}\"))[0].number // \"\"")"
+          echo "pr-number=$pr_number" >> "$GITHUB_OUTPUT"
           if [[ -z "$pr_number" ]]; then
             exit 0
           fi
@@ -85,6 +87,7 @@ jobs:
       - if: steps.sync.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ steps.candidate.outputs.pr-number }}
         run: |
           git config user.name "airplan-release-bot[bot]"
           git config user.email \
@@ -96,15 +99,11 @@ jobs:
           git remote set-url origin \
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push --force-with-lease origin "$BRANCH"
-          pr_number="$(gh pr list --head "$BRANCH" --state open \
-            --json number,headRepositoryOwner \
-            --jq "map(select(.headRepositoryOwner.login == \
-              \"${GITHUB_REPOSITORY_OWNER}\"))[0].number // \"\"")"
           body="Refreshes README demo links after comparing the published page \
           and source bytes with the repository's upload-mode fixtures. Published \
           demo URLs are permanent and are never deleted by this workflow."
-          if [[ -n "$pr_number" ]]; then
-            gh pr edit "$pr_number" \
+          if [[ -n "$PR_NUMBER" ]]; then
+            gh pr edit "$PR_NUMBER" \
               --title "docs: refresh live demo links" --body "$body"
           else
             gh pr create --draft --base main --head "$BRANCH" \
