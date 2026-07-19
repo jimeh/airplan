@@ -8,6 +8,14 @@
 <meta name="robots" content="noindex, nofollow">
 {{- end}}
 <title>{{.Title}}</title>
+<script>
+try {
+  const theme = localStorage.getItem('airplan-theme');
+  if (theme === 'light' || theme === 'dark') {
+    document.documentElement.dataset.theme = theme;
+  }
+} catch (_) {}
+</script>
 <style>
 /* airplan:page-css */
 {{.SyntaxCSS}}
@@ -15,10 +23,9 @@
 </head>
 <body>
 <div class="page-shell">
-{{- if or .SourcePath (and (eq .Format "md") .HighlightedSourceHTML)}}
 <nav class="toolbar" aria-label="Document controls">
 {{- if and (eq .Format "md") .HighlightedSourceHTML}}
-  <div class="viewtoggle js-only" hidden>
+  <div class="viewtoggle mode-toggle js-only" hidden>
     <button type="button" class="active" data-view="rendered"
       aria-pressed="true" aria-label="Rendered view"
       title="Rendered view"><svg class="icon" aria-hidden="true"
@@ -28,6 +35,10 @@
       title="Source view"><svg class="icon" aria-hidden="true"
       viewBox="0 0 16 16" fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Source</span></button>
   </div>
+{{- end}}
+{{- if or (and (eq .Format "md") .HighlightedSourceHTML) .SourcePath}}
+  <div class="file-actions{{if not .SourcePath}} js-only{{end}}"{{if not .SourcePath}} hidden{{end}}>
+{{- if and (eq .Format "md") .HighlightedSourceHTML}}
   <button type="button" class="copy-source js-only" hidden
     aria-label="Copy markdown" title="Copy markdown"><svg
     class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16"
@@ -49,8 +60,29 @@
     class="icon" aria-hidden="true" viewBox="0 0 16 16"
     fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Raw</span></a>
 {{- end}}
-</nav>
+  </div>
 {{- end}}
+  <div class="themetoggle mode-toggle js-only" hidden
+    role="group" aria-label="Color theme">
+    <button type="button" data-theme="light" aria-pressed="false"
+      aria-label="Light theme" title="Light theme"><svg class="icon"
+      aria-hidden="true" viewBox="0 0 16 16" fill="none"
+      stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle
+      cx="8" cy="8" r="2.75"/><path
+      d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.23 3.23l1.06 1.06M11.71 11.71l1.06 1.06M12.77 3.23l-1.06 1.06M4.29 11.71l-1.06 1.06"/></svg></button>
+    <button type="button" class="active" data-theme="system"
+      aria-pressed="true" aria-label="System theme"
+      title="System theme"><svg class="icon" aria-hidden="true"
+      viewBox="0 0 16 16" fill="none" stroke="currentColor"
+      stroke-width="1.5" stroke-linecap="round"
+      stroke-linejoin="round"><rect x="1.5" y="2.5" width="13"
+      height="9" rx="1.25"/><path d="M5.5 14h5M8 11.5V14"/></svg></button>
+    <button type="button" data-theme="dark" aria-pressed="false"
+      aria-label="Dark theme" title="Dark theme"><svg class="icon"
+      aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path
+      d="M6.2 1.35a.75.75 0 0 1 .56.9A5.45 5.45 0 0 0 13.75 8.7a.75.75 0 0 1 .93.51.75.75 0 0 1-.22.77A7.15 7.15 0 1 1 5.43 1.46a.75.75 0 0 1 .77-.11Zm-1.18 1.9a5.65 5.65 0 1 0 7.54 7.13 6.95 6.95 0 0 1-7.54-7.13Z"/></svg></button>
+  </div>
+</nav>
 {{- if .TOC}}
 <nav class="toc" id="toc" aria-label="Table of contents">
   <p class="toc-title">Contents</p>
@@ -88,24 +120,62 @@
 <script type="module" referrerpolicy="no-referrer">
 const diagrams = Array.from(document.querySelectorAll('pre.mermaid'));
 const sources = diagrams.map((diagram) => diagram.textContent);
+const variants = diagrams.map(() => ({}));
+const systemTheme = matchMedia('(prefers-color-scheme: dark)');
+const printMedia = matchMedia('print');
+
+function selectedTheme() {
+  const selected = document.documentElement.dataset.theme;
+  return selected || (systemTheme.matches ? 'dark' : 'light');
+}
+
+function showTheme(theme) {
+  variants.forEach((themes, index) => {
+    const rendered = themes[theme] || themes.light || themes.dark;
+    if (!rendered) return;
+    diagrams[index].innerHTML = rendered.svg;
+    if (rendered.bindFunctions) rendered.bindFunctions(diagrams[index]);
+  });
+}
+
 try {
   const {default: mermaid} = await import({{.MermaidURL}});
-  const dark = matchMedia('(prefers-color-scheme: dark)').matches;
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: 'strict',
-    theme: dark ? 'dark' : 'default'
-  });
   for (const [index, diagram] of diagrams.entries()) {
-    try {
-      await mermaid.run({nodes: [diagram]});
+    for (const theme of ['light', 'dark']) {
+      try {
+        mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          secure: ['theme', 'themeVariables', 'themeCSS', 'darkMode'],
+          theme: theme === 'dark' ? 'dark' : 'default'
+        });
+        variants[index][theme] = await mermaid.render(
+          `airplan-mermaid-${theme}-${index}`,
+          sources[index]
+        );
+      } catch (error) {
+        console.warn(
+          `airplan: Mermaid ${theme} diagram rendering failed`,
+          error
+        );
+      }
+    }
+    if (variants[index].light || variants[index].dark) {
       diagram.classList.add('mermaid-rendered');
-    } catch (error) {
+    } else {
       diagram.textContent = sources[index];
       diagram.classList.add('mermaid-failed');
-      console.warn('airplan: Mermaid diagram rendering failed', error);
     }
   }
+  showTheme(selectedTheme());
+  window.addEventListener('airplan:themechange', (event) => {
+    showTheme(event.detail.theme);
+  });
+  printMedia.addEventListener('change', (event) => {
+    showTheme(event.matches ? 'light' : selectedTheme());
+  });
+  window.addEventListener('beforeprint', () => showTheme('light'));
+  window.addEventListener('afterprint', () => showTheme(selectedTheme()));
 } catch (error) {
   diagrams.forEach((diagram, index) => {
     diagram.textContent = sources[index];

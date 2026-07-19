@@ -1,69 +1,47 @@
 :root {
   color-scheme: light dark;
-  --bg: #ffffff;
-  --fg: #1f2328;
-  --heading: #1f2328;
-  --subheading: #3d444d;
-  --muted: #59636e;
-  --link: #0969da;
-  --border: #d1d9e0;
-  --surface-subtle: #f6f8fa;
-  --code-inline-bg: #eff1f3;
-  --code-bg: #f6f8fa;
-  --code-border: #d1d9e0;
-  --control-track: #eff1f3;
-  --control-active: #ffffff;
-  --control-hover: #eff1f3;
-  --control-divider: #d8dee4;
-  --on-link: #ffffff;
-  --dialog-backdrop: rgba(31, 35, 40, 0.45);
-  --mark-bg: #fff8c5;
-  --alert-note: #0969da;
-  --alert-note-bg: #ddf4ff;
-  --alert-tip: #1a7f37;
-  --alert-tip-bg: #dafbe1;
-  --alert-important: #8250df;
-  --alert-important-bg: #fbefff;
-  --alert-warning: #9a6700;
-  --alert-warning-bg: #fff8c5;
-  --alert-caution: #cf222e;
-  --alert-caution-bg: #ffebe9;
+  --bg: light-dark(#ffffff, #0d1117);
+  --fg: light-dark(#1f2328, #e6edf3);
+  --heading: light-dark(#1f2328, #f0f6fc);
+  --subheading: light-dark(#3d444d, #c9d1d9);
+  --muted: light-dark(#59636e, #9198a1);
+  --link: light-dark(#0969da, #4493f8);
+  --border: light-dark(#d1d9e0, #3d444d);
+  --surface-subtle: light-dark(#f6f8fa, #151b23);
+  --code-inline-bg: light-dark(#eff1f3, #212830);
+  --code-bg: light-dark(#f6f8fa, #151b23);
+  --code-border: light-dark(#d1d9e0, #30363d);
+  --control-track: light-dark(#eff1f3, #21262d);
+  --control-active: light-dark(#ffffff, #30363d);
+  --control-hover: light-dark(#eff1f3, #21262d);
+  --control-divider: light-dark(#d8dee4, #30363d);
+  --on-link: light-dark(#ffffff, #0d1117);
+  --dialog-backdrop: light-dark(
+    rgba(31, 35, 40, 0.45),
+    rgba(0, 0, 0, 0.66)
+  );
+  --mark-bg: light-dark(#fff8c5, #693e00);
+  --alert-note: light-dark(#0969da, #4493f8);
+  --alert-note-bg: light-dark(#ddf4ff, #121d2f);
+  --alert-tip: light-dark(#1a7f37, #3fb950);
+  --alert-tip-bg: light-dark(#dafbe1, #12261e);
+  --alert-important: light-dark(#8250df, #a371f7);
+  --alert-important-bg: light-dark(#fbefff, #211a2e);
+  --alert-warning: light-dark(#9a6700, #d29922);
+  --alert-warning-bg: light-dark(#fff8c5, #272115);
+  --alert-caution: light-dark(#cf222e, #f85149);
+  --alert-caution-bg: light-dark(#ffebe9, #2d1618);
   --page-width: 54rem;
   --prose-width: 78ch;
   --toc-width: 14rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0d1117;
-    --fg: #e6edf3;
-    --heading: #f0f6fc;
-    --subheading: #c9d1d9;
-    --muted: #9198a1;
-    --link: #4493f8;
-    --border: #3d444d;
-    --surface-subtle: #151b23;
-    --code-inline-bg: #212830;
-    --code-bg: #151b23;
-    --code-border: #30363d;
-    --control-track: #21262d;
-    --control-active: #30363d;
-    --control-hover: #21262d;
-    --control-divider: #30363d;
-    --on-link: #0d1117;
-    --dialog-backdrop: rgba(0, 0, 0, 0.66);
-    --mark-bg: #693e00;
-    --alert-note: #4493f8;
-    --alert-note-bg: #121d2f;
-    --alert-tip: #3fb950;
-    --alert-tip-bg: #12261e;
-    --alert-important: #a371f7;
-    --alert-important-bg: #211a2e;
-    --alert-warning: #d29922;
-    --alert-warning-bg: #272115;
-    --alert-caution: #f85149;
-    --alert-caution-bg: #2d1618;
-  }
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 * {
@@ -104,6 +82,10 @@ body {
   align-items: center;
   gap: 0.5rem;
   font-size: 0.85rem;
+}
+
+.toolbar:not(:has(> :not([hidden]))) {
+  display: none;
 }
 
 .toc {
@@ -356,9 +338,9 @@ body.toc-dialog-open {
   outline-offset: 2px;
 }
 
-/* Mode control, not action buttons: a quiet inset track whose active
-   segment sits as a raised pill. */
-.viewtoggle {
+/* Mode controls, not action buttons: quiet inset tracks whose active
+   segments sit as raised pills. */
+.mode-toggle {
   display: inline-flex;
   gap: 2px;
   padding: 2px;
@@ -367,32 +349,48 @@ body.toc-dialog-open {
   border-radius: 8px;
 }
 
-.viewtoggle button {
+.mode-toggle button {
   border: 0;
   border-radius: 6px;
   padding: 0.3rem 0.55rem;
 }
 
-.viewtoggle button:hover {
+.mode-toggle button:hover {
   color: var(--fg);
 }
 
-.viewtoggle button.active {
+.mode-toggle button.active {
   color: var(--fg);
   background: var(--control-active);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
-.viewtoggle + .copy-source {
+.themetoggle button {
+  width: 1.85rem;
+  padding-inline: 0;
+}
+
+.viewtoggle {
+  margin-right: auto;
+}
+
+.file-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.themetoggle:not(:first-child) {
   position: relative;
   margin-left: 0.5rem;
 }
 
-.viewtoggle + .copy-source::before {
+.themetoggle:not(:first-child)::before {
   content: "";
   position: absolute;
   top: 50%;
-  left: -0.5rem;
+  /* Balance against the preceding action's 0.65rem inline padding. */
+  left: -0.825rem;
   width: 1px;
   height: 1rem;
   background: var(--control-divider);
@@ -859,21 +857,35 @@ mark {
 @media (max-width: 36rem) {
   .toolbar {
     display: grid;
-    grid-template-columns: repeat(3, max-content);
-    justify-content: flex-start;
+    grid-template-columns: max-content 1fr max-content;
+    justify-content: stretch;
     padding-inline: 1rem;
   }
 
   .toolbar .viewtoggle {
+    grid-column: 1 / 3;
+    grid-row: 1;
+    justify-self: start;
+    margin-right: 0;
+  }
+
+  .toolbar .themetoggle {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+
+  .toolbar .file-actions {
     grid-column: 1 / -1;
+    grid-row: 2;
     justify-self: start;
   }
 
-  .viewtoggle + .copy-source {
+  .themetoggle:not(:first-child) {
     margin-left: 0;
   }
 
-  .viewtoggle + .copy-source::before {
+  .themetoggle:not(:first-child)::before {
     display: none;
   }
 
@@ -894,6 +906,11 @@ mark {
 }
 
 @media print {
+  :root,
+  :root[data-theme] {
+    color-scheme: light;
+  }
+
   .toolbar,
   .toc,
   .toc-trigger,
@@ -913,5 +930,61 @@ mark {
   body {
     background: #fff;
     color: #000;
+    font-size: 10.5pt;
+    line-height: 1.45;
+  }
+
+  .content {
+    padding: 0;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    margin-top: 1.4em;
+    margin-bottom: 0.55em;
+    break-after: avoid-page;
+  }
+
+  h1 {
+    margin-top: 0.2em;
+  }
+
+  h2 {
+    margin-top: 1.65em;
+  }
+
+  p, ul, ol, blockquote, table, pre {
+    margin-bottom: 0.9em;
+  }
+
+  p, li {
+    orphans: 3;
+    widows: 3;
+  }
+
+  dl {
+    margin-block: 0.9em;
+  }
+
+  .frontmatter {
+    margin-bottom: 1.2em;
+  }
+
+  .markdown-alert,
+  .columns {
+    margin-block: 1em;
+  }
+
+  .column + .column {
+    margin-top: 1em;
+  }
+
+  hr {
+    margin-block: 1.4em;
+  }
+
+  /* Reveal disclosure content without JavaScript in supporting browsers.
+     The print event handlers provide the cross-browser path. */
+  details::details-content {
+    content-visibility: visible !important;
   }
 }

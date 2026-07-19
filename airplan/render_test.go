@@ -102,6 +102,21 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		}
 	})
 
+	t.Run("theme control is available without source actions", func(t *testing.T) {
+		out := render(t, src, RenderOptions{Title: "Hi"})
+		for _, fragment := range []string{
+			`class="themetoggle mode-toggle js-only"`,
+			`aria-label="Light theme"`,
+			`aria-label="System theme"`,
+			`aria-label="Dark theme"`,
+			`localStorage.getItem('airplan-theme')`,
+		} {
+			if !strings.Contains(out, fragment) {
+				t.Errorf("theme control missing %q", fragment)
+			}
+		}
+	})
+
 	t.Run("indexable omits robots meta", func(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "Hi", Indexable: true})
 		if strings.Contains(out, `name="robots"`) {
@@ -119,11 +134,26 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		if !strings.Contains(out, `class="raw" href="./plan.md"`) {
 			t.Error("missing raw source anchor")
 		}
+
+		last := -1
+		for _, fragment := range []string{
+			`class="viewtoggle`,
+			`class="copy-source`,
+			`class="download`,
+			`class="raw`,
+			`class="themetoggle`,
+		} {
+			position := strings.Index(out, fragment)
+			if position <= last {
+				t.Fatalf("toolbar control %q is out of order", fragment)
+			}
+			last = position
+		}
 	})
 
 	t.Run("no download link without SourcePath", func(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "Hi"})
-		if strings.Contains(out, "download") {
+		if strings.Contains(out, `<a class="download"`) {
 			t.Error("unexpected download anchor")
 		}
 	})
@@ -144,10 +174,18 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		}
 	})
 
-	t.Run("dark palette present", func(t *testing.T) {
+	t.Run("system and explicit palettes present", func(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "Hi"})
-		if strings.Count(out, "prefers-color-scheme: dark") < 2 {
-			t.Error("expected dark palettes for page and syntax CSS")
+		for _, fragment := range []string{
+			"light-dark(#ffffff, #0d1117)",
+			"prefers-color-scheme: dark",
+			":root:not([data-theme]) .chroma .k",
+			`:root[data-theme="light"] .chroma .k`,
+			`:root[data-theme="dark"] .chroma .k`,
+		} {
+			if !strings.Contains(out, fragment) {
+				t.Errorf("theme palettes missing %q", fragment)
+			}
 		}
 	})
 }
@@ -168,13 +206,23 @@ func TestRenderMarkdownMermaid(t *testing.T) {
 	if !strings.Contains(out, "await import(\""+DefaultMermaidURL+"\")") {
 		t.Fatal("pinned Mermaid module import missing")
 	}
-	if !strings.Contains(out, "mermaid.run({nodes: [diagram]})") ||
-		strings.Contains(out, "mermaid.run({nodes: diagrams})") {
-		t.Fatal("Mermaid diagrams are not rendered independently")
+	if !strings.Contains(out, "await mermaid.render(") ||
+		!strings.Contains(out, "airplan-mermaid-${theme}-${index}") {
+		t.Fatal("Mermaid theme variants are not rendered independently")
 	}
 	if !strings.Contains(out,
 		"diagram.classList.add('mermaid-rendered')") {
 		t.Fatal("successful Mermaid diagrams are not marked as rendered")
+	}
+	for _, fragment := range []string{
+		"theme: theme === 'dark' ? 'dark' : 'default'",
+		"secure: ['theme', 'themeVariables', 'themeCSS', 'darkMode']",
+		"window.addEventListener('beforeprint', () => showTheme('light'))",
+		"window.addEventListener('airplan:themechange'",
+	} {
+		if !strings.Contains(out, fragment) {
+			t.Errorf("Mermaid theme handling missing %q", fragment)
+		}
 	}
 	if !strings.Contains(out, "pre.mermaid.mermaid-rendered {") {
 		t.Fatal("rendered Mermaid layout is not state-scoped")
@@ -316,7 +364,7 @@ func TestRenderMarkdownInteractivity(t *testing.T) {
 	out := render(t, src, RenderOptions{Title: "Hi"})
 
 	for name, frag := range map[string]string{
-		"view toggle":           `class="viewtoggle js-only" hidden`,
+		"view toggle":           `class="viewtoggle mode-toggle js-only" hidden`,
 		"rendered label":        `<span>Rendered</span>`,
 		"source label":          `<span>Source</span>`,
 		"pressed state":         `aria-pressed="true"`,
