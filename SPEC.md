@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.21.1**
+**Spec version: 0.22.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -50,6 +50,9 @@ Upload output contract (critical for agent use):
 - **stderr**: all logs, warnings, progress, errors.
 - **exit code**: 0 on success; non-zero on any failure. Never print a
   URL that wasn't successfully uploaded.
+
+`get` writes the fetched object bytes and nothing else to stdout unless
+`--output` selects a file.
 
 ---
 
@@ -484,7 +487,8 @@ instead of hanging the caller (often an agent harness) indefinitely. The clock
 begins after config resolution; config loading itself is excluded because the
 config may supply the timeout. Interactive confirmation time is also excluded.
 
-Upload, preview, list, show, and delete each receive one timeout budget. Local
+Upload, preview, list, show, get, and delete each receive one timeout budget.
+Local
 purge starts one deletion budget after confirmation. Remote purge receives one
 budget for listing and marker inspection, then a fresh deletion budget after
 confirmation. This prevents human think time from consuming a network budget
@@ -540,6 +544,7 @@ airplan preview [flags] [file]
 airplan completion bash|zsh|fish|powershell
 airplan list [--remote] [--json]
 airplan show [--json] <url|key>
+airplan get [--output PATH] [--source] <url|key>
 airplan delete <url|key>
 airplan purge [--remote] [--older-than 30d]
               [--all] [--dry-run] [--yes]
@@ -573,7 +578,8 @@ destination unchanged.
 
 `list`/`purge` operate on the local upload manifest by default, or
 on a live bucket listing with `--remote`. `show` inspects one remote
-marker directory. `delete` takes an explicit URL or key, but it only
+marker directory. `get` fetches only objects declared by a valid remote
+ownership marker. `delete` takes an explicit URL or key, but it only
 operates on a directory carrying a valid airplan ownership marker; it
 therefore works on marker-managed uploads from any machine without
 becoming a general-purpose bucket deletion command. See §9.
@@ -1027,6 +1033,26 @@ machine) and must be safe:
   `oversized`, `malformed_json`, `unsupported_version`, or
   `invalid_fields`; it never exposes untrusted marker fields. Human
   output presents the same information as a labeled detail block.
+- `airplan get <url|key>` fetches one object from a marker-managed upload.
+  Full URLs, bare keys, random directories, configured prefixes, and
+  path-style endpoint URLs obey the same connection, bucket, and prefix
+  rules as `delete`. Before returning any bytes, `get` fetches and validates
+  the exact ownership marker in the target directory. A missing, malformed,
+  oversized, unsupported, or inconsistent marker is an error; there is no
+  manifest reconciliation path. A random-directory target selects the
+  marker-declared page, or the declared source under `--source`; requesting
+  the source when none is declared is an error. An explicit declared page or
+  source target fetches that exact object. An explicit marker target fetches
+  the marker bytes. Any other child is rejected, and `--source` with any
+  explicit child target is rejected as ambiguous. A missing selected object
+  is an error naming its full storage key.
+  Raw fetched bytes, with no added newline or other output, go to stdout by
+  default. `--output PATH` writes the complete bytes to a temporary file
+  beside the destination and atomically renames it into place; `--output -`
+  is equivalent to stdout. Written files are user-only (0600 on POSIX
+  systems); fetched bytes are not shared with other local users by
+  default. `get` never writes the local manifest or changes remote
+  storage.
 - `airplan delete <url|key>` only deletes a marker-managed upload.
   The target may be the random directory, its `.airplan.json` marker,
   or the page/source named by a valid marker. Any other sibling key is
@@ -1109,8 +1135,8 @@ machine) and must be safe:
   keeps `--remote` scoped to their own uploads.
 - The local manifest still matters: it remembers titles and profile
   context, and works offline. Remote listing is the cheap storage view;
-  `show`, `delete`, and `purge --remote` read marker state when they
-  need validated upload details or deletion authority.
+  `show`, `get`, `delete`, and `purge --remote` read marker state when they
+  need validated upload details, read authority, or deletion authority.
 
 ---
 

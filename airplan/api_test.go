@@ -34,6 +34,15 @@ func TestClientOperationsRejectUninitializedClient(t *testing.T) {
 			},
 		},
 		{
+			name: "get upload",
+			call: func(client *Client) error {
+				_, err := client.GetUpload(
+					context.Background(), "key", GetOptions{},
+				)
+				return err
+			},
+		},
+		{
 			name: "delete upload",
 			call: func(client *Client) error {
 				_, err := client.DeleteUpload(context.Background(), "key")
@@ -86,6 +95,11 @@ func TestPublicOperationsRejectNilContext(t *testing.T) {
 		{"inspect upload", func() error {
 			//nolint:staticcheck // The public boundary must reject a nil context.
 			_, err := client.InspectUpload(nil, "key")
+			return err
+		}},
+		{"get upload", func() error {
+			//nolint:staticcheck // The public boundary must reject a nil context.
+			_, err := client.GetUpload(nil, "key", GetOptions{})
 			return err
 		}},
 		{"delete upload", func() error {

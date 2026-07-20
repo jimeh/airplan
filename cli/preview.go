@@ -163,33 +163,10 @@ func runPreview(
 		_, err = cmd.OutOrStdout().Write(doc.HTML)
 		return err
 	}
-	if err := writePreviewAtomic(opts.output, doc.HTML); err != nil {
+	if err := writeFileAtomic(opts.output, doc.HTML, 0o644); err != nil {
 		return fmt.Errorf("write preview %s: %w", opts.output, err)
 	}
 	return nil
-}
-
-func writePreviewAtomic(path string, contents []byte) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer func() { _ = os.Remove(tmpPath) }()
-
-	if err := tmp.Chmod(0o644); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(contents); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return renamePreviewAtomic(tmpPath, path)
 }
 
 func samePreviewPath(input, output string) (bool, error) {

@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.21.1.
+may contradict it. Targets spec version 0.22.0.
 
 ---
 
@@ -80,7 +80,7 @@ airplan/                core library (public Go API): config
                         load/merge/validate, input reading + format
                         detection + noindex splice, markdown
                         rendering, ownership markers, key/slug
-                        generation, S3 upload/list/show/delete,
+                        generation, S3 upload/list/show/get/delete,
                         manifest history, URL assembly; embeds assets
                         via go:embed; Mermaid is the sole conditional
                         runtime asset
@@ -118,6 +118,7 @@ skill := airplan.AgentSkill() // exact canonical skills/airplan/SKILL.md
 
 uploads, err := client.ListRemote(ctx) // one LIST traversal, no marker GETs
 inspection, err := client.InspectUpload(ctx, uploads[0].MarkerKey)
+fetched, err := client.GetUpload(ctx, inspection.Page.Key, airplan.GetOptions{})
 deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
 ```
 
@@ -176,9 +177,11 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
   in-head robots metadata. Injection splices only the original byte slice and
   never serializes the token stream. `Client.Upload` adds source/page storage,
   URLs, and manifest recording; `airplan preview` stops after `RenderInput`.
-  Preview file output renames a same-directory temporary file on Unix and uses
-  Windows `ReplaceFileW` (falling back to `MoveFileEx` for a new destination)
-  so replacement matches the spec's atomicity contract on both families.
+  Preview and get file output rename a same-directory temporary file on Unix
+  and use Windows `ReplaceFileW` (falling back to `MoveFileEx` for a new
+  destination) so replacement matches the spec's atomicity contract on both
+  families. Preview pages stay shareable at 0644; get downloads are written
+  user-only at 0600 per SPEC.md §9.
 - Public API boundaries: `New`, `RenderInput`, and every `Client` operation
   reject nil contexts; zero-value or nil clients return
   `ErrUninitializedClient`; and `PublicURL` reports a nil config as an error.
@@ -191,15 +194,18 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
 - Ownership markers: every managed directory starts with an exact
   `.airplan.json` direct child. The strict, versioned marker declares the
   page and optional source. Upload writes it first, so an interrupted upload
-  remains visible; delete validates it before mutation and removes it last,
-  so marker presence remains the remote ownership boundary.
+  remains visible; get and delete validate it before granting read or mutation
+  authority, and delete removes it last, so marker presence remains the remote
+  ownership boundary.
 - Remote discovery: `ListRemote` makes a paginated LIST traversal under the
   active `key_prefix`, includes only random directories with an exact marker
   key, and derives object count, total bytes, marker modification time, and an
   unambiguous HTML slug hint from that response. It never fetches markers or
   heads payload objects. `InspectUpload` is the targeted GET + directory LIST
   path that validates marker content and reports `complete`, `incomplete`, or
-  `invalid`.
+  `invalid`. `GetUpload` validates the same marker, resolves only its declared
+  payloads or the marker itself, and reads the selected object without listing
+  or writing local history.
 - Remote deletion: the marker must decode and authorize the supplied direct
   target. Payload objects are removed with batched `DeleteObjects`, then the
   marker is removed in a separate final `DeleteObject`. Invalid and markerless
@@ -271,9 +277,10 @@ JSON Schema all fall out of one struct definition.
   via a Cloudflare Transform Rule on the custom domain (S3/R2 can't
   emit custom response headers themselves).
 - Live demo automation: `.github/workflows/update-demos.yml` compares
-  the public page and source bytes with the upload-mode render goldens,
-  uploads only stale demos after pushes to `main`, and opens or updates
-  a bot-owned README PR with GitHub App-signed commits. Manual runs may
+  page and source origin bytes read through the storage API with the
+  upload-mode render goldens, uploads only stale demos after pushes to
+  `main`, and opens or updates a bot-owned README PR with GitHub App-signed
+  commits. Manual runs may
   force fresh URLs. Published demo uploads are permanent and are never
   deleted by the workflow.
 
@@ -344,8 +351,9 @@ outside the project's signing and notarization pipeline.
    marker-versioned manifest entry afterward as a best-effort local aid.
 5. Discover remote uploads with LIST-only marker-key filtering. Use `show`
    when trusted metadata or completeness state is needed.
-6. Validate the marker before delete or purge. Delete all payload and extra
-   objects first, remove the marker last, then append the local tombstone.
+6. Validate the marker before get, delete, or purge. Get reads only the selected
+   declared object. Delete removes all payload and extra objects first, removes
+   the marker last, then appends the local tombstone.
 
 Manifest reads retain pre-marker upload records as read-only legacy history.
 Delete profile inference requires exactly one requested URL or key match in
@@ -364,7 +372,8 @@ deletion has succeeded.
 
 - Unit: config precedence matrix, slug sanitization, format sniffing, key
   entropy/encoding properties, URL assembly, strict marker validation,
-  LIST-only grouping, inspection states, delete request ordering, manifest
+  LIST-only grouping, inspection states, get selection, delete request ordering,
+  manifest
   lock cancellation, and purge safety filters.
 - Golden files: markdown fixtures → rendered HTML snapshots
   (`testdata/`, `GOLDEN_UPDATE=1` convention).
