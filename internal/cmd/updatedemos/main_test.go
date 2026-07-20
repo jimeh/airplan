@@ -157,6 +157,31 @@ func TestUpdateReadmeKeepsFreshCurrentDemo(t *testing.T) {
 	fixture.wantURL(t, current)
 }
 
+func TestUpdateReadmePrefersFreshCurrentDemoOverFreshCandidate(t *testing.T) {
+	fixture := newDemoFixture(t, "page", "source")
+	current := "https://demo.example/current/example.html"
+	candidate := "https://demo.example/candidate/example.html"
+	fetcher := stubFetcher{
+		{url: current}:                 []byte("page"),
+		{url: current, source: true}:   []byte("source"),
+		{url: candidate}:               []byte("page"),
+		{url: candidate, source: true}: []byte("source"),
+	}
+	fixture.writeReadme(t, current)
+	candidatePath := filepath.Join(fixture.dir, "candidate.md")
+	writeDemoReadme(t, candidatePath, fixture.entry.reference, candidate)
+	err := fixture.update(t, fetcher, candidatePath, false, publishFunc(
+		func(context.Context, demo) (string, error) {
+			t.Fatal("fresh demo was uploaded again")
+			return "", nil
+		},
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.wantURL(t, current)
+}
+
 func TestUpdateReadmeReusesFreshCandidate(t *testing.T) {
 	fixture := newDemoFixture(t, "page", "source")
 	current := "https://demo.example/current/example.html"
@@ -259,12 +284,21 @@ func TestUpdateReadmeAllowsCandidateWithoutNewReference(t *testing.T) {
 	fixture.wantURL(t, current)
 }
 
-func TestUpdateReadmeForceUploadsFreshDemo(t *testing.T) {
+func TestUpdateReadmeForceUploadsWithFreshCandidate(t *testing.T) {
 	fixture := newDemoFixture(t, "page", "source")
 	current := "https://demo.example/current/example.html"
+	candidate := "https://demo.example/candidate/example.html"
+	fetcher := stubFetcher{
+		{url: current}:                 []byte("page"),
+		{url: current, source: true}:   []byte("source"),
+		{url: candidate}:               []byte("page"),
+		{url: candidate, source: true}: []byte("source"),
+	}
 	fixture.writeReadme(t, current)
+	candidatePath := filepath.Join(fixture.dir, "candidate.md")
+	writeDemoReadme(t, candidatePath, fixture.entry.reference, candidate)
 	want := "https://demo.example/forced/example.html"
-	err := fixture.update(t, stubFetcher{}, "", true, publishFunc(
+	err := fixture.update(t, fetcher, candidatePath, true, publishFunc(
 		func(context.Context, demo) (string, error) { return want, nil },
 	))
 	if err != nil {
