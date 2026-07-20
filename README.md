@@ -124,9 +124,9 @@ sha256sum --ignore-missing --check checksums.txt
 # macOS
 shasum --ignore-missing --algorithm 256 --check checksums.txt
 
-gh release verify v0.2.0 --repo jimeh/airplan
+gh release verify v0.2.1 --repo jimeh/airplan
 
-gh attestation verify airplan_0.2.0_darwin_arm64.tar.gz \
+gh attestation verify airplan_0.2.1_darwin_arm64.tar.gz \
   --repo jimeh/airplan
 ```
 
