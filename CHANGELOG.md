@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/jimeh/airplan/compare/v0.2.0...v0.2.1) (2026-07-20)
+
+
+### Bug Fixes
+
+* restore macOS draft verification ([#52](https://github.com/jimeh/airplan/issues/52)) ([9ecb793](https://github.com/jimeh/airplan/commit/9ecb79355516f0477e38bc672929d8f7c88ce52d))
+
 ## [0.2.0](https://github.com/jimeh/airplan/compare/v0.1.0...v0.2.0) (2026-07-20)
 
 
