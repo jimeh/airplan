@@ -202,7 +202,8 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     permissions:
-      contents: read
+      # GitHub requires push access to read assets from a draft release.
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -223,38 +224,48 @@ jobs:
       EXPECTED_BINARY_ARCH: ${{ matrix.binary_arch }}
       MACOS_TEAM_ID: ${{ vars.MACOS_TEAM_ID }}
     steps:
-      - name: Download and verify native macOS archive
+      - name: Download native macOS archive
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERIFY_DIR: ${{ runner.temp }}/airplan-macos-verification
         run: |
-          work="$(mktemp -d)"
-          trap 'rm -rf "$work"' EXIT
-          cd "$work"
+          set -o pipefail
+          mkdir -p "$VERIFY_DIR"
+          cd "$VERIFY_DIR"
 
           version="${RELEASE_TAG#v}"
           archive="airplan_${version}_darwin_${EXPECTED_GOARCH}.tar.gz"
-          assets="$({
-            gh api --paginate \
-              "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets"
-          } | jq -s 'add')"
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets" \
+            | jq -s 'add' >release-assets.json
 
           download_asset() {
             local name="$1"
             local count id
             count="$(jq --arg name "$name" \
-              '[.[] | select(.name == $name)] | length' <<<"$assets")"
+              '[.[] | select(.name == $name)] | length' \
+              release-assets.json)"
             if [[ "$count" != "1" ]]; then
               echo "expected one $name asset, found $count" >&2
               exit 1
             fi
             id="$(jq -r --arg name "$name" \
-              '.[] | select(.name == $name) | .id' <<<"$assets")"
+              '.[] | select(.name == $name) | .id' release-assets.json)"
             gh api -H 'Accept: application/octet-stream' \
               "repos/${GITHUB_REPOSITORY}/releases/assets/${id}" >"$name"
           }
 
           download_asset "$archive"
           download_asset checksums.txt
+
+      - name: Verify native macOS archive
+        env:
+          VERIFY_DIR: ${{ runner.temp }}/airplan-macos-verification
+        run: |
+          cd "$VERIFY_DIR"
+
+          version="${RELEASE_TAG#v}"
+          archive="airplan_${version}_darwin_${EXPECTED_GOARCH}.tar.gz"
 
           checksum_entry="$(awk -v name="$archive" \
             '$2 == name { print }' checksums.txt)"
@@ -274,7 +285,7 @@ jobs:
 
           mkdir extracted
           tar -xzf "$archive" -C extracted
-          binary="$work/extracted/airplan"
+          binary="$VERIFY_DIR/extracted/airplan"
           if [[ ! -x "$binary" ]]; then
             echo "archive does not contain an executable airplan binary" >&2
             exit 1

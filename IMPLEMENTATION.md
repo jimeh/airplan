@@ -319,12 +319,15 @@ secrets or three identity variables is empty, when the release commit is not
 contained in `origin/main`, or when Apple rejects or times out. It records
 GitHub SLSA provenance attestations and verifies the complete asset inventory
 and GitHub SHA-256 digests. Native Apple Silicon and Intel jobs then download
-the exact draft archives with read-only GitHub access, verify their checksums,
-signature team and authority, hardened runtime, timestamp, notarization,
-architecture, and reported version. The online notarization-ticket check has a
-bounded retry for transient Apple or network failures. Only after both jobs
-pass does the workflow publish and verify the draft. Publication locks the
-existing tag and assets and makes the release immutable.
+the exact draft archives. GitHub restricts draft visibility to callers with
+push access, so the download step receives a write-capable token even though
+it only performs reads. The token is absent from the subsequent verification
+step that executes the binary. That step verifies checksums, signature team
+and authority, hardened runtime, timestamp, notarization, architecture, and
+reported version. The online notarization-ticket check has a bounded retry for
+transient Apple or network failures. Only after both jobs pass does the
+workflow publish and verify the draft. Publication locks the existing tag and
+assets and makes the release immutable.
 
 GoReleaser OSS generates the Homebrew Cask without uploading it. The workflow
 carries that exact file between jobs as an immutable, same-run workflow

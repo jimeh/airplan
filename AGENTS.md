@@ -131,6 +131,10 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Draft releases require an eager tag**: keep release-please's
   `force-tag-creation` enabled. It builds the next release PR immediately
   after creating a draft; without the tag it replays released commits.
+- **Draft release assets require push access**: GitHub rejects a read-only
+  token even when listing or downloading assets. Native macOS verification
+  therefore uses `contents: write`, but exposes the token only to its download
+  step and never to binary execution.
 - **macOS releases fail closed**: production GoReleaser runs require all three
   Apple secrets and three identity variables, sign and notarize before
   packaging, and publish only after native Intel and Apple Silicon checks.
