@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.0](https://github.com/jimeh/airplan/compare/v0.1.0...v0.2.0) (2026-07-20)
+
+
+### Features
+
+* add document themes and improve printing ([#43](https://github.com/jimeh/airplan/issues/43)) ([8138352](https://github.com/jimeh/airplan/commit/8138352182dab6fa0e3d7a540c3d139360ae6ac4))
+* add get subcommand and fetch demo bytes via storage API ([#50](https://github.com/jimeh/airplan/issues/50)) ([a81b502](https://github.com/jimeh/airplan/commit/a81b50224c85a4a41bb45c78c897247ad701c579))
+* establish trusted macOS release binaries ([#35](https://github.com/jimeh/airplan/issues/35)) ([643409b](https://github.com/jimeh/airplan/commit/643409b8c341b942446c4328b1e240a09c8a448f))
+* expose the bundled agent skill ([#44](https://github.com/jimeh/airplan/issues/44)) ([c1d560d](https://github.com/jimeh/airplan/commit/c1d560de5151f6d2daeb5a3eff4607f7d8a6f6f3))
+
+
+### Bug Fixes
+
+* improve mobile toolbar and demo PR readiness ([#46](https://github.com/jimeh/airplan/issues/46)) ([ce006cf](https://github.com/jimeh/airplan/commit/ce006cfe00c3d11d2432f76c536537e6ca230ee8))
+* prevent redundant demo link refreshes ([#51](https://github.com/jimeh/airplan/issues/51)) ([9e70007](https://github.com/jimeh/airplan/commit/9e700076a4573509e92bb4e84539b4e9cdf81db0))
+
 ## 0.1.0 (2026-07-13)
 
 
