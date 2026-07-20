@@ -280,9 +280,10 @@ JSON Schema all fall out of one struct definition.
   page and source origin bytes read through the storage API with the
   upload-mode render goldens, uploads only stale demos after pushes to
   `main`, and opens or updates a bot-owned README PR with GitHub App-signed
-  commits. Manual runs may
-  force fresh URLs. Published demo uploads are permanent and are never
-  deleted by the workflow.
+  commits. If the demo links on `main` are already current, the workflow closes
+  any obsolete bot-owned demo-link PR and deletes its update branch. Manual
+  runs may force fresh URLs. Published demo uploads are permanent and are
+  never deleted by the workflow.
 
 ## 7. Distribution
 

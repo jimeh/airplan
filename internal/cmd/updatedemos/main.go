@@ -201,15 +201,15 @@ func updateReadme(
 			return loadErr
 		}
 		selected := ""
-		if !force && candidates != nil {
+		if !force {
+			selected = selectFresh(
+				ctx, fetch, d, content, current[d.reference], "current", log,
+			)
+		}
+		if !force && selected == "" && candidates != nil {
 			selected = selectFresh(
 				ctx, fetch, d, content, candidates[d.reference],
 				"candidate", log,
-			)
-		}
-		if !force && selected == "" {
-			selected = selectFresh(
-				ctx, fetch, d, content, current[d.reference], "current", log,
 			)
 		}
 		if selected == "" {
