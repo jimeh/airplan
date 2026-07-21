@@ -179,7 +179,8 @@ func TestDecodeUploadMarkerV1IgnoresV2ExtensionFields(t *testing.T) {
 	body := []byte(`{"schema":"airplan-upload","version":1,` +
 		`"directory":"abcdefghijklmnopqrstuvwxyz",` +
 		`"created_at":"2026-07-21T09:00:00Z","format":"html",` +
-		`"page":"plan.html","page_bytes":42,"repo":"not a repository"}`)
+		`"page":"plan.html","page_bytes":{"future":true},` +
+		`"repo":["future","metadata"]}`)
 
 	marker, err := DecodeUploadMarker(body, dir)
 	if err != nil {
@@ -187,6 +188,21 @@ func TestDecodeUploadMarkerV1IgnoresV2ExtensionFields(t *testing.T) {
 	}
 	if marker.PageBytes != 0 || marker.Repo != "" {
 		t.Fatalf("v1 extension fields were retained: %+v", marker)
+	}
+
+	validV2 := `{"schema":"airplan-upload","version":2,` +
+		`"directory":"abcdefghijklmnopqrstuvwxyz",` +
+		`"created_at":"2026-07-21T09:00:00Z","format":"html",` +
+		`"page":"plan.html","page_bytes":42,` +
+		`"repo":"https://github.com/acme/repo"}`
+	for _, invalidV2 := range []string{
+		strings.Replace(validV2, `"page_bytes":42`,
+			`"page_bytes":{"future":true}`, 1),
+		strings.Replace(validV2, `"repo":"https://github.com/acme/repo"`,
+			`"repo":["future","metadata"]`, 1),
+	} {
+		_, err := DecodeUploadMarker([]byte(invalidV2), dir)
+		assertMarkerCode(t, err, MarkerErrorInvalidFields)
 	}
 }
 

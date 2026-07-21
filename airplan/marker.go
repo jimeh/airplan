@@ -81,16 +81,16 @@ type UploadMarker struct {
 }
 
 type markerWire struct {
-	Schema    *string `json:"schema"`
-	Version   *int    `json:"version"`
-	Directory *string `json:"directory"`
-	CreatedAt *string `json:"created_at"`
-	Format    *string `json:"format"`
-	Page      *string `json:"page"`
-	PageBytes *int64  `json:"page_bytes"`
-	Source    *string `json:"source"`
-	Title     *string `json:"title"`
-	Repo      *string `json:"repo"`
+	Schema    *string         `json:"schema"`
+	Version   *int            `json:"version"`
+	Directory *string         `json:"directory"`
+	CreatedAt *string         `json:"created_at"`
+	Format    *string         `json:"format"`
+	Page      *string         `json:"page"`
+	PageBytes json.RawMessage `json:"page_bytes"`
+	Source    *string         `json:"source"`
+	Title     *string         `json:"title"`
+	Repo      json.RawMessage `json:"repo"`
 }
 
 // EncodeUploadMarker validates and encodes marker as UTF-8 JSON.
@@ -169,11 +169,17 @@ func DecodeUploadMarker(data []byte, expectedDir string) (*UploadMarker, error) 
 		marker.Title = *wire.Title
 	}
 	if marker.Version == MarkerVersion {
-		if wire.PageBytes != nil {
-			marker.PageBytes = *wire.PageBytes
+		if len(wire.PageBytes) > 0 {
+			if err := json.Unmarshal(wire.PageBytes, &marker.PageBytes); err != nil {
+				return nil, markerInvalid(MarkerErrorInvalidFields,
+					fmt.Errorf("page_bytes is not an integer: %w", err))
+			}
 		}
-		if wire.Repo != nil {
-			marker.Repo = *wire.Repo
+		if len(wire.Repo) > 0 {
+			if err := json.Unmarshal(wire.Repo, &marker.Repo); err != nil {
+				return nil, markerInvalid(MarkerErrorInvalidFields,
+					fmt.Errorf("repo is not a string: %w", err))
+			}
 		}
 	}
 	if err := validateUploadMarker(marker, expectedDir); err != nil {
@@ -187,7 +193,7 @@ func DecodeUploadMarker(data []byte, expectedDir string) (*UploadMarker, error) 
 		return nil, markerInvalid(MarkerErrorInvalidFields,
 			errors.New("title must be omitted when empty"))
 	}
-	if marker.Version == MarkerVersion && wire.Repo != nil && marker.Repo == "" {
+	if marker.Version == MarkerVersion && len(wire.Repo) > 0 && marker.Repo == "" {
 		return nil, markerInvalid(MarkerErrorInvalidFields,
 			errors.New("repo must be omitted when empty"))
 	}
