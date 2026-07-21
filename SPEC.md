@@ -388,9 +388,10 @@ kind:
 
 - images render inline with lazy loading and filename-derived alt text;
 - video and audio use controls, `preload="metadata"`, and never autoplay;
-- PDF, archive, text, and unknown members use compact generic file cards;
+- PDF, archive, text, and unknown members use compact file rows without empty
+  preview panels;
 - every member shows its filename, content type, human-readable size, and
-  `Open`, `Download`, and `Copy URL` actions;
+  `Open`, `Download`, and `Copy link` actions;
 - an overview copy action returns the absolute `index.html` URL;
 - open and download links work without JavaScript, while copy buttons are a
   progressive enhancement;

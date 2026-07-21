@@ -184,20 +184,20 @@ test('collection overview presents and links every media kind',
     await expect(page.locator('img[loading="lazy"]')).toHaveCount(1);
     await expect(page.locator('video[controls]:not([autoplay])')).toHaveCount(1);
     await expect(page.locator('audio[controls]:not([autoplay])')).toHaveCount(1);
-    await expect(page.locator('.preview--file')).toHaveCount(1);
-    await expect.poll(() => page.locator('.preview--file').evaluate(
-      (element) => getComputedStyle(element, '::after').content,
-    )).toBe('"ATTACHED FILE"');
+    await expect(page.locator('.file .preview')).toHaveCount(3);
+    await expect(page.locator('.file', {
+      has: page.getByRole('heading', { name: 'notes.bin' }),
+    }).locator('.preview')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'notes.bin' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Open' })).toHaveCount(4);
     await expect(page.getByRole('link', { name: 'Download' })).toHaveCount(4);
     await page.keyboard.press('Tab');
     const overviewCopy = page.getByRole('button', {
-      name: 'Copy overview URL',
+      name: 'Copy page link',
     });
     await expect(overviewCopy).toBeFocused();
     await expect(overviewCopy).toHaveCSS('outline-style', 'solid');
-    await expect(overviewCopy).toHaveCSS('outline-width', '3px');
+    await expect(overviewCopy).toHaveCSS('outline-width', '2px');
     await page.locator('[data-copy="./notes.bin"]').click();
     await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
       .toBe(`${baseURL}/notes.bin`);
