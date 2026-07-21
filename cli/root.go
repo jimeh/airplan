@@ -399,9 +399,33 @@ func selectCollectionMode(args []string, opts *rootOptions) (bool, error) {
 		return false, err
 	}
 	defer func() { _ = f.Close() }()
-	buf := make([]byte, 8192)
-	n, _ := f.Read(buf)
-	return bytes.IndexByte(buf[:n], 0) >= 0 || !utf8.Valid(buf[:n]), nil
+	return sniffInputIsBinary(f)
+}
+
+const inputSniffSize = 8192
+
+func sniffInputIsBinary(r io.Reader) (bool, error) {
+	buf := make([]byte, inputSniffSize+utf8.UTFMax-1)
+	n, err := io.ReadFull(r, buf)
+	if err != nil && !errors.Is(err, io.EOF) &&
+		!errors.Is(err, io.ErrUnexpectedEOF) {
+		return false, err
+	}
+	end := n
+	if end > inputSniffSize {
+		end = inputSniffSize
+	}
+	if bytes.IndexByte(buf[:end], 0) >= 0 {
+		return true, nil
+	}
+	// Include only enough lookahead to finish a rune split at the sniff
+	// boundary. Invalid UTF-8 earlier in the prefix can never become valid.
+	for ; end <= n; end++ {
+		if utf8.Valid(buf[:end]) {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func validateModeFlags(cmd *cobra.Command, collection bool) error {

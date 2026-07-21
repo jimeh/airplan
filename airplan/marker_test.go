@@ -435,20 +435,25 @@ func TestDecodeUploadMarkerLegacyNormalization(t *testing.T) {
 	}
 }
 
-func TestDecodeUploadMarkerV1IgnoresV2ExtensionFields(t *testing.T) {
+func TestDecodeUploadMarkerV1RejectsV2Fields(t *testing.T) {
 	t.Parallel()
 
-	body := []byte(`{"schema":"airplan-upload","version":1,` +
+	validV1 := `{"schema":"airplan-upload","version":1,` +
 		`"directory":"abcdefghijklmnopqrstuvwxyz",` +
 		`"created_at":"2026-07-21T09:00:00Z","format":"html",` +
-		`"page":"plan.html","page_bytes":{"future":true},` +
-		`"repo":["future","metadata"]}`)
-	marker, err := DecodeUploadMarker(body, markerTestDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if marker.PageBytes != 0 || marker.Repo != "" {
-		t.Fatalf("v1 extension fields were retained: %+v", marker)
+		`"page":"plan.html"`
+	for _, extension := range []string{
+		`,"page_bytes":42`,
+		`,"page_bytes":0`,
+		`,"page_bytes":{"future":true}`,
+		`,"repo":"https://github.com/acme/repo"`,
+		`,"repo":""`,
+		`,"repo":["future","metadata"]`,
+	} {
+		_, err := DecodeUploadMarker(
+			[]byte(validV1+extension+`}`), markerTestDir,
+		)
+		assertMarkerCode(t, err, MarkerErrorInvalidFields)
 	}
 
 	validV2 := `{"schema":"airplan-upload","version":2,` +

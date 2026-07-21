@@ -109,6 +109,10 @@ coverage has no equivalent local task on non-Windows hosts.
   intentionally enabled so authored HTML and URL destinations survive.
   Do not add sanitization without changing the product trust boundary
   in SPEC.md.
+- **Named-input text sniffing**: the 8 KiB document/collection sniff uses up to
+  `utf8.UTFMax-1` bytes of lookahead so a valid rune split at the boundary is
+  not mistaken for binary data. Preserve NUL detection and reject genuinely
+  malformed UTF-8.
 - **Markdown alerts** (`airplan/alert.go`): Goldmark splits markers
   such as `[!NOTE]` across multiple text nodes. Reconstruct the first
   blockquote line when matching alerts; do not assume one marker node.

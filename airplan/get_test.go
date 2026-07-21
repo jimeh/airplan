@@ -68,6 +68,17 @@ func TestGetUploadSelectsMarkerManagedObjects(t *testing.T) {
 				t.Fatalf("result = %+v, want key %q and body %q",
 					got, tt.key, tt.body)
 			}
+			var streamed bytes.Buffer
+			key, err := client.GetUploadTo(
+				context.Background(), tt.target, tt.opts, &streamed,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if key != tt.key || !bytes.Equal(streamed.Bytes(), tt.body) {
+				t.Fatalf("streamed key = %q, body = %q, want %q and %q",
+					key, streamed.Bytes(), tt.key, tt.body)
+			}
 		})
 	}
 }

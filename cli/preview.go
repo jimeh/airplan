@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -122,10 +123,7 @@ func runPreview(
 	if err != nil {
 		return err
 	}
-	for _, warning := range cfg.Warnings {
-		fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", warning)
-	}
-	ctx, cancel := timeoutContext(cmd.Context(), cfg)
+	ctx, cancel := previewContext(cmd, cfg)
 	defer cancel()
 
 	in := airplan.Input{
@@ -173,18 +171,8 @@ func runPreview(
 		}
 		return err
 	}
-	for _, warning := range doc.Warnings {
-		fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", warning)
-	}
-
-	if opts.output == "" || opts.output == "-" {
-		_, err = cmd.OutOrStdout().Write(doc.HTML)
-		return err
-	}
-	if err := writeFileAtomic(opts.output, doc.HTML, 0o644); err != nil {
-		return fmt.Errorf("write preview %s: %w", opts.output, err)
-	}
-	return nil
+	printPreviewWarnings(cmd, doc.Warnings)
+	return writePreviewOutput(cmd, opts.output, doc.HTML)
 }
 
 func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOptions) error {
@@ -232,10 +220,7 @@ func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOption
 	if err != nil {
 		return err
 	}
-	for _, warning := range cfg.Warnings {
-		fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", warning)
-	}
-	ctx, cancel := timeoutContext(cmd.Context(), cfg)
+	ctx, cancel := previewContext(cmd, cfg)
 	defer cancel()
 	for _, path := range args {
 		if opts.output != "" && opts.output != "-" {
@@ -261,12 +246,31 @@ func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOption
 	if err != nil {
 		return err
 	}
-	if opts.output == "" || opts.output == "-" {
-		_, err = cmd.OutOrStdout().Write(body)
+	return writePreviewOutput(cmd, opts.output, body)
+}
+
+func previewContext(
+	cmd *cobra.Command, cfg *airplan.Config,
+) (context.Context, context.CancelFunc) {
+	printPreviewWarnings(cmd, cfg.Warnings)
+	return timeoutContext(cmd.Context(), cfg)
+}
+
+func printPreviewWarnings(cmd *cobra.Command, warnings []string) {
+	for _, warning := range warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", warning)
+	}
+}
+
+func writePreviewOutput(
+	cmd *cobra.Command, output string, body []byte,
+) error {
+	if output == "" || output == "-" {
+		_, err := cmd.OutOrStdout().Write(body)
 		return err
 	}
-	if err = writeFileAtomic(opts.output, body, 0o644); err != nil {
-		return fmt.Errorf("write preview %s: %w", opts.output, err)
+	if err := writeFileAtomic(output, body, 0o644); err != nil {
+		return fmt.Errorf("write preview %s: %w", output, err)
 	}
 	return nil
 }

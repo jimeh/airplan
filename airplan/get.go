@@ -33,25 +33,7 @@ func (c *Client) GetUploadTo(ctx context.Context, urlOrKey string,
 	if err := c.validate(ctx); err != nil {
 		return "", err
 	}
-	key, err := KeyFromURLOrKey(c.cfg, urlOrKey)
-	if err != nil {
-		return "", err
-	}
-	dirPrefix, err := uploadDirPrefixForKeyPrefix(key, c.cfg.KeyPrefix)
-	if err != nil {
-		return "", err
-	}
-	dir := strings.TrimSuffix(dirPrefix, "/")
-	dir = dir[strings.LastIndex(dir, "/")+1:]
-	resolved, err := c.resolveMarker(ctx, dirPrefix)
-	if err != nil {
-		return "", err
-	}
-	marker, err := DecodeUploadMarkerForName(resolved.Body, dir, resolved.Basename)
-	if err != nil {
-		return "", err
-	}
-	objectKey, err := resolveGetTarget(key, dirPrefix, resolved.Key, marker, opts)
+	objectKey, resolved, err := c.resolveGetObject(ctx, urlOrKey, opts)
 	if err != nil {
 		return "", err
 	}
@@ -76,28 +58,7 @@ func (c *Client) GetUpload(
 	if err := c.validate(ctx); err != nil {
 		return nil, err
 	}
-	key, err := KeyFromURLOrKey(c.cfg, urlOrKey)
-	if err != nil {
-		return nil, err
-	}
-	dirPrefix, err := uploadDirPrefixForKeyPrefix(key, c.cfg.KeyPrefix)
-	if err != nil {
-		return nil, err
-	}
-	dir := strings.TrimSuffix(dirPrefix, "/")
-	dir = dir[strings.LastIndex(dir, "/")+1:]
-	resolved, err := c.resolveMarker(ctx, dirPrefix)
-	if err != nil {
-		return nil, err
-	}
-	marker, err := DecodeUploadMarkerForName(resolved.Body, dir, resolved.Basename)
-	if err != nil {
-		return nil, err
-	}
-
-	objectKey, err := resolveGetTarget(
-		key, dirPrefix, resolved.Key, marker, opts,
-	)
+	objectKey, resolved, err := c.resolveGetObject(ctx, urlOrKey, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +76,35 @@ func (c *Client) GetUpload(
 		return nil, err
 	}
 	return &GetResult{Key: objectKey, Body: body}, nil
+}
+
+func (c *Client) resolveGetObject(
+	ctx context.Context, urlOrKey string, opts GetOptions,
+) (string, *resolvedMarker, error) {
+	key, err := KeyFromURLOrKey(c.cfg, urlOrKey)
+	if err != nil {
+		return "", nil, err
+	}
+	dirPrefix, err := uploadDirPrefixForKeyPrefix(key, c.cfg.KeyPrefix)
+	if err != nil {
+		return "", nil, err
+	}
+	dir := strings.TrimSuffix(dirPrefix, "/")
+	dir = dir[strings.LastIndex(dir, "/")+1:]
+	resolved, err := c.resolveMarker(ctx, dirPrefix)
+	if err != nil {
+		return "", nil, err
+	}
+	marker, err := DecodeUploadMarkerForName(
+		resolved.Body, dir, resolved.Basename,
+	)
+	if err != nil {
+		return "", nil, err
+	}
+	objectKey, err := resolveGetTarget(
+		key, dirPrefix, resolved.Key, marker, opts,
+	)
+	return objectKey, resolved, err
 }
 
 func resolveGetTarget(

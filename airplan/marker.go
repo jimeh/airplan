@@ -319,19 +319,22 @@ func DecodeUploadMarkerForName(
 		if wire.Source != nil {
 			marker.Source = *wire.Source
 		}
-		if marker.Version == 2 {
-			if len(wire.PageBytes) > 0 {
-				if err := json.Unmarshal(wire.PageBytes, &marker.PageBytes); err != nil {
-					return nil, markerInvalid(MarkerErrorInvalidFields,
-						fmt.Errorf("page_bytes is not an integer: %w", err))
-				}
+		if len(wire.PageBytes) > 0 {
+			if err := json.Unmarshal(wire.PageBytes, &marker.PageBytes); err != nil {
+				return nil, markerInvalid(MarkerErrorInvalidFields,
+					fmt.Errorf("page_bytes is not an integer: %w", err))
 			}
-			if len(wire.Repo) > 0 {
-				if err := json.Unmarshal(wire.Repo, &marker.Repo); err != nil {
-					return nil, markerInvalid(MarkerErrorInvalidFields,
-						fmt.Errorf("repo is not a string: %w", err))
-				}
+		}
+		if len(wire.Repo) > 0 {
+			if err := json.Unmarshal(wire.Repo, &marker.Repo); err != nil {
+				return nil, markerInvalid(MarkerErrorInvalidFields,
+					fmt.Errorf("repo is not a string: %w", err))
 			}
+		}
+		if marker.Version == 1 &&
+			(len(wire.PageBytes) > 0 || len(wire.Repo) > 0) {
+			return nil, markerInvalid(MarkerErrorInvalidFields,
+				errors.New("version 1 must not declare page_bytes or repo"))
 		}
 	}
 	if err := validateUploadMarker(marker, expectedDir, markerBasename); err != nil {

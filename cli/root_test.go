@@ -46,6 +46,50 @@ func TestResolveVersion(t *testing.T) {
 	}
 }
 
+func TestSelectCollectionModeHandlesUTF8SniffBoundary(t *testing.T) {
+	dir := t.TempDir()
+	for _, tt := range []struct {
+		name       string
+		body       []byte
+		collection bool
+	}{
+		{
+			name: "complete rune across boundary",
+			body: append(
+				[]byte(strings.Repeat("a", inputSniffSize-1)),
+				[]byte("漢\n")...,
+			),
+		},
+		{
+			name: "malformed rune across boundary",
+			body: append(
+				[]byte(strings.Repeat("a", inputSniffSize-1)),
+				[]byte{0xe6, 0xff}...,
+			),
+			collection: true,
+		},
+		{
+			name:       "nul byte",
+			body:       []byte("text\x00more"),
+			collection: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(dir, strings.ReplaceAll(tt.name, " ", "-")+".dat")
+			if err := os.WriteFile(path, tt.body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := selectCollectionMode([]string{path}, &rootOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.collection {
+				t.Fatalf("collection = %v, want %v", got, tt.collection)
+			}
+		})
+	}
+}
+
 func TestCommandAliasesAndQoLShorthands(t *testing.T) {
 	root := newRootCmd()
 	list, _, err := root.Find([]string{"list"})
