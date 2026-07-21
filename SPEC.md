@@ -386,8 +386,11 @@ input order, shows the collection title, repository context when present, file
 count, and total member bytes, and presents each member according to its media
 kind:
 
-- images render inline with lazy loading and filename-derived alt text;
-- video and audio use controls, `preload="metadata"`, and never autoplay;
+- images render at full available width and intrinsic aspect ratio in a
+  rounded, overflow-clipped frame with lazy loading and filename-derived alt
+  text;
+- video renders edge-to-edge in the same frame, while audio uses a bordered
+  container; both use controls, `preload="metadata"`, and never autoplay;
 - PDF, archive, text, and unknown members use compact file rows without empty
   preview panels;
 - every member shows its filename, content type, human-readable size, and

@@ -185,6 +185,30 @@ test('collection overview presents and links every media kind',
     await expect(page.locator('video[controls]:not([autoplay])')).toHaveCount(1);
     await expect(page.locator('audio[controls]:not([autoplay])')).toHaveCount(1);
     await expect(page.locator('.file .preview')).toHaveCount(3);
+    const visualMediaGaps = await page.locator(
+      '.preview img, .preview video',
+    ).evaluateAll((media) => media.map((element) => {
+      const frame = element.parentElement.getBoundingClientRect();
+      const content = element.getBoundingClientRect();
+      return {
+        top: content.top - frame.top,
+        right: frame.right - content.right,
+        bottom: frame.bottom - content.bottom,
+        left: content.left - frame.left,
+      };
+    }));
+    for (const gaps of visualMediaGaps) {
+      expect(gaps).toEqual({ top: 0, right: 0, bottom: 0, left: 0 });
+    }
+    await expect(page.locator('.preview img')).toHaveCSS(
+      'max-height', 'none',
+    );
+    await expect(page.locator('.preview video')).toHaveCSS(
+      'object-fit', 'contain',
+    );
+    await expect(page.locator('.preview--audio')).toHaveCSS(
+      'border-top-width', '1px',
+    );
     await expect(page.locator('.file', {
       has: page.getByRole('heading', { name: 'notes.bin' }),
     }).locator('.preview')).toHaveCount(0);

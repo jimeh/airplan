@@ -196,11 +196,15 @@
       justify-content: center;
       margin-top: 1rem;
       overflow: hidden;
-      border: 1px solid var(--border);
       border-radius: 8px;
       background: var(--surface);
     }
-    .preview img,
+    .preview--audio { border: 1px solid var(--border); }
+    .preview img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
     .preview video {
       display: block;
       width: 100%;
@@ -279,7 +283,7 @@
         <button type="button" data-copy="{{.Path}}">Copy link</button>
       </div>
     </div>
-    {{if ne .MediaKind "file"}}<div class="preview">
+    {{if ne .MediaKind "file"}}<div class="preview preview--{{.MediaKind}}">
       {{if eq .MediaKind "image"}}<img src="{{.Path}}" alt="{{.Name}}" loading="lazy">{{end}}
       {{if eq .MediaKind "video"}}<video src="{{.Path}}" controls preload="metadata"></video>{{end}}
       {{if eq .MediaKind "audio"}}<audio src="{{.Path}}" controls preload="metadata"></audio>{{end}}
