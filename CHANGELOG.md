@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/jimeh/airplan/compare/v0.2.1...v0.3.0) (2026-07-21)
+
+
+### Features
+
+* streamline upload discovery workflows ([#56](https://github.com/jimeh/airplan/issues/56)) ([8503d34](https://github.com/jimeh/airplan/commit/8503d34673995b07259c8f1cfb7b2158fa25f792))
+* synchronize remote upload manifests ([#54](https://github.com/jimeh/airplan/issues/54)) ([114f982](https://github.com/jimeh/airplan/commit/114f98245121bc53a85c2b08f573f78aa121bc3b))
+
 ## [0.2.1](https://github.com/jimeh/airplan/compare/v0.2.0...v0.2.1) (2026-07-20)
 
 
