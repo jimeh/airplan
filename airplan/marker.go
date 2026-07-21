@@ -162,17 +162,19 @@ func DecodeUploadMarker(data []byte, expectedDir string) (*UploadMarker, error) 
 		Format:    *wire.Format,
 		Page:      *wire.Page,
 	}
-	if wire.PageBytes != nil {
-		marker.PageBytes = *wire.PageBytes
-	}
 	if wire.Source != nil {
 		marker.Source = *wire.Source
 	}
 	if wire.Title != nil {
 		marker.Title = *wire.Title
 	}
-	if wire.Repo != nil {
-		marker.Repo = *wire.Repo
+	if marker.Version == MarkerVersion {
+		if wire.PageBytes != nil {
+			marker.PageBytes = *wire.PageBytes
+		}
+		if wire.Repo != nil {
+			marker.Repo = *wire.Repo
+		}
 	}
 	if err := validateUploadMarker(marker, expectedDir); err != nil {
 		return nil, err
@@ -185,7 +187,7 @@ func DecodeUploadMarker(data []byte, expectedDir string) (*UploadMarker, error) 
 		return nil, markerInvalid(MarkerErrorInvalidFields,
 			errors.New("title must be omitted when empty"))
 	}
-	if wire.Repo != nil && marker.Repo == "" {
+	if marker.Version == MarkerVersion && wire.Repo != nil && marker.Repo == "" {
 		return nil, markerInvalid(MarkerErrorInvalidFields,
 			errors.New("repo must be omitted when empty"))
 	}

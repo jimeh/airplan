@@ -174,6 +174,22 @@ func TestUploadMarkerV2RequiresPortableMetadata(t *testing.T) {
 	}
 }
 
+func TestDecodeUploadMarkerV1IgnoresV2ExtensionFields(t *testing.T) {
+	dir := "abcdefghijklmnopqrstuvwxyz"
+	body := []byte(`{"schema":"airplan-upload","version":1,` +
+		`"directory":"abcdefghijklmnopqrstuvwxyz",` +
+		`"created_at":"2026-07-21T09:00:00Z","format":"html",` +
+		`"page":"plan.html","page_bytes":42,"repo":"not a repository"}`)
+
+	marker, err := DecodeUploadMarker(body, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marker.PageBytes != 0 || marker.Repo != "" {
+		t.Fatalf("v1 extension fields were retained: %+v", marker)
+	}
+}
+
 func TestUploadMarkerFormatFilenames(t *testing.T) {
 	t.Parallel()
 

@@ -86,7 +86,7 @@ func (c *Client) SyncManifest(
 	active := scopedActiveUploads(records, c.cfg)
 	remote, err := c.ListRemote(ctx)
 	if err != nil {
-		return result, err
+		return nil, err
 	}
 	remoteByMarker := make(map[string]RemoteUpload, len(remote))
 	for _, upload := range remote {
@@ -187,7 +187,7 @@ func (c *Client) SyncManifest(
 		if err := c.commitSyncManifest(
 			ctx, manifestPath, initialLen, result,
 		); err != nil {
-			return result, err
+			return nil, err
 		}
 	}
 	if len(result.Failures) > 0 {
@@ -293,7 +293,7 @@ func (c *Client) commitSyncManifest(
 		if err != nil {
 			return err
 		}
-		result.Warnings = append(result.Warnings, warnings...)
+		result.Warnings = appendUniqueStrings(result.Warnings, warnings...)
 		active := scopedActiveUploads(current, c.cfg)
 		appendedUploads := make([]ManifestRecord, 0, len(result.Added))
 		for _, rec := range result.Added {
@@ -328,6 +328,21 @@ func (c *Client) commitSyncManifest(
 		result.Tombstoned = appendedTombstones
 		return nil
 	})
+}
+
+func appendUniqueStrings(existing []string, values ...string) []string {
+	seen := make(map[string]struct{}, len(existing)+len(values))
+	for _, value := range existing {
+		seen[value] = struct{}{}
+	}
+	for _, value := range values {
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		existing = append(existing, value)
+		seen[value] = struct{}{}
+	}
+	return existing
 }
 
 func hasConcurrentUpload(

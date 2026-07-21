@@ -137,6 +137,30 @@ func TestSyncManifestClassifiesInvalidAndIncomplete(t *testing.T) {
 	}
 }
 
+func TestSyncManifestDoesNotDuplicateManifestWarnings(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("w", 26)
+	fake.addUpload(t, UploadMarker{
+		Schema: MarkerSchema, Version: 1, Directory: dir,
+		CreatedAt: when, Format: "html", Page: "plan.html",
+	}, []byte("page"))
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	if err := os.WriteFile(manifest, []byte("not json\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := newSyncClient(t, fake.server.URL, manifest).SyncManifest(
+		context.Background(), SyncManifestOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Warnings) != 1 {
+		t.Fatalf("warnings = %v, want one manifest warning", result.Warnings)
+	}
+}
+
 func TestSyncManifestConcurrentRunsDoNotDuplicateImports(t *testing.T) {
 	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 	fake := newSyncStorage(t)

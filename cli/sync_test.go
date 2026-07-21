@@ -2,6 +2,8 @@ package cli
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -56,6 +58,23 @@ func TestSyncCommandJSONAndConcurrencyValidation(t *testing.T) {
 	manifest := filepath.Join(t.TempDir(), "missing.jsonl")
 	if records, _, err := airplan.ReadManifest(manifest); err != nil || records != nil {
 		t.Fatalf("dry run manifest = %+v, %v", records, err)
+	}
+}
+
+func TestSyncCommandFatalErrorKeepsStdoutEmpty(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("AWS_MAX_ATTEMPTS", "1")
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	stdout, _, err := executeCommand(t, "", "", "sync", "--json",
+		"--config", writeCLIConfig(t, server.URL))
+	if err == nil || stdout != "" {
+		t.Fatalf("stdout = %q, error = %v", stdout, err)
 	}
 }
 
