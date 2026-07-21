@@ -43,6 +43,7 @@ export default {
 
 let baseURL;
 let collectionURL;
+let collectionMembers;
 let fixtureSource;
 let mermaidURL;
 let server;
@@ -124,6 +125,11 @@ test.beforeAll(async () => {
   );
   const html = await readFile(outputPath);
   collectionHTML = await readFile(collectionOutputPath);
+  collectionMembers = new Map([
+    ['/demo.webm', await readFile(join(tempRoot, 'demo.webm'))],
+    ['/sound.ogg', await readFile(join(tempRoot, 'sound.ogg'))],
+    ['/notes.bin', await readFile(join(tempRoot, 'notes.bin'))],
+  ]);
   const sourceHTML = await readFile(sourceFixturePath);
   const match = html.toString().match(/await import\("([^"]+)"\)/);
   if (!match) throw new Error('rendered fixture has no Mermaid module URL');
@@ -142,9 +148,8 @@ test.beforeAll(async () => {
       response.writeHead(200, { 'Content-Type': 'image/svg+xml' });
       response.end(body);
       return;
-    } else if (request.url === '/demo.webm' ||
-      request.url === '/sound.ogg' || request.url === '/notes.bin') {
-      body = await readFile(join(tempRoot, request.url.slice(1)));
+    } else if (collectionMembers.has(request.url)) {
+      body = collectionMembers.get(request.url);
       response.writeHead(200, { 'Content-Type': 'application/octet-stream' });
       response.end(body);
       return;
