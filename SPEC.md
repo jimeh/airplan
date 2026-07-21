@@ -86,6 +86,8 @@ mutually exclusive.
 
 Three input formats: markdown (rendered, §3), HTML (uploaded as-is,
 §4), and plain text (rendered as a highlighted code page, §3).
+Named document inputs must be regular files. Streams remain supported through
+stdin by omitting the path or passing `-`.
 
 Format detection:
 

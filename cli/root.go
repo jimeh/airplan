@@ -514,7 +514,7 @@ func openRegularInput(
 ) (*os.File, os.FileInfo, error) {
 	// Reject obvious non-regular inputs before os.Open: opening a FIFO for
 	// reading can block before the configured operation timeout applies.
-	// The descriptor check below remains authoritative if the path changes.
+	// After a successful open, descriptor metadata remains authoritative.
 	pathInfo, err := os.Stat(name)
 	if err != nil {
 		return nil, nil, err

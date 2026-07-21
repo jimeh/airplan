@@ -82,6 +82,18 @@ func TestPreviewRendersCollectionWithCustomTemplate(t *testing.T) {
 	}
 }
 
+func TestDocumentPreviewRejectsNamedNonRegularInput(t *testing.T) {
+	isolateEnv(t)
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{
+		"preview", "--format", "md", t.TempDir(),
+	})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestDocumentPreviewRejectsCollectionOnlyFlags(t *testing.T) {
 	for _, flag := range []string{
 		"--collection-template=collection.tmpl",
