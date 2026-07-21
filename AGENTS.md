@@ -80,6 +80,9 @@ coverage has no equivalent local task on non-Windows hosts.
   keys are a hard error — parser and schema must not drift (SPEC §7).
 - **Manifest reads**: handle empty non-EOF reads as errors before continuing;
   reading a directory can otherwise spin without making progress.
+- **Ownership marker resolution**: targeted get/delete operations concurrently
+  probe both exact marker names and fail closed unless exactly one exists.
+  LIST-backed operations reuse their snapshot and reject dual-marker conflicts.
 - **Remote reconciliation**: sync may parallelize marker GETs, but it must use
   one LIST snapshot, confirm apparent absence with a targeted not-found, and
   lock/reread/reduce before deterministic manifest appends. Purge deletions
@@ -106,6 +109,10 @@ coverage has no equivalent local task on non-Windows hosts.
   intentionally enabled so authored HTML and URL destinations survive.
   Do not add sanitization without changing the product trust boundary
   in SPEC.md.
+- **Named-input text sniffing**: the 8 KiB document/collection sniff uses up to
+  `utf8.UTFMax-1` bytes of lookahead so a valid rune split at the boundary is
+  not mistaken for binary data. Preserve NUL detection and reject genuinely
+  malformed UTF-8.
 - **Markdown alerts** (`airplan/alert.go`): Goldmark splits markers
   such as `[!NOTE]` across multiple text nodes. Reconstruct the first
   blockquote line when matching alerts; do not assume one marker node.

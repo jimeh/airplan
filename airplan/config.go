@@ -60,6 +60,10 @@ var configFieldDefinitions = []configFieldDefinition{
 		name: "template", envName: "AIRPLAN_TEMPLATE",
 		overrideSource: "--template",
 	},
+	{
+		name: "collection_template", envName: "AIRPLAN_COLLECTION_TEMPLATE",
+		overrideSource: "--collection-template",
+	},
 	{name: "no_source", builtin: true, overrideSource: "--no-source"},
 	{name: "indexable", builtin: true, overrideSource: "--indexable"},
 	{
@@ -86,17 +90,18 @@ var configFieldDefinitions = []configFieldDefinition{
 // (SPEC.md §7). Boolean fields are pointers so profile merging can
 // distinguish "unset" from "false".
 type Settings struct {
-	Endpoint         string `toml:"endpoint" json:"endpoint,omitempty" jsonschema_description:"Absolute HTTP(S) S3-compatible API endpoint URL; path prefixes are allowed."`
-	Bucket           string `toml:"bucket" json:"bucket,omitempty" jsonschema_description:"Bucket where rendered plans are uploaded."`
-	Region           string `toml:"region" json:"region,omitempty" jsonschema_description:"S3 signing region; R2 commonly uses auto."`
-	AccessKeyID      string `toml:"access_key_id" json:"access_key_id,omitempty" jsonschema_description:"Access key ID for explicit credentials; must be paired with secret_access_key."`
-	SecretAccessKey  string `toml:"secret_access_key" json:"secret_access_key,omitempty" jsonschema_description:"Secret for explicit credentials; must be paired with access_key_id."`
-	PublicBaseURL    string `toml:"public_base_url" json:"public_base_url,omitempty" jsonschema_description:"Absolute HTTP(S) public base URL used to assemble share links; path prefixes are allowed."`
-	KeyPrefix        string `toml:"key_prefix" json:"key_prefix,omitempty" jsonschema_description:"UTF-8 path segments prepended to uploaded keys; empty, dot, and dot-dot segments are rejected."`
-	Template         string `toml:"template" json:"template,omitempty" jsonschema_description:"Path to the HTML template used for rendered pages."`
-	NoSource         *bool  `toml:"no_source" json:"no_source,omitempty" jsonschema_description:"Omit uploading the original source alongside rendered output."`
-	Indexable        *bool  `toml:"indexable" json:"indexable,omitempty" jsonschema_description:"Allow search indexing by omitting the noindex robots meta tag."`
-	NoExternalAssets *bool  `toml:"no_external_assets" json:"no_external_assets,omitempty" jsonschema_description:"Disable airplan-managed features that load external assets when a page is viewed."`
+	Endpoint           string `toml:"endpoint" json:"endpoint,omitempty" jsonschema_description:"Absolute HTTP(S) S3-compatible API endpoint URL; path prefixes are allowed."`
+	Bucket             string `toml:"bucket" json:"bucket,omitempty" jsonschema_description:"Bucket where rendered plans are uploaded."`
+	Region             string `toml:"region" json:"region,omitempty" jsonschema_description:"S3 signing region; R2 commonly uses auto."`
+	AccessKeyID        string `toml:"access_key_id" json:"access_key_id,omitempty" jsonschema_description:"Access key ID for explicit credentials; must be paired with secret_access_key."`
+	SecretAccessKey    string `toml:"secret_access_key" json:"secret_access_key,omitempty" jsonschema_description:"Secret for explicit credentials; must be paired with access_key_id."`
+	PublicBaseURL      string `toml:"public_base_url" json:"public_base_url,omitempty" jsonschema_description:"Absolute HTTP(S) public base URL used to assemble share links; path prefixes are allowed."`
+	KeyPrefix          string `toml:"key_prefix" json:"key_prefix,omitempty" jsonschema_description:"UTF-8 path segments prepended to uploaded keys; empty, dot, and dot-dot segments are rejected."`
+	Template           string `toml:"template" json:"template,omitempty" jsonschema_description:"Path to the HTML template used for rendered pages."`
+	CollectionTemplate string `toml:"collection_template" json:"collection_template,omitempty" jsonschema_description:"Path to the HTML template used for collection overview pages."`
+	NoSource           *bool  `toml:"no_source" json:"no_source,omitempty" jsonschema_description:"Omit uploading the original source alongside rendered output."`
+	Indexable          *bool  `toml:"indexable" json:"indexable,omitempty" jsonschema_description:"Allow search indexing by omitting the noindex robots meta tag."`
+	NoExternalAssets   *bool  `toml:"no_external_assets" json:"no_external_assets,omitempty" jsonschema_description:"Disable airplan-managed features that load external assets when a page is viewed."`
 	// MermaidURL overrides the Mermaid module URL. Callers representing an
 	// explicit empty override must use ResolveMermaidURLOverride; a bare empty
 	// value is treated as unset when Settings are overlaid.
@@ -119,19 +124,20 @@ type FileConfig struct {
 // SPEC.md §7. Flag overrides are overlaid by the caller afterwards,
 // then completeness is checked with Validate.
 type Config struct {
-	Endpoint         string
-	Bucket           string
-	Region           string
-	AccessKeyID      string
-	SecretAccessKey  string
-	PublicBaseURL    string
-	KeyPrefix        string
-	Template         string
-	NoSource         bool
-	Indexable        bool
-	NoExternalAssets bool
-	MermaidURL       string
-	Repository       string
+	Endpoint           string
+	Bucket             string
+	Region             string
+	AccessKeyID        string
+	SecretAccessKey    string
+	PublicBaseURL      string
+	KeyPrefix          string
+	Template           string
+	CollectionTemplate string
+	NoSource           bool
+	Indexable          bool
+	NoExternalAssets   bool
+	MermaidURL         string
+	Repository         string
 
 	// Timeout bounds one context-aware operation or phase (SPEC.md §6):
 	// default 30 seconds, 0 means no timeout. The CLI applies it to its
@@ -553,6 +559,8 @@ func configOverrideIsSet(settings Settings, name string) bool {
 		return settings.KeyPrefix != ""
 	case "template":
 		return settings.Template != ""
+	case "collection_template":
+		return settings.CollectionTemplate != ""
 	case "no_source":
 		return settings.NoSource != nil
 	case "indexable":
@@ -988,6 +996,9 @@ func applySettings(
 	if defined("template") {
 		cfg.Template = settings.Template
 	}
+	if defined("collection_template") {
+		cfg.CollectionTemplate = settings.CollectionTemplate
+	}
 	if settings.NoSource != nil {
 		cfg.NoSource = *settings.NoSource
 	}
@@ -1064,6 +1075,8 @@ func applyEnvStringValue(cfg *Config, name, value string) {
 		cfg.KeyPrefix = value
 	case "template":
 		cfg.Template = value
+	case "collection_template":
+		cfg.CollectionTemplate = value
 	case "mermaid_url":
 		cfg.MermaidURL = value
 	case "repo":
@@ -1075,16 +1088,17 @@ func applyEnvStringValue(cfg *Config, name, value string) {
 // strings and nil bools are "not set" and leave cfg untouched.
 func applyOverrides(cfg *Config, s Settings) {
 	for field, value := range map[*string]string{
-		&cfg.Endpoint:        s.Endpoint,
-		&cfg.Bucket:          s.Bucket,
-		&cfg.Region:          s.Region,
-		&cfg.AccessKeyID:     s.AccessKeyID,
-		&cfg.SecretAccessKey: s.SecretAccessKey,
-		&cfg.PublicBaseURL:   s.PublicBaseURL,
-		&cfg.KeyPrefix:       s.KeyPrefix,
-		&cfg.Template:        s.Template,
-		&cfg.MermaidURL:      s.MermaidURL,
-		&cfg.Repository:      s.Repository,
+		&cfg.Endpoint:           s.Endpoint,
+		&cfg.Bucket:             s.Bucket,
+		&cfg.Region:             s.Region,
+		&cfg.AccessKeyID:        s.AccessKeyID,
+		&cfg.SecretAccessKey:    s.SecretAccessKey,
+		&cfg.PublicBaseURL:      s.PublicBaseURL,
+		&cfg.KeyPrefix:          s.KeyPrefix,
+		&cfg.Template:           s.Template,
+		&cfg.CollectionTemplate: s.CollectionTemplate,
+		&cfg.MermaidURL:         s.MermaidURL,
+		&cfg.Repository:         s.Repository,
 	} {
 		if value != "" {
 			*field = value

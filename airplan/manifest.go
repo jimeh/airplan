@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -42,7 +43,11 @@ type ManifestRecord struct {
 	Profile   string `json:"profile,omitempty"`
 	// Format is the marker-declared input format when known.
 	Format string `json:"format,omitempty"`
-	Title  string `json:"title,omitempty"`
+	// Kind is document or collection for marker v3 records.
+	Kind string `json:"kind,omitempty"`
+	// Slug is present only for document uploads.
+	Slug  string `json:"slug,omitempty"`
+	Title string `json:"title,omitempty"`
 	// Repo is the canonical repository URL when known.
 	Repo  string `json:"repo,omitempty"`
 	Bytes int64  `json:"bytes,omitempty"`
@@ -196,6 +201,7 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 				warnings = append(warnings,
 					fmt.Sprintf("skipping malformed manifest line %d", lineNo))
 			} else if rec.Type == "upload" {
+				normalizeManifestRecord(&rec)
 				if rec.MarkerVersion != 0 &&
 					!IsSupportedMarkerVersion(rec.MarkerVersion) {
 					warnings = append(warnings, fmt.Sprintf(
@@ -210,6 +216,7 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 					records = append(records, rec)
 				}
 			} else if rec.Type == "delete" {
+				normalizeManifestRecord(&rec)
 				if err := validateManifestRecord(rec); err != nil {
 					warnings = append(warnings, fmt.Sprintf(
 						"skipping invalid manifest line %d: %s", lineNo, err,
@@ -228,6 +235,26 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 	}
 
 	return records, warnings, nil
+}
+
+func normalizeManifestRecord(rec *ManifestRecord) {
+	if rec == nil {
+		return
+	}
+	if rec.Kind == "" && path.Base(rec.MarkerKey) == CollectionMarkerFilename {
+		rec.Kind = string(UploadKindCollection)
+	}
+	if rec.Type != "upload" {
+		return
+	}
+	if rec.Kind == "" {
+		rec.Kind = string(UploadKindDocument)
+	}
+	if rec.Kind == string(UploadKindDocument) && rec.Slug == "" {
+		if slug, ok := pageSlug(path.Base(rec.Key)); ok {
+			rec.Slug = slug
+		}
+	}
 }
 
 func validateManifestRecord(rec ManifestRecord) error {
@@ -253,7 +280,7 @@ func validateManifestRecord(rec ManifestRecord) error {
 			return errors.New("bytes must be positive")
 		}
 		if rec.MarkerKey != "" {
-			expected := markerKeyForPage(rec.Key)
+			expected := markerKeyForManifestRecord(rec)
 			if expected == "" || rec.MarkerKey != expected {
 				return errors.New("marker_key must match the page directory")
 			}
@@ -261,6 +288,13 @@ func validateManifestRecord(rec ManifestRecord) error {
 		if rec.Format != "" && rec.Format != "md" &&
 			rec.Format != "html" && rec.Format != "txt" {
 			return fmt.Errorf("unsupported format %q", rec.Format)
+		}
+		if rec.Kind != "" && rec.Kind != string(UploadKindDocument) &&
+			rec.Kind != string(UploadKindCollection) {
+			return fmt.Errorf("unsupported kind %q", rec.Kind)
+		}
+		if rec.Kind == string(UploadKindCollection) && rec.Slug != "" {
+			return errors.New("collection records must not declare slug")
 		}
 		if rec.Repo != "" {
 			canonical, err := NormalizeRepositoryURL(rec.Repo)
@@ -273,7 +307,7 @@ func validateManifestRecord(rec ManifestRecord) error {
 			return errors.New("marker_key and bucket must be provided together")
 		}
 		if rec.MarkerKey != "" {
-			expected := markerKeyForPage(rec.Key)
+			expected := markerKeyForManifestRecord(rec)
 			if expected == "" || rec.MarkerKey != expected {
 				return errors.New("marker_key must match the page directory")
 			}
@@ -338,6 +372,8 @@ func (c *Client) recordUpload(ctx context.Context, res *Result) {
 		Bucket:        res.Bucket,
 		Profile:       c.cfg.Profile,
 		Format:        res.Format,
+		Kind:          res.Kind,
+		Slug:          res.Slug,
 		Title:         res.Title,
 		Repo:          res.RepositoryURL,
 		Bytes:         res.Bytes,
@@ -347,6 +383,17 @@ func (c *Client) recordUpload(ctx context.Context, res *Result) {
 		res.Warnings = append(res.Warnings,
 			"manifest not recorded: "+err.Error())
 	}
+}
+
+func markerKeyForManifestRecord(rec ManifestRecord) string {
+	dirPrefix, err := uploadDirPrefix(rec.Key)
+	if err != nil {
+		return ""
+	}
+	if rec.Kind == string(UploadKindCollection) {
+		return dirPrefix + CollectionMarkerFilename
+	}
+	return dirPrefix + MarkerFilename
 }
 
 // ReadManifest loads the manifest at path ("" = platform default),
@@ -420,6 +467,9 @@ func manifestMarkerKey(rec ManifestRecord) string {
 	if err != nil {
 		return ""
 	}
+	if rec.Kind == string(UploadKindCollection) {
+		return dirPrefix + CollectionMarkerFilename
+	}
 	return dirPrefix + MarkerFilename
 }
 
@@ -464,6 +514,12 @@ func manifestUploadMatchesTarget(rec ManifestRecord, target string) bool {
 		if targetURL.Path == recordURL.Path {
 			return true
 		}
+		if rec.Kind == string(UploadKindCollection) &&
+			path.Dir(targetURL.Path) == path.Dir(recordURL.Path) &&
+			path.Base(targetURL.Path) != "." &&
+			path.Base(targetURL.Path) != ".." {
+			return true
+		}
 	}
 
 	candidates := []string{
@@ -473,8 +529,14 @@ func manifestUploadMatchesTarget(rec ManifestRecord, target string) bool {
 	if dirPrefix, err := uploadDirPrefix(rec.Key); err == nil {
 		candidates = append(candidates,
 			strings.TrimSuffix(dirPrefix, "/"),
-			dirPrefix+MarkerFilename,
+			manifestMarkerKey(rec),
 		)
+		if rec.Kind == string(UploadKindCollection) {
+			rel := strings.TrimPrefix(targetKey, strings.TrimSuffix(dirPrefix, "/")+"/")
+			if rel != targetKey && rel != "" && !strings.Contains(rel, "/") {
+				return true
+			}
+		}
 	}
 	for _, candidate := range candidates {
 		if candidate == "" {

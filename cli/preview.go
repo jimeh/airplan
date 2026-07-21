@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -12,27 +13,30 @@ import (
 )
 
 type previewOptions struct {
-	format           string
-	lang             string
-	slug             string
-	title            string
-	indexable        bool
-	noExternalAssets bool
-	mermaidURL       string
-	repository       string
-	maxSize          string
-	template         string
-	profile          string
-	config           string
-	output           string
+	format             string
+	lang               string
+	slug               string
+	title              string
+	indexable          bool
+	noExternalAssets   bool
+	mermaidURL         string
+	repository         string
+	maxSize            string
+	template           string
+	collectionTemplate string
+	files              bool
+	maxTotalSize       string
+	profile            string
+	config             string
+	output             string
 }
 
 func newPreviewCmd() *cobra.Command {
 	opts := &previewOptions{}
 	cmd := &cobra.Command{
-		Use:   "preview [flags] [file]",
+		Use:   "preview [flags] [file ...]",
 		Short: "Render a document locally without uploading it",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPreview(cmd, args, opts)
 		},
@@ -56,9 +60,15 @@ func newPreviewCmd() *cobra.Command {
 	f.StringVar(&opts.repository, "repo", "",
 		"repository context: auto, none, or URL (default: auto)")
 	f.StringVar(&opts.maxSize, "max-size", "10MiB",
-		"input size limit, e.g. 10MiB, 512k, 1048576; 0 = no limit")
+		"per-input limit (10MiB documents, 1GiB collections); 0 = no limit")
 	f.StringVar(&opts.template, "template", "",
 		"custom page template file (md and text input)")
+	f.StringVar(&opts.collectionTemplate, "collection-template", "",
+		"custom collection overview template file")
+	f.BoolVar(&opts.files, "files", false,
+		"render named inputs as a collection overview")
+	f.StringVar(&opts.maxTotalSize, "max-total-size", "2GiB",
+		"collection total size limit; 0 = no limit")
 	f.StringVarP(&opts.profile, "profile", "p", "",
 		"config profile name (default: config default)")
 	f.StringVar(&opts.config, "config", "",
@@ -74,6 +84,14 @@ func runPreview(
 	args []string,
 	opts *previewOptions,
 ) error {
+	if opts.files || len(args) > 1 {
+		return runCollectionPreview(cmd, args, opts)
+	}
+	for _, name := range []string{"collection-template", "max-total-size"} {
+		if cmd.Flags().Changed(name) {
+			return fmt.Errorf("--%s is only valid for collection previews", name)
+		}
+	}
 	maxSize, err := airplan.ParseSize(opts.maxSize)
 	if err != nil {
 		return fmt.Errorf("--max-size: %s",
@@ -105,10 +123,7 @@ func runPreview(
 	if err != nil {
 		return err
 	}
-	for _, warning := range cfg.Warnings {
-		fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", warning)
-	}
-	ctx, cancel := timeoutContext(cmd.Context(), cfg)
+	ctx, cancel := previewContext(cmd, cfg)
 	defer cancel()
 
 	in := airplan.Input{
@@ -132,7 +147,7 @@ func runPreview(
 				)
 			}
 		}
-		file, openErr := os.Open(args[0])
+		file, _, openErr := openRegularInput(args[0], "input")
 		if openErr != nil {
 			return openErr
 		}
@@ -156,16 +171,106 @@ func runPreview(
 		}
 		return err
 	}
-	for _, warning := range doc.Warnings {
-		fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", warning)
-	}
+	printPreviewWarnings(cmd, doc.Warnings)
+	return writePreviewOutput(cmd, opts.output, doc.HTML)
+}
 
-	if opts.output == "" || opts.output == "-" {
-		_, err = cmd.OutOrStdout().Write(doc.HTML)
+func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOptions) error {
+	if len(args) == 0 {
+		return errors.New("--files requires one or more named files")
+	}
+	if len(args) > airplan.MaxCollectionFiles {
+		return fmt.Errorf("collection has %d files; maximum is %d",
+			len(args), airplan.MaxCollectionFiles)
+	}
+	for _, name := range args {
+		if name == "-" {
+			return errors.New("--files requires one or more named files")
+		}
+	}
+	for _, name := range []string{"format", "lang", "slug", "template", "no-external-assets", "mermaid-url"} {
+		if cmd.Flags().Changed(name) {
+			return fmt.Errorf("--%s is only valid for document previews", name)
+		}
+	}
+	maxSize, err := airplan.ParseSize(opts.maxSize)
+	if err != nil {
+		return fmt.Errorf("--max-size: %s",
+			strings.TrimPrefix(err.Error(), "airplan: "))
+	}
+	if !cmd.Flags().Changed("max-size") {
+		maxSize = airplan.DefaultMaxCollectionFileSize
+	}
+	if maxSize == 0 {
+		maxSize = -1
+	}
+	maxTotal, err := airplan.ParseSize(opts.maxTotalSize)
+	if err != nil {
+		return fmt.Errorf("--max-total-size: %s",
+			strings.TrimPrefix(err.Error(), "airplan: "))
+	}
+	if maxTotal == 0 {
+		maxTotal = -1
+	}
+	overrides := airplan.Settings{CollectionTemplate: opts.collectionTemplate, Repository: opts.repository}
+	if cmd.Flags().Changed("indexable") {
+		overrides.Indexable = &opts.indexable
+	}
+	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{Path: opts.config, Profile: opts.profile, Overrides: overrides})
+	if err != nil {
 		return err
 	}
-	if err := writeFileAtomic(opts.output, doc.HTML, 0o644); err != nil {
-		return fmt.Errorf("write preview %s: %w", opts.output, err)
+	ctx, cancel := previewContext(cmd, cfg)
+	defer cancel()
+	for _, path := range args {
+		if opts.output != "" && opts.output != "-" {
+			same, e := samePreviewPath(path, opts.output)
+			if e != nil {
+				return e
+			}
+			if same {
+				return errors.New("--output must not overwrite a preview input")
+			}
+		}
+	}
+	inputs, closers, err := openCollectionInputs(args)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		for _, file := range closers {
+			_ = file.Close()
+		}
+	}()
+	body, _, err := airplan.RenderCollection(ctx, airplan.FilesInput{Files: inputs, Title: opts.title, MaxSize: maxSize, MaxTotalSize: maxTotal}, airplan.CollectionRenderOptions{Indexable: cfg.Indexable, TemplatePath: cfg.CollectionTemplate, Repository: cfg.Repository})
+	if err != nil {
+		return err
+	}
+	return writePreviewOutput(cmd, opts.output, body)
+}
+
+func previewContext(
+	cmd *cobra.Command, cfg *airplan.Config,
+) (context.Context, context.CancelFunc) {
+	printPreviewWarnings(cmd, cfg.Warnings)
+	return timeoutContext(cmd.Context(), cfg)
+}
+
+func printPreviewWarnings(cmd *cobra.Command, warnings []string) {
+	for _, warning := range warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", warning)
+	}
+}
+
+func writePreviewOutput(
+	cmd *cobra.Command, output string, body []byte,
+) error {
+	if output == "" || output == "-" {
+		_, err := cmd.OutOrStdout().Write(body)
+		return err
+	}
+	if err := writeFileAtomic(output, body, 0o644); err != nil {
+		return fmt.Errorf("write preview %s: %w", output, err)
 	}
 	return nil
 }

@@ -29,6 +29,23 @@ func TestTemplateCommandPrintsBuiltinTemplate(t *testing.T) {
 	}
 }
 
+func TestTemplateCommandPrintsCollectionTemplate(t *testing.T) {
+	var out bytes.Buffer
+	cmd := newTemplateCmd()
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"collection"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	want := airplan.BuiltinCollectionTemplate()
+	if !strings.HasSuffix(want, "\n") {
+		want += "\n"
+	}
+	if out.String() != want {
+		t.Fatalf("collection template length = %d, want %d", out.Len(), len(want))
+	}
+}
+
 func TestTemplateCommandOutputCanBeUsedAsCustomTemplate(t *testing.T) {
 	var dumped bytes.Buffer
 	cmd := newTemplateCmd()

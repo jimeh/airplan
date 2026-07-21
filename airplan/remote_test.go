@@ -228,6 +228,45 @@ func TestListRemoteRootPrefixListsBucketRoot(t *testing.T) {
 	}
 }
 
+func TestListRemoteDistinguishesCollectionsAndConflicts(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	dirCollection := strings.Repeat("c", 26)
+	dirConflict := strings.Repeat("d", 26)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeListXML(t, w, []objectInfo{
+			{Key: dirCollection + "/" + CollectionMarkerFilename, Size: 10, LastModified: when},
+			{Key: dirCollection + "/index.html", Size: 20, LastModified: when},
+			{Key: dirCollection + "/extra.html", Size: 30, LastModified: when},
+			{Key: dirConflict + "/" + MarkerFilename, Size: 10, LastModified: when},
+			{Key: dirConflict + "/" + CollectionMarkerFilename, Size: 10, LastModified: when},
+			{Key: dirConflict + "/index.html", Size: 20, LastModified: when},
+		})
+	}))
+	t.Cleanup(server.Close)
+	uploads, err := newRemoteTestClient(t, server.URL, "").ListRemote(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(uploads) != 2 {
+		t.Fatalf("uploads = %+v", uploads)
+	}
+	var collection, conflict RemoteUpload
+	for _, upload := range uploads {
+		if upload.Dir == dirCollection {
+			collection = upload
+		} else {
+			conflict = upload
+		}
+	}
+	if collection.Kind != UploadKindCollection ||
+		!strings.HasSuffix(collection.Key, "/index.html") || collection.Slug != "" {
+		t.Fatalf("collection = %+v", collection)
+	}
+	if !conflict.Conflict || conflict.Key != "" || conflict.URL != "" {
+		t.Fatalf("conflict = %+v", conflict)
+	}
+}
+
 func newRemoteTestClient(t *testing.T, endpoint string, keyPrefix string) *Client {
 	t.Helper()
 

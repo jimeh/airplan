@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/jimeh/airplan/airplan"
 	"github.com/spf13/cobra"
@@ -18,7 +19,7 @@ func newGetCmd() *cobra.Command {
 	opts := &getOptions{}
 	cmd := &cobra.Command{
 		Use:           "get <url|key>",
-		Short:         "Fetch an object from an uploaded plan",
+		Short:         "Fetch an object from an upload",
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -48,17 +49,18 @@ func runGet(cmd *cobra.Command, opts *getOptions, target string) error {
 	}
 	defer cancel()
 
-	result, err := client.GetUpload(ctx, target, airplan.GetOptions{
-		Source: opts.source,
-	})
-	if err != nil {
-		return err
-	}
 	if opts.output == "" || opts.output == "-" {
-		_, err = cmd.OutOrStdout().Write(result.Body)
+		_, err = client.GetUploadTo(ctx, target, airplan.GetOptions{
+			Source: opts.source,
+		}, cmd.OutOrStdout())
 		return err
 	}
-	if err := writeFileAtomic(opts.output, result.Body, 0o600); err != nil {
+	if err := writeFileAtomicWith(opts.output, 0o600, func(w io.Writer) error {
+		_, streamErr := client.GetUploadTo(ctx, target, airplan.GetOptions{
+			Source: opts.source,
+		}, w)
+		return streamErr
+	}); err != nil {
 		return fmt.Errorf("write get output %s: %w", opts.output, err)
 	}
 	return nil

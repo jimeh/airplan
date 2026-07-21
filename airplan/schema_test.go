@@ -55,6 +55,7 @@ func TestConfigSchemaShape(t *testing.T) {
 	wantNames := []string{
 		"access_key_id",
 		"bucket",
+		"collection_template",
 		"default_profile",
 		"endpoint",
 		"indexable",

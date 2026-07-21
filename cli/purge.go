@@ -319,6 +319,9 @@ func purgeCandidates(
 			continue
 		}
 		if opts.slug != "" {
+			if rec.Kind == string(airplan.UploadKindCollection) {
+				continue
+			}
 			ok, err := path.Match(opts.slug, uploadSlug(rec.Key))
 			if err != nil {
 				return nil, fmt.Errorf("--slug: %w", err)
@@ -368,6 +371,9 @@ func remotePurgeCandidates(
 			continue
 		}
 		if opts.slug != "" {
+			if inspection.Kind == airplan.UploadKindCollection {
+				continue
+			}
 			ok, _ := path.Match(opts.slug, uploadSlug(inspection.Page.Key))
 			if !ok {
 				continue
@@ -390,6 +396,7 @@ func remotePurgeCandidates(
 				URL:           inspection.Page.URL,
 				Bucket:        cfg.Bucket,
 				Format:        inspection.Format,
+				Kind:          string(inspection.Kind),
 				Title:         inspection.Title,
 				Repo:          inspection.Repo,
 				Bytes:         pageBytes,

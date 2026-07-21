@@ -14,7 +14,9 @@ type DeleteResult struct {
 	Keys []string
 
 	// PageKey is the marker-declared page key and manifest tombstone key.
-	PageKey string
+	PageKey   string
+	MarkerKey string
+	Kind      UploadKind
 
 	// Warnings collects non-fatal manifest outcomes.
 	Warnings []string
@@ -47,22 +49,20 @@ func (c *Client) DeleteUpload(
 	if err != nil {
 		return nil, err
 	}
-	dirPrefix, err := uploadDirPrefix(key)
+	dirPrefix, err := uploadDirPrefixForKeyPrefix(key, c.cfg.KeyPrefix)
 	if err != nil {
 		return nil, err
 	}
 	dir := strings.TrimSuffix(dirPrefix, "/")
 	dir = dir[strings.LastIndex(dir, "/")+1:]
-	markerKey := dirPrefix + MarkerFilename
-
-	markerBody, err := c.st.getBytes(ctx, markerKey, MaxMarkerSize)
+	resolved, err := c.resolveMarker(ctx, dirPrefix)
 	if err != nil {
-		if errors.Is(err, errObjectNotFound) {
+		if errors.Is(err, errOwnershipMarkerMissing) {
 			return c.reconcileMissingMarker(ctx, dirPrefix, key)
 		}
 		return nil, err
 	}
-	marker, err := DecodeUploadMarker(markerBody, dir)
+	marker, err := DecodeUploadMarkerForName(resolved.Body, dir, resolved.Basename)
 	if err != nil {
 		return nil, err
 	}
@@ -74,22 +74,32 @@ func (c *Client) DeleteUpload(
 	if err != nil {
 		return nil, err
 	}
+	for _, object := range objects {
+		if object.Key != resolved.Key &&
+			(object.Key == dirPrefix+MarkerFilename ||
+				object.Key == dirPrefix+CollectionMarkerFilename) {
+			return nil, markerInvalid(MarkerErrorConflictingMarkers,
+				errors.New("conflicting ownership markers"))
+		}
+	}
 	payloadKeys := make([]string, 0, len(objects))
 	for _, object := range objects {
-		if object.Key != markerKey {
+		if object.Key != resolved.Key {
 			payloadKeys = append(payloadKeys, object.Key)
 		}
 	}
 	if err := c.st.deleteKeys(ctx, payloadKeys); err != nil {
 		return nil, err
 	}
-	if err := c.st.deleteMarker(ctx, markerKey); err != nil {
+	if err := c.st.deleteMarker(ctx, resolved.Key); err != nil {
 		return nil, err
 	}
 
 	res := &DeleteResult{
-		Keys:    append(payloadKeys, markerKey),
-		PageKey: dirPrefix + marker.Page,
+		Keys:      append(payloadKeys, resolved.Key),
+		PageKey:   dirPrefix + marker.Page,
+		MarkerKey: resolved.Key,
+		Kind:      marker.Kind,
 	}
 	c.recordDelete(ctx, res)
 	return res, nil
@@ -99,10 +109,14 @@ func validateDeleteTarget(
 	key, dirPrefix string, marker *UploadMarker,
 ) error {
 	dirKey := strings.TrimSuffix(dirPrefix, "/")
-	allowed := key == dirKey || key == dirPrefix+MarkerFilename ||
+	markerName, _ := MarkerFilenameForKind(marker.Kind)
+	allowed := key == dirKey || key == dirPrefix+markerName ||
 		key == dirPrefix+marker.Page
 	if marker.Source != "" {
 		allowed = allowed || key == dirPrefix+marker.Source
+	}
+	for _, object := range marker.Objects {
+		allowed = allowed || key == dirPrefix+object.Name
 	}
 	if !allowed {
 		return fmt.Errorf(
@@ -116,14 +130,17 @@ func validateDeleteTarget(
 func (c *Client) reconcileMissingMarker(
 	ctx context.Context, dirPrefix, target string,
 ) (*DeleteResult, error) {
-	pageKey, err := c.ensureGonePageKey(dirPrefix, target)
+	record, err := c.ensureGoneRecord(dirPrefix, target)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"airplan: ownership marker is missing; cannot delete or reconcile %q: %w",
 			target, err,
 		)
 	}
-	res := &DeleteResult{PageKey: pageKey}
+	res := &DeleteResult{
+		PageKey: record.Key, MarkerKey: manifestMarkerKey(record),
+		Kind: UploadKind(record.Kind),
+	}
 	res.Warnings = append(res.Warnings, fmt.Sprintf(
 		"ownership marker is already absent under %q; recording the completed deletion",
 		dirPrefix,
@@ -151,14 +168,19 @@ func (c *Client) recordDelete(ctx context.Context, res *DeleteResult) {
 		}
 	}
 
+	markerKey := res.MarkerKey
+	if markerKey == "" {
+		markerKey = markerKeyForPage(res.PageKey)
+	}
 	rec := ManifestRecord{
 		Type:      "delete",
 		Time:      time.Now().UTC().Truncate(time.Second),
 		Key:       res.PageKey,
-		MarkerKey: markerKeyForPage(res.PageKey),
+		MarkerKey: markerKey,
 		Bucket:    c.cfg.Bucket,
 		Profile:   c.cfg.Profile,
 		Reason:    "deleted",
+		Kind:      string(res.Kind),
 	}
 	if err := appendManifestRecord(ctx, path, rec); err != nil {
 		res.Warnings = append(res.Warnings,
@@ -174,16 +196,18 @@ func markerKeyForPage(pageKey string) string {
 	return dirPrefix + MarkerFilename
 }
 
-// ensureGonePageKey returns the exact active local upload matching dirPrefix.
+// ensureGoneRecord returns the exact active local upload matching dirPrefix.
 // The record must be complete, current, and belong to the active connection;
 // local history never grants authority to mutate remote objects.
-func (c *Client) ensureGonePageKey(dirPrefix, target string) (string, error) {
+func (c *Client) ensureGoneRecord(
+	dirPrefix, target string,
+) (ManifestRecord, error) {
 	if c.cfg.DisableManifest {
-		return "", errors.New("local manifest is disabled")
+		return ManifestRecord{}, errors.New("local manifest is disabled")
 	}
 	records, warnings, err := ReadManifest(c.cfg.ManifestPath)
 	if err != nil {
-		return "", fmt.Errorf("read local manifest: %w", err)
+		return ManifestRecord{}, fmt.Errorf("read local manifest: %w", err)
 	}
 	for _, record := range ActiveUploads(records) {
 		recordDir, err := uploadDirPrefix(record.Key)
@@ -191,31 +215,37 @@ func (c *Client) ensureGonePageKey(dirPrefix, target string) (string, error) {
 			continue
 		}
 		if record.Profile != c.cfg.Profile {
-			return "", &ManifestProfileMismatchError{
+			return ManifestRecord{}, &ManifestProfileMismatchError{
 				Recorded: record.Profile,
 				Active:   c.cfg.Profile,
 			}
 		}
 		if record.Bucket != c.cfg.Bucket {
-			return "", fmt.Errorf(
+			return ManifestRecord{}, fmt.Errorf(
 				"manifest record belongs to bucket %q; active connection uses bucket %q",
 				record.Bucket, c.cfg.Bucket,
 			)
 		}
 		dirKey := strings.TrimSuffix(dirPrefix, "/")
-		if target != dirKey && target != dirPrefix+MarkerFilename &&
-			target != record.Key && target != record.SourceKey {
-			return "", fmt.Errorf(
+		allowed := target == dirKey || target == manifestMarkerKey(record) ||
+			target == record.Key || target == record.SourceKey
+		if record.Kind == string(UploadKindCollection) {
+			rel := strings.TrimPrefix(target, dirPrefix)
+			allowed = allowed || rel != target && rel != "" &&
+				!strings.Contains(rel, "/")
+		}
+		if !allowed {
+			return ManifestRecord{}, fmt.Errorf(
 				"target %q is not the directory, marker, or recorded payload",
 				target,
 			)
 		}
-		return record.Key, nil
+		return record, nil
 	}
 	if len(warnings) > 0 {
-		return "", fmt.Errorf("local manifest is incomplete: %s", warnings[0])
+		return ManifestRecord{}, fmt.Errorf("local manifest is incomplete: %s", warnings[0])
 	}
-	return "", errors.New("no matching active marker-versioned manifest record")
+	return ManifestRecord{}, errors.New("no matching active marker-versioned manifest record")
 }
 
 func profileLabel(profile string) string {

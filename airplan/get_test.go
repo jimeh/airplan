@@ -68,6 +68,17 @@ func TestGetUploadSelectsMarkerManagedObjects(t *testing.T) {
 				t.Fatalf("result = %+v, want key %q and body %q",
 					got, tt.key, tt.body)
 			}
+			var streamed bytes.Buffer
+			key, err := client.GetUploadTo(
+				context.Background(), tt.target, tt.opts, &streamed,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if key != tt.key || !bytes.Equal(streamed.Bytes(), tt.body) {
+				t.Fatalf("streamed key = %q, body = %q, want %q and %q",
+					key, streamed.Bytes(), tt.key, tt.body)
+			}
 		})
 	}
 }
@@ -130,6 +141,45 @@ func TestGetUploadRejectsSourceWhenMarkerDeclaresNone(t *testing.T) {
 	if err == nil || got != nil ||
 		!strings.Contains(err.Error(), "declares no source object") {
 		t.Fatalf("result = %+v, error = %v", got, err)
+	}
+}
+
+func TestGetUploadCollectionMemberMayLookLikeRandomDirectory(t *testing.T) {
+	dir := "abcdefghijklmnopqrstuvwxyz"
+	member := strings.Repeat("a", 26)
+	marker, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: time.Now().UTC(), Kind: UploadKindCollection,
+		Objects: []MarkerObject{
+			{
+				Name: "index.html", Role: MarkerRolePage, Bytes: 4,
+				ContentType: pageContentType,
+			},
+			{
+				Name: member, Role: MarkerRoleFile, Bytes: 5,
+				ContentType: "application/octet-stream",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := map[string][]byte{
+		dir + "/" + CollectionMarkerFilename: marker,
+		dir + "/index.html":                  []byte("page"),
+		dir + "/" + member:                   []byte("bytes"),
+	}
+	server := newGetServer(t, objects)
+	client := newInspectTestClient(t, server.URL)
+
+	got, err := client.GetUpload(
+		context.Background(), dir+"/"+member, GetOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Key != dir+"/"+member || string(got.Body) != "bytes" {
+		t.Fatalf("result = %+v", got)
 	}
 }
 

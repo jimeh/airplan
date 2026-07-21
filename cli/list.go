@@ -124,14 +124,16 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 }
 
 type remoteListJSONRecord struct {
-	Time      time.Time `json:"time"`
-	Dir       string    `json:"dir"`
-	MarkerKey string    `json:"marker_key"`
-	Objects   int       `json:"objects"`
-	Bytes     int64     `json:"bytes"`
-	Slug      string    `json:"slug,omitempty"`
-	Key       string    `json:"key,omitempty"`
-	URL       string    `json:"url,omitempty"`
+	Time      time.Time          `json:"time"`
+	Dir       string             `json:"dir"`
+	MarkerKey string             `json:"marker_key"`
+	Objects   int                `json:"objects"`
+	Bytes     int64              `json:"bytes"`
+	Slug      string             `json:"slug,omitempty"`
+	Key       string             `json:"key,omitempty"`
+	URL       string             `json:"url,omitempty"`
+	Kind      airplan.UploadKind `json:"kind,omitempty"`
+	Conflict  bool               `json:"conflict,omitempty"`
 }
 
 func remoteListJSONRecords(
@@ -148,6 +150,8 @@ func remoteListJSONRecords(
 			Slug:      upload.Slug,
 			Key:       upload.Key,
 			URL:       upload.URL,
+			Kind:      upload.Kind,
+			Conflict:  upload.Conflict,
 		})
 	}
 	return records
@@ -160,7 +164,7 @@ func printRemoteUploadTable(w io.Writer, uploads []airplan.RemoteUpload) error {
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
 	if _, err := fmt.Fprintln(
-		tw, "DATE\tOBJECTS\tSIZE\tSLUG\tDIRECTORY\tURL",
+		tw, "DATE\tKIND\tOBJECTS\tSIZE\tSLUG\tDIRECTORY\tURL",
 	); err != nil {
 		return err
 	}
@@ -173,8 +177,16 @@ func printRemoteUploadTable(w io.Writer, uploads []airplan.RemoteUpload) error {
 		if url == "" {
 			url = "-"
 		}
-		if _, err := fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\n",
+		kind := string(upload.Kind)
+		if upload.Conflict {
+			kind = "conflict"
+		}
+		if kind == "" {
+			kind = "-"
+		}
+		if _, err := fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\n",
 			upload.LastModified.UTC().Format("2006-01-02 15:04"),
+			kind,
 			upload.Objects,
 			formatListBytes(upload.Bytes),
 			slug,

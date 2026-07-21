@@ -73,10 +73,8 @@ var ErrUninitializedClient = errors.New(
 	"airplan: client is not initialized; construct it with airplan.New",
 )
 
-// Client uploads plan documents per the pipeline in SPEC.md §1:
-// detect format → render (markdown) or noindex-splice (HTML) →
-// generate key → upload marker → upload source (if any) → upload page →
-// assemble URL.
+// Client uploads documents and file collections per the pipelines in
+// SPEC.md §1. Construct clients with New before use.
 type Client struct {
 	cfg      *Config
 	st       *storage
@@ -184,6 +182,10 @@ type Result struct {
 	MarkerKey string
 	// Format is the detected input format stored in the marker.
 	Format string
+	// Kind is "document" or "collection" for modern uploads.
+	Kind string
+	// Slug is set only for document uploads.
+	Slug string
 	// RepositoryURL is the resolved canonical repository context, or empty.
 	RepositoryURL string
 
@@ -229,12 +231,21 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		Version:   MarkerVersion,
 		Directory: dir,
 		CreatedAt: createdAt,
+		Kind:      UploadKindDocument,
+		Slug:      doc.Slug,
 		Format:    doc.Format.String(),
-		Page:      pageName,
-		PageBytes: int64(len(doc.HTML)),
-		Source:    sourceName,
 		Title:     doc.Title,
 		Repo:      doc.RepositoryURL,
+	}
+	marker.Objects = append(marker.Objects, MarkerObject{
+		Name: pageName, Role: MarkerRolePage, Bytes: int64(len(doc.HTML)),
+		ContentType: pageContentType,
+	})
+	if sourceName != "" {
+		marker.Objects = append(marker.Objects, MarkerObject{
+			Name: sourceName, Role: MarkerRoleSource,
+			Bytes: int64(len(doc.source)), ContentType: doc.sourceContentType(),
+		})
 	}
 	markerBody, err := EncodeUploadMarker(marker)
 	if err != nil {
@@ -256,6 +267,8 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		MarkerVersion: MarkerVersion,
 		MarkerKey:     markerKey,
 		Format:        doc.Format.String(),
+		Kind:          string(UploadKindDocument),
+		Slug:          doc.Slug,
 		RepositoryURL: doc.RepositoryURL,
 		Warnings:      append([]string(nil), doc.Warnings...),
 	}

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/jimeh/airplan/airplan"
 )
 
 func TestResolveVersion(t *testing.T) {
@@ -39,6 +41,50 @@ func TestResolveVersion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := resolveVersion(tt.stamped, tt.info, tt.ok); got != tt.want {
 				t.Fatalf("resolveVersion() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSelectCollectionModeHandlesUTF8SniffBoundary(t *testing.T) {
+	dir := t.TempDir()
+	for _, tt := range []struct {
+		name       string
+		body       []byte
+		collection bool
+	}{
+		{
+			name: "complete rune across boundary",
+			body: append(
+				[]byte(strings.Repeat("a", inputSniffSize-1)),
+				[]byte("漢\n")...,
+			),
+		},
+		{
+			name: "malformed rune across boundary",
+			body: append(
+				[]byte(strings.Repeat("a", inputSniffSize-1)),
+				[]byte{0xe6, 0xff}...,
+			),
+			collection: true,
+		},
+		{
+			name:       "nul byte",
+			body:       []byte("text\x00more"),
+			collection: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(dir, strings.ReplaceAll(tt.name, " ", "-")+".dat")
+			if err := os.WriteFile(path, tt.body, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := selectCollectionMode([]string{path}, &rootOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.collection {
+				t.Fatalf("collection = %v, want %v", got, tt.collection)
 			}
 		})
 	}
@@ -171,6 +217,82 @@ func TestRootJSONOutputShape(t *testing.T) {
 		}
 		assertJSONResult(t, fake, got)
 	})
+}
+
+func TestRootUploadsFileCollectionWithOrderedOutput(t *testing.T) {
+	fake := newFakeS3(t)
+	dir := t.TempDir()
+	shot := filepath.Join(dir, "shot one.png")
+	demo := filepath.Join(dir, "demo.webm")
+	if err := os.WriteFile(shot, []byte("png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(demo, []byte("video"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, err := executeRoot(t, fake, "", shot, demo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) != 3 || !strings.HasSuffix(lines[0], "/shot%20one.png") ||
+		!strings.HasSuffix(lines[1], "/demo.webm") ||
+		!strings.HasSuffix(lines[2], "/index.html") {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	puts := fake.uploads()
+	if len(puts) != 4 || !strings.HasSuffix(puts[0].path,
+		"/"+airplan.CollectionMarkerFilename) ||
+		!strings.HasSuffix(puts[3].path, "/index.html") {
+		t.Fatalf("PUTs = %+v", puts)
+	}
+
+	fake = newFakeS3(t)
+	stdout, _, err = executeRoot(t, fake, "", "--json", shot, demo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		URL   string                       `json:"url"`
+		Files []struct{ Name, URL string } `json:"files"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Files) != 2 || got.Files[0].Name != "shot one.png" ||
+		!strings.HasSuffix(got.URL, "/index.html") {
+		t.Fatalf("json = %s", stdout)
+	}
+}
+
+func TestRootCollectionRejectsDocumentFlagsBeforeUpload(t *testing.T) {
+	fake := newFakeS3(t)
+	path := filepath.Join(t.TempDir(), "shot.png")
+	if err := os.WriteFile(path, []byte("png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, err := executeRoot(t, fake, "", "--slug", "shot", path)
+	if err == nil || stdout != "" || len(fake.uploads()) != 0 ||
+		!strings.Contains(err.Error(), "only valid for document") {
+		t.Fatalf("stdout=%q err=%v puts=%v", stdout, err, fake.uploads())
+	}
+}
+
+func TestOpenCollectionInputsRejectsInvalidListBeforeOpening(t *testing.T) {
+	if _, _, err := openCollectionInputs([]string{"missing", "-"}); err == nil || !strings.Contains(err.Error(), "named files") {
+		t.Fatalf("dash error = %v", err)
+	}
+	tooMany := make([]string, airplan.MaxCollectionFiles+1)
+	for i := range tooMany {
+		tooMany[i] = "missing"
+	}
+	if _, _, err := openCollectionInputs(tooMany); err == nil || !strings.Contains(err.Error(), "maximum") {
+		t.Fatalf("limit error = %v", err)
+	}
+	if _, _, err := openCollectionInputs([]string{t.TempDir()}); err == nil ||
+		!strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("directory error = %v", err)
+	}
 }
 
 func TestRootURLOutputWithoutJSON(t *testing.T) {
@@ -482,6 +604,7 @@ func isolateEnv(t *testing.T) {
 	t.Setenv("AIRPLAN_PUBLIC_BASE_URL", "")
 	t.Setenv("AIRPLAN_KEY_PREFIX", "")
 	t.Setenv("AIRPLAN_TEMPLATE", "")
+	t.Setenv("AIRPLAN_COLLECTION_TEMPLATE", "")
 	t.Setenv("AIRPLAN_MERMAID_URL", "")
 	t.Setenv("AIRPLAN_REPO", "")
 	t.Setenv("AIRPLAN_NO_EXTERNAL_ASSETS", "")

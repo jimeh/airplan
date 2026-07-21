@@ -1,6 +1,7 @@
 package airplan
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -10,6 +11,26 @@ import (
 	"sync"
 	"testing"
 )
+
+func TestExactSizeReadSeekerBoundsGrowthAndDetectsTruncation(t *testing.T) {
+	growing := &exactSizeReadSeeker{reader: bytes.NewReader([]byte("abcdef")), size: 3}
+	got, err := io.ReadAll(growing)
+	if err != nil || string(got) != "abc" {
+		t.Fatalf("bounded read = %q, %v", got, err)
+	}
+	if _, err := growing.Seek(0, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+	got, err = io.ReadAll(growing)
+	if err != nil || string(got) != "abc" {
+		t.Fatalf("retry read = %q, %v", got, err)
+	}
+
+	truncated := &exactSizeReadSeeker{reader: bytes.NewReader([]byte("ab")), size: 3}
+	if _, err := io.ReadAll(truncated); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("truncated error = %v", err)
+	}
+}
 
 func TestPublicURL(t *testing.T) {
 	t.Parallel()

@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.24.0.
+may contradict it. Targets spec version 0.25.0.
 
 ---
 
@@ -80,7 +80,8 @@ airplan/                core library (public Go API): config
                         load/merge/validate, input reading + format
                         detection + noindex splice, markdown
                         rendering, ownership markers, key/slug
-                        generation, S3 upload/list/show/get/delete,
+                        generation, collection preflight/rendering,
+                        streaming S3 upload/get, list/show/delete,
                         manifest history, URL assembly; embeds assets
                         via go:embed; Mermaid is the sole conditional
                         runtime asset
@@ -115,11 +116,19 @@ res, err := client.Upload(ctx, airplan.Input{
 // res.URL, res.Key, res.SourceURL, res.Bytes, res.ContentType,
 // res.MarkerKey, res.Format, res.RepositoryURL
 
+files, err := client.UploadFiles(ctx, airplan.FilesInput{
+    Files: []airplan.FileInput{{
+        Name: "demo.webm", Reader: recording, Size: recordingSize,
+    }},
+})
+// files.Files[0].URL is direct; files.URL is the overview.
+
 skill := airplan.AgentSkill() // exact canonical skills/airplan/SKILL.md
 
 uploads, err := client.ListRemote(ctx) // one LIST traversal, no marker GETs
 inspection, err := client.InspectUpload(ctx, uploads[0].MarkerKey)
 fetched, err := client.GetUpload(ctx, inspection.Page.Key, airplan.GetOptions{})
+_, err = client.GetUploadTo(ctx, inspection.Page.Key, airplan.GetOptions{}, dst)
 deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
 synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
     Prune:       true,
@@ -167,7 +176,7 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   72-hour minimum age, stays within the current major, verifies jsDelivr, and
   refreshes generated/rendered artifacts. Dependency-only updates do not alter
   this document or SPEC.md.
-- Templates: Go `html/template`. Canonical template data exposes the
+- Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, structured headings/ToC entries, format metadata,
   title, slug, indexing intent, frontmatter, repository context, and source
@@ -175,10 +184,19 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   and JS are expanded into the embedded template source before parsing, so
   `airplan template` prints an exact reusable template containing only public
   data fields.
+- Collection rendering uses a separate embedded `html/template` and stable
+  `CollectionTemplateData` / `CollectionTemplateFile` surface. Preflight
+  validates names and limits, resolves deterministic MIME/media kinds, creates
+  already-escaped relative paths, and executes only the applicable collection
+  template. The built-in template provides responsive image, video, audio, and
+  generic-file presentation. `airplan template collection` exposes its exact
+  source without coupling document customizations to collections.
 - Local rendering: `RenderInput` owns read limits, binary and invalid
   UTF-8 rejection,
   format detection, title/slug resolution, template execution, and
-  noindex handling. Explicit HTML is tokenized with `x/net/html`; raw token
+  noindex handling. `RenderCollection` owns the equivalent collection
+  preflight and local overview rendering. Explicit HTML is tokenized with
+  `x/net/html`; raw token
   lengths locate the original head boundary while normalized tokens identify
   in-head robots metadata. Injection splices only the original byte slice and
   never serializes the token stream. `Client.Upload` adds source/page storage,
@@ -197,24 +215,28 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   CSPRNG).
 - Public URL assembly percent-encodes each object-key path segment;
   delete parsing uses `net/url` to recover the original UTF-8 key.
-- Ownership markers: every managed directory starts with an exact
-  `.airplan.json` direct child. The strict, versioned marker declares the
-  page, page size, optional source, and canonical repository. Writers emit v2;
-  readers retain v1 management compatibility through explicit version
-  dispatch. Upload writes it first, so an interrupted upload
-  remains visible; get and delete validate it before granting read or mutation
-  authority, and delete removes it last, so marker presence remains the remote
-  ownership boundary.
-- Remote discovery: `ListRemote` makes a paginated LIST traversal under the
-  active `key_prefix`, includes only random directories with an exact marker
-  key, and derives object count, total bytes, marker modification time, and an
-  unambiguous HTML slug hint from that response. It never fetches markers or
-  heads payload objects. Its internal snapshot retains per-key sizes for
-  batch inspection. `InspectUpload` is the targeted GET + directory LIST
-  path that validates marker content and reports `complete`, `incomplete`, or
-  `invalid`. `GetUpload` validates the same marker, resolves only its declared
-  payloads or the marker itself, and reads the selected object without listing
-  or writing local history.
+- Ownership markers: writers emit one v3 schema for all uploads. Documents use
+  `.airplan.json`; collections use `.airplan-collection.json`. `kind` plus a
+  normalized declared-object array describes pages, sources, and files;
+  document slug/format fields remain conditional. Version-specific decoding
+  normalizes v1/v2 into the same internal object model. A centralized
+  concurrent two-key resolver proves exactly one marker exists without adding
+  LIST permission to targeted reads. Kind/name mismatches and dual markers
+  fail closed. Marker-first upload and marker-last deletion preserve the
+  remote ownership boundary.
+- Collection storage: `UploadFiles` accepts known-size `io.ReadSeeker` members,
+  keeps inputs stable through preflight and sequential retryable PUTs, limits
+  each reader to its declaration, and uploads the overview last. `GetUploadTo`
+  streams large payloads to CLI stdout or atomic file output; the older
+  `GetUpload` wrapper remains available for in-memory callers.
+- Remote discovery: `ListRemote` recognizes both exact marker names, exposes
+  their untrusted kind hint, selects exact collection `index.html`, and marks
+  dual-name groups as conflicts without fetching markers or heading payloads.
+  Its LIST snapshot retains per-key sizes for batch inspection.
+  `InspectUpload` validates the selected marker and exact sizes for every
+  normalized declared object. Targeted get and delete probe both markers and
+  authorize only pages, document sources, collection files, or the existing
+  marker.
 - Manifest sync: `SyncManifest` reduces local history chronologically, compares
   the scoped active view to one remote LIST snapshot, and uses a shared bounded
   worker pool for marker GETs and targeted absence confirmation. Imports and
@@ -230,15 +252,17 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
 - Manifest appends: `O_APPEND` open, whole line in one `Write` call,
   wrapped in context-aware `gofrs/flock` acquisition (flock on Unix,
   LockFileEx on Windows) per spec §9's concurrency and timeout rules.
-  Records carry portable marker metadata and local connection context; readers
+  Records carry kind, document-only slug/format, portable marker metadata, and
+  local connection context without duplicating collection inventories; readers
   discard malformed, oversized, and unsupported records completely and resume
   at the following newline. A latest-event state machine keyed by bucket and
   marker key makes tombstones reversible while retaining legacy key-only data.
 - Purge: local candidates are constrained to the active bucket and key
   prefix before deletion. Remote candidates come from LIST, then marker
   inspection uses the same configurable 1-64 worker pool as sync; only valid
-  markers grant deletion authority, marker `created_at` drives age filtering,
-  and deletion remains sequential.
+  non-conflicting markers grant deletion authority, marker `created_at` drives
+  age filtering, slug filters apply only to documents, and deletion remains
+  sequential.
 - Config/state paths: `os.UserConfigDir` for config; a small helper
   for the state dir (`XDG_STATE_HOME` → `~/.local/state`,
   `%LocalAppData%` on Windows — Go stdlib has no state-dir
@@ -273,14 +297,11 @@ JSON Schema all fall out of one struct definition.
 ## 6. Repo Deliverables (beyond the binary)
 
 - Agent skill (`skills/airplan/SKILL.md`): teaches agent harnesses
-  (Claude Code and compatible) to use airplan when the user asks for
-  a plan or document they can open in a browser or share as a link —
-  write it to a file (markdown and HTML on equal footing; whichever
-  the agent already produced), run `airplan <file>`, capture the URL
-  from stdout (`--json` when scripting), and present it as a
-  clickable link; note that stdout carries only the URL. Frontmatter
-  description tuned to trigger on "share this plan", "upload the
-  plan", "give me a link to the plan" and similar.
+  to use Airplan for explicitly requested document/file sharing and for visual
+  evidence explicitly called for by authorized PR or issue work. It reviews
+  captures for sensitive material, uploads related evidence in one JSON-mode
+  collection, distinguishes `files[].url` from the overview `url`, and never
+  invents or reuses partial results. It still prohibits opportunistic uploads.
   This file remains the single canonical source. `skills/embed.go`
   embeds it in the binary, the core package exposes the exact content
   through `AgentSkill`, and the thin `airplan skill` command writes it
@@ -366,19 +387,23 @@ outside the project's signing and notarization pipeline.
 
 ## 8. Upload Lifecycle
 
-1. Render and validate the complete input locally before storage mutation.
-2. Resolve repository context once for every format, then generate and encode
-   the v2 ownership marker from final names, page bytes, and portable metadata.
-3. Put `.airplan.json` first, then the optional source, then the HTML page.
-4. Print the page URL only after all required puts succeed; record the
-   marker-versioned manifest entry afterward as a best-effort local aid.
-5. Discover remote uploads with LIST-only marker-key filtering. Infer a page
-   key and escaped URL only for one valid direct-child HTML candidate. Use
-   `show` when trusted metadata or completeness state is needed.
-6. Validate the marker before get, delete, or purge. Get reads only the selected
-   declared object. Delete removes all payload and extra objects first, removes
-   the marker last, then appends the local tombstone.
-7. Sync remote marker snapshots into local history on demand. Confirm every
+1. Select document or collection mode and validate mode-specific flags before
+   config-dependent storage work.
+2. Render a document in memory, or preflight every open collection file and
+   render its overview, before generating a random directory.
+3. Resolve repository context, build the complete normalized v3 object set, and
+   encode the kind-specific marker.
+4. Put the marker first. Documents then put optional source and page;
+   collections stream files in argument order and put `index.html` last.
+5. Print no URL until all declared PUTs succeed. Then emit the document URL or
+   ordered direct collection URLs plus overview, and best-effort append one v3
+   manifest record.
+6. Discover both marker names through one LIST snapshot. The basename supplies
+   only a kind hint; `show` validates content and every declared size.
+7. Targeted get/delete resolve exactly one marker without LIST. Get streams one
+   declared object. Delete removes payloads and extras, then the marker, then
+   appends a tombstone.
+8. Sync complete normalized uploads into compact local history. Confirm every
    LIST-absent active marker with a targeted GET before local tombstoning.
 
 Manifest reads retain pre-marker upload records as read-only legacy history.
@@ -397,19 +422,26 @@ deletion has succeeded.
 
 ## 9. Testing Strategy
 
-- Unit: config precedence matrix, slug sanitization, format sniffing, key
-  entropy/encoding properties, URL assembly, strict marker validation,
-  LIST-only grouping, inspection states, get selection, delete request ordering,
-  manifest chronological reduction and lock cancellation, sync reconciliation
-  and concurrency bounds, and purge safety filters.
+- Unit: config/template precedence, mode selection, collection filename/MIME
+  preflight, size limits, slug sanitization, format sniffing, key
+  entropy/encoding properties, URL assembly, strict v1-v3 marker validation,
+  dual-marker resolution, LIST-only kind grouping, inspection states and exact
+  sizes, streaming get selection, delete request ordering, manifest reduction
+  and lock cancellation, sync reconciliation, and document-only slug filters.
 - Golden files: markdown fixtures → rendered HTML snapshots
   (`testdata/`, `GOLDEN_UPDATE=1` convention).
+- Browser: Chromium collection fixtures cover image/video/audio and generic
+  cards, direct and copy links, no-JavaScript behavior, hostile-looking names,
+  narrow/wide layouts, and light/dark themes for built-in and custom templates.
 - Integration: MinIO in a container (CI service / testcontainers);
-  round-trip upload, marker bytes and headers, remote indexing, complete /
-  incomplete / invalid inspection states, markerless invisibility, invalid
-  delete rejection, cross-manifest sync, confirmed-absence tombstones,
+  document and mixed collection round trips, byte/header preservation,
+  marker bytes, remote kind discovery and conflicts, complete / incomplete /
+  invalid inspection states, large streaming fetches, markerless invisibility,
+  invalid delete rejection, cross-manifest sync, confirmed-absence tombstones,
   restoration, and successful marker-last deletion. The image release
   tag and multi-platform digest are immutable-pinned together in
   `airplan/integration_test.go`.
 - Smoke (manual or tagged, needs creds): real R2 upload via a
-  scoped token, fetched through the custom domain.
+  scoped token, fetched through the custom domain. Collection smoke coverage
+  includes an image and short recording, external image embedding, video seek,
+  copied absolute URLs, direct-member management, and whole-upload deletion.

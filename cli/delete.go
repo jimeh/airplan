@@ -19,7 +19,7 @@ func newDeleteCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:           "delete <url|key>",
-		Short:         "Delete an uploaded plan",
+		Short:         "Delete an upload",
 		Args:          cobra.ExactArgs(1),
 		SilenceUsage:  true,
 		SilenceErrors: true,
