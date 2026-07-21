@@ -44,6 +44,66 @@ func TestResolveVersion(t *testing.T) {
 	}
 }
 
+func TestCommandAliasesAndQoLShorthands(t *testing.T) {
+	root := newRootCmd()
+	list, _, err := root.Find([]string{"list"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Aliases) != 1 || list.Aliases[0] != "ls" {
+		t.Fatalf("list aliases = %v, want [ls]", list.Aliases)
+	}
+	for _, tt := range []struct {
+		command   string
+		flag      string
+		shorthand string
+	}{
+		{"list", "remote", "r"},
+		{"purge", "remote", "r"},
+		{"preview", "output", "o"},
+		{"get", "output", "o"},
+	} {
+		cmd, _, findErr := root.Find([]string{tt.command})
+		if findErr != nil {
+			t.Fatal(findErr)
+		}
+		flag := cmd.Flags().Lookup(tt.flag)
+		if flag == nil {
+			t.Errorf("%s missing --%s flag", tt.command, tt.flag)
+			continue
+		}
+		if flag.Shorthand != tt.shorthand {
+			t.Errorf("%s --%s shorthand = %q, want %q",
+				tt.command, tt.flag, flag.Shorthand, tt.shorthand)
+		}
+	}
+
+	setListState(t)
+	root = newRootCmd()
+	var stdout bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetArgs([]string{"ls", "--json"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "[]\n" {
+		t.Fatalf("ls output = %q", stdout.String())
+	}
+
+	root = newRootCmd()
+	stdout.Reset()
+	root.SetOut(&stdout)
+	root.SetArgs([]string{"list", "--help"})
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Aliases:", "list, ls", "-r, --remote"} {
+		if !strings.Contains(stdout.String(), want) {
+			t.Fatalf("list help missing %q:\n%s", want, stdout.String())
+		}
+	}
+}
+
 func TestRootJSONOutputShape(t *testing.T) {
 	t.Run("with source_url", func(t *testing.T) {
 		fake := newFakeS3(t)

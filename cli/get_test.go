@@ -111,6 +111,33 @@ func TestGetCommandFetchesSource(t *testing.T) {
 	}
 }
 
+func TestGetCommandInfersManifestProfileWithoutChangingBytes(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	objects := getCLIObjects(t, "source bytes\n")
+	recorded := newFakeGetS3(t, objects)
+	defaultProfile := newFakeGetS3(t, nil)
+	writeDeleteManifest(t, stateHome, deleteDirA, "jimeh", "")
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"get", "--config", writeDeleteProfilesConfig(
+			t, defaultProfile.URL, recorded.URL,
+		),
+		deleteDirA,
+	)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if !bytes.Equal([]byte(stdout), objects[deleteDirA+"/plan.html"]) {
+		t.Fatalf("stdout = %q", stdout)
+	}
+	if !strings.Contains(stderr,
+		`using profile "jimeh" recorded in the local manifest`) {
+		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
 func TestGetCommandRejectsUnmanagedTarget(t *testing.T) {
 	isolateEnv(t)
 	server := newFakeGetS3(t, map[string][]byte{

@@ -63,7 +63,8 @@ func newPreviewCmd() *cobra.Command {
 		"config profile name (default: config default)")
 	f.StringVar(&opts.config, "config", "",
 		"config file path (default: XDG config dir)")
-	f.StringVar(&opts.output, "output", "",
+	// SPEC.md §6 defines -o as the preview --output shorthand.
+	f.StringVarP(&opts.output, "output", "o", "",
 		"write HTML to this path instead of stdout; - means stdout")
 	return cmd
 }

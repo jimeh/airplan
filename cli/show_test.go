@@ -110,6 +110,32 @@ func TestShowCommandWarnsForFallbackPublicURL(t *testing.T) {
 	}
 }
 
+func TestShowCommandInfersManifestProfile(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	recorded := newFakeDeleteS3(t, map[string][]string{
+		deleteDirA + "/": {deleteDirA + "/plan.html"},
+	}, nil)
+	defaultProfile := newFakeDeleteS3(t, nil, nil)
+	writeDeleteManifest(t, stateHome, deleteDirA, "jimeh", "")
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"show", "--config", writeDeleteProfilesConfig(
+			t, defaultProfile.server.URL, recorded.server.URL,
+		),
+		deleteDirA+"/plan.html",
+	)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if !strings.Contains(stdout, "complete") ||
+		!strings.Contains(stderr,
+			`using profile "jimeh" recorded in the local manifest`) {
+		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
+	}
+}
+
 func TestShowCommandIncompleteAndInvalidStates(t *testing.T) {
 	when := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)
 	incomplete, err := airplan.EncodeUploadMarker(airplan.UploadMarker{

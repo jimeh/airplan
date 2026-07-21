@@ -30,6 +30,11 @@ type RemoteUpload struct {
 	// filename exists. It is a display hint, not trusted marker data.
 	Slug string
 
+	// Key and URL are inferred with Slug from the same single direct-child
+	// HTML page. They are LIST-derived hints, not validated marker data.
+	Key string
+	URL string
+
 	// Keys contains every object key recursively beneath the directory.
 	Keys []string
 
@@ -44,12 +49,12 @@ type RemoteUpload struct {
 }
 
 type remoteGroup struct {
-	dir       string
-	marker    *objectInfo
-	keys      []string
-	objects   map[string]objectInfo
-	bytes     int64
-	pageSlugs []string
+	dir      string
+	marker   *objectInfo
+	keys     []string
+	objects  map[string]objectInfo
+	bytes    int64
+	pageKeys []string
 }
 
 // ListRemote discovers exact marker-key candidates under key_prefix using
@@ -100,8 +105,8 @@ func (c *Client) ListRemote(ctx context.Context) ([]RemoteUpload, error) {
 			marker := obj
 			group.marker = &marker
 		default:
-			if slug, ok := pageSlug(segments[1]); ok {
-				group.pageSlugs = append(group.pageSlugs, slug)
+			if _, ok := pageSlug(segments[1]); ok {
+				group.pageKeys = append(group.pageKeys, obj.Key)
 			}
 		}
 	}
@@ -121,8 +126,16 @@ func (c *Client) ListRemote(ctx context.Context) ([]RemoteUpload, error) {
 			LastModified: group.marker.LastModified.UTC(),
 			objects:      group.objects,
 		}
-		if len(group.pageSlugs) == 1 {
-			upload.Slug = group.pageSlugs[0]
+		if len(group.pageKeys) == 1 {
+			upload.Key = group.pageKeys[0]
+			pageName := strings.TrimPrefix(
+				upload.Key, strings.TrimSuffix(upload.MarkerKey, MarkerFilename),
+			)
+			upload.Slug, _ = pageSlug(pageName)
+			upload.URL, _, err = PublicURL(c.cfg, upload.Key)
+			if err != nil {
+				return nil, err
+			}
 		}
 		uploads = append(uploads, upload)
 	}

@@ -143,7 +143,9 @@ func TestDeleteDuplicateManifestRecordsUseLatestProfile(t *testing.T) {
 		deleteManifestLine(deleteDirA, "")+
 			deleteManifestLine(deleteDirA, "jimeh"))
 
-	profile, inferred := deleteProfile(deleteDirA+"/plan.html", "")
+	profile, inferred := inferManifestProfile(
+		newDeleteCmd(), deleteDirA+"/plan.html", "",
+	)
 	if profile != "jimeh" || !inferred {
 		t.Fatalf("deleteProfile = %q, %v; want latest profile",
 			profile, inferred)
@@ -159,10 +161,84 @@ func TestDeleteUnreadableManifestFallsBackToConfigResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	profile, inferred := deleteProfile(deleteDirA+"/plan.html", "")
+	profile, inferred := inferManifestProfile(
+		newDeleteCmd(), deleteDirA+"/plan.html", "",
+	)
 	if profile != "" || inferred {
 		t.Fatalf("deleteProfile = %q, %v; want normal config resolution",
 			profile, inferred)
+	}
+}
+
+func TestManifestProfileInferenceMatrix(t *testing.T) {
+	tests := []struct {
+		name        string
+		manifest    string
+		flagProfile string
+		envProfile  string
+		wantProfile string
+		wantInfer   bool
+	}{
+		{
+			name: "single managed match", manifest: deleteManifestLine(
+				deleteDirA, "work"),
+			wantProfile: "work", wantInfer: true,
+		},
+		{
+			name: "root profile is not inferred", manifest: deleteManifestLine(
+				deleteDirA, ""),
+		},
+		{
+			name: "legacy match is ignored",
+			manifest: strings.Replace(deleteManifestLine(deleteDirA, "work"),
+				`,"marker_version":1`, "", 1),
+		},
+		{
+			name: "deleted match is inactive",
+			manifest: deleteManifestLine(deleteDirA, "work") +
+				`{"type":"delete","time":"2026-07-09T00:00:00Z",` +
+				`"key":"` + deleteDirA + `/plan.html"}` + "\n",
+		},
+		{
+			name: "ambiguous matches fall back",
+			manifest: deleteManifestLine(deleteDirA, "work") +
+				strings.Replace(deleteManifestLine(deleteDirA, "home"),
+					`"bucket":"plans"`, `"bucket":"other"`, 1),
+		},
+		{
+			name: "flag wins", manifest: deleteManifestLine(deleteDirA, "work"),
+			flagProfile: "home", wantProfile: "home",
+		},
+		{
+			name:       "environment wins",
+			manifest:   deleteManifestLine(deleteDirA, "work"),
+			envProfile: "home",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isolateEnv(t)
+			path := setListState(t)
+			if tt.manifest != "" {
+				writeManifest(t, path, tt.manifest)
+			}
+			if tt.envProfile != "" {
+				t.Setenv("AIRPLAN_PROFILE", tt.envProfile)
+			}
+			cmd := newDeleteCmd()
+			if tt.flagProfile != "" {
+				if err := cmd.Flags().Set("profile", tt.flagProfile); err != nil {
+					t.Fatal(err)
+				}
+			}
+			profile, inferred := inferManifestProfile(
+				cmd, deleteDirA+"/plan.html", tt.flagProfile,
+			)
+			if profile != tt.wantProfile || inferred != tt.wantInfer {
+				t.Fatalf("profile = %q, inferred = %v; want %q, %v",
+					profile, inferred, tt.wantProfile, tt.wantInfer)
+			}
+		})
 	}
 }
 

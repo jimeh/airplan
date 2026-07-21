@@ -297,7 +297,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		return nil, err
 	}
 	if fallback {
-		res.Warnings = append(res.Warnings, publicURLFallbackWarning)
+		res.Warnings = append(res.Warnings, PublicURLFallbackWarning)
 	}
 	res.URL = url
 

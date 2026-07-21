@@ -27,7 +27,8 @@ func newGetCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
-	f.StringVar(&opts.output, "output", "",
+	// SPEC.md §6 defines -o as the get --output shorthand.
+	f.StringVarP(&opts.output, "output", "o", "",
 		"write bytes to this path instead of stdout; - means stdout")
 	f.BoolVar(&opts.source, "source", false,
 		"fetch the marker-declared source instead of the page")
@@ -39,8 +40,8 @@ func newGetCmd() *cobra.Command {
 }
 
 func runGet(cmd *cobra.Command, opts *getOptions, target string) error {
-	client, _, ctx, cancel, err := setupClient(
-		cmd, opts.config, opts.profile,
+	client, _, ctx, cancel, err := setupTargetClient(
+		cmd, opts.config, opts.profile, target,
 	)
 	if err != nil {
 		return err

@@ -180,7 +180,9 @@ func PublicURL(
 	return appendURLPath(cfg.Endpoint, cfg.Bucket+"/"+key), true, nil
 }
 
-const publicURLFallbackWarning = "public_base_url is not set; " +
+// PublicURLFallbackWarning explains why a URL assembled without
+// public_base_url may not be reachable by readers.
+const PublicURLFallbackWarning = "public_base_url is not set; " +
 	"assembled the URL from the endpoint and bucket — it may not be " +
 	"publicly reachable"
 
