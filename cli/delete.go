@@ -90,7 +90,7 @@ func deleteProfile(target, flagProfile string) (string, bool) {
 	}
 	var matches []airplan.ManifestRecord
 	for _, rec := range airplan.MatchingManifestUploads(records, target) {
-		if rec.MarkerVersion == airplan.MarkerVersion {
+		if airplan.IsSupportedMarkerVersion(rec.MarkerVersion) {
 			matches = append(matches, rec)
 		}
 	}

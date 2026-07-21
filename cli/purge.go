@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path"
-	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jimeh/airplan/airplan"
@@ -17,14 +15,15 @@ import (
 )
 
 type purgeOptions struct {
-	config    string
-	olderThan string
-	slug      string
-	profile   string
-	remote    bool
-	all       bool
-	dryRun    bool
-	yes       bool
+	config      string
+	olderThan   string
+	slug        string
+	profile     string
+	remote      bool
+	all         bool
+	dryRun      bool
+	yes         bool
+	concurrency int
 }
 
 func newPurgeCmd() *cobra.Command {
@@ -67,12 +66,24 @@ func newPurgeCmd() *cobra.Command {
 		"preview matching uploads without deleting")
 	f.BoolVar(&opts.yes, "yes", false,
 		"skip the confirmation prompt")
+	f.IntVar(&opts.concurrency, "concurrency",
+		airplan.DefaultRemoteConcurrency,
+		"maximum concurrent remote marker inspections (1-64)")
 
 	return cmd
 }
 
 func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	stderr := cmd.ErrOrStderr()
+	if cmd.Flags().Changed("concurrency") && !opts.remote {
+		return errors.New("--concurrency requires --remote")
+	}
+	if opts.remote {
+		if err := validateCLIConcurrency(opts.concurrency); err != nil {
+			return fmt.Errorf("--concurrency: %s",
+				strings.TrimPrefix(err.Error(), "airplan: "))
+		}
+	}
 
 	hasFilter := opts.all || opts.olderThan != "" || opts.slug != "" ||
 		(!opts.remote && opts.profile != "")
@@ -232,7 +243,8 @@ func runRemotePurge(
 		return err
 	}
 	candidates, invalid, err := remotePurgeCandidates(
-		listCtx, uploads, cfg, client, opts, olderThan, time.Now())
+		listCtx, uploads, cfg, client, opts, olderThan, time.Now(),
+		opts.concurrency)
 	if err != nil {
 		return err
 	}
@@ -327,6 +339,7 @@ func remotePurgeCandidates(
 	opts *purgeOptions,
 	olderThan time.Duration,
 	now time.Time,
+	concurrency int,
 ) ([]remotePurgeCandidate, int, error) {
 	if opts.slug != "" {
 		if _, err := path.Match(opts.slug, ""); err != nil {
@@ -334,15 +347,18 @@ func remotePurgeCandidates(
 		}
 	}
 
-	inspections := inspectRemoteCandidates(ctx, client, uploads)
+	inspections, err := client.InspectRemoteUploads(ctx, uploads, concurrency)
+	if err != nil {
+		return nil, 0, err
+	}
 	var out []remotePurgeCandidate
 	invalid := 0
 	cutoff := now.Add(-olderThan)
 	for _, result := range inspections {
-		if result.err != nil {
-			return nil, invalid, result.err
+		if result.Err != nil {
+			return nil, invalid, result.Err
 		}
-		inspection := result.inspection
+		inspection := result.Inspection
 		if inspection.State == airplan.UploadInvalid {
 			invalid++
 			continue
@@ -362,18 +378,21 @@ func remotePurgeCandidates(
 			pageBytes = inspection.Page.Bytes
 		}
 		out = append(out, remotePurgeCandidate{
-			upload: result.upload,
+			upload: result.Upload,
 			warnings: append([]string(nil),
 				inspection.Warnings...),
 			record: airplan.ManifestRecord{
 				Type:          "upload",
 				Time:          inspection.CreatedAt.UTC(),
 				Key:           inspection.Page.Key,
+				MarkerKey:     inspection.MarkerKey,
 				URL:           inspection.Page.URL,
 				Bucket:        cfg.Bucket,
+				Format:        inspection.Format,
 				Title:         inspection.Title,
+				Repo:          inspection.Repo,
 				Bytes:         pageBytes,
-				MarkerVersion: airplan.MarkerVersion,
+				MarkerVersion: inspection.MarkerVersion,
 			},
 		})
 	}
@@ -405,58 +424,6 @@ func printRemotePurgeWarnings(
 			}
 		}
 	}
-}
-
-type remoteInspectionResult struct {
-	index      int
-	upload     airplan.RemoteUpload
-	inspection *airplan.UploadInspection
-	err        error
-}
-
-func inspectRemoteCandidates(
-	ctx context.Context,
-	client *airplan.Client,
-	uploads []airplan.RemoteUpload,
-) []remoteInspectionResult {
-	const workers = 8
-	type job struct {
-		index  int
-		upload airplan.RemoteUpload
-	}
-
-	jobs := make(chan job)
-	results := make(chan remoteInspectionResult, len(uploads))
-	workerCount := min(workers, len(uploads))
-	var wg sync.WaitGroup
-	for range workerCount {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for job := range jobs {
-				inspection, err := client.InspectUpload(ctx, job.upload.MarkerKey)
-				results <- remoteInspectionResult{
-					index: job.index, upload: job.upload,
-					inspection: inspection, err: err,
-				}
-			}
-		}()
-	}
-	go func() {
-		for index, upload := range uploads {
-			jobs <- job{index: index, upload: upload}
-		}
-		close(jobs)
-		wg.Wait()
-		close(results)
-	}()
-
-	out := make([]remoteInspectionResult, 0, len(uploads))
-	for result := range results {
-		out = append(out, result)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].index < out[j].index })
-	return out
 }
 
 func remotePurgeRecords(

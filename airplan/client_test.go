@@ -356,6 +356,65 @@ func TestUploadTextInput(t *testing.T) {
 	}
 }
 
+func TestUploadPersistsRepositoryForEveryFormat(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		filename string
+		body     string
+	}{
+		{name: "markdown", filename: "plan.md", body: "# Plan\n"},
+		{name: "text", filename: "plan.txt", body: "Plan\n"},
+		{name: "HTML", filename: "plan.html", body: "<html><head></head></html>"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var markerBody []byte
+			server := httptest.NewServer(http.HandlerFunc(
+				func(w http.ResponseWriter, r *http.Request) {
+					body, _ := io.ReadAll(r.Body)
+					if strings.HasSuffix(r.URL.Path, "/"+MarkerFilename) {
+						markerBody = body
+					}
+					w.WriteHeader(http.StatusOK)
+				},
+			))
+			t.Cleanup(server.Close)
+			manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+			client, err := New(context.Background(), &Config{
+				Endpoint: server.URL, Bucket: "plans", AccessKeyID: "test",
+				SecretAccessKey: "test", ManifestPath: manifest,
+				PublicBaseURL: "https://plans.example.com",
+				Repository:    "git@github.com:Acme/Repo.git",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			res, err := client.Upload(context.Background(), Input{
+				Reader: strings.NewReader(test.body), Name: test.filename,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			dirPrefix, _ := uploadDirPrefix(res.Key)
+			dir := strings.TrimSuffix(dirPrefix, "/")
+			dir = dir[strings.LastIndex(dir, "/")+1:]
+			marker, err := DecodeUploadMarker(markerBody, dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if marker.Repo != "https://github.com/Acme/Repo" ||
+				res.RepositoryURL != marker.Repo {
+				t.Fatalf("result = %+v, marker = %+v", res, marker)
+			}
+			records, _, err := ReadManifest(manifest)
+			if err != nil || len(records) != 1 || records[0].Repo != marker.Repo ||
+				records[0].Format != marker.Format ||
+				records[0].MarkerKey != res.MarkerKey {
+				t.Fatalf("records = %+v, error = %v", records, err)
+			}
+		})
+	}
+}
+
 func TestUploadFailureStopsPipelineAndManifest(t *testing.T) {
 	t.Setenv("AWS_MAX_ATTEMPTS", "1")
 

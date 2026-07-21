@@ -177,7 +177,7 @@ func printUploadTable(
 			profile = "<root>"
 		}
 		state := "legacy"
-		if upload.MarkerVersion == airplan.MarkerVersion {
+		if airplan.IsSupportedMarkerVersion(upload.MarkerVersion) {
 			state = "managed"
 		}
 

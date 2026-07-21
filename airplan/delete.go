@@ -152,14 +152,26 @@ func (c *Client) recordDelete(ctx context.Context, res *DeleteResult) {
 	}
 
 	rec := ManifestRecord{
-		Type: "delete",
-		Time: time.Now().UTC().Truncate(time.Second),
-		Key:  res.PageKey,
+		Type:      "delete",
+		Time:      time.Now().UTC().Truncate(time.Second),
+		Key:       res.PageKey,
+		MarkerKey: markerKeyForPage(res.PageKey),
+		Bucket:    c.cfg.Bucket,
+		Profile:   c.cfg.Profile,
+		Reason:    "deleted",
 	}
 	if err := appendManifestRecord(ctx, path, rec); err != nil {
 		res.Warnings = append(res.Warnings,
 			"tombstone not recorded: "+err.Error())
 	}
+}
+
+func markerKeyForPage(pageKey string) string {
+	dirPrefix, err := uploadDirPrefix(pageKey)
+	if err != nil {
+		return ""
+	}
+	return dirPrefix + MarkerFilename
 }
 
 // ensureGonePageKey returns the exact active local upload matching dirPrefix.

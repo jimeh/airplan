@@ -134,7 +134,7 @@ func TestDeleteProfileFlagOverridesManifestInference(t *testing.T) {
 	}
 }
 
-func TestDeleteAmbiguousManifestRecordsFallBackToConfigResolution(t *testing.T) {
+func TestDeleteDuplicateManifestRecordsUseLatestProfile(t *testing.T) {
 	isolateEnv(t)
 	stateHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
@@ -144,8 +144,8 @@ func TestDeleteAmbiguousManifestRecordsFallBackToConfigResolution(t *testing.T) 
 			deleteManifestLine(deleteDirA, "jimeh"))
 
 	profile, inferred := deleteProfile(deleteDirA+"/plan.html", "")
-	if profile != "" || inferred {
-		t.Fatalf("deleteProfile = %q, %v; want normal config resolution",
+	if profile != "jimeh" || !inferred {
+		t.Fatalf("deleteProfile = %q, %v; want latest profile",
 			profile, inferred)
 	}
 }
@@ -387,7 +387,7 @@ func (f *fakeDeleteS3) handleMarker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
-		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Schema: airplan.MarkerSchema, Version: 1,
 		Directory: dir, CreatedAt: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC),
 		Format: "html", Page: page,
 	})

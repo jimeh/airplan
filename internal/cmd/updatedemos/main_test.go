@@ -73,7 +73,7 @@ func TestUploadDirectoryURL(t *testing.T) {
 func TestAirplanFetcherUsesRealGetUploadSelection(t *testing.T) {
 	dir := "abcdefghijklmnopqrstuvwxyz"
 	marker, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
-		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Schema: airplan.MarkerSchema, Version: 1,
 		Directory: dir,
 		CreatedAt: time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC),
 		Format:    "md", Page: "example.html", Source: "example.md",

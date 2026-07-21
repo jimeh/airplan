@@ -17,7 +17,7 @@ import (
 func TestShowCommandHumanAndJSON(t *testing.T) {
 	createdAt := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)
 	body, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
-		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Schema: airplan.MarkerSchema, Version: 1,
 		Directory: deleteDirA, CreatedAt: createdAt, Format: "html",
 		Page: "plan.html", Title: "Remote plan",
 	})
@@ -83,7 +83,7 @@ func TestShowCommandWarnsForFallbackPublicURL(t *testing.T) {
 	isolateEnv(t)
 	createdAt := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)
 	body, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
-		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Schema: airplan.MarkerSchema, Version: 1,
 		Directory: deleteDirA, CreatedAt: createdAt, Format: "html",
 		Page: "plan.html",
 	})
@@ -113,7 +113,7 @@ func TestShowCommandWarnsForFallbackPublicURL(t *testing.T) {
 func TestShowCommandIncompleteAndInvalidStates(t *testing.T) {
 	when := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)
 	incomplete, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
-		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Schema: airplan.MarkerSchema, Version: 1,
 		Directory: deleteDirA, CreatedAt: when, Format: "md",
 		Page: "missing.html", Source: "missing.md", Title: "Partial",
 	})

@@ -14,7 +14,7 @@ func TestInspectUploadStates(t *testing.T) {
 	dir := "abcdefghijklmnopqrstuvwxyz"
 	createdAt := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)
 	markerBody, err := EncodeUploadMarker(UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		Schema: MarkerSchema, Version: 1, Directory: dir,
 		CreatedAt: createdAt, Format: "md", Page: "plan.html",
 		Source: "plan.md", Title: "Plan",
 	})
@@ -121,7 +121,7 @@ func TestInspectUploadRequestFailures(t *testing.T) {
 func TestInspectUploadWarnsForFallbackPublicURL(t *testing.T) {
 	dir := "abcdefghijklmnopqrstuvwxyz"
 	markerBody, err := EncodeUploadMarker(UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		Schema: MarkerSchema, Version: 1, Directory: dir,
 		CreatedAt: time.Now().UTC(), Format: "html", Page: "plan.html",
 	})
 	if err != nil {

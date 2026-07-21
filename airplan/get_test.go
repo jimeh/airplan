@@ -178,7 +178,7 @@ func TestGetUploadMarkerAndObjectFailures(t *testing.T) {
 func getTestMarker(t *testing.T, dir, source string) []byte {
 	t.Helper()
 	body, err := EncodeUploadMarker(UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		Schema: MarkerSchema, Version: 1, Directory: dir,
 		CreatedAt: time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC),
 		Format:    "md", Page: "plan.html", Source: source, Title: "Plan",
 	})

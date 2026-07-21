@@ -142,7 +142,7 @@ airplan works with any S3-compatible object store. You need a bucket, a public
 base URL, and API credentials with the permissions required by the commands you
 use. Uploads need object-write access. Remote listing and all delete or purge
 operations need bucket-list access; deletion also needs object-delete access.
-Object-read access powers `show` and `get`.
+Object-read access powers `show`, `get`, remote purge inspection, and `sync`.
 
 Create `~/.config/airplan/config.toml`:
 
@@ -220,12 +220,13 @@ airplan preview --output plan.html plan.md
 ### Manage uploads
 
 ```sh
-airplan list                     # uploads recorded on this machine
+airplan list                     # uploads known to the local manifest
 airplan list --remote            # airplan uploads currently in the bucket
 airplan show <url-or-key>         # validate and inspect one remote upload
 airplan get [--source] <url-or-key>  # raw page or source bytes
 airplan delete <url-or-key>      # delete one upload
 airplan purge --older-than 30d   # review and delete older uploads
+airplan sync                     # reconcile remote uploads into local history
 ```
 
 Each successful upload is recorded in
@@ -235,6 +236,21 @@ machines. Remote discovery recognizes exact `.airplan.json` ownership markers
 with one bucket listing; it does not fetch each marker. Markerless directories
 are invisible to airplan and cannot be fetched, deleted, or purged through it.
 Use `airplan show` when you need validated marker details and completeness state.
+
+`airplan sync` imports complete marker-managed uploads made from other machines
+into the receiving machine's manifest. It also tombstones local records whose
+markers are confirmed absent remotely; `--no-prune` makes the operation
+additive-only and `--dry-run` previews it. Sync verifies apparent absences with
+a targeted request instead of trusting a bucket listing alone. `--concurrency`
+controls concurrent marker requests (default 8, range 1-64). It converges the
+active remote inventory, not the historical JSONL event stream; deletion
+history is not uploaded.
+
+New uploads use ownership marker version 2, which includes the rendered page
+size plus optional canonical repository metadata. Current airplan releases can
+still manage version 1 markers; older clients must be upgraded before they can
+manage version 2 uploads. Repository metadata is stored remotely for every
+input format when `--repo` supplies or discovers a repository.
 
 ## Pages airplan creates
 
@@ -438,7 +454,10 @@ while it remains unknown, but it is not access-controlled:
 - Bucket listing must remain private.
 
 Use `airplan purge --older-than 30d --yes` manually or from cron when uploads
-should expire. For defense in depth on Cloudflare, a Transform Rule can add an
+should expire. For large remote inventories, `purge --remote --concurrency N`
+changes only parallel marker inspection (default 8, range 1-64); destructive
+deletions stay sequential after confirmation. For defense in depth on
+Cloudflare, a Transform Rule can add an
 `X-Robots-Tag: noindex` response header to the custom domain.
 
 ## Go library

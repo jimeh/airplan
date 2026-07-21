@@ -5,6 +5,7 @@ package airplan
 import (
 	"context"
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +49,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		AccessKeyID:     minioC.Username,
 		SecretAccessKey: minioC.Password,
 		DisableManifest: true,
+		Repository:      "https://github.com/jimeh/airplan",
 	}
 
 	st, err := newStorage(ctx, cfg)
@@ -143,7 +145,9 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	}
 	if marker.Page != "integration-plan.html" ||
 		marker.Source != "integration-plan.md" ||
-		marker.Title != "Integration Plan" || marker.Format != "md" {
+		marker.Title != "Integration Plan" || marker.Format != "md" ||
+		marker.PageBytes != int64(len(page.body)) ||
+		marker.Repo != "https://github.com/jimeh/airplan" {
 		t.Fatalf("uploaded marker = %+v", marker)
 	}
 
@@ -170,7 +174,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
 
 	partialDir := "bbbbbbbbbbbbbbbbbbbbbbbbbb"
 	partialMarker, err := EncodeUploadMarker(UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion,
+		Schema: MarkerSchema, Version: 1,
 		Directory: partialDir,
 		CreatedAt: time.Now().UTC().Truncate(time.Second),
 		Format:    "md",
@@ -235,6 +239,20 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	}
 	getObject(ctx, t, st, invalidDir+"/"+MarkerFilename)
 
+	syncCfg := *cfg
+	syncCfg.DisableManifest = false
+	syncCfg.ManifestPath = filepath.Join(t.TempDir(), "manifest.jsonl")
+	syncCfg.Profile = "receiver"
+	syncClient, err := New(ctx, &syncCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	synced, err := syncClient.SyncManifest(ctx, SyncManifestOptions{Prune: true})
+	if err != nil || len(synced.Added) != 1 || synced.Incomplete != 1 ||
+		synced.Invalid != 1 {
+		t.Fatalf("initial sync = %+v, %v", synced, err)
+	}
+
 	deleted, err := client.DeleteUpload(ctx, res.URL)
 	if err != nil {
 		t.Fatal(err)
@@ -248,6 +266,28 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	}
 	if len(objects) != 0 {
 		t.Fatalf("objects remain after delete: %+v", objects)
+	}
+	synced, err = syncClient.SyncManifest(ctx, SyncManifestOptions{Prune: true})
+	if err != nil || len(synced.Tombstoned) != 1 {
+		t.Fatalf("deletion sync = %+v, %v", synced, err)
+	}
+	putIntegrationObject(ctx, t, st, object{
+		Key: markerKey, Body: markerObject.body,
+		ContentType: markerContentType,
+	})
+	putIntegrationObject(ctx, t, st, object{
+		Key: res.SourceKey, Body: source.body,
+		ContentType: sourceContentType,
+	})
+	putIntegrationObject(ctx, t, st, object{
+		Key: res.Key, Body: page.body, ContentType: pageContentType,
+	})
+	synced, err = syncClient.SyncManifest(ctx, SyncManifestOptions{Prune: true})
+	if err != nil || len(synced.Added) != 1 {
+		t.Fatalf("restoration sync = %+v, %v", synced, err)
+	}
+	if _, err := client.DeleteUpload(ctx, res.Key); err != nil {
+		t.Fatal(err)
 	}
 	if _, err := client.DeleteUpload(ctx, partialDir); err != nil {
 		t.Fatal(err)

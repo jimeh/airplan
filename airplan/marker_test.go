@@ -19,8 +19,10 @@ func TestUploadMarkerRoundTrip(t *testing.T) {
 		CreatedAt: createdAt,
 		Format:    "md",
 		Page:      "launch-plan.html",
+		PageBytes: 1234,
 		Source:    "launch-plan.md",
 		Title:     "Launch plan",
+		Repo:      "https://github.com/acme/airplan",
 	}
 
 	body, err := EncodeUploadMarker(marker)
@@ -66,7 +68,7 @@ func TestDecodeUploadMarkerValidation(t *testing.T) {
 		},
 		{
 			name: "unsupported version",
-			body: strings.Replace(valid, `"version":1`, `"version":2`, 1),
+			body: strings.Replace(valid, `"version":1`, `"version":3`, 1),
 			dir:  dir, code: MarkerErrorUnsupportedVersion,
 		},
 		{
@@ -144,6 +146,66 @@ func TestDecodeUploadMarkerSizeAndUTF8(t *testing.T) {
 	assertMarkerCode(t, err, MarkerErrorMalformedJSON)
 }
 
+func TestUploadMarkerV2RequiresPortableMetadata(t *testing.T) {
+	dir := "abcdefghijklmnopqrstuvwxyz"
+	base := UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: time.Date(2026, 7, 21, 9, 0, 0, 0, time.UTC),
+		Format:    "html", Page: "plan.html", PageBytes: 10,
+	}
+	for _, mutate := range []func(*UploadMarker){
+		func(marker *UploadMarker) { marker.PageBytes = 0 },
+		func(marker *UploadMarker) { marker.PageBytes = -1 },
+		func(marker *UploadMarker) { marker.Repo = "git@github.com:acme/repo.git" },
+		func(marker *UploadMarker) { marker.Repo = "auto" },
+	} {
+		marker := base
+		mutate(&marker)
+		if _, err := EncodeUploadMarker(marker); err == nil {
+			t.Fatalf("EncodeUploadMarker(%+v) succeeded", marker)
+		}
+	}
+
+	v1 := base
+	v1.Version = 1
+	v1.PageBytes = 0
+	if _, err := EncodeUploadMarker(v1); err != nil {
+		t.Fatalf("version 1 compatibility: %v", err)
+	}
+}
+
+func TestDecodeUploadMarkerV1IgnoresV2ExtensionFields(t *testing.T) {
+	dir := "abcdefghijklmnopqrstuvwxyz"
+	body := []byte(`{"schema":"airplan-upload","version":1,` +
+		`"directory":"abcdefghijklmnopqrstuvwxyz",` +
+		`"created_at":"2026-07-21T09:00:00Z","format":"html",` +
+		`"page":"plan.html","page_bytes":{"future":true},` +
+		`"repo":["future","metadata"]}`)
+
+	marker, err := DecodeUploadMarker(body, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marker.PageBytes != 0 || marker.Repo != "" {
+		t.Fatalf("v1 extension fields were retained: %+v", marker)
+	}
+
+	validV2 := `{"schema":"airplan-upload","version":2,` +
+		`"directory":"abcdefghijklmnopqrstuvwxyz",` +
+		`"created_at":"2026-07-21T09:00:00Z","format":"html",` +
+		`"page":"plan.html","page_bytes":42,` +
+		`"repo":"https://github.com/acme/repo"}`
+	for _, invalidV2 := range []string{
+		strings.Replace(validV2, `"page_bytes":42`,
+			`"page_bytes":{"future":true}`, 1),
+		strings.Replace(validV2, `"repo":"https://github.com/acme/repo"`,
+			`"repo":["future","metadata"]`, 1),
+	} {
+		_, err := DecodeUploadMarker([]byte(invalidV2), dir)
+		assertMarkerCode(t, err, MarkerErrorInvalidFields)
+	}
+}
+
 func TestUploadMarkerFormatFilenames(t *testing.T) {
 	t.Parallel()
 
@@ -154,6 +216,7 @@ func TestUploadMarkerFormatFilenames(t *testing.T) {
 		Directory: dir,
 		CreatedAt: time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC),
 		Page:      "plan.html",
+		PageBytes: 1,
 	}
 
 	tests := []struct {

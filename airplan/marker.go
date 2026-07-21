@@ -17,8 +17,14 @@ const MarkerFilename = ".airplan.json"
 // MarkerSchema identifies airplan upload markers (SPEC.md §5).
 const MarkerSchema = "airplan-upload"
 
-// MarkerVersion is the only marker version defined by this spec.
-const MarkerVersion = 1
+// MarkerVersion is the latest ownership marker version written by airplan.
+const MarkerVersion = 2
+
+// IsSupportedMarkerVersion reports whether version can be safely managed by
+// this airplan release.
+func IsSupportedMarkerVersion(version int) bool {
+	return version == 1 || version == MarkerVersion
+}
 
 // MaxMarkerSize is the maximum accepted marker body size.
 const MaxMarkerSize = 64 * 1024
@@ -66,19 +72,25 @@ type UploadMarker struct {
 	CreatedAt time.Time `json:"created_at"`
 	Format    string    `json:"format"`
 	Page      string    `json:"page"`
-	Source    string    `json:"source,omitempty"`
-	Title     string    `json:"title,omitempty"`
+	// PageBytes is required and positive for marker v2; v1 leaves it zero.
+	PageBytes int64  `json:"page_bytes,omitempty"`
+	Source    string `json:"source,omitempty"`
+	Title     string `json:"title,omitempty"`
+	// Repo is an optional canonical HTTPS repository URL in marker v2.
+	Repo string `json:"repo,omitempty"`
 }
 
 type markerWire struct {
-	Schema    *string `json:"schema"`
-	Version   *int    `json:"version"`
-	Directory *string `json:"directory"`
-	CreatedAt *string `json:"created_at"`
-	Format    *string `json:"format"`
-	Page      *string `json:"page"`
-	Source    *string `json:"source"`
-	Title     *string `json:"title"`
+	Schema    *string         `json:"schema"`
+	Version   *int            `json:"version"`
+	Directory *string         `json:"directory"`
+	CreatedAt *string         `json:"created_at"`
+	Format    *string         `json:"format"`
+	Page      *string         `json:"page"`
+	PageBytes json.RawMessage `json:"page_bytes"`
+	Source    *string         `json:"source"`
+	Title     *string         `json:"title"`
+	Repo      json.RawMessage `json:"repo"`
 }
 
 // EncodeUploadMarker validates and encodes marker as UTF-8 JSON.
@@ -121,7 +133,7 @@ func DecodeUploadMarker(data []byte, expectedDir string) (*UploadMarker, error) 
 		return nil, markerInvalid(MarkerErrorInvalidFields,
 			errors.New("missing required field version"))
 	}
-	if *wire.Version != MarkerVersion {
+	if !IsSupportedMarkerVersion(*wire.Version) {
 		return nil, markerInvalid(MarkerErrorUnsupportedVersion,
 			fmt.Errorf("version %d is unsupported", *wire.Version))
 	}
@@ -156,6 +168,20 @@ func DecodeUploadMarker(data []byte, expectedDir string) (*UploadMarker, error) 
 	if wire.Title != nil {
 		marker.Title = *wire.Title
 	}
+	if marker.Version == MarkerVersion {
+		if len(wire.PageBytes) > 0 {
+			if err := json.Unmarshal(wire.PageBytes, &marker.PageBytes); err != nil {
+				return nil, markerInvalid(MarkerErrorInvalidFields,
+					fmt.Errorf("page_bytes is not an integer: %w", err))
+			}
+		}
+		if len(wire.Repo) > 0 {
+			if err := json.Unmarshal(wire.Repo, &marker.Repo); err != nil {
+				return nil, markerInvalid(MarkerErrorInvalidFields,
+					fmt.Errorf("repo is not a string: %w", err))
+			}
+		}
+	}
 	if err := validateUploadMarker(marker, expectedDir); err != nil {
 		return nil, err
 	}
@@ -167,6 +193,10 @@ func DecodeUploadMarker(data []byte, expectedDir string) (*UploadMarker, error) 
 		return nil, markerInvalid(MarkerErrorInvalidFields,
 			errors.New("title must be omitted when empty"))
 	}
+	if marker.Version == MarkerVersion && len(wire.Repo) > 0 && marker.Repo == "" {
+		return nil, markerInvalid(MarkerErrorInvalidFields,
+			errors.New("repo must be omitted when empty"))
+	}
 	return marker, nil
 }
 
@@ -177,7 +207,7 @@ func validateUploadMarker(marker *UploadMarker, expectedDir string) error {
 	if marker.Schema != MarkerSchema {
 		return invalid("schema must be %q", MarkerSchema)
 	}
-	if marker.Version != MarkerVersion {
+	if !IsSupportedMarkerVersion(marker.Version) {
 		return markerInvalid(MarkerErrorUnsupportedVersion,
 			fmt.Errorf("version %d is unsupported", marker.Version))
 	}
@@ -187,6 +217,20 @@ func validateUploadMarker(marker *UploadMarker, expectedDir string) error {
 	}
 	if marker.CreatedAt.IsZero() {
 		return invalid("created_at is required")
+	}
+	if marker.Version == 1 {
+		if marker.PageBytes != 0 || marker.Repo != "" {
+			return invalid("version 1 must not declare page_bytes or repo")
+		}
+	} else if marker.PageBytes <= 0 {
+		return invalid("page_bytes must be positive")
+	}
+	if marker.Repo != "" {
+		canonical, err := NormalizeRepositoryURL(marker.Repo)
+		if err != nil || canonical != marker.Repo {
+			return invalid("repo %q is not a canonical repository URL",
+				marker.Repo)
+		}
 	}
 	_, offset := marker.CreatedAt.Zone()
 	if offset != 0 {

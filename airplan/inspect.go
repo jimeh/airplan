@@ -37,8 +37,12 @@ type UploadInspection struct {
 	CreatedAt time.Time
 	Format    string
 	Title     string
-	Page      *InspectedObject
-	Source    *InspectedObject
+	// Repo is the canonical repository URL declared by marker v2, or empty.
+	Repo string
+	// MarkerVersion is the validated ownership marker version.
+	MarkerVersion int
+	Page          *InspectedObject
+	Source        *InspectedObject
 	// Warnings contains non-fatal URL assembly caveats for callers to report.
 	Warnings []string
 
@@ -84,28 +88,57 @@ func (c *Client) InspectUpload(
 		return nil, err
 	}
 
-	inspection := &UploadInspection{
+	return c.inspectUploadSnapshot(ctx, RemoteUpload{
 		Dir:       dir,
 		MarkerKey: markerKey,
 		Objects:   len(objects),
-	}
+		objects:   byObjectKey(objects),
+	}, markerBody)
+}
+
+func byObjectKey(objects []objectInfo) map[string]objectInfo {
 	byKey := make(map[string]objectInfo, len(objects))
-	markerListed := false
 	for _, object := range objects {
-		inspection.Bytes += object.Size
 		byKey[object.Key] = object
-		if object.Key == markerKey {
+	}
+	return byKey
+}
+
+func (c *Client) inspectListedUpload(
+	ctx context.Context, upload RemoteUpload,
+) (*UploadInspection, error) {
+	markerBody, err := c.st.getBytes(ctx, upload.MarkerKey, MaxMarkerSize)
+	if err != nil {
+		if errors.Is(err, errObjectNotFound) {
+			return nil, fmt.Errorf("airplan: ownership marker %q is missing",
+				upload.MarkerKey)
+		}
+		return nil, err
+	}
+	return c.inspectUploadSnapshot(ctx, upload, markerBody)
+}
+
+func (c *Client) inspectUploadSnapshot(
+	_ context.Context, upload RemoteUpload, markerBody []byte,
+) (*UploadInspection, error) {
+	inspection := &UploadInspection{
+		Dir: upload.Dir, MarkerKey: upload.MarkerKey,
+		Objects: len(upload.objects),
+	}
+	byKey := upload.objects
+	markerListed := false
+	for _, object := range byKey {
+		inspection.Bytes += object.Size
+		if object.Key == upload.MarkerKey {
 			markerListed = true
 		}
 	}
-	// Reconcile an immediately-created marker that was fetched but did not
-	// appear in the preceding directory listing.
 	if !markerListed {
 		inspection.Objects++
 		inspection.Bytes += int64(len(markerBody))
 	}
 
-	marker, err := DecodeUploadMarker(markerBody, dir)
+	marker, err := DecodeUploadMarker(markerBody, upload.Dir)
 	if err != nil {
 		code, ok := MarkerCode(err)
 		if !ok {
@@ -115,14 +148,14 @@ func (c *Client) InspectUpload(
 		inspection.Error = code
 		return inspection, nil
 	}
-
 	inspection.CreatedAt = marker.CreatedAt
 	inspection.Format = marker.Format
 	inspection.Title = marker.Title
+	inspection.Repo = marker.Repo
+	inspection.MarkerVersion = marker.Version
+	dirPrefix := strings.TrimSuffix(upload.MarkerKey, MarkerFilename)
 	var fallback bool
-	inspection.Page, fallback = c.inspectedObject(
-		dirPrefix+marker.Page, byKey,
-	)
+	inspection.Page, fallback = c.inspectedObject(dirPrefix+marker.Page, byKey)
 	if marker.Source != "" {
 		var sourceFallback bool
 		inspection.Source, sourceFallback = c.inspectedObject(
@@ -131,13 +164,14 @@ func (c *Client) InspectUpload(
 		fallback = fallback || sourceFallback
 	}
 	if fallback {
-		inspection.Warnings = append(
-			inspection.Warnings, publicURLFallbackWarning,
-		)
+		inspection.Warnings = append(inspection.Warnings,
+			publicURLFallbackWarning)
 	}
 	inspection.State = UploadComplete
 	if !inspection.Page.Exists ||
-		(inspection.Source != nil && !inspection.Source.Exists) {
+		(inspection.Source != nil && !inspection.Source.Exists) ||
+		(marker.Version == MarkerVersion &&
+			inspection.Page.Bytes != marker.PageBytes) {
 		inspection.State = UploadIncomplete
 	}
 	return inspection, nil
