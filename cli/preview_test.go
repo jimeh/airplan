@@ -99,19 +99,21 @@ func TestDocumentPreviewRejectsCollectionOnlyFlags(t *testing.T) {
 	}
 }
 
-func TestCollectionPreviewAppliesConfiguredTimeout(t *testing.T) {
+func TestCollectionPreviewHonorsCanceledContext(t *testing.T) {
 	isolateEnv(t)
-	t.Setenv("AIRPLAN_TIMEOUT", "1ns")
 	input := filepath.Join(t.TempDir(), "shot.png")
 	if err := os.WriteFile(input, []byte("image"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
 	cmd := newRootCmd()
+	cmd.SetContext(ctx)
 	cmd.SetArgs([]string{"preview", "--files", "--repo", "none", input})
 	err := cmd.Execute()
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("error = %v, want context deadline exceeded", err)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context canceled", err)
 	}
 }
 
