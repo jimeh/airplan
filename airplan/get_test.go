@@ -133,6 +133,45 @@ func TestGetUploadRejectsSourceWhenMarkerDeclaresNone(t *testing.T) {
 	}
 }
 
+func TestGetUploadCollectionMemberMayLookLikeRandomDirectory(t *testing.T) {
+	dir := "abcdefghijklmnopqrstuvwxyz"
+	member := strings.Repeat("a", 26)
+	marker, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: time.Now().UTC(), Kind: UploadKindCollection,
+		Objects: []MarkerObject{
+			{
+				Name: "index.html", Role: MarkerRolePage, Bytes: 4,
+				ContentType: pageContentType,
+			},
+			{
+				Name: member, Role: MarkerRoleFile, Bytes: 5,
+				ContentType: "application/octet-stream",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := map[string][]byte{
+		dir + "/" + CollectionMarkerFilename: marker,
+		dir + "/index.html":                  []byte("page"),
+		dir + "/" + member:                   []byte("bytes"),
+	}
+	server := newGetServer(t, objects)
+	client := newInspectTestClient(t, server.URL)
+
+	got, err := client.GetUpload(
+		context.Background(), dir+"/"+member, GetOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Key != dir+"/"+member || string(got.Body) != "bytes" {
+		t.Fatalf("result = %+v", got)
+	}
+}
+
 func TestGetUploadMarkerAndObjectFailures(t *testing.T) {
 	t.Setenv("AWS_MAX_ATTEMPTS", "1")
 	dir := "abcdefghijklmnopqrstuvwxyz"

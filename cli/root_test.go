@@ -234,6 +234,19 @@ func TestRootCollectionRejectsDocumentFlagsBeforeUpload(t *testing.T) {
 	}
 }
 
+func TestOpenCollectionInputsRejectsInvalidListBeforeOpening(t *testing.T) {
+	if _, _, err := openCollectionInputs([]string{"missing", "-"}); err == nil || !strings.Contains(err.Error(), "named files") {
+		t.Fatalf("dash error = %v", err)
+	}
+	tooMany := make([]string, airplan.MaxCollectionFiles+1)
+	for i := range tooMany {
+		tooMany[i] = "missing"
+	}
+	if _, _, err := openCollectionInputs(tooMany); err == nil || !strings.Contains(err.Error(), "maximum") {
+		t.Fatalf("limit error = %v", err)
+	}
+}
+
 func TestRootURLOutputWithoutJSON(t *testing.T) {
 	fake := newFakeS3(t)
 	stdout, stderr, err := executeRoot(t, fake,

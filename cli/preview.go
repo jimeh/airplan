@@ -188,8 +188,17 @@ func runPreview(
 }
 
 func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOptions) error {
-	if len(args) == 0 || (len(args) == 1 && args[0] == "-") {
+	if len(args) == 0 {
 		return errors.New("--files requires one or more named files")
+	}
+	if len(args) > airplan.MaxCollectionFiles {
+		return fmt.Errorf("collection has %d files; maximum is %d",
+			len(args), airplan.MaxCollectionFiles)
+	}
+	for _, name := range args {
+		if name == "-" {
+			return errors.New("--files requires one or more named files")
+		}
 	}
 	for _, name := range []string{"format", "lang", "slug", "template", "no-external-assets", "mermaid-url"} {
 		if cmd.Flags().Changed(name) {
@@ -198,7 +207,8 @@ func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOption
 	}
 	maxSize, err := airplan.ParseSize(opts.maxSize)
 	if err != nil {
-		return err
+		return fmt.Errorf("--max-size: %s",
+			strings.TrimPrefix(err.Error(), "airplan: "))
 	}
 	if !cmd.Flags().Changed("max-size") {
 		maxSize = airplan.DefaultMaxCollectionFileSize
@@ -208,7 +218,8 @@ func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOption
 	}
 	maxTotal, err := airplan.ParseSize(opts.maxTotalSize)
 	if err != nil {
-		return err
+		return fmt.Errorf("--max-total-size: %s",
+			strings.TrimPrefix(err.Error(), "airplan: "))
 	}
 	if maxTotal == 0 {
 		maxTotal = -1
@@ -226,13 +237,6 @@ func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOption
 	}
 	ctx, cancel := timeoutContext(cmd.Context(), cfg)
 	defer cancel()
-	inputs := make([]airplan.FileInput, 0, len(args))
-	closers := make([]*os.File, 0, len(args))
-	defer func() {
-		for _, f := range closers {
-			_ = f.Close()
-		}
-	}()
 	for _, path := range args {
 		if opts.output != "" && opts.output != "-" {
 			same, e := samePreviewPath(path, opts.output)
@@ -243,20 +247,16 @@ func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOption
 				return errors.New("--output must not overwrite a preview input")
 			}
 		}
-		info, e := os.Stat(path)
-		if e != nil {
-			return e
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("collection input %q is not a regular file", path)
-		}
-		f, e := os.Open(path)
-		if e != nil {
-			return e
-		}
-		closers = append(closers, f)
-		inputs = append(inputs, airplan.FileInput{Name: path, Reader: f, Size: info.Size()})
 	}
+	inputs, closers, err := openCollectionInputs(args)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		for _, file := range closers {
+			_ = file.Close()
+		}
+	}()
 	body, _, err := airplan.RenderCollection(ctx, airplan.FilesInput{Files: inputs, Title: opts.title, MaxSize: maxSize, MaxTotalSize: maxTotal}, airplan.CollectionRenderOptions{Indexable: cfg.Indexable, TemplatePath: cfg.CollectionTemplate, Repository: cfg.Repository})
 	if err != nil {
 		return err

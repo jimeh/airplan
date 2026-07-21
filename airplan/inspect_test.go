@@ -36,6 +36,7 @@ func TestInspectUploadStates(t *testing.T) {
 				{Key: dir + "/plan.html", Size: 20},
 				{Key: dir + "/plan.md", Size: 5},
 				{Key: dir + "/deep/extra", Size: 7},
+				{Key: dir + "/archive/" + CollectionMarkerFilename, Size: 3},
 			},
 			wantState: UploadComplete,
 		},
@@ -85,7 +86,32 @@ func TestInspectUploadStates(t *testing.T) {
 				(tt.wantState == UploadComplete) {
 				t.Fatalf("source = %+v", got.Source)
 			}
+			if got.Source.ExpectedKnown {
+				t.Fatalf("legacy source size marked known: %+v", got.Source)
+			}
 		})
+	}
+}
+
+func TestInspectUploadConflictReportsDeterministicOccupancy(t *testing.T) {
+	dir := "abcdefghijklmnopqrstuvwxyz"
+	objects := []objectInfo{
+		{Key: dir + "/" + CollectionMarkerFilename, Size: 11},
+		{Key: dir + "/" + MarkerFilename, Size: 7},
+		{Key: dir + "/index.html", Size: 13},
+	}
+	server := newInspectServer(t, dir, nil, objects, http.StatusOK)
+	got, err := newInspectTestClient(t, server.URL).InspectUpload(
+		context.Background(), dir,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != UploadInvalid ||
+		got.Error != MarkerErrorConflictingMarkers ||
+		got.MarkerKey != dir+"/"+MarkerFilename ||
+		got.Objects != 3 || got.Bytes != 31 {
+		t.Fatalf("inspection = %+v", got)
 	}
 }
 

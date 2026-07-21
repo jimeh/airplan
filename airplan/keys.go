@@ -118,17 +118,12 @@ func baseURLMatches(base string, u *url.URL) bool {
 // key and, when a key_prefix is configured, that it falls under it.
 func validateTarget(cfg *Config, key string) (string, error) {
 	key = strings.Trim(key, "/")
-	if _, err := uploadDirPrefix(key); err != nil {
-		return "", err
+	keyPrefix := ""
+	if cfg != nil {
+		keyPrefix = cfg.KeyPrefix
 	}
-
-	if cfg != nil && cfg.KeyPrefix != "" {
-		prefix := strings.Trim(cfg.KeyPrefix, "/") + "/"
-		if !strings.HasPrefix(key, prefix) {
-			return "", fmt.Errorf(
-				"airplan: %q is outside the configured key_prefix %q — "+
-					"refusing to touch it", key, cfg.KeyPrefix)
-		}
+	if _, err := uploadDirPrefixForKeyPrefix(key, keyPrefix); err != nil {
+		return "", err
 	}
 	return key, nil
 }
@@ -137,23 +132,56 @@ func validateTarget(cfg *Config, key string) (string, error) {
 // beneath keyPrefix. It distinguishes root uploads from uploads under another
 // configured prefix (SPEC.md §9).
 func KeyMatchesPrefix(key, keyPrefix string) bool {
-	dirPrefix, err := uploadDirPrefix(strings.Trim(key, "/"))
-	if err != nil {
-		return false
+	key = strings.Trim(key, "/")
+	prefix := strings.Trim(keyPrefix, "/")
+	rest := key
+	if prefix != "" {
+		prefixWithSlash := prefix + "/"
+		if !strings.HasPrefix(key, prefixWithSlash) {
+			return false
+		}
+		rest = strings.TrimPrefix(key, prefixWithSlash)
 	}
-	dirSegments := strings.Split(strings.TrimSuffix(dirPrefix, "/"), "/")
-	if len(dirSegments) == 0 {
-		return false
+	segment, _, _ := strings.Cut(rest, "/")
+	return isRandomDir(segment)
+}
+
+// uploadDirPrefixForKeyPrefix returns the upload directory when the configured
+// key prefix is known. The random directory is always the first segment below
+// keyPrefix, so a collection member whose basename also looks random remains
+// unambiguous.
+func uploadDirPrefixForKeyPrefix(key, keyPrefix string) (string, error) {
+	key = strings.Trim(key, "/")
+	prefix := strings.Trim(keyPrefix, "/")
+	rest := key
+	if prefix != "" {
+		prefixWithSlash := prefix + "/"
+		if !strings.HasPrefix(key, prefixWithSlash) {
+			return "", fmt.Errorf(
+				"airplan: %q is outside the configured key_prefix %q — "+
+					"refusing to touch it", key, keyPrefix)
+		}
+		rest = strings.TrimPrefix(key, prefixWithSlash)
 	}
-	actualPrefix := strings.Join(dirSegments[:len(dirSegments)-1], "/")
-	return actualPrefix == strings.Trim(keyPrefix, "/")
+	segment, _, _ := strings.Cut(rest, "/")
+	if !isRandomDir(segment) {
+		if prefix == "" {
+			return uploadDirPrefix(key)
+		}
+		return "", fmt.Errorf(
+			"airplan: %q does not look like an airplan key "+
+				"(no 26-char base32 directory segment)", key)
+	}
+	if prefix == "" {
+		return segment + "/", nil
+	}
+	return prefix + "/" + segment + "/", nil
 }
 
 // uploadDirPrefix returns an upload's directory prefix
 // ("[key_prefix/]<random>/") for one of its object keys — the unit of
-// deletion (SPEC.md §9). Object filenames always contain a dot
-// (SPEC.md §3, §8), so they can never be mistaken for the extensionless
-// 26-char base32 directory segment.
+// deletion (SPEC.md §9). Call uploadDirPrefixForKeyPrefix when resolving a
+// user target because collection member names may themselves look random.
 func uploadDirPrefix(key string) (string, error) {
 	segs := strings.Split(key, "/")
 	for i := len(segs) - 1; i >= 0; i-- {

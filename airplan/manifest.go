@@ -216,6 +216,7 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 					records = append(records, rec)
 				}
 			} else if rec.Type == "delete" {
+				normalizeManifestRecord(&rec)
 				if err := validateManifestRecord(rec); err != nil {
 					warnings = append(warnings, fmt.Sprintf(
 						"skipping invalid manifest line %d: %s", lineNo, err,
@@ -237,14 +238,20 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 }
 
 func normalizeManifestRecord(rec *ManifestRecord) {
-	if rec == nil || rec.Type != "upload" {
+	if rec == nil {
+		return
+	}
+	if rec.Kind == "" && path.Base(rec.MarkerKey) == CollectionMarkerFilename {
+		rec.Kind = string(UploadKindCollection)
+	}
+	if rec.Type != "upload" {
 		return
 	}
 	if rec.Kind == "" {
 		rec.Kind = string(UploadKindDocument)
 	}
 	if rec.Kind == string(UploadKindDocument) && rec.Slug == "" {
-		if slug, ok := pageSlug(filepath.Base(rec.Key)); ok {
+		if slug, ok := pageSlug(path.Base(rec.Key)); ok {
 			rec.Slug = slug
 		}
 	}

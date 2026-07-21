@@ -37,7 +37,7 @@ func (c *Client) GetUploadTo(ctx context.Context, urlOrKey string,
 	if err != nil {
 		return "", err
 	}
-	dirPrefix, err := uploadDirPrefix(key)
+	dirPrefix, err := uploadDirPrefixForKeyPrefix(key, c.cfg.KeyPrefix)
 	if err != nil {
 		return "", err
 	}
@@ -80,7 +80,7 @@ func (c *Client) GetUpload(
 	if err != nil {
 		return nil, err
 	}
-	dirPrefix, err := uploadDirPrefix(key)
+	dirPrefix, err := uploadDirPrefixForKeyPrefix(key, c.cfg.KeyPrefix)
 	if err != nil {
 		return nil, err
 	}

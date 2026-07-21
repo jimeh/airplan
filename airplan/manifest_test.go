@@ -512,6 +512,49 @@ func TestManifestUploadsChronologicalTombstonesAreReversible(t *testing.T) {
 	}
 }
 
+func TestReadManifestInfersKindlessCollectionTombstone(t *testing.T) {
+	dir := strings.Repeat("c", 26)
+	when := time.Date(2026, 7, 21, 1, 0, 0, 0, time.UTC)
+	upload := ManifestRecord{
+		Type: "upload", Time: when, Key: dir + "/index.html",
+		MarkerKey: dir + "/" + CollectionMarkerFilename,
+		URL:       "https://example.com/" + dir + "/index.html",
+		Bucket:    "plans", Kind: string(UploadKindCollection), Bytes: 10,
+		MarkerVersion: MarkerVersion,
+	}
+	tombstone := ManifestRecord{
+		Type: "delete", Time: when.Add(time.Minute),
+		Key:       upload.Key,
+		MarkerKey: upload.MarkerKey, Bucket: upload.Bucket,
+		Reason: "deleted",
+	}
+	var data []byte
+	for _, record := range []ManifestRecord{upload, tombstone} {
+		line, err := json.Marshal(record)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data = append(data, line...)
+		data = append(data, '\n')
+	}
+	manifestPath := filepath.Join(t.TempDir(), "manifest.jsonl")
+	if err := os.WriteFile(manifestPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	records, warnings, err := ReadManifest(manifestPath)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("records = %+v, warnings = %v, error = %v",
+			records, warnings, err)
+	}
+	if len(records) != 2 ||
+		records[1].Kind != string(UploadKindCollection) {
+		t.Fatalf("records = %+v", records)
+	}
+	if active := ManifestUploads(records); len(active) != 0 {
+		t.Fatalf("active records = %+v", active)
+	}
+}
+
 func compareManifestRecords(got, want []ManifestRecord) string {
 	if len(got) != len(want) {
 		return fmt.Sprintf("record count = %d, want %d", len(got), len(want))

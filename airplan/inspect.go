@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
+	"path"
 	"strings"
 	"time"
 )
@@ -68,7 +68,7 @@ func (c *Client) InspectUpload(
 	if err != nil {
 		return nil, err
 	}
-	dirPrefix, err := uploadDirPrefix(key)
+	dirPrefix, err := uploadDirPrefixForKeyPrefix(key, c.cfg.KeyPrefix)
 	if err != nil {
 		return nil, err
 	}
@@ -82,34 +82,39 @@ func (c *Client) InspectUpload(
 	if err != nil {
 		return nil, err
 	}
-	var markerKeys []string
+	documentMarkerKey := dirPrefix + MarkerFilename
+	collectionMarkerKey := dirPrefix + CollectionMarkerFilename
+	var documentMarker, collectionMarker bool
 	for _, object := range objects {
-		base := filepath.Base(object.Key)
-		if base == MarkerFilename || base == CollectionMarkerFilename {
-			markerKeys = append(markerKeys, object.Key)
+		switch object.Key {
+		case documentMarkerKey:
+			documentMarker = true
+		case collectionMarkerKey:
+			collectionMarker = true
 		}
 	}
-	if len(markerKeys) == 0 {
-		markerKeys = append(markerKeys, dirPrefix+MarkerFilename)
+	markerKey := documentMarkerKey
+	if !documentMarker && collectionMarker {
+		markerKey = collectionMarkerKey
 	}
-	if len(markerKeys) > 1 {
+	if documentMarker && collectionMarker {
 		return &UploadInspection{
 			State: UploadInvalid, Dir: dir,
-			MarkerKey: markerKeys[0], Objects: len(objects),
+			MarkerKey: documentMarkerKey, Objects: len(objects),
+			Bytes: sumObjectBytes(objects),
 			Error: MarkerErrorConflictingMarkers,
 		}, nil
 	}
-	markerBody, err := c.st.getBytes(ctx, markerKeys[0], MaxMarkerSize)
+	markerBody, err := c.st.getBytes(ctx, markerKey, MaxMarkerSize)
 	if err != nil {
 		if errors.Is(err, errObjectNotFound) {
 			return nil, fmt.Errorf("airplan: ownership marker %q is missing",
-				markerKeys[0])
+				markerKey)
 		}
 		return nil, err
 	}
 	resolved := &resolvedMarker{
-		Key:      markerKeys[0],
-		Basename: filepath.Base(markerKeys[0]), Body: markerBody,
+		Key: markerKey, Basename: path.Base(markerKey), Body: markerBody,
 	}
 
 	return c.inspectUploadSnapshot(ctx, RemoteUpload{
@@ -128,13 +133,22 @@ func byObjectKey(objects []objectInfo) map[string]objectInfo {
 	return byKey
 }
 
+func sumObjectBytes(objects []objectInfo) int64 {
+	var total int64
+	for _, object := range objects {
+		total += object.Size
+	}
+	return total
+}
+
 func (c *Client) inspectListedUpload(
 	ctx context.Context, upload RemoteUpload,
 ) (*UploadInspection, error) {
 	if upload.Conflict {
 		return &UploadInspection{
 			State: UploadInvalid, Dir: upload.Dir,
-			MarkerKey: upload.MarkerKey, Error: MarkerErrorConflictingMarkers,
+			MarkerKey: upload.MarkerKey, Objects: upload.Objects,
+			Bytes: upload.Bytes, Error: MarkerErrorConflictingMarkers,
 		}, nil
 	}
 	markerBody, err := c.st.getBytes(ctx, upload.MarkerKey, MaxMarkerSize)
@@ -169,7 +183,7 @@ func (c *Client) inspectUploadSnapshot(
 	}
 
 	marker, err := DecodeUploadMarkerForName(markerBody, upload.Dir,
-		filepath.Base(upload.MarkerKey))
+		path.Base(upload.MarkerKey))
 	if err != nil {
 		code, ok := MarkerCode(err)
 		if !ok {
@@ -185,7 +199,7 @@ func (c *Client) inspectUploadSnapshot(
 	inspection.Title = marker.Title
 	inspection.Repo = marker.Repo
 	inspection.MarkerVersion = marker.Version
-	dirPrefix := strings.TrimSuffix(upload.MarkerKey, filepath.Base(upload.MarkerKey))
+	dirPrefix := strings.TrimSuffix(upload.MarkerKey, path.Base(upload.MarkerKey))
 	var fallback bool
 	inspection.Page, fallback = c.inspectedObject(dirPrefix+marker.Page, byKey)
 	inspection.Page.ExpectedBytes = marker.PageBytes
@@ -198,7 +212,7 @@ func (c *Client) inspectUploadSnapshot(
 		for _, object := range marker.Objects {
 			if object.Role == MarkerRoleSource {
 				inspection.Source.ExpectedBytes = object.Bytes
-				inspection.Source.ExpectedKnown = true
+				inspection.Source.ExpectedKnown = marker.Version == MarkerVersion
 			}
 		}
 		fallback = fallback || sourceFallback
@@ -223,7 +237,8 @@ func (c *Client) inspectUploadSnapshot(
 		(marker.Version >= 2 && inspection.Page.Bytes != marker.PageBytes) {
 		inspection.State = UploadIncomplete
 	}
-	if inspection.Source != nil && inspection.Source.ExpectedBytes > 0 && inspection.Source.Bytes != inspection.Source.ExpectedBytes {
+	if inspection.Source != nil && inspection.Source.ExpectedKnown &&
+		inspection.Source.Bytes != inspection.Source.ExpectedBytes {
 		inspection.State = UploadIncomplete
 	}
 	for _, file := range inspection.Files {

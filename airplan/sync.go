@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
+	"path"
 	"sort"
 	"sync"
 	"time"
@@ -247,7 +247,7 @@ func (c *Client) syncImport(
 		Bytes: inspection.Page.Bytes, MarkerVersion: inspection.MarkerVersion,
 	}
 	if inspection.Kind == UploadKindDocument {
-		record.Slug, _ = pageSlug(filepath.Base(inspection.Page.Key))
+		record.Slug, _ = pageSlug(path.Base(inspection.Page.Key))
 	}
 	if inspection.Source != nil {
 		record.SourceKey = inspection.Source.Key

@@ -49,7 +49,7 @@ func (c *Client) DeleteUpload(
 	if err != nil {
 		return nil, err
 	}
-	dirPrefix, err := uploadDirPrefix(key)
+	dirPrefix, err := uploadDirPrefixForKeyPrefix(key, c.cfg.KeyPrefix)
 	if err != nil {
 		return nil, err
 	}

@@ -118,6 +118,23 @@ func TestUploadDirPrefix(t *testing.T) {
 	}
 }
 
+func TestUploadDirPrefixForKeyPrefixKeepsRandomLookingMember(t *testing.T) {
+	dir := testDir
+	member := strings.Repeat("a", 26)
+	for _, tt := range []struct {
+		key, prefix, want string
+	}{
+		{dir + "/" + member, "", dir + "/"},
+		{"team/" + dir + "/" + member, "team", "team/" + dir + "/"},
+	} {
+		got, err := uploadDirPrefixForKeyPrefix(tt.key, tt.prefix)
+		if err != nil || got != tt.want {
+			t.Fatalf("prefix(%q, %q) = %q, %v; want %q",
+				tt.key, tt.prefix, got, err, tt.want)
+		}
+	}
+}
+
 func TestKeyFromURLOrKeyPrefixAndEncodedPaths(t *testing.T) {
 	cfg := &Config{
 		Endpoint:      "https://s3.example.com/api",

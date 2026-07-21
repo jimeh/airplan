@@ -424,28 +424,15 @@ func validateModeFlags(cmd *cobra.Command, collection bool) error {
 }
 
 func runCollection(cmd *cobra.Command, ctx context.Context, client *airplan.Client, args []string, opts *rootOptions, maxSize, maxTotal int64) error {
-	inputs := make([]airplan.FileInput, 0, len(args))
-	closers := make([]io.Closer, 0, len(args))
+	inputs, closers, err := openCollectionInputs(args)
+	if err != nil {
+		return err
+	}
 	defer func() {
 		for _, c := range closers {
 			_ = c.Close()
 		}
 	}()
-	for _, path := range args {
-		info, err := os.Stat(path)
-		if err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("airplan: collection input %q is not a regular file", path)
-		}
-		f, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		closers = append(closers, f)
-		inputs = append(inputs, airplan.FileInput{Name: path, Reader: f, Size: info.Size()})
-	}
 	res, err := client.UploadFiles(ctx, airplan.FilesInput{Files: inputs, Title: opts.title, MaxSize: maxSize, MaxTotalSize: maxTotal})
 	if err != nil {
 		return err
@@ -481,4 +468,56 @@ func runCollection(cmd *cobra.Command, ctx context.Context, client *airplan.Clie
 		}
 	}
 	return nil
+}
+
+func openCollectionInputs(args []string) ([]airplan.FileInput, []*os.File, error) {
+	if len(args) == 0 {
+		return nil, nil, errors.New("airplan: collections require named files")
+	}
+	if len(args) > airplan.MaxCollectionFiles {
+		return nil, nil, fmt.Errorf(
+			"airplan: collection has %d files; maximum is %d",
+			len(args), airplan.MaxCollectionFiles,
+		)
+	}
+	for _, name := range args {
+		if name == "-" {
+			return nil, nil, errors.New(
+				"airplan: collections require named files",
+			)
+		}
+	}
+
+	inputs := make([]airplan.FileInput, 0, len(args))
+	files := make([]*os.File, 0, len(args))
+	closeFiles := func() {
+		for _, file := range files {
+			_ = file.Close()
+		}
+	}
+	for _, name := range args {
+		file, err := os.Open(name)
+		if err != nil {
+			closeFiles()
+			return nil, nil, err
+		}
+		info, err := file.Stat()
+		if err != nil {
+			_ = file.Close()
+			closeFiles()
+			return nil, nil, err
+		}
+		if !info.Mode().IsRegular() {
+			_ = file.Close()
+			closeFiles()
+			return nil, nil, fmt.Errorf(
+				"airplan: collection input %q is not a regular file", name,
+			)
+		}
+		files = append(files, file)
+		inputs = append(inputs, airplan.FileInput{
+			Name: name, Reader: file, Size: info.Size(),
+		})
+	}
+	return inputs, files, nil
 }

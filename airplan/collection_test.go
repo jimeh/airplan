@@ -42,12 +42,13 @@ func TestUploadFilesStreamsOneCollection(t *testing.T) {
 		Files: []FileInput{
 			{Name: "shot one.png", Reader: bytes.NewReader(image), Size: int64(len(image))},
 			{Name: "demo.webm", Reader: bytes.NewReader(video), Size: int64(len(video))},
+			{Name: "empty.bin", Reader: bytes.NewReader(nil), Size: 0},
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Files) != 2 || !strings.HasSuffix(res.URL, "/index.html") {
+	if len(res.Files) != 3 || !strings.HasSuffix(res.URL, "/index.html") {
 		t.Fatalf("result = %+v", res)
 	}
 	if !strings.Contains(res.Files[0].URL, "shot%20one.png") {
@@ -55,23 +56,28 @@ func TestUploadFilesStreamsOneCollection(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(puts) != 4 {
-		t.Fatalf("PUTs = %d, want 4", len(puts))
+	if len(puts) != 5 {
+		t.Fatalf("PUTs = %d, want 5", len(puts))
 	}
 	if !strings.HasSuffix(puts[0].path, "/"+CollectionMarkerFilename) ||
-		!strings.HasSuffix(puts[3].path, "/index.html") {
-		t.Fatalf("PUT order = %v", []string{puts[0].path, puts[1].path, puts[2].path, puts[3].path})
+		!strings.HasSuffix(puts[4].path, "/index.html") {
+		t.Fatalf("PUT order = %v", []string{
+			puts[0].path, puts[1].path, puts[2].path, puts[3].path, puts[4].path,
+		})
 	}
 	dir := strings.Split(strings.Trim(puts[0].path, "/"), "/")[1]
 	marker, err := DecodeUploadMarkerForName(puts[0].body, dir, CollectionMarkerFilename)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if marker.Kind != UploadKindCollection || marker.Slug != "" || len(marker.Objects) != 3 {
+	if marker.Kind != UploadKindCollection || marker.Slug != "" || len(marker.Objects) != 4 {
 		t.Fatalf("marker = %+v", marker)
 	}
 	if !bytes.Equal(puts[1].body, image) || !bytes.Equal(puts[2].body, video) {
 		t.Fatal("collection bytes changed")
+	}
+	if len(puts[3].body) != 0 {
+		t.Fatalf("zero-byte member body = %q", puts[3].body)
 	}
 }
 
@@ -95,5 +101,33 @@ func TestRenderCollectionCustomTemplateAndValidation(t *testing.T) {
 	}}, CollectionRenderOptions{Repository: "none"})
 	if err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRenderCollectionTotalSizeBoundariesAndOverflow(t *testing.T) {
+	inputs := []FileInput{
+		{Name: "a.bin", Reader: bytes.NewReader([]byte("a")), Size: 1},
+		{Name: "b.bin", Reader: bytes.NewReader([]byte("b")), Size: 1},
+	}
+	if _, _, err := RenderCollection(context.Background(), FilesInput{
+		Files: inputs, MaxTotalSize: 2,
+	}, CollectionRenderOptions{Repository: "none"}); err != nil {
+		t.Fatalf("exact boundary: %v", err)
+	}
+	if _, _, err := RenderCollection(context.Background(), FilesInput{
+		Files: inputs, MaxTotalSize: 1,
+	}, CollectionRenderOptions{Repository: "none"}); err == nil ||
+		!strings.Contains(err.Error(), "maximum total size") {
+		t.Fatalf("over boundary error = %v", err)
+	}
+	overflow := []FileInput{
+		{Name: "huge.bin", Reader: bytes.NewReader(nil), Size: mathMaxInt64},
+		{Name: "one.bin", Reader: bytes.NewReader(nil), Size: 1},
+	}
+	if _, _, err := RenderCollection(context.Background(), FilesInput{
+		Files: overflow, MaxSize: -1, MaxTotalSize: -1,
+	}, CollectionRenderOptions{Repository: "none"}); err == nil ||
+		!strings.Contains(err.Error(), "out of range") {
+		t.Fatalf("overflow error = %v", err)
 	}
 }

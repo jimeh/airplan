@@ -99,6 +99,34 @@ func TestDocumentPreviewRejectsCollectionOnlyFlags(t *testing.T) {
 	}
 }
 
+func TestCollectionPreviewLabelsSizeFlagErrors(t *testing.T) {
+	for _, flag := range []string{
+		"--max-size=bogus",
+		"--max-total-size=bogus",
+	} {
+		t.Run(flag, func(t *testing.T) {
+			isolateEnv(t)
+			cmd := newRootCmd()
+			cmd.SetArgs([]string{"preview", "--files", flag, "named.png"})
+			err := cmd.Execute()
+			name, _, _ := strings.Cut(flag, "=")
+			if err == nil || !strings.Contains(err.Error(), name+":") {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestCollectionPreviewRejectsStdinInMultipleInputs(t *testing.T) {
+	isolateEnv(t)
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{"preview", "--files", "named.png", "-"})
+	err := cmd.Execute()
+	if err == nil || !strings.Contains(err.Error(), "named files") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestCollectionPreviewHonorsCanceledContext(t *testing.T) {
 	isolateEnv(t)
 	input := filepath.Join(t.TempDir(), "shot.png")
