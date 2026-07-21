@@ -496,6 +496,20 @@ func openCollectionInputs(args []string) ([]airplan.FileInput, []*os.File, error
 		}
 	}
 	for _, name := range args {
+		// Reject obvious non-regular inputs before os.Open: opening a FIFO for
+		// reading can block before the configured operation timeout applies.
+		// The descriptor check below remains authoritative if the path changes.
+		pathInfo, err := os.Stat(name)
+		if err != nil {
+			closeFiles()
+			return nil, nil, err
+		}
+		if !pathInfo.Mode().IsRegular() {
+			closeFiles()
+			return nil, nil, fmt.Errorf(
+				"airplan: collection input %q is not a regular file", name,
+			)
+		}
 		file, err := os.Open(name)
 		if err != nil {
 			closeFiles()

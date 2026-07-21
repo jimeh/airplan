@@ -245,6 +245,10 @@ func TestOpenCollectionInputsRejectsInvalidListBeforeOpening(t *testing.T) {
 	if _, _, err := openCollectionInputs(tooMany); err == nil || !strings.Contains(err.Error(), "maximum") {
 		t.Fatalf("limit error = %v", err)
 	}
+	if _, _, err := openCollectionInputs([]string{t.TempDir()}); err == nil ||
+		!strings.Contains(err.Error(), "not a regular file") {
+		t.Fatalf("directory error = %v", err)
+	}
 }
 
 func TestRootURLOutputWithoutJSON(t *testing.T) {
