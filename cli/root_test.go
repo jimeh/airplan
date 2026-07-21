@@ -68,7 +68,11 @@ func TestCommandAliasesAndQoLShorthands(t *testing.T) {
 			t.Fatal(findErr)
 		}
 		flag := cmd.Flags().Lookup(tt.flag)
-		if flag == nil || flag.Shorthand != tt.shorthand {
+		if flag == nil {
+			t.Errorf("%s missing --%s flag", tt.command, tt.flag)
+			continue
+		}
+		if flag.Shorthand != tt.shorthand {
 			t.Errorf("%s --%s shorthand = %q, want %q",
 				tt.command, tt.flag, flag.Shorthand, tt.shorthand)
 		}

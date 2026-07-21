@@ -44,6 +44,7 @@ func newListCmd() *cobra.Command {
 		"filter local history, or select config profile for --remote")
 	f.BoolVarP(&opts.json, "json", "j", false,
 		"print a JSON array instead of a table")
+	// SPEC.md §6 defines -r as the list --remote shorthand.
 	f.BoolVarP(&opts.remote, "remote", "r", false,
 		"list uploads from a live bucket listing instead of the manifest")
 

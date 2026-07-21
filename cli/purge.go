@@ -58,6 +58,7 @@ func newPurgeCmd() *cobra.Command {
 	// manifest profile metadata.
 	f.StringVarP(&opts.profile, "profile", "p", "",
 		"config profile (local purge is scoped to the active profile)")
+	// SPEC.md §6 defines -r as the purge --remote shorthand.
 	f.BoolVarP(&opts.remote, "remote", "r", false,
 		"purge uploads from a live bucket listing instead of the manifest")
 	f.BoolVar(&opts.all, "all", false,

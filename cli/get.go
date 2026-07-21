@@ -27,6 +27,7 @@ func newGetCmd() *cobra.Command {
 		},
 	}
 	f := cmd.Flags()
+	// SPEC.md §6 defines -o as the get --output shorthand.
 	f.StringVarP(&opts.output, "output", "o", "",
 		"write bytes to this path instead of stdout; - means stdout")
 	f.BoolVar(&opts.source, "source", false,
