@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jimeh/airplan/airplan"
 )
 
 func TestPreviewRendersMarkdownWithoutUploadConfig(t *testing.T) {
@@ -142,6 +145,27 @@ func TestCollectionPreviewHonorsCanceledContext(t *testing.T) {
 	err := cmd.Execute()
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("error = %v, want context canceled", err)
+	}
+}
+
+func TestCollectionPreviewAppliesConfiguredTimeout(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("AIRPLAN_TIMEOUT", "1ns")
+	dir := t.TempDir()
+	args := []string{"preview", "--files", "--repo", "none"}
+	for i := 0; i < airplan.MaxCollectionFiles; i++ {
+		input := filepath.Join(dir, fmt.Sprintf("shot-%03d.png", i))
+		if err := os.WriteFile(input, []byte("image"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		args = append(args, input)
+	}
+
+	cmd := newRootCmd()
+	cmd.SetArgs(args)
+	err := cmd.Execute()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want context deadline exceeded", err)
 	}
 }
 

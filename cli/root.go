@@ -252,7 +252,7 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	if len(args) == 0 || args[0] == "-" {
 		in.Reader = cmd.InOrStdin()
 	} else {
-		f, err := os.Open(args[0])
+		f, _, err := openRegularInput(args[0], "input")
 		if err != nil {
 			return err
 		}
@@ -394,7 +394,7 @@ func selectCollectionMode(args []string, opts *rootOptions) (bool, error) {
 			return true, nil
 		}
 	}
-	f, err := os.Open(args[0])
+	f, _, err := openRegularInput(args[0], "input")
 	if err != nil {
 		return false, err
 	}
@@ -496,37 +496,10 @@ func openCollectionInputs(args []string) ([]airplan.FileInput, []*os.File, error
 		}
 	}
 	for _, name := range args {
-		// Reject obvious non-regular inputs before os.Open: opening a FIFO for
-		// reading can block before the configured operation timeout applies.
-		// The descriptor check below remains authoritative if the path changes.
-		pathInfo, err := os.Stat(name)
+		file, info, err := openRegularInput(name, "collection input")
 		if err != nil {
 			closeFiles()
 			return nil, nil, err
-		}
-		if !pathInfo.Mode().IsRegular() {
-			closeFiles()
-			return nil, nil, fmt.Errorf(
-				"airplan: collection input %q is not a regular file", name,
-			)
-		}
-		file, err := os.Open(name)
-		if err != nil {
-			closeFiles()
-			return nil, nil, err
-		}
-		info, err := file.Stat()
-		if err != nil {
-			_ = file.Close()
-			closeFiles()
-			return nil, nil, err
-		}
-		if !info.Mode().IsRegular() {
-			_ = file.Close()
-			closeFiles()
-			return nil, nil, fmt.Errorf(
-				"airplan: collection input %q is not a regular file", name,
-			)
 		}
 		files = append(files, file)
 		inputs = append(inputs, airplan.FileInput{
@@ -534,4 +507,37 @@ func openCollectionInputs(args []string) ([]airplan.FileInput, []*os.File, error
 		})
 	}
 	return inputs, files, nil
+}
+
+func openRegularInput(
+	name, label string,
+) (*os.File, os.FileInfo, error) {
+	// Reject obvious non-regular inputs before os.Open: opening a FIFO for
+	// reading can block before the configured operation timeout applies.
+	// The descriptor check below remains authoritative if the path changes.
+	pathInfo, err := os.Stat(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !pathInfo.Mode().IsRegular() {
+		return nil, nil, fmt.Errorf(
+			"airplan: %s %q is not a regular file", label, name,
+		)
+	}
+	file, err := os.Open(name)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, nil, fmt.Errorf(
+			"airplan: %s %q is not a regular file", label, name,
+		)
+	}
+	return file, info, nil
 }

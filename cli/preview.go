@@ -149,7 +149,7 @@ func runPreview(
 				)
 			}
 		}
-		file, openErr := os.Open(args[0])
+		file, _, openErr := openRegularInput(args[0], "input")
 		if openErr != nil {
 			return openErr
 		}
