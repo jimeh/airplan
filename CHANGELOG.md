@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/jimeh/airplan/compare/v0.3.0...v0.4.0) (2026-07-21)
+
+
+### Features
+
+* share generic file collections ([#58](https://github.com/jimeh/airplan/issues/58)) ([f48d818](https://github.com/jimeh/airplan/commit/f48d818d88e60f94e2b67fc803360ea24d235957))
+
 ## [0.3.0](https://github.com/jimeh/airplan/compare/v0.2.1...v0.3.0) (2026-07-21)
 
 
