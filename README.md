@@ -214,14 +214,14 @@ contact S3, or update the upload history.
 
 ```sh
 airplan preview plan.md > plan.html
-airplan preview --output plan.html plan.md
+airplan preview -o plan.html plan.md
 ```
 
 ### Manage uploads
 
 ```sh
 airplan list                     # uploads known to the local manifest
-airplan list --remote            # airplan uploads currently in the bucket
+airplan ls -r                    # airplan uploads currently in the bucket
 airplan show <url-or-key>         # validate and inspect one remote upload
 airplan get [--source] <url-or-key>  # raw page or source bytes
 airplan delete <url-or-key>      # delete one upload
@@ -231,11 +231,25 @@ airplan sync                     # reconcile remote uploads into local history
 
 Each successful upload is recorded in
 `~/.local/state/airplan/manifest.jsonl`. Local commands use that history by
-default. `--remote` reads the bucket instead, so it can find uploads from other
-machines. Remote discovery recognizes exact `.airplan.json` ownership markers
-with one bucket listing; it does not fetch each marker. Markerless directories
-are invisible to airplan and cannot be fetched, deleted, or purged through it.
-Use `airplan show` when you need validated marker details and completeness state.
+default. `ls` aliases `list`, and `-r` aliases `--remote` for `list` and
+`purge`. An explicit `list --profile NAME` filters local history by its recorded
+profile; `--profile=` selects root-level history. Without that flag, local list
+shows every profile. Local list does not use configuration, so `--config`
+requires `--remote`.
+
+`--remote` reads the bucket instead, so it can find uploads from other machines.
+Remote discovery recognizes exact `.airplan.json` ownership markers with one
+bucket listing; it does not fetch each marker. When exactly one valid HTML page
+is a direct child, list also infers its key and URL from that same response;
+these are unvalidated hints, and ambiguous rows show no URL. Markerless
+directories are invisible to airplan and cannot be fetched, deleted, or purged
+through it. Use `airplan show` when you need validated marker details and
+completeness state.
+
+`preview` and `get` accept `-o` as shorthand for `--output`. When `show`, `get`,
+or `delete` uniquely matches marker-managed local history, its recorded profile
+is selected automatically unless `--profile` or `AIRPLAN_PROFILE` is explicit.
+The remote ownership marker is still authoritative.
 
 `airplan sync` imports complete marker-managed uploads made from other machines
 into the receiving machine's manifest. It also tombstones local records whose

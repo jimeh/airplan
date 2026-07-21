@@ -238,8 +238,9 @@ func TestListRemoteTableAndJSON(t *testing.T) {
 			t.Fatalf("stderr = %q, want empty", stderr)
 		}
 		for _, want := range []string{
-			"DATE", "OBJECTS", "SIZE", "SLUG", "DIRECTORY",
+			"DATE", "OBJECTS", "SIZE", "SLUG", "DIRECTORY", "URL",
 			"2026-07-08 14:03", "3", "18.1 KiB", "plan", deleteDirA,
+			"https://plans.example.com/" + key,
 		} {
 			if !strings.Contains(stdout, want) {
 				t.Fatalf("stdout missing %q:\n%s", want, stdout)
@@ -274,6 +275,8 @@ func TestListRemoteTableAndJSON(t *testing.T) {
 			Objects   int       `json:"objects"`
 			Bytes     int64     `json:"bytes"`
 			Slug      string    `json:"slug"`
+			Key       string    `json:"key"`
+			URL       string    `json:"url"`
 		}
 		if err := json.Unmarshal([]byte(stdout), &records); err != nil {
 			t.Fatalf("json.Unmarshal: %v\nstdout: %s", err, stdout)
@@ -284,10 +287,125 @@ func TestListRemoteTableAndJSON(t *testing.T) {
 		rec := records[0]
 		if rec.Dir != deleteDirA || rec.MarkerKey != markerKey ||
 			rec.Objects != 3 || rec.Bytes != 18552 || rec.Slug != "plan" ||
+			rec.Key != key || rec.URL != "https://plans.example.com/"+key ||
 			!rec.Time.Equal(when) {
 			t.Fatalf("record = %+v", rec)
 		}
 	})
+}
+
+func TestListRemoteFallbackURLWarnsOnce(t *testing.T) {
+	isolateEnv(t)
+	when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
+	objects := []remoteFakeObject{
+		{
+			key:  deleteDirA + "/" + airplan.MarkerFilename,
+			size: 10, lastModified: when,
+		},
+		{key: deleteDirA + "/plan.html", size: 20, lastModified: when},
+		{
+			key:  deleteDirB + "/" + airplan.MarkerFilename,
+			size: 10, lastModified: when,
+		},
+		{key: deleteDirB + "/other.html", size: 30, lastModified: when},
+	}
+	fake := newFakeRemoteS3(t, objects, nil, nil)
+	config := filepath.Join(t.TempDir(), "config.toml")
+	data := fmt.Sprintf(
+		"endpoint = %q\nbucket = \"plans\"\ntimeout = \"0\"\n",
+		fake.server.URL,
+	)
+	if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeList(t, "-r", "--config", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout,
+		fake.server.URL+"/plans/"+deleteDirA+"/plan.html") {
+		t.Fatalf("stdout = %q, want fallback URL", stdout)
+	}
+	if strings.Count(stderr, "public_base_url is not set") != 1 {
+		t.Fatalf("stderr = %q, want one fallback warning", stderr)
+	}
+	if fake.listCalls() != 1 || fake.headCalls() != 0 {
+		t.Fatalf("LIST calls = %d, HEAD calls = %d; want 1 and 0",
+			fake.listCalls(), fake.headCalls())
+	}
+}
+
+func TestListLocalExplicitProfileFilter(t *testing.T) {
+	path := setListState(t)
+	writeManifest(t, path, strings.Join([]string{
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+			`"key":"work/plan.html","url":"https://example/work",` +
+			`"bucket":"plans","profile":"work","title":"Work",` +
+			`"bytes":10,"marker_version":1}`,
+		`{"type":"upload","time":"2026-07-08T14:04:11Z",` +
+			`"key":"root/plan.html","url":"https://example/root",` +
+			`"bucket":"plans","title":"Root","bytes":11,` +
+			`"marker_version":1}`,
+		`{"type":"upload","time":"2026-07-08T14:05:11Z",` +
+			`"key":"home/plan.html","url":"https://example/home",` +
+			`"bucket":"plans","profile":"home","title":"Home",` +
+			`"bytes":12,"marker_version":1}`,
+	}, "\n")+"\n")
+
+	tests := []struct {
+		name string
+		args []string
+		want []string
+		not  []string
+	}{
+		{"no filter", nil, []string{"Work", "Root", "Home"}, nil},
+		{
+			"named table",
+			[]string{"--profile", "work"},
+			[]string{"Work"},
+			[]string{"Root", "Home"},
+		},
+		{
+			"root table",
+			[]string{"--profile="},
+			[]string{"Root"},
+			[]string{"Work", "Home"},
+		},
+		{
+			"named JSON",
+			[]string{"--profile", "home", "--json"},
+			[]string{`"title":"Home"`},
+			[]string{`"title":"Work"`, `"title":"Root"`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout, stderr, err := executeList(t, tt.args...)
+			if err != nil || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, error = %v",
+					stdout, stderr, err)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(stdout, want) {
+					t.Fatalf("stdout missing %q: %s", want, stdout)
+				}
+			}
+			for _, unwanted := range tt.not {
+				if strings.Contains(stdout, unwanted) {
+					t.Fatalf("stdout contains %q: %s", unwanted, stdout)
+				}
+			}
+		})
+	}
+}
+
+func TestListLocalRejectsConfig(t *testing.T) {
+	setListState(t)
+	_, _, err := executeList(t, "--config", "config.toml")
+	if err == nil || err.Error() != "--config requires --remote" {
+		t.Fatalf("error = %v", err)
+	}
 }
 
 func TestFormatListBytes(t *testing.T) {
@@ -536,6 +654,12 @@ func (f *fakeRemoteS3) headCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.heads
+}
+
+func (f *fakeRemoteS3) listCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.prefixes)
 }
 
 func (f *fakeRemoteS3) handleDelete(w http.ResponseWriter, r *http.Request) {

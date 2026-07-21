@@ -102,6 +102,8 @@ func TestListRemoteIndexesMarkerDirectories(t *testing.T) {
 	if first.Dir != dirA ||
 		first.MarkerKey != prefix+dirA+"/"+MarkerFilename ||
 		first.Slug != "plan" ||
+		first.Key != prefix+dirA+"/plan.html" ||
+		first.URL != server.URL+"/plans/team/jimeh/"+dirA+"/plan.html" ||
 		first.Objects != 4 || first.Bytes != 132 ||
 		!first.LastModified.Equal(markerA) {
 		t.Fatalf("first upload = %+v", first)
@@ -116,13 +118,55 @@ func TestListRemoteIndexesMarkerDirectories(t *testing.T) {
 		t.Fatalf("keys = %v, want %v", first.Keys, wantKeys)
 	}
 	if uploads[1].Dir != dirB || uploads[1].Slug != "" ||
+		uploads[1].Key != "" || uploads[1].URL != "" ||
 		uploads[1].Objects != 3 ||
 		uploads[1].Bytes != 130 {
 		t.Fatalf("ambiguous upload = %+v", uploads[1])
 	}
 	if uploads[2].Dir != dirMarkerOnly || uploads[2].Objects != 1 ||
-		uploads[2].Bytes != 80 || uploads[2].Slug != "" {
+		uploads[2].Bytes != 80 || uploads[2].Slug != "" ||
+		uploads[2].Key != "" || uploads[2].URL != "" {
 		t.Fatalf("marker-only upload = %+v", uploads[2])
+	}
+}
+
+func TestListRemoteHintUsesPublicURLAndEscapesKeyPrefix(t *testing.T) {
+	dir := "aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	prefix := "team/Jiméh plans"
+	when := time.Date(2026, 7, 1, 10, 0, 0, 0, time.UTC)
+	var requests int
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			requests++
+			writeListXML(t, w, []objectInfo{
+				{
+					Key:  prefix + "/" + dir + "/" + MarkerFilename,
+					Size: 10, LastModified: when,
+				},
+				{
+					Key:  prefix + "/" + dir + "/plan.html",
+					Size: 20, LastModified: when,
+				},
+			})
+		},
+	))
+	t.Cleanup(server.Close)
+
+	client := newRemoteTestClient(t, server.URL, prefix)
+	client.cfg.PublicBaseURL = "https://plans.example.com/base"
+	uploads, err := client.ListRemote(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 1 || len(uploads) != 1 {
+		t.Fatalf("requests = %d, uploads = %+v", requests, uploads)
+	}
+	wantKey := prefix + "/" + dir + "/plan.html"
+	wantURL := "https://plans.example.com/base/team/" +
+		"Jim%C3%A9h%20plans/" + dir + "/plan.html"
+	if uploads[0].Key != wantKey || uploads[0].URL != wantURL {
+		t.Fatalf("hint = key %q, URL %q; want key %q, URL %q",
+			uploads[0].Key, uploads[0].URL, wantKey, wantURL)
 	}
 }
 

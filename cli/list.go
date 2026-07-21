@@ -24,8 +24,9 @@ func newListCmd() *cobra.Command {
 	opts := &listOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List uploads from the local manifest",
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "List uploads from the local manifest",
 		Long: "List uploads from the local manifest, or with --remote, " +
 			"from a live bucket listing using the selected config profile.",
 		Args:          cobra.NoArgs,
@@ -40,10 +41,10 @@ func newListCmd() *cobra.Command {
 	f.StringVar(&opts.config, "config", "",
 		"config file path for --remote (default: XDG config dir)")
 	f.StringVarP(&opts.profile, "profile", "p", "",
-		"config profile for --remote (default: config default)")
+		"filter local history, or select config profile for --remote")
 	f.BoolVarP(&opts.json, "json", "j", false,
 		"print a JSON array instead of a table")
-	f.BoolVar(&opts.remote, "remote", false,
+	f.BoolVarP(&opts.remote, "remote", "r", false,
 		"list uploads from a live bucket listing instead of the manifest")
 
 	return cmd
@@ -52,6 +53,9 @@ func newListCmd() *cobra.Command {
 func runList(cmd *cobra.Command, opts *listOptions) error {
 	if opts.remote {
 		return runRemoteList(cmd, opts)
+	}
+	if cmd.Flags().Changed("config") {
+		return fmt.Errorf("--config requires --remote")
 	}
 
 	records, warnings, err := airplan.ReadManifest("")
@@ -65,6 +69,15 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 	}
 
 	uploads := airplan.ManifestUploads(records)
+	if cmd.Flags().Changed("profile") {
+		filtered := uploads[:0]
+		for _, upload := range uploads {
+			if upload.Profile == opts.profile {
+				filtered = append(filtered, upload)
+			}
+		}
+		uploads = filtered
+	}
 	if opts.json {
 		if uploads == nil {
 			uploads = []airplan.ManifestRecord{}
@@ -76,7 +89,7 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 }
 
 func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
-	client, _, ctx, cancel, err := setupClient(
+	client, cfg, ctx, cancel, err := setupClient(
 		cmd, opts.config, opts.profile)
 	if err != nil {
 		return err
@@ -86,6 +99,15 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 	uploads, err := client.ListRemote(ctx)
 	if err != nil {
 		return err
+	}
+	if cfg.PublicBaseURL == "" {
+		for _, upload := range uploads {
+			if upload.URL != "" {
+				fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n",
+					airplan.PublicURLFallbackWarning)
+				break
+			}
+		}
 	}
 
 	if opts.json {
@@ -107,6 +129,8 @@ type remoteListJSONRecord struct {
 	Objects   int       `json:"objects"`
 	Bytes     int64     `json:"bytes"`
 	Slug      string    `json:"slug,omitempty"`
+	Key       string    `json:"key,omitempty"`
+	URL       string    `json:"url,omitempty"`
 }
 
 func remoteListJSONRecords(
@@ -121,6 +145,8 @@ func remoteListJSONRecords(
 			Objects:   upload.Objects,
 			Bytes:     upload.Bytes,
 			Slug:      upload.Slug,
+			Key:       upload.Key,
+			URL:       upload.URL,
 		})
 	}
 	return records
@@ -132,7 +158,9 @@ func printRemoteUploadTable(w io.Writer, uploads []airplan.RemoteUpload) error {
 	}
 
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(tw, "DATE\tOBJECTS\tSIZE\tSLUG\tDIRECTORY"); err != nil {
+	if _, err := fmt.Fprintln(
+		tw, "DATE\tOBJECTS\tSIZE\tSLUG\tDIRECTORY\tURL",
+	); err != nil {
 		return err
 	}
 	for _, upload := range uploads {
@@ -140,12 +168,17 @@ func printRemoteUploadTable(w io.Writer, uploads []airplan.RemoteUpload) error {
 		if slug == "" {
 			slug = "-"
 		}
-		if _, err := fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\n",
+		url := upload.URL
+		if url == "" {
+			url = "-"
+		}
+		if _, err := fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\n",
 			upload.LastModified.UTC().Format("2006-01-02 15:04"),
 			upload.Objects,
 			formatListBytes(upload.Bytes),
 			slug,
 			upload.Dir,
+			url,
 		); err != nil {
 			return err
 		}

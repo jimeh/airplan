@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/jimeh/airplan/airplan"
 	"github.com/spf13/cobra"
@@ -48,6 +50,55 @@ func setupClient(
 	if err != nil {
 		cancel()
 		return nil, nil, nil, nil, err
+	}
+	return client, cfg, ctx, cancel, nil
+}
+
+// inferManifestProfile selects a uniquely matching marker-managed history
+// profile when no flag or environment selector is active.
+func inferManifestProfile(
+	cmd *cobra.Command, target, flagProfile string,
+) (string, bool) {
+	if cmd.Flags().Changed("profile") || os.Getenv("AIRPLAN_PROFILE") != "" {
+		return flagProfile, false
+	}
+
+	records, _, err := airplan.ReadManifest("")
+	if err != nil {
+		return flagProfile, false
+	}
+	var matches []airplan.ManifestRecord
+	for _, rec := range airplan.MatchingManifestUploads(records, target) {
+		if airplan.IsSupportedMarkerVersion(rec.MarkerVersion) {
+			matches = append(matches, rec)
+		}
+	}
+	if len(matches) != 1 || matches[0].Profile == "" {
+		return flagProfile, false
+	}
+	return matches[0].Profile, true
+}
+
+func setupTargetClient(
+	cmd *cobra.Command, path, flagProfile, target string,
+) (*airplan.Client, *airplan.Config, context.Context,
+	context.CancelFunc, error,
+) {
+	profile, inferred := inferManifestProfile(cmd, target, flagProfile)
+	client, cfg, ctx, cancel, err := setupClient(cmd, path, profile)
+	if err != nil {
+		if inferred {
+			return nil, nil, nil, nil, fmt.Errorf(
+				"airplan: upload was recorded with profile %q, but it could not be selected: %s",
+				profile, strings.TrimPrefix(err.Error(), "airplan: "),
+			)
+		}
+		return nil, nil, nil, nil, err
+	}
+	if inferred {
+		fmt.Fprintf(cmd.ErrOrStderr(),
+			"airplan: note: using profile %q recorded in the local manifest\n",
+			profile)
 	}
 	return client, cfg, ctx, cancel, nil
 }

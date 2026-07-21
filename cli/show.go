@@ -40,8 +40,8 @@ func newShowCmd() *cobra.Command {
 }
 
 func runShow(cmd *cobra.Command, opts *showOptions, target string) error {
-	client, _, ctx, cancel, err := setupClient(
-		cmd, opts.config, opts.profile,
+	client, _, ctx, cancel, err := setupTargetClient(
+		cmd, opts.config, opts.profile, target,
 	)
 	if err != nil {
 		return err

@@ -165,7 +165,7 @@ func (c *Client) inspectUploadSnapshot(
 	}
 	if fallback {
 		inspection.Warnings = append(inspection.Warnings,
-			publicURLFallbackWarning)
+			PublicURLFallbackWarning)
 	}
 	inspection.State = UploadComplete
 	if !inspection.Page.Exists ||

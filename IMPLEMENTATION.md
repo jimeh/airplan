@@ -372,8 +372,9 @@ outside the project's signing and notarization pipeline.
 3. Put `.airplan.json` first, then the optional source, then the HTML page.
 4. Print the page URL only after all required puts succeed; record the
    marker-versioned manifest entry afterward as a best-effort local aid.
-5. Discover remote uploads with LIST-only marker-key filtering. Use `show`
-   when trusted metadata or completeness state is needed.
+5. Discover remote uploads with LIST-only marker-key filtering. Infer a page
+   key and escaped URL only for one valid direct-child HTML candidate. Use
+   `show` when trusted metadata or completeness state is needed.
 6. Validate the marker before get, delete, or purge. Get reads only the selected
    declared object. Delete removes all payload and extra objects first, removes
    the marker last, then appends the local tombstone.
@@ -381,13 +382,14 @@ outside the project's signing and notarization pipeline.
    LIST-absent active marker with a targeted GET before local tombstoning.
 
 Manifest reads retain pre-marker upload records as read-only legacy history.
-Delete profile inference requires exactly one requested URL or key match in
-active, marker-managed history before config resolution. URL matches require
-the recorded public host; explicit flag or environment profile selection
-remains authoritative. A typed profile-mismatch error lets the CLI add a
-targeted retry hint when marker lookup fails.
-Local purge likewise filters manifest candidates by the fully resolved active
-profile before applying its user-supplied age and slug filters.
+Show, get, and delete share profile inference: exactly one requested URL or key
+match in active, marker-managed history may select its recorded named profile
+before config resolution. URL matches require the recorded public host;
+explicit flag or environment profile selection remains authoritative. A typed
+profile-mismatch error lets delete add a targeted retry hint when marker lookup
+fails. Local list filters by recorded profile only when `--profile` was passed;
+local purge instead filters candidates by the fully resolved active profile
+before applying its user-supplied age and slug filters.
 
 This ordering intentionally exposes interrupted creation as incomplete and
 removes a directory from airplan's management surface only after payload

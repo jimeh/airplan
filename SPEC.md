@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.23.0**
+**Spec version: 0.24.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -471,8 +471,9 @@ Plus flag overrides for every connection setting (`--endpoint`,
 one-off use.
 
 Frequent flags get short forms: `-p` (`--profile`), `-s` (`--slug`),
-`-t` (`--title`), `-j` (`--json`), `-o` (`--open`). Connection
-overrides stay long-only.
+`-t` (`--title`), `-j` (`--json`), and `-o` (`--open`). On subcommands,
+`-r` is `--remote` for `list` and `purge`, while `-o` is `--output` for
+`preview` and `get`. Connection overrides stay long-only.
 `airplan completion bash|zsh|fish|powershell` emits shell completions.
 
 If `--open` fails to launch a browser (common in headless/agent
@@ -556,7 +557,7 @@ airplan skill
 airplan template
 airplan preview [flags] [file]
 airplan completion bash|zsh|fish|powershell
-airplan list [--remote] [--json]
+airplan list|ls [--remote] [--json]
 airplan show [--json] <url|key>
 airplan get [--output PATH] [--source] <url|key>
 airplan delete <url|key>
@@ -591,6 +592,8 @@ resolves to the input file is rejected without modifying the input. File output
 is written completely to a temporary file beside the destination and then
 atomically renamed into place; any failure before the rename leaves an existing
 destination unchanged.
+
+`ls` is an exact non-destructive alias for `list`.
 
 `list`/`purge` operate on the local upload manifest by default, or
 on a live bucket listing with `--remote`. `show` inspects one remote
@@ -1012,6 +1015,11 @@ machine) and must be safe:
   the supported `marker_version` and `legacy` when the field is absent.
   Both appear in history without warning; legacy entries remain
   ineligible for delete reconciliation and purge.
+- Local `list` does not load configuration. With no explicit `--profile`, it
+  shows records from every recorded profile as before. An explicitly passed
+  `--profile NAME` filters both table and JSON output to that exact recorded
+  profile; `--profile=` selects records made with root-level settings.
+  `--config` is rejected unless `--remote` is also present.
 - `airplan list --remote`: cheaply discovers marker directories made
   from any machine. It performs only paginated bucket LIST operations
   beneath the active profile's `key_prefix`; it does not GET markers,
@@ -1021,21 +1029,26 @@ machine) and must be safe:
   groups containing the exact `.airplan.json` marker key. Page/source
   filename shape without that marker is never evidence of visibility.
   Unmarked directories are invisible.
-- Remote list rows have `DATE`, `OBJECTS`, `SIZE`, `SLUG`, and
-  `DIRECTORY` columns. `DATE` is the marker object's storage
+- Remote list rows have `DATE`, `OBJECTS`, `SIZE`, `SLUG`, `DIRECTORY`, and
+  `URL` columns. `DATE` is the marker object's storage
   last-modified time. `OBJECTS` and `SIZE` count every object and byte
   recursively beneath the random directory, including the marker,
   nested keys, and unrecognized extras. `SLUG` is inferred only when
   exactly one direct-child object matches the §8 page filename shape
   (`[a-z0-9-]{1,64}.html`): it is that object's basename without
-  `.html`. With zero or multiple matching objects, `SLUG` is `-`.
+  `.html`. The matching object's full key and public URL are inferred using
+  the selected connection's `key_prefix` and normal URL assembly. These are
+  unvalidated LIST hints; no marker or page request is made. With zero or
+  multiple matching objects, `SLUG` and `URL` are `-` and no page key is
+  inferred. URL fallback without `public_base_url` emits the normal warning
+  once per command.
   `DIRECTORY` is the 26-character random directory without
   `key_prefix`. Rows sort by marker last-modified time, then marker
   key.
 - `list --remote --json` prints an array with one object per row. Its
   stable fields are `time` (RFC 3339 marker last-modified time), `dir`,
-  `marker_key` (the full storage key), `objects`, and `bytes`; `slug`
-  is present only when inferred unambiguously. These entries describe
+  `marker_key` (the full storage key), `objects`, and `bytes`; `slug`, `key`,
+  and `url` are present only when inferred unambiguously. These entries describe
   marker-key presence and directory occupancy, not validated uploads.
   A malformed, oversized, or unsupported marker remains visible here
   because ordinary remote listing never reads it.
@@ -1109,8 +1122,9 @@ machine) and must be safe:
   leaves the local upload untombstoned so retry can resume while the
   marker still establishes ownership. A successful marker deletion is
   followed by the append-only local tombstone.
-- Before `delete` resolves its connection, it consults a uniquely
-  matching active, marker-managed local manifest record. When neither
+- Before `show`, `get`, or `delete` resolves its connection, it consults local
+  history for exactly one matching active, marker-managed manifest record.
+  When neither
   `--profile` nor `AIRPLAN_PROFILE` is set and that record names a
   profile, the recorded profile overrides the general config default;
   stderr notes the selection. URL targets participate in this inference
@@ -1118,7 +1132,11 @@ machine) and must be safe:
   URL; URL query strings and fragments are ignored. With zero or multiple
   matching records, normal config resolution proceeds without inference.
   Explicit flag or environment selection always wins and is never silently
-  changed. If marker lookup then fails and the matching record names another
+  changed. An inferred profile removed from the selected config is an
+  actionable selection error. Missing, unreadable, or ambiguous
+  history falls back to normal config resolution. Remote marker validation
+  remains authoritative. For `delete`, if marker lookup then fails and the
+  matching record names another
   profile, stderr warns that the mismatch may be the cause and identifies
   both `--profile` and `AIRPLAN_PROFILE` as retry mechanisms. When the record
   used root-level settings but named-profile resolution is active, the hint
