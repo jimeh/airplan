@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.22.0.
+may contradict it. Targets spec version 0.23.0.
 
 ---
 
@@ -112,7 +112,8 @@ res, err := client.Upload(ctx, airplan.Input{
     Reader: file,
     Name:   "plan.md", // "" for stdin
 })
-// res.URL, res.Key, res.SourceURL, res.Bytes, res.ContentType
+// res.URL, res.Key, res.SourceURL, res.Bytes, res.ContentType,
+// res.MarkerKey, res.Format, res.RepositoryURL
 
 skill := airplan.AgentSkill() // exact canonical skills/airplan/SKILL.md
 
@@ -120,6 +121,10 @@ uploads, err := client.ListRemote(ctx) // one LIST traversal, no marker GETs
 inspection, err := client.InspectUpload(ctx, uploads[0].MarkerKey)
 fetched, err := client.GetUpload(ctx, inspection.Page.Key, airplan.GetOptions{})
 deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
+synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
+    Prune:       true,
+    Concurrency: airplan.DefaultRemoteConcurrency,
+})
 ```
 
 ## 4. Spec Requirements → Mechanisms
@@ -140,9 +145,10 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
 - Repository context: explicit remotes are normalized locally. Automatic
   discovery runs bounded `git` subprocesses with `Cmd.Dir`, checks file
   repository membership before the working-directory fallback, and accepts
-  only GitHub.com origins. A Goldmark AST transformer turns references into
-  links after parsing, where code, links, images, HTML, and autolinks can be
-  excluded structurally.
+  only GitHub.com origins. Resolution happens once for every input format so
+  uploads persist canonical catalog metadata. A Goldmark AST transformer also
+  turns Markdown references into links after parsing, where code, links,
+  images, HTML, and autolinks can be excluded structurally.
 - Columns: a strict line scanner indexes only complete supported Pandoc columns
   containers. Local Goldmark block parsers then build dedicated columns and
   column AST nodes, and a node renderer emits the fixed div markup. Goldmark
@@ -193,7 +199,9 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
   delete parsing uses `net/url` to recover the original UTF-8 key.
 - Ownership markers: every managed directory starts with an exact
   `.airplan.json` direct child. The strict, versioned marker declares the
-  page and optional source. Upload writes it first, so an interrupted upload
+  page, page size, optional source, and canonical repository. Writers emit v2;
+  readers retain v1 management compatibility through explicit version
+  dispatch. Upload writes it first, so an interrupted upload
   remains visible; get and delete validate it before granting read or mutation
   authority, and delete removes it last, so marker presence remains the remote
   ownership boundary.
@@ -201,11 +209,18 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
   active `key_prefix`, includes only random directories with an exact marker
   key, and derives object count, total bytes, marker modification time, and an
   unambiguous HTML slug hint from that response. It never fetches markers or
-  heads payload objects. `InspectUpload` is the targeted GET + directory LIST
+  heads payload objects. Its internal snapshot retains per-key sizes for
+  batch inspection. `InspectUpload` is the targeted GET + directory LIST
   path that validates marker content and reports `complete`, `incomplete`, or
   `invalid`. `GetUpload` validates the same marker, resolves only its declared
   payloads or the marker itself, and reads the selected object without listing
   or writing local history.
+- Manifest sync: `SyncManifest` reduces local history chronologically, compares
+  the scoped active view to one remote LIST snapshot, and uses a shared bounded
+  worker pool for marker GETs and targeted absence confirmation. Imports and
+  tombstones are sorted, then the manifest is locked, reread, and rechecked
+  before whole-line appends. Definite object-not-found is the only pruning
+  signal; failures retain local state and return partial progress.
 - Remote deletion: the marker must decode and authorize the supplied direct
   target. Payload objects are removed with batched `DeleteObjects`, then the
   marker is removed in a separate final `DeleteObject`. Invalid and markerless
@@ -215,12 +230,15 @@ deleted, err := client.DeleteUpload(ctx, inspection.MarkerKey)
 - Manifest appends: `O_APPEND` open, whole line in one `Write` call,
   wrapped in context-aware `gofrs/flock` acquisition (flock on Unix,
   LockFileEx on Windows) per spec §9's concurrency and timeout rules.
-  Records carry the marker version; readers discard malformed, oversized,
-  and unsupported records completely and resume at the following newline.
+  Records carry portable marker metadata and local connection context; readers
+  discard malformed, oversized, and unsupported records completely and resume
+  at the following newline. A latest-event state machine keyed by bucket and
+  marker key makes tombstones reversible while retaining legacy key-only data.
 - Purge: local candidates are constrained to the active bucket and key
   prefix before deletion. Remote candidates come from LIST, then marker
-  inspection runs with a fixed concurrency limit; only valid markers grant
-  deletion authority and marker `created_at` drives age filtering.
+  inspection uses the same configurable 1-64 worker pool as sync; only valid
+  markers grant deletion authority, marker `created_at` drives age filtering,
+  and deletion remains sequential.
 - Config/state paths: `os.UserConfigDir` for config; a small helper
   for the state dir (`XDG_STATE_HOME` → `~/.local/state`,
   `%LocalAppData%` on Windows — Go stdlib has no state-dir
@@ -349,7 +367,8 @@ outside the project's signing and notarization pipeline.
 ## 8. Upload Lifecycle
 
 1. Render and validate the complete input locally before storage mutation.
-2. Generate and encode the ownership marker from the final object names.
+2. Resolve repository context once for every format, then generate and encode
+   the v2 ownership marker from final names, page bytes, and portable metadata.
 3. Put `.airplan.json` first, then the optional source, then the HTML page.
 4. Print the page URL only after all required puts succeed; record the
    marker-versioned manifest entry afterward as a best-effort local aid.
@@ -358,6 +377,8 @@ outside the project's signing and notarization pipeline.
 6. Validate the marker before get, delete, or purge. Get reads only the selected
    declared object. Delete removes all payload and extra objects first, removes
    the marker last, then appends the local tombstone.
+7. Sync remote marker snapshots into local history on demand. Confirm every
+   LIST-absent active marker with a targeted GET before local tombstoning.
 
 Manifest reads retain pre-marker upload records as read-only legacy history.
 Delete profile inference requires exactly one requested URL or key match in
@@ -377,14 +398,15 @@ deletion has succeeded.
 - Unit: config precedence matrix, slug sanitization, format sniffing, key
   entropy/encoding properties, URL assembly, strict marker validation,
   LIST-only grouping, inspection states, get selection, delete request ordering,
-  manifest
-  lock cancellation, and purge safety filters.
+  manifest chronological reduction and lock cancellation, sync reconciliation
+  and concurrency bounds, and purge safety filters.
 - Golden files: markdown fixtures → rendered HTML snapshots
   (`testdata/`, `GOLDEN_UPDATE=1` convention).
 - Integration: MinIO in a container (CI service / testcontainers);
   round-trip upload, marker bytes and headers, remote indexing, complete /
   incomplete / invalid inspection states, markerless invisibility, invalid
-  delete rejection, and successful marker-last deletion. The image release
+  delete rejection, cross-manifest sync, confirmed-absence tombstones,
+  restoration, and successful marker-last deletion. The image release
   tag and multi-platform digest are immutable-pinned together in
   `airplan/integration_test.go`.
 - Smoke (manual or tagged, needs creds): real R2 upload via a

@@ -180,6 +180,12 @@ type Result struct {
 	Title         string
 	CreatedAt     time.Time
 	MarkerVersion int
+	// MarkerKey is the full ownership marker object key.
+	MarkerKey string
+	// Format is the detected input format stored in the marker.
+	Format string
+	// RepositoryURL is the resolved canonical repository context, or empty.
+	RepositoryURL string
 
 	// Warnings collects non-fatal issues (e.g. HTML input with no
 	// <head> tag, public URL assembled without public_base_url) for
@@ -225,8 +231,10 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		CreatedAt: createdAt,
 		Format:    doc.Format.String(),
 		Page:      pageName,
+		PageBytes: int64(len(doc.HTML)),
 		Source:    sourceName,
 		Title:     doc.Title,
+		Repo:      doc.RepositoryURL,
 	}
 	markerBody, err := EncodeUploadMarker(marker)
 	if err != nil {
@@ -246,6 +254,9 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		Title:         doc.Title,
 		CreatedAt:     createdAt,
 		MarkerVersion: MarkerVersion,
+		MarkerKey:     markerKey,
+		Format:        doc.Format.String(),
+		RepositoryURL: doc.RepositoryURL,
 		Warnings:      append([]string(nil), doc.Warnings...),
 	}
 

@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.22.0**
+**Spec version: 0.23.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -24,7 +24,9 @@ language and remain fully compatible — same CLI, same config files,
 same URLs, same page features, same manifest format. How _our_
 implementation is built lives in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
-Non-goals: no server component, no accounts, not a general pastebin.
+Non-goals: no server component, no accounts, no embedded manifest web UI or
+background sync daemon, no remotely persisted catalog or deletion journal,
+and not a general pastebin.
 
 ---
 
@@ -366,33 +368,44 @@ already is the original file.
   `[<key_prefix>/]<random>/.airplan.json`, the ownership marker for
   that random directory. The marker is UTF-8 JSON uploaded with
   `Content-Type: application/json` and `Cache-Control: no-store`.
-  Its maximum size is 64 KiB. Version 1 has this shape:
+  Its maximum size is 64 KiB. New uploads write version 2:
 
   ```json
   {
     "schema": "airplan-upload",
-    "version": 1,
+    "version": 2,
     "directory": "vq3nhk2p7r4wzt5c6ydjm3xhqd",
     "created_at": "2026-07-08T14:03:11Z",
     "format": "md",
     "page": "plan.html",
+    "page_bytes": 18432,
     "source": "plan.md",
-    "title": "Refactor auth"
+    "title": "Refactor auth",
+    "repo": "https://github.com/acme/service"
   }
   ```
 
-  `schema`, `version`, `directory`, `created_at`, `format`, and
-  `page` are required. `schema` is exactly `airplan-upload`; version
-  1 is the only version defined here. `directory` must equal the
+  `schema`, `version`, `directory`, `created_at`, `format`, `page`,
+  and `page_bytes` are required in version 2. `schema` is exactly
+  `airplan-upload`. Readers support marker versions 1 and 2;
+  writers emit version 2. `directory` must equal the
   containing 26-character random directory. `created_at` is RFC
   3339 UTC. `format` is `md`, `html`, or `txt`. `page` and optional
   `source` are relative basenames — never paths — and must match the
   filename rules for that format in §3 and §8. `source` is omitted
   for HTML and under `--no-source`; `title` is omitted only when
-  empty. Unknown fields are ignored. Duplicate field names, invalid
+  empty. `page_bytes` is positive and describes the rendered page
+  object. `repo`, when present, is the canonical HTTPS repository
+  URL resolved from `--repo`; `auto` and `none` are never stored.
+  The marker never stores connection-local profile, endpoint,
+  credentials, bucket, key prefix, or public URL metadata. Version 1
+  omits `page_bytes` and `repo`; inspection obtains its page size from
+  listing metadata. Unknown fields are ignored. Duplicate field names, invalid
   UTF-8, malformed JSON, an unsupported version, unsafe or
-  inconsistent filenames, and an oversized marker make the marker
-  invalid.
+  inconsistent filenames, non-canonical repositories, missing or
+  non-positive version 2 page sizes, and oversized markers make the
+  marker invalid. Unsupported versions remain visible to LIST-only
+  discovery but cannot be inspected, fetched, deleted, purged, or synced.
 
 - The rendered page (or as-is HTML) is uploaded with:
   - `Content-Type: text/html; charset=utf-8`
@@ -414,7 +427,8 @@ already is the original file.
   written. Because the marker is first, any partial upload remains
   recognizably owned by airplan and appears remotely as `incomplete`
   until `purge --remote` removes it. An upload becomes `complete`
-  when the marker's declared page and optional source both exist.
+  when the marker's declared page and optional source both exist and,
+  for version 2, the listed page size equals `page_bytes`.
   stdout still carries only the page URL after the page PUT succeeds.
 - Bucket must **not** allow listing publicly; privacy rests on the
   key being unguessable. Documentation covers the R2 setup: public
@@ -547,7 +561,9 @@ airplan show [--json] <url|key>
 airplan get [--output PATH] [--source] <url|key>
 airplan delete <url|key>
 airplan purge [--remote] [--older-than 30d]
-              [--all] [--dry-run] [--yes]
+              [--all] [--dry-run] [--yes] [--concurrency N]
+airplan sync [--config PATH] [--profile NAME] [--concurrency N]
+             [--no-prune] [--dry-run] [--json]
 ```
 
 `config schema` prints the config file's JSON Schema (see §7).
@@ -583,6 +599,10 @@ ownership marker. `delete` takes an explicit URL or key, but it only
 operates on a directory carrying a valid airplan ownership marker; it
 therefore works on marker-managed uploads from any machine without
 becoming a general-purpose bucket deletion command. See §9.
+`sync` reconciles the selected remote marker inventory into the local
+manifest. It imports remotely present uploads and, by default, locally
+tombstones uploads whose markers are confirmed absent. It never mutates
+remote storage.
 
 ---
 
@@ -744,13 +764,13 @@ An explicit URL may name a GitHub Enterprise-compatible host and an invalid
 value is an error.
 
 `auto` performs quiet, local-only Git discovery of the `origin` remote and
-accepts only `github.com`; it never contacts the remote. For a Markdown file,
+accepts only `github.com`; it never contacts the remote. For any input file,
 the file's repository wins. Only when the file directory is not within any Git
 repository does discovery fall back to the invocation working directory. A
 file inside a repository whose origin is absent, invalid, or unsupported does
-not fall back. Markdown from stdin uses the invocation working directory.
-Discovery failure is non-fatal. `none` performs no discovery. HTML and text
-inputs perform no discovery or reference linking.
+not fall back. Stdin uses the invocation working directory. Discovery failure
+is non-fatal. `none` performs no discovery. Markdown uses the result for
+reference linking; all formats store it as marker and manifest metadata.
 
 The CLI and upload client default repository context to `auto`. The direct
 local-rendering API's zero-value repository option performs no discovery;
@@ -914,9 +934,10 @@ object-scoped token covers `GetObject`, `DeleteObject`, and
 Every upload is recorded in
 `$XDG_STATE_HOME/airplan/manifest.jsonl` (platform-appropriate state
 directory on Windows) — append-only JSONL, one record per line.
-Deletions append tombstone records; the file is never rewritten in
-place. The manifest is best-effort convenience, never a source of
-truth: it only knows about uploads made from this machine.
+Deletions and remote-absence reconciliation append tombstone records;
+the file is never rewritten in place. Uploads made on other machines
+can be imported explicitly with `sync`; the manifest remains a local
+projection rather than remote authority.
 
 Record schema — exact field names are part of this spec, so two
 conforming implementations can share a manifest:
@@ -924,11 +945,14 @@ conforming implementations can share a manifest:
 ```json
 {"type":"upload","time":"2026-07-08T14:03:11Z",
  "key":"vq3n.../plan.html","source_key":"vq3n.../plan.md",
+ "marker_key":"vq3n.../.airplan.json",
  "url":"https://plans.example.com/vq3n.../plan.html",
- "bucket":"plans","profile":"work","title":"Refactor auth",
- "bytes":18432,"marker_version":1}
+ "bucket":"plans","profile":"work","format":"md",
+ "title":"Refactor auth","repo":"https://github.com/acme/service",
+ "bytes":18432,"marker_version":2}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
- "key":"vq3n.../plan.html"}
+ "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
+ "bucket":"plans","profile":"work","reason":"deleted"}
 ```
 
 (Shown wrapped for readability; on disk each record is one line.)
@@ -938,20 +962,27 @@ conforming implementations can share a manifest:
   under `--no-source`; `title` is omitted when empty; `bytes`
   describes the page object; `profile` is the resolved profile
   name, omitted when root-level values were used; `marker_version`
-  is the ownership-marker version written for the upload. Current
+  is the ownership-marker version written for the upload. `marker_key`
+  is the exact remote ownership key; readers derive it from `key` for
+  older records. `format` and canonical `repo` preserve portable
+  marker metadata. Current
   writers always include `marker_version`; its absence identifies a
   legacy upload recorded before ownership markers were introduced.
-- `delete` tombstones reference the upload by its page `key` — the
-  random directory is the unit of deletion, so every sibling object
-  (whatever its extension, §3) goes with it and nothing more is
-  needed in the record.
+- New `delete` tombstones include `marker_key`, `bucket`, the receiving
+  `profile`, and reason `deleted` or `remote_missing`. Their identity is
+  `(bucket, marker_key)`. Legacy key-only tombstones remain valid.
+- Manifest history reduces chronologically. The latest event for an upload
+  identity wins, duplicate uploads collapse to their latest record, and a
+  later upload reactivates an earlier tombstone. A legacy key-only tombstone
+  hides matching preceding uploads but not a later upload event.
 - Forward compatibility: readers ignore unknown fields and skip
   records with an unknown `type`. The record itself needs no schema
   version; `marker_version` describes the remote upload format.
   Readers retain an otherwise-valid upload with no `marker_version`
   as legacy history, but it never authorizes delete or purge. An
   unsupported nonzero `marker_version` is invalid and skipped with a
-  warning.
+  warning. Marker versions 1 and 2 are managed; pre-marker entries remain
+  visible as read-only legacy history and are never pruned by `sync`.
 
 Concurrent invocations are expected (parallel agents on one
 machine) and must be safe:
@@ -1025,8 +1056,9 @@ machine) and must be safe:
   never reported as marker states.
 - `show --json` emits one object. All states contain `state`, `dir`,
   `marker_key`, `objects`, and `bytes`. Valid states additionally
-  contain `time` (marker `created_at`), `format`, `page`, and `title`
-  when non-empty; `source` is present when declared. `page` and
+  contain `time` (marker `created_at`), `format`, `marker_version`,
+  `page`, `title` when non-empty, and `repo` when present; `source`
+  is present when declared. `page` and
   `source` are objects containing `key`, `url`, `exists`, and `bytes`,
   with `bytes` omitted when the object is missing. An invalid result
   additionally contains `error`, a stable coarse code:
@@ -1131,8 +1163,39 @@ machine) and must be safe:
   be deleted by airplan; `show` can inspect it and native storage
   tooling must clean it. Marker-last deletion keeps an interrupted
   purge discoverable and retryable.
+  Marker inspection is concurrent with a default limit of 8 and accepts
+  `--concurrency N` from 1 through 64. The flag is rejected without
+  `--remote`. Candidate order remains deterministic and confirmed
+  deletions remain sequential.
   In a team bucket, each person sets their own `key_prefix`, which
   keeps `--remote` scoped to their own uploads.
+- `airplan sync` reconciles the selected profile, bucket, and key prefix
+  into the local manifest. One paginated LIST snapshot supplies remote
+  marker candidates and object sizes. Missing local candidates have their
+  markers fetched concurrently and are imported only when the supported
+  marker validates and every declared payload is present; version 2 also
+  requires the listed page size to match `page_bytes`. Imported profile,
+  bucket, and public URL values come from the receiving machine's resolved
+  connection, never the marker.
+  By default, active scoped local records absent from LIST are considered for
+  pruning, but airplan performs a targeted marker GET before appending a
+  `remote_missing` tombstone. Only a definite not-found response confirms
+  absence. A returned marker is retained regardless of its contents; timeout,
+  authentication, transport, and ambiguous storage errors retain the record
+  and fail the sync partially. `--no-prune` makes sync additive-only.
+  `--concurrency N` defaults to 8 and accepts 1 through 64 across marker
+  fetches and absence confirmations. `--dry-run` performs the same remote
+  validation without locking or writing the manifest. Network inspection does
+  not hold the manifest lock; before appending, sync locks, rereads, reduces,
+  and rechecks local state, then writes deterministic newline-terminated
+  records. Per-item failures do not discard successfully validated progress.
+  Human output and warnings use stderr while stdout remains empty. `--json`
+  emits exactly one object on stdout with deterministic `added_records`,
+  `tombstone_records`, and `failures` arrays plus `unchanged`, `incomplete`,
+  `invalid`, and `retained` counters. A partial failure exits nonzero after
+  writing the result. Sync provides eventual active-inventory convergence;
+  it neither uploads deletion history nor makes historical JSONL files
+  identical across machines.
 - The local manifest still matters: it remembers titles and profile
   context, and works offline. Remote listing is the cheap storage view;
   `show`, `get`, `delete`, and `purge --remote` read marker state when they

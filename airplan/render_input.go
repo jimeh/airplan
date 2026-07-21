@@ -62,6 +62,9 @@ type RenderedDocument struct {
 	// Warnings contains non-fatal rendering outcomes.
 	Warnings []string
 
+	// RepositoryURL is the resolved canonical repository context, or empty.
+	RepositoryURL string
+
 	source           []byte
 	sourceObjectName string
 }
@@ -157,13 +160,19 @@ func renderInput(
 		Slug:   slug,
 		source: data,
 	}
+	if tmplErr != nil && format != FormatHTML {
+		return nil, tmplErr
+	}
+	repositoryURL, repositoryErr := resolveRepository(
+		ctx, opts.Repository, in.Name, opts.WorkingDirectory,
+	)
+	if repositoryErr != nil {
+		return nil, repositoryErr
+	}
+	doc.RepositoryURL = repositoryURL
 	sourceName := ""
 	if in.Name != "" {
 		sourceName = filepath.Base(in.Name)
-	}
-
-	if tmplErr != nil && format != FormatHTML {
-		return nil, tmplErr
 	}
 
 	switch format {
@@ -175,12 +184,6 @@ func renderInput(
 		doc.Title = resolveMarkdownTitle(
 			in.Title, frontMatter.title, frontMatter.body, in.Name, slug,
 		)
-		repositoryURL, repositoryErr := resolveRepository(
-			ctx, opts.Repository, in.Name, opts.WorkingDirectory,
-		)
-		if repositoryErr != nil {
-			return nil, repositoryErr
-		}
 		doc.sourceObjectName = slug + ".md"
 		if opts.IncludeSource {
 			doc.SourcePath = "./" + doc.sourceObjectName
@@ -193,7 +196,7 @@ func renderInput(
 			Indexable:        opts.Indexable,
 			NoExternalAssets: opts.NoExternalAssets,
 			MermaidURL:       opts.MermaidURL,
-			RepositoryURL:    repositoryURL,
+			RepositoryURL:    doc.RepositoryURL,
 			Template:         tmpl,
 		})
 

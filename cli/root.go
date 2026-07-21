@@ -114,6 +114,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newGetCmd())
 	cmd.AddCommand(newDeleteCmd())
 	cmd.AddCommand(newPurgeCmd())
+	cmd.AddCommand(newSyncCmd())
 	return cmd
 }
 

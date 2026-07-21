@@ -80,6 +80,10 @@ coverage has no equivalent local task on non-Windows hosts.
   keys are a hard error — parser and schema must not drift (SPEC §7).
 - **Manifest reads**: handle empty non-EOF reads as errors before continuing;
   reading a directory can otherwise spin without making progress.
+- **Remote reconciliation**: sync may parallelize marker GETs, but it must use
+  one LIST snapshot, confirm apparent absence with a targeted not-found, and
+  lock/reread/reduce before deterministic manifest appends. Purge deletions
+  remain sequential even when marker inspection concurrency is overridden.
 - **Page assets** (`airplan/assets/`): embedded via go:embed. Mermaid is the
   only airplan-managed external load and is conditional. Update its pin with
   `mise run update:mermaid`; dependency-only updates never bump SPEC.md.

@@ -217,7 +217,7 @@ func TestPurgeRemoteDeletesIncompleteAndSkipsInvalid(t *testing.T) {
 		{key: invalidMarkerKey, size: 10, lastModified: when},
 	}, nil, nil)
 	body, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
-		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Schema: airplan.MarkerSchema, Version: 1,
 		Directory: deleteDirA, CreatedAt: when, Format: "md",
 		Page: "missing.html", Source: "missing.md", Title: "Incomplete",
 	})
@@ -368,6 +368,30 @@ func TestPurgeRemoteInspectsMoreThanWorkerCount(t *testing.T) {
 		fake.deleteCalls() != 0 {
 		t.Fatalf("stdout = %q, candidates = %d, deletes = %d",
 			stdout, strings.Count(stderr, ".html"), fake.deleteCalls())
+	}
+}
+
+func TestPurgeRemoteConcurrencyOverrideBoundsInspection(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	var objects []remoteFakeObject
+	for i := range 10 {
+		dir := strings.Repeat(string(rune('a'+i)), 26)
+		objects = append(objects,
+			remoteUploadObjects(dir, fmt.Sprintf("plan-%d", i), when)...)
+	}
+	fake := newFakeRemoteS3(t, objects, nil, nil)
+	fake.setMarkerDelay(10 * time.Millisecond)
+
+	stdout, _, err := executeCommand(t, "", "",
+		"purge", "--remote", "--all", "--dry-run", "--concurrency", "3",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || fake.maxMarkerConcurrency() != 3 {
+		t.Fatalf("stdout = %q, max marker concurrency = %d; want 3",
+			stdout, fake.maxMarkerConcurrency())
 	}
 }
 

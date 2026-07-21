@@ -34,6 +34,24 @@ func TestClientOperationsRejectUninitializedClient(t *testing.T) {
 			},
 		},
 		{
+			name: "inspect remote uploads",
+			call: func(client *Client) error {
+				_, err := client.InspectRemoteUploads(
+					context.Background(), nil, 0,
+				)
+				return err
+			},
+		},
+		{
+			name: "sync manifest",
+			call: func(client *Client) error {
+				_, err := client.SyncManifest(
+					context.Background(), SyncManifestOptions{},
+				)
+				return err
+			},
+		},
+		{
 			name: "get upload",
 			call: func(client *Client) error {
 				_, err := client.GetUpload(
@@ -95,6 +113,16 @@ func TestPublicOperationsRejectNilContext(t *testing.T) {
 		{"inspect upload", func() error {
 			//nolint:staticcheck // The public boundary must reject a nil context.
 			_, err := client.InspectUpload(nil, "key")
+			return err
+		}},
+		{"inspect remote uploads", func() error {
+			//nolint:staticcheck // The public boundary must reject a nil context.
+			_, err := client.InspectRemoteUploads(nil, nil, 0)
+			return err
+		}},
+		{"sync manifest", func() error {
+			//nolint:staticcheck // The public boundary must reject a nil context.
+			_, err := client.SyncManifest(nil, SyncManifestOptions{})
 			return err
 		}},
 		{"get upload", func() error {

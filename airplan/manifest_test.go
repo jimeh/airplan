@@ -103,7 +103,7 @@ func TestAppendManifestRecordCreatesManifestAndRoundTrips(t *testing.T) {
 		`"key":"vq3n/plan.html","source_key":"vq3n/plan.md",` +
 		`"url":"https://plans.example.com/vq3n/plan.html",` +
 		`"bucket":"plans","profile":"work","title":"Refactor auth",` +
-		`"bytes":18432,"marker_version":1}`
+		`"bytes":18432,"marker_version":2}`
 	if lines[0] != wantLine {
 		t.Fatalf("first line = %s, want %s", lines[0], wantLine)
 	}
@@ -221,10 +221,15 @@ func TestReadManifestRecognizesLegacyAndSkipsUnsupportedMarkerVersion(
 		`{"type":"upload","time":"2026-07-08T13:03:11Z",` +
 			`"key":"legacy.html","url":"https://plans.example.com/legacy.html",` +
 			`"bucket":"plans","bytes":1}`,
-		`{"type":"upload","key":"future.html","marker_version":2}`,
+		`{"type":"upload","time":"2026-07-08T13:30:11Z",` +
+			`"key":"future.html","url":"https://plans.example.com/future.html",` +
+			`"bucket":"plans","bytes":1,"marker_version":3}`,
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
-			`"key":"current.html","url":"https://plans.example.com/current.html",` +
+			`"key":"v1.html","url":"https://plans.example.com/v1.html",` +
 			`"bucket":"plans","bytes":1,"marker_version":1}`,
+		`{"type":"upload","time":"2026-07-08T15:03:11Z",` +
+			`"key":"v2.html","url":"https://plans.example.com/v2.html",` +
+			`"bucket":"plans","bytes":1,"marker_version":2}`,
 	}, "\n") + "\n"
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
@@ -234,16 +239,17 @@ func TestReadManifestRecognizesLegacyAndSkipsUnsupportedMarkerVersion(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 2 || records[0].Key != "legacy.html" ||
-		records[1].Key != "current.html" || len(warnings) != 1 {
+	if len(records) != 3 || records[0].Key != "legacy.html" ||
+		records[1].Key != "v1.html" || records[2].Key != "v2.html" ||
+		len(warnings) != 1 {
 		t.Fatalf("records = %+v, warnings = %v", records, warnings)
 	}
-	if uploads := ManifestUploads(records); len(uploads) != 2 {
-		t.Fatalf("ManifestUploads = %+v, want legacy and current", uploads)
+	if uploads := ManifestUploads(records); len(uploads) != 3 {
+		t.Fatalf("ManifestUploads = %+v, want legacy, v1, and v2", uploads)
 	}
-	if uploads := ActiveUploads(records); len(uploads) != 1 ||
-		uploads[0].Key != "current.html" {
-		t.Fatalf("ActiveUploads = %+v, want current only", uploads)
+	if uploads := ActiveUploads(records); len(uploads) != 2 ||
+		uploads[0].Key != "v1.html" || uploads[1].Key != "v2.html" {
+		t.Fatalf("ActiveUploads = %+v, want v1 and v2", uploads)
 	}
 }
 
@@ -350,7 +356,7 @@ func TestReadManifestSkipsMalformedAndUnknownType(t *testing.T) {
 			URL:           "https://plans.example.com/upload.html",
 			Bucket:        "plans",
 			Bytes:         1,
-			MarkerVersion: MarkerVersion,
+			MarkerVersion: 1,
 		},
 		{
 			Type: "delete",
@@ -444,6 +450,39 @@ func assertFileMode(t *testing.T, path string, want os.FileMode) {
 	}
 	if got := info.Mode().Perm(); got != want {
 		t.Fatalf("%s mode = %o, want %o", path, got, want)
+	}
+}
+
+func TestManifestUploadsChronologicalTombstonesAreReversible(t *testing.T) {
+	dir := "abcdefghijklmnopqrstuvwxyz"
+	pageKey := dir + "/plan.html"
+	markerKey := dir + "/" + MarkerFilename
+	base := ManifestRecord{
+		Type: "upload", Time: time.Date(2026, 7, 21, 1, 0, 0, 0, time.UTC),
+		Key: pageKey, MarkerKey: markerKey, URL: "https://example.com/" + pageKey,
+		Bucket: "plans", Profile: "work", Format: "md", Bytes: 10,
+		MarkerVersion: 1,
+	}
+	tombstone := ManifestRecord{
+		Type: "delete", Time: base.Time.Add(time.Minute), Key: pageKey,
+		MarkerKey: markerKey, Bucket: "plans", Profile: "work",
+		Reason: "remote_missing",
+	}
+	restored := base
+	restored.Time = tombstone.Time.Add(time.Minute)
+	restored.MarkerVersion = MarkerVersion
+	restored.Title = "restored"
+
+	got := ManifestUploads([]ManifestRecord{base, tombstone, restored})
+	if len(got) != 1 || got[0].Title != "restored" {
+		t.Fatalf("active records = %+v", got)
+	}
+	duplicate := restored
+	duplicate.Time = duplicate.Time.Add(time.Minute)
+	duplicate.Title = "latest"
+	got = ManifestUploads([]ManifestRecord{base, tombstone, restored, duplicate})
+	if len(got) != 1 || got[0].Title != "latest" {
+		t.Fatalf("deduplicated records = %+v", got)
 	}
 }
 

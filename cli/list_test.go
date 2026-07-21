@@ -365,6 +365,9 @@ type fakeRemoteS3 struct {
 	heads         int
 	markerDeletes int
 	markers       map[string][]byte
+	markerDelay   time.Duration
+	markerActive  int
+	markerMax     int
 }
 
 func newFakeRemoteS3(
@@ -415,9 +418,22 @@ func (f *fakeRemoteS3) handleMarker(w http.ResponseWriter, r *http.Request) {
 	dir = dir[strings.LastIndex(dir, "/")+1:]
 
 	f.mu.Lock()
+	f.markerActive++
+	if f.markerActive > f.markerMax {
+		f.markerMax = f.markerActive
+	}
 	objects := append([]remoteFakeObject(nil), f.objects...)
 	explicit := append([]byte(nil), f.markers[markerKey]...)
+	delay := f.markerDelay
 	f.mu.Unlock()
+	defer func() {
+		f.mu.Lock()
+		f.markerActive--
+		f.mu.Unlock()
+	}()
+	if delay > 0 {
+		time.Sleep(delay)
+	}
 	if explicit != nil {
 		_, _ = w.Write(explicit)
 		return
@@ -442,7 +458,7 @@ func (f *fakeRemoteS3) handleMarker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
-		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Schema: airplan.MarkerSchema, Version: 1,
 		Directory: dir, CreatedAt: createdAt.UTC(), Format: "html", Page: page,
 	})
 	if err != nil {
@@ -450,6 +466,18 @@ func (f *fakeRemoteS3) handleMarker(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = w.Write(body)
+}
+
+func (f *fakeRemoteS3) setMarkerDelay(delay time.Duration) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.markerDelay = delay
+}
+
+func (f *fakeRemoteS3) maxMarkerConcurrency() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.markerMax
 }
 
 func (f *fakeRemoteS3) setMarker(key string, body []byte) {

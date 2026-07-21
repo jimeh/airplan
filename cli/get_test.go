@@ -130,7 +130,7 @@ func TestGetCommandRejectsUnmanagedTarget(t *testing.T) {
 func getCLIObjects(t *testing.T, source string) map[string][]byte {
 	t.Helper()
 	marker, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
-		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Schema: airplan.MarkerSchema, Version: 1,
 		Directory: deleteDirA,
 		CreatedAt: time.Date(2026, 7, 19, 10, 0, 0, 0, time.UTC),
 		Format:    "md", Page: "plan.html", Source: "plan.md", Title: "Plan",

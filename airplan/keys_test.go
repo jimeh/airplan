@@ -576,7 +576,7 @@ func testUploadMarker(
 ) []byte {
 	t.Helper()
 	body, err := EncodeUploadMarker(UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion, Directory: testDir,
+		Schema: MarkerSchema, Version: 1, Directory: testDir,
 		CreatedAt: time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC),
 		Format:    format, Page: page, Source: source, Title: "Plan",
 	})

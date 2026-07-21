@@ -78,7 +78,9 @@ type showJSONRecord struct {
 	Bytes     int64                   `json:"bytes"`
 	Time      *time.Time              `json:"time,omitempty"`
 	Format    string                  `json:"format,omitempty"`
+	Version   int                     `json:"marker_version,omitempty"`
 	Title     string                  `json:"title,omitempty"`
+	Repo      string                  `json:"repo,omitempty"`
 	Page      *showJSONObject         `json:"page,omitempty"`
 	Source    *showJSONObject         `json:"source,omitempty"`
 	Error     airplan.MarkerErrorCode `json:"error,omitempty"`
@@ -93,7 +95,9 @@ func showJSONFromInspection(in *airplan.UploadInspection) showJSONRecord {
 		t := in.CreatedAt
 		out.Time = &t
 		out.Format = in.Format
+		out.Version = in.MarkerVersion
 		out.Title = in.Title
+		out.Repo = in.Repo
 		out.Page = showJSONFromObject(in.Page)
 		out.Source = showJSONFromObject(in.Source)
 	}
@@ -145,11 +149,21 @@ func printInspection(w io.Writer, in *airplan.UploadInspection) error {
 	if err := write("FORMAT", in.Format); err != nil {
 		return err
 	}
+	if err := write("MARKER VERSION", in.MarkerVersion); err != nil {
+		return err
+	}
 	title := in.Title
 	if title == "" {
 		title = "-"
 	}
 	if err := write("TITLE", title); err != nil {
+		return err
+	}
+	repo := in.Repo
+	if repo == "" {
+		repo = "-"
+	}
+	if err := write("REPOSITORY", repo); err != nil {
 		return err
 	}
 	if err := printInspectedObject(tw, "PAGE", in.Page); err != nil {
