@@ -144,6 +144,46 @@ func TestInspectUploadWarnsForFallbackPublicURL(t *testing.T) {
 	}
 }
 
+func TestInspectUploadCollectionChecksEveryDeclaredFile(t *testing.T) {
+	dir := strings.Repeat("k", 26)
+	markerBody, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: time.Now().UTC(), Kind: UploadKindCollection,
+		Objects: []MarkerObject{
+			{Name: "index.html", Role: MarkerRolePage, Bytes: 5, ContentType: pageContentType},
+			{Name: "shot.png", Role: MarkerRoleFile, Bytes: 3, ContentType: "image/png"},
+			{Name: "empty.bin", Role: MarkerRoleFile, Bytes: 0, ContentType: "application/octet-stream"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := []objectInfo{
+		{Key: dir + "/" + CollectionMarkerFilename, Size: int64(len(markerBody))},
+		{Key: dir + "/index.html", Size: 5},
+		{Key: dir + "/shot.png", Size: 3},
+		{Key: dir + "/empty.bin", Size: 0},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("list-type") == "2" {
+			writeListXML(t, w, objects)
+			return
+		}
+		if r.URL.Path != "/plans/"+dir+"/"+CollectionMarkerFilename {
+			t.Fatalf("unexpected %s", r.URL)
+		}
+		_, _ = w.Write(markerBody)
+	}))
+	t.Cleanup(server.Close)
+	got, err := newInspectTestClient(t, server.URL).InspectUpload(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != UploadComplete || got.Kind != UploadKindCollection || len(got.Files) != 2 || got.Files[1].ExpectedBytes != 0 {
+		t.Fatalf("inspection = %+v", got)
+	}
+}
+
 func TestInspectUploadRejectsNestedTargetBeforeRequests(t *testing.T) {
 	dir := "abcdefghijklmnopqrstuvwxyz"
 	requests := 0

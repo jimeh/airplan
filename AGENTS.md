@@ -80,6 +80,9 @@ coverage has no equivalent local task on non-Windows hosts.
   keys are a hard error — parser and schema must not drift (SPEC §7).
 - **Manifest reads**: handle empty non-EOF reads as errors before continuing;
   reading a directory can otherwise spin without making progress.
+- **Ownership marker resolution**: targeted get/delete operations concurrently
+  probe both exact marker names and fail closed unless exactly one exists.
+  LIST-backed operations reuse their snapshot and reject dual-marker conflicts.
 - **Remote reconciliation**: sync may parallelize marker GETs, but it must use
   one LIST snapshot, confirm apparent absence with a targeted not-found, and
   lock/reread/reduce before deterministic manifest appends. Purge deletions

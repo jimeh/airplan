@@ -3,6 +3,7 @@
 package airplan
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"path/filepath"
@@ -172,6 +173,61 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		t.Fatalf("complete inspection = %+v", inspection)
 	}
 
+	collection, err := client.UploadFiles(ctx, FilesInput{Files: []FileInput{
+		{Name: "shot.png", Reader: bytes.NewReader([]byte("png")), Size: 3},
+		{Name: "demo.webm", Reader: bytes.NewReader([]byte("video")), Size: 5},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectionDirPrefix, err := uploadDirPrefix(collection.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectionDir := strings.TrimSuffix(collectionDirPrefix, "/")
+	collectionDir = collectionDir[strings.LastIndex(collectionDir, "/")+1:]
+	collectionMarker := getObject(ctx, t, st, collection.MarkerKey)
+	decodedCollection, err := DecodeUploadMarkerForName(
+		collectionMarker.body, collectionDir, CollectionMarkerFilename,
+	)
+	if err != nil || decodedCollection.Kind != UploadKindCollection ||
+		len(decodedCollection.Objects) != 3 {
+		t.Fatalf("collection marker = %+v, %v", decodedCollection, err)
+	}
+	if got := getObject(ctx, t, st, collection.Files[1].Key); string(got.body) != "video" || got.contentType != "video/webm" {
+		t.Fatalf("collection video = %+v", got)
+	}
+	collectionInspection, err := client.InspectUpload(ctx, collection.Files[0].URL)
+	if err != nil || collectionInspection.State != UploadComplete || len(collectionInspection.Files) != 2 {
+		t.Fatalf("collection inspection = %+v, %v", collectionInspection, err)
+	}
+	var downloaded bytes.Buffer
+	if _, err := client.GetUploadTo(ctx, collection.Files[1].URL, GetOptions{}, &downloaded); err != nil || downloaded.String() != "video" {
+		t.Fatalf("streamed collection member = %q, %v", downloaded.String(), err)
+	}
+	conflictDir := "zzzzzzzzzzzzzzzzzzzzzzzzzz"
+	putIntegrationObject(ctx, t, st, object{
+		Key:  conflictDir + "/" + MarkerFilename,
+		Body: []byte(`{}`), ContentType: markerContentType,
+	})
+	putIntegrationObject(ctx, t, st, object{
+		Key:  conflictDir + "/" + CollectionMarkerFilename,
+		Body: []byte(`{}`), ContentType: markerContentType,
+	})
+	conflictInspection, err := client.InspectUpload(ctx, conflictDir)
+	if err != nil || conflictInspection.Error != MarkerErrorConflictingMarkers {
+		t.Fatalf("conflict inspection = %+v, %v", conflictInspection, err)
+	}
+	if _, err := client.DeleteUpload(ctx, conflictDir); err == nil {
+		t.Fatal("delete accepted conflicting ownership markers")
+	}
+	if err := st.deleteKeys(ctx, []string{
+		conflictDir + "/" + MarkerFilename,
+		conflictDir + "/" + CollectionMarkerFilename,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
 	partialDir := "bbbbbbbbbbbbbbbbbbbbbbbbbb"
 	partialMarker, err := EncodeUploadMarker(UploadMarker{
 		Schema: MarkerSchema, Version: 1,
@@ -207,8 +263,11 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(remote) != 3 {
-		t.Fatalf("remote uploads = %+v, want complete, partial, and invalid", remote)
+	if len(remote) != 4 {
+		t.Fatalf("remote uploads = %+v, want document, collection, partial, and invalid", remote)
+	}
+	if indexedCollection := remoteByDir(t, remote, collectionDir); indexedCollection.Kind != UploadKindCollection || !strings.HasSuffix(indexedCollection.Key, "/index.html") {
+		t.Fatalf("indexed collection = %+v", indexedCollection)
 	}
 	remoteByDir(t, remote, partialDir)
 	remoteByDir(t, remote, invalidDir)
@@ -248,7 +307,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	synced, err := syncClient.SyncManifest(ctx, SyncManifestOptions{Prune: true})
-	if err != nil || len(synced.Added) != 1 || synced.Incomplete != 1 ||
+	if err != nil || len(synced.Added) != 2 || synced.Incomplete != 1 ||
 		synced.Invalid != 1 {
 		t.Fatalf("initial sync = %+v, %v", synced, err)
 	}
@@ -291,6 +350,10 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	}
 	if _, err := client.DeleteUpload(ctx, partialDir); err != nil {
 		t.Fatal(err)
+	}
+	collectionDeleted, err := client.DeleteUpload(ctx, collection.Files[0].URL)
+	if err != nil || collectionDeleted.Keys[len(collectionDeleted.Keys)-1] != collection.MarkerKey {
+		t.Fatalf("collection delete = %+v, %v", collectionDeleted, err)
 	}
 
 	remote, err = client.ListRemote(ctx)

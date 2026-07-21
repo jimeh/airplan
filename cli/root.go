@@ -6,6 +6,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,9 +14,11 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jimeh/airplan/airplan"
 	"github.com/spf13/cobra"
@@ -44,22 +47,25 @@ func Execute() int {
 
 // rootOptions holds the root command's flag values.
 type rootOptions struct {
-	format           string
-	lang             string
-	slug             string
-	title            string
-	noSource         bool
-	indexable        bool
-	noExternalAssets bool
-	mermaidURL       string
-	repository       string
-	maxSize          string
-	template         string
-	timeout          string
-	json             bool
-	open             bool
-	profile          string
-	config           string
+	format             string
+	lang               string
+	slug               string
+	title              string
+	noSource           bool
+	indexable          bool
+	noExternalAssets   bool
+	mermaidURL         string
+	repository         string
+	maxSize            string
+	maxTotalSize       string
+	template           string
+	collectionTemplate string
+	files              bool
+	timeout            string
+	json               bool
+	open               bool
+	profile            string
+	config             string
 
 	// Connection overrides for one-off use (SPEC.md §6).
 	endpoint      string
@@ -73,13 +79,13 @@ func newRootCmd() *cobra.Command {
 	opts := &rootOptions{}
 
 	cmd := &cobra.Command{
-		Use:   "airplan [flags] [file]",
-		Short: "Upload a plan document and print its shareable URL",
-		Long: "airplan uploads AI/LLM agent plan files (markdown, " +
-			"HTML, or plain text) to S3-compatible object storage " +
+		Use:   "airplan [flags] [file ...]",
+		Short: "Upload documents or files and print shareable URLs",
+		Long: "airplan uploads documents and generic file collections " +
+			"to S3-compatible object storage " +
 			"under a randomized, unguessable URL path and prints the " +
 			"resulting URL.",
-		Args:          cobra.MaximumNArgs(1),
+		Args:          cobra.ArbitraryArgs,
 		Version:       buildVersion(),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -98,7 +104,11 @@ func newRootCmd() *cobra.Command {
 	f.StringVarP(&opts.title, "title", "t", "",
 		"page title (default: from content)")
 	f.StringVar(&opts.maxSize, "max-size", "10MiB",
-		"input size limit, e.g. 10MiB, 512k, 1048576; 0 = no limit")
+		"per-input limit (10MiB documents, 1GiB collections); 0 = no limit")
+	f.StringVar(&opts.maxTotalSize, "max-total-size", "2GiB",
+		"collection total size limit; 0 = no limit")
+	f.BoolVar(&opts.files, "files", false,
+		"upload named inputs as one file collection")
 	f.BoolVarP(&opts.json, "json", "j", false,
 		"print a single JSON object instead of the URL")
 	f.BoolVarP(&opts.open, "open", "o", false,
@@ -142,6 +152,8 @@ func addConfigResolutionFlags(f *pflag.FlagSet, opts *rootOptions) {
 		"base URL public links are assembled from")
 	f.StringVar(&opts.template, "template", "",
 		"custom page template file (md and text input)")
+	f.StringVar(&opts.collectionTemplate, "collection-template", "",
+		"custom collection overview template file")
 	f.StringVar(&opts.keyPrefix, "key-prefix", "",
 		"prefix prepended to object keys")
 }
@@ -171,6 +183,16 @@ func resolveVersion(
 // stdout; warnings and errors go to stderr.
 func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	stderr := cmd.ErrOrStderr()
+	collection, err := selectCollectionMode(args, opts)
+	if err != nil {
+		return err
+	}
+	if err := validateModeFlags(cmd, collection); err != nil {
+		return err
+	}
+	if collection && !cmd.Flags().Changed("max-size") {
+		opts.maxSize = "1GiB"
+	}
 
 	maxSize, err := airplan.ParseSize(opts.maxSize)
 	if err != nil {
@@ -179,6 +201,14 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	}
 	if maxSize == 0 {
 		maxSize = -1 // 0 on the CLI means unlimited (SPEC.md §2)
+	}
+	maxTotalSize, err := airplan.ParseSize(opts.maxTotalSize)
+	if err != nil {
+		return fmt.Errorf("--max-total-size: %s",
+			strings.TrimPrefix(err.Error(), "airplan: "))
+	}
+	if maxTotalSize == 0 {
+		maxTotalSize = -1
 	}
 
 	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
@@ -206,6 +236,10 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	client, err := airplan.New(ctx, cfg)
 	if err != nil {
 		return err
+	}
+
+	if collection {
+		return runCollection(cmd, ctx, client, args, opts, maxSize, maxTotalSize)
 	}
 
 	in := airplan.Input{
@@ -308,13 +342,14 @@ func defaultOpenBrowser(url string) error {
 // for the bool flags; string flags use "" as "not set".
 func flagOverrides(cmd *cobra.Command, opts *rootOptions) airplan.Settings {
 	ov := airplan.Settings{
-		Endpoint:      opts.endpoint,
-		Bucket:        opts.bucket,
-		Region:        opts.region,
-		PublicBaseURL: opts.publicBaseURL,
-		KeyPrefix:     opts.keyPrefix,
-		Template:      opts.template,
-		Timeout:       opts.timeout,
+		Endpoint:           opts.endpoint,
+		Bucket:             opts.bucket,
+		Region:             opts.region,
+		PublicBaseURL:      opts.publicBaseURL,
+		KeyPrefix:          opts.keyPrefix,
+		Template:           opts.template,
+		CollectionTemplate: opts.collectionTemplate,
+		Timeout:            opts.timeout,
 		MermaidURL: airplan.ResolveMermaidURLOverride(
 			opts.mermaidURL,
 			cmd.Flags().Changed("mermaid-url"),
@@ -332,4 +367,118 @@ func flagOverrides(cmd *cobra.Command, opts *rootOptions) airplan.Settings {
 		ov.NoExternalAssets = &opts.noExternalAssets
 	}
 	return ov
+}
+
+func selectCollectionMode(args []string, opts *rootOptions) (bool, error) {
+	if opts.files {
+		if len(args) == 0 || (len(args) == 1 && args[0] == "-") {
+			return false, errors.New("airplan: --files requires one or more named files")
+		}
+		return true, nil
+	}
+	if opts.format != "" {
+		if len(args) > 1 {
+			return false, errors.New("airplan: --format accepts only one input")
+		}
+		return false, nil
+	}
+	if len(args) > 1 {
+		return true, nil
+	}
+	if len(args) == 0 || args[0] == "-" {
+		return false, nil
+	}
+	ext := strings.ToLower(filepath.Ext(args[0]))
+	for _, e := range []string{".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg", ".mp4", ".webm", ".mov", ".mp3", ".m4a", ".ogg", ".wav", ".pdf", ".zip", ".gz", ".tar", ".bin", ".dmg", ".exe", ".wasm", ".7z"} {
+		if ext == e {
+			return true, nil
+		}
+	}
+	f, err := os.Open(args[0])
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = f.Close() }()
+	buf := make([]byte, 8192)
+	n, _ := f.Read(buf)
+	return bytes.IndexByte(buf[:n], 0) >= 0 || !utf8.Valid(buf[:n]), nil
+}
+
+func validateModeFlags(cmd *cobra.Command, collection bool) error {
+	docOnly := []string{"format", "lang", "slug", "template", "no-source", "no-external-assets", "mermaid-url"}
+	collectionOnly := []string{"files", "collection-template", "max-total-size"}
+	if collection {
+		for _, name := range docOnly {
+			if cmd.Flags().Changed(name) {
+				return fmt.Errorf("airplan: --%s is only valid for document uploads", name)
+			}
+		}
+	} else {
+		for _, name := range collectionOnly {
+			if cmd.Flags().Changed(name) {
+				return fmt.Errorf("airplan: --%s is only valid for collection uploads", name)
+			}
+		}
+	}
+	return nil
+}
+
+func runCollection(cmd *cobra.Command, ctx context.Context, client *airplan.Client, args []string, opts *rootOptions, maxSize, maxTotal int64) error {
+	inputs := make([]airplan.FileInput, 0, len(args))
+	closers := make([]io.Closer, 0, len(args))
+	defer func() {
+		for _, c := range closers {
+			_ = c.Close()
+		}
+	}()
+	for _, path := range args {
+		info, err := os.Stat(path)
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("airplan: collection input %q is not a regular file", path)
+		}
+		f, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		closers = append(closers, f)
+		inputs = append(inputs, airplan.FileInput{Name: path, Reader: f, Size: info.Size()})
+	}
+	res, err := client.UploadFiles(ctx, airplan.FilesInput{Files: inputs, Title: opts.title, MaxSize: maxSize, MaxTotalSize: maxTotal})
+	if err != nil {
+		return err
+	}
+	for _, w := range res.Warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", w)
+	}
+	if opts.json {
+		out := struct {
+			URL         string               `json:"url"`
+			Key         string               `json:"key"`
+			Files       []airplan.FileResult `json:"files"`
+			Bucket      string               `json:"bucket"`
+			Bytes       int64                `json:"bytes"`
+			ContentType string               `json:"content_type"`
+		}{res.URL, res.Key, res.Files, res.Bucket, res.Bytes, res.ContentType}
+		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(out); err != nil {
+			return err
+		}
+	} else {
+		for _, f := range res.Files {
+			if _, err := fmt.Fprintln(cmd.OutOrStdout(), f.URL); err != nil {
+				return err
+			}
+		}
+		if _, err := fmt.Fprintln(cmd.OutOrStdout(), res.URL); err != nil {
+			return err
+		}
+	}
+	if opts.open {
+		if err := openBrowser(res.URL); err != nil {
+			fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: could not open browser: %s\n", err)
+		}
+	}
+	return nil
 }

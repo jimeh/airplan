@@ -104,6 +104,17 @@ type object struct {
 	Metadata map[string]string
 }
 
+// streamObject is a known-length, rewindable object. The reader is consumed
+// from its current position and bounded to Size so a growing file cannot
+// append bytes that were not declared during collection preflight.
+type streamObject struct {
+	Key         string
+	Body        io.ReadSeeker
+	Size        int64
+	ContentType string
+	Metadata    map[string]string
+}
+
 // put uploads one object with Cache-Control: no-store (SPEC.md §5).
 func (s *storage) put(ctx context.Context, obj object) error {
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
@@ -118,6 +129,88 @@ func (s *storage) put(ctx context.Context, obj object) error {
 		return fmt.Errorf("airplan: put object %q: %w", obj.Key, err)
 	}
 	return nil
+}
+
+func (s *storage) putStream(ctx context.Context, obj streamObject) error {
+	if obj.Body == nil {
+		return fmt.Errorf("airplan: put object %q: nil reader", obj.Key)
+	}
+	start, err := obj.Body.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return fmt.Errorf("airplan: seek object %q: %w", obj.Key, err)
+	}
+	reader := &exactSizeReadSeeker{reader: obj.Body, start: start, size: obj.Size}
+	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(s.bucket),
+		Key:           aws.String(obj.Key),
+		Body:          reader,
+		ContentLength: aws.Int64(obj.Size),
+		ContentType:   aws.String(obj.ContentType),
+		CacheControl:  aws.String("no-store"),
+		Metadata:      obj.Metadata,
+	})
+	if err != nil {
+		return fmt.Errorf("airplan: put object %q: %w", obj.Key, err)
+	}
+	if reader.remaining != 0 {
+		return fmt.Errorf("airplan: put object %q: input was truncated", obj.Key)
+	}
+	return nil
+}
+
+type exactSizeReadSeeker struct {
+	reader      io.ReadSeeker
+	start       int64
+	size        int64
+	remaining   int64
+	initialized bool
+}
+
+func (r *exactSizeReadSeeker) Read(p []byte) (int, error) {
+	if r.initialized && r.remaining == 0 {
+		return 0, io.EOF
+	}
+	if !r.initialized {
+		r.remaining = r.size
+		r.initialized = true
+	}
+	if int64(len(p)) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.reader.Read(p)
+	r.remaining -= int64(n)
+	if err == io.EOF && r.remaining > 0 {
+		return n, io.ErrUnexpectedEOF
+	}
+	return n, err
+}
+
+func (r *exactSizeReadSeeker) Seek(offset int64, whence int) (int64, error) {
+	var absolute int64
+	switch whence {
+	case io.SeekStart:
+		absolute = offset
+	case io.SeekCurrent:
+		current := int64(0)
+		if r.initialized {
+			current = r.size - r.remaining
+		}
+		absolute = current + offset
+	case io.SeekEnd:
+		absolute = r.size + offset
+	default:
+		return 0, errors.New("airplan: invalid seek whence")
+	}
+	if absolute < 0 || absolute > r.size {
+		return 0, errors.New("airplan: seek outside declared object")
+	}
+	pos, err := r.reader.Seek(r.start+absolute, io.SeekStart)
+	if err != nil {
+		return 0, err
+	}
+	r.remaining = r.size - absolute
+	r.initialized = true
+	return pos - r.start, nil
 }
 
 // getBytes fetches an object while retaining at most limit+1 bytes when limit
@@ -148,6 +241,24 @@ func (s *storage) getBytes(
 		return nil, fmt.Errorf("airplan: read object %q: %w", key, err)
 	}
 	return body, nil
+}
+
+func (s *storage) getTo(ctx context.Context, key string, dst io.Writer) error {
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket), Key: aws.String(key),
+	})
+	if err != nil {
+		var noSuchKey *types.NoSuchKey
+		if errors.As(err, &noSuchKey) {
+			return fmt.Errorf("airplan: get object %q: %w", key, errObjectNotFound)
+		}
+		return fmt.Errorf("airplan: get object %q: %w", key, err)
+	}
+	defer func() { _ = out.Body.Close() }()
+	if _, err := io.Copy(dst, out.Body); err != nil {
+		return fmt.Errorf("airplan: read object %q: %w", key, err)
+	}
+	return nil
 }
 
 // deleteMarker removes the ownership marker in a dedicated final request.

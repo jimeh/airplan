@@ -187,8 +187,9 @@ func TestDeleteUploadMarkerLast(t *testing.T) {
 		res.Keys[len(res.Keys)-1] != testDir+"/"+MarkerFilename {
 		t.Fatalf("result = %+v", res)
 	}
-	if got := fake.operationOrder(); strings.Join(got, ",") !=
-		"get-marker,list,payload-delete,marker-delete" {
+	if got := fake.operationOrder(); len(got) != 5 ||
+		!markerProbes(got[:2]) || strings.Join(got[2:], ",") !=
+		"list,payload-delete,marker-delete" {
 		t.Fatalf("operations = %v", got)
 	}
 	records, warnings, err := ReadManifest(manifest)
@@ -196,6 +197,43 @@ func TestDeleteUploadMarkerLast(t *testing.T) {
 		records[0].Type != "delete" || records[0].Key != res.PageKey {
 		t.Fatalf("manifest = %+v, warnings = %v, error = %v",
 			records, warnings, err)
+	}
+}
+
+func TestDeleteUploadResolvesBothMarkersBeforeDecoding(t *testing.T) {
+	t.Setenv("AWS_MAX_ATTEMPTS", "1")
+	fake := newDeleteLifecycleS3(t, []byte(`{"schema":`), nil)
+	fake.collectionMarker = []byte(`{}`)
+	client := newDeleteTestClient(t, fake.server.URL, "", true)
+
+	_, err := client.DeleteUpload(context.Background(), testDir)
+	assertMarkerCode(t, err, MarkerErrorConflictingMarkers)
+	operations := fake.operationOrder()
+	if len(operations) != 2 || !markerProbes(operations) {
+		t.Fatalf("operations = %v, want only both marker probes", operations)
+	}
+	if fake.deleteCalls() != 0 {
+		t.Fatalf("delete calls = %d", fake.deleteCalls())
+	}
+}
+
+func TestDeleteUploadFailsClosedOnAmbiguousMarkerProbe(t *testing.T) {
+	t.Setenv("AWS_MAX_ATTEMPTS", "1")
+	marker := testUploadMarker(t, "html", "plan.html", "")
+	fake := newDeleteLifecycleS3(t, marker, nil)
+	fake.collectionStatus = http.StatusInternalServerError
+	client := newDeleteTestClient(t, fake.server.URL, "", true)
+
+	_, err := client.DeleteUpload(context.Background(), testDir)
+	if err == nil || !strings.Contains(err.Error(), "Internal Server Error") {
+		t.Fatalf("error = %v, want marker probe failure", err)
+	}
+	operations := fake.operationOrder()
+	if len(operations) != 2 || !markerProbes(operations) {
+		t.Fatalf("operations = %v, want only both marker probes", operations)
+	}
+	if fake.deleteCalls() != 0 {
+		t.Fatalf("delete calls = %d", fake.deleteCalls())
 	}
 }
 
@@ -477,15 +515,17 @@ func TestActiveUploads(t *testing.T) {
 }
 
 type deleteLifecycleS3 struct {
-	server        *httptest.Server
-	mu            sync.Mutex
-	marker        []byte
-	objects       []objectInfo
-	operations    []string
-	deletes       int
-	failPayload   bool
-	failMarker    bool
-	markerMissing bool
+	server           *httptest.Server
+	mu               sync.Mutex
+	marker           []byte
+	collectionMarker []byte
+	objects          []objectInfo
+	operations       []string
+	deletes          int
+	failPayload      bool
+	failMarker       bool
+	markerMissing    bool
+	collectionStatus int
 }
 
 func newDeleteLifecycleS3(
@@ -512,15 +552,30 @@ func (f *deleteLifecycleS3) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintln(w, `</ListBucketResult>`)
 	case r.Method == http.MethodGet:
-		f.record("get-marker")
-		if f.markerMissing {
+		isCollection := strings.HasSuffix(
+			r.URL.Path, "/"+CollectionMarkerFilename,
+		)
+		operation := "get-document-marker"
+		body := f.marker
+		status := 0
+		if isCollection {
+			operation = "get-collection-marker"
+			body = f.collectionMarker
+			status = f.collectionStatus
+		}
+		f.record(operation)
+		if status != 0 {
+			w.WriteHeader(status)
+			return
+		}
+		if f.markerMissing || body == nil {
 			w.Header().Set("Content-Type", "application/xml")
 			w.WriteHeader(http.StatusNotFound)
 			_, _ = io.WriteString(w,
 				`<Error><Code>NoSuchKey</Code><Message>missing</Message></Error>`)
 			return
 		}
-		_, _ = w.Write(f.marker)
+		_, _ = w.Write(body)
 	case r.Method == http.MethodPost:
 		f.record("payload-delete")
 		f.mu.Lock()
@@ -569,6 +624,17 @@ func (f *deleteLifecycleS3) deleteCalls() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.deletes
+}
+
+func markerProbes(operations []string) bool {
+	if len(operations) != 2 {
+		return false
+	}
+	return operations[0] != operations[1] &&
+		(operations[0] == "get-document-marker" ||
+			operations[0] == "get-collection-marker") &&
+		(operations[1] == "get-document-marker" ||
+			operations[1] == "get-collection-marker")
 }
 
 func testUploadMarker(

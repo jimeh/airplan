@@ -35,6 +35,7 @@ access_key_id = "profile-access"
 secret_access_key = "profile-secret"
 public_base_url = "profile-public"
 template = "profile-template"
+collection_template = "profile-collection-template"
 no_source = true
 indexable = false
 mermaid_url = "https://profile.example/mermaid.mjs"
@@ -46,15 +47,16 @@ no_external_assets = true
 		Path:    path,
 		Profile: "work",
 		Getenv: envMap(map[string]string{
-			"AIRPLAN_BUCKET":             "env-bucket",
-			"AIRPLAN_REGION":             "env-region",
-			"AIRPLAN_SECRET_ACCESS_KEY":  "env-secret",
-			"AIRPLAN_PUBLIC_BASE_URL":    "env-public",
-			"AIRPLAN_KEY_PREFIX":         "env-prefix",
-			"AIRPLAN_TEMPLATE":           "env-template",
-			"AIRPLAN_MERMAID_URL":        "https://env.example/mermaid.mjs",
-			"AIRPLAN_REPO":               "https://github.com/env/project.git",
-			"AIRPLAN_NO_EXTERNAL_ASSETS": "false",
+			"AIRPLAN_BUCKET":              "env-bucket",
+			"AIRPLAN_REGION":              "env-region",
+			"AIRPLAN_SECRET_ACCESS_KEY":   "env-secret",
+			"AIRPLAN_PUBLIC_BASE_URL":     "env-public",
+			"AIRPLAN_KEY_PREFIX":          "env-prefix",
+			"AIRPLAN_TEMPLATE":            "env-template",
+			"AIRPLAN_COLLECTION_TEMPLATE": "env-collection-template",
+			"AIRPLAN_MERMAID_URL":         "https://env.example/mermaid.mjs",
+			"AIRPLAN_REPO":                "https://github.com/env/project.git",
+			"AIRPLAN_NO_EXTERNAL_ASSETS":  "false",
 		}),
 	})
 	if err != nil {
@@ -70,6 +72,7 @@ no_external_assets = true
 	assertEqual(t, cfg.PublicBaseURL, "env-public")
 	assertEqual(t, cfg.KeyPrefix, "env-prefix")
 	assertEqual(t, cfg.Template, "env-template")
+	assertEqual(t, cfg.CollectionTemplate, "env-collection-template")
 	assertEqual(t, cfg.NoSource, true)
 	assertEqual(t, cfg.Indexable, false)
 	assertEqual(t, cfg.MermaidURL, "https://env.example/mermaid.mjs")

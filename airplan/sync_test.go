@@ -26,8 +26,11 @@ func TestSyncManifestImportsPrunesAndRestores(t *testing.T) {
 	}, []byte("old page"))
 	fake.addUpload(t, UploadMarker{
 		Schema: MarkerSchema, Version: MarkerVersion, Directory: dirV2,
-		CreatedAt: when.Add(time.Minute), Format: "md", Page: "new.html",
-		PageBytes: 10, Source: "new.md", Title: "New plan",
+		CreatedAt: when.Add(time.Minute), Kind: UploadKindDocument,
+		Slug: "new", Format: "md", Objects: []MarkerObject{
+			{Name: "new.html", Role: MarkerRolePage, Bytes: 10, ContentType: pageContentType},
+			{Name: "new.md", Role: MarkerRoleSource, Bytes: 8, ContentType: sourceContentType},
+		}, Title: "New plan",
 		Repo: "https://github.com/acme/repo",
 	}, []byte("0123456789"))
 	fake.addObject(dirV2+"/new.md", []byte("# source"), when)
@@ -69,8 +72,11 @@ func TestSyncManifestImportsPrunesAndRestores(t *testing.T) {
 
 	fake.addMarker(t, UploadMarker{
 		Schema: MarkerSchema, Version: MarkerVersion, Directory: dirV2,
-		CreatedAt: when.Add(time.Minute), Format: "md", Page: "new.html",
-		PageBytes: 10, Source: "new.md", Title: "New plan",
+		CreatedAt: when.Add(time.Minute), Kind: UploadKindDocument,
+		Slug: "new", Format: "md", Objects: []MarkerObject{
+			{Name: "new.html", Role: MarkerRolePage, Bytes: 10, ContentType: pageContentType},
+			{Name: "new.md", Role: MarkerRoleSource, Bytes: 8, ContentType: sourceContentType},
+		}, Title: "New plan",
 		Repo: "https://github.com/acme/repo",
 	})
 	restored, err := client.SyncManifest(context.Background(),
@@ -124,7 +130,11 @@ func TestSyncManifestClassifiesInvalidAndIncomplete(t *testing.T) {
 	fake.addObject(invalidDir+"/"+MarkerFilename, []byte(`{"schema":`), when)
 	fake.addMarker(t, UploadMarker{
 		Schema: MarkerSchema, Version: MarkerVersion, Directory: incompleteDir,
-		CreatedAt: when, Format: "html", Page: "plan.html", PageBytes: 99,
+		CreatedAt: when, Kind: UploadKindDocument, Slug: "plan", Format: "html",
+		Objects: []MarkerObject{{
+			Name: "plan.html", Role: MarkerRolePage,
+			Bytes: 99, ContentType: pageContentType,
+		}},
 	})
 	fake.addObject(incompleteDir+"/plan.html", []byte("short"), when)
 	client := newSyncClient(t, fake.server.URL,
@@ -311,7 +321,15 @@ func (f *syncStorage) addUpload(
 ) {
 	t.Helper()
 	f.addMarker(t, marker)
-	f.addObject(marker.Directory+"/"+marker.Page, page, marker.CreatedAt)
+	pageName := marker.Page
+	if marker.Version == MarkerVersion {
+		for _, object := range marker.Objects {
+			if object.Role == MarkerRolePage {
+				pageName = object.Name
+			}
+		}
+	}
+	f.addObject(marker.Directory+"/"+pageName, page, marker.CreatedAt)
 }
 
 func (f *syncStorage) addMarker(t *testing.T, marker UploadMarker) {
@@ -320,7 +338,11 @@ func (f *syncStorage) addMarker(t *testing.T, marker UploadMarker) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.addObject(marker.Directory+"/"+MarkerFilename, body, marker.CreatedAt)
+	markerName := MarkerFilename
+	if marker.Version == MarkerVersion {
+		markerName, _ = MarkerFilenameForKind(marker.Kind)
+	}
+	f.addObject(marker.Directory+"/"+markerName, body, marker.CreatedAt)
 }
 
 func (f *syncStorage) addObject(key string, body []byte, modified time.Time) {

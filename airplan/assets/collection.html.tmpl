@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  {{if not .Indexable}}<meta name="robots" content="noindex,nofollow">{{end}}
+  <title>{{.Title}}</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --cloud: #edf3f9;
+      --paper: #ffffff;
+      --slate: #142033;
+      --muted: #586a80;
+      --line: #b9c8d8;
+      --cobalt: #1f5dcc;
+      --cobalt-ink: #17499f;
+      --beacon: #df6429;
+      --media: #0b1628;
+      --focus: #df6429;
+      --display: "Arial Narrow", "Aptos Narrow", "Roboto Condensed",
+        "Helvetica Neue", sans-serif;
+      --body: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+      --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cloud);
+      color: var(--slate);
+      font: 16px/1.5 var(--body);
+    }
+    main {
+      width: min(1220px, calc(100% - 2.5rem));
+      margin: 0 auto;
+      padding: clamp(2rem, 5vw, 5rem) 0;
+    }
+    .manifest-header {
+      border-top: 6px solid var(--cobalt);
+      border-bottom: 1px solid var(--line);
+      padding: clamp(1.4rem, 4vw, 3rem) 0 1.5rem;
+    }
+    .eyebrow {
+      display: flex;
+      align-items: center;
+      gap: .65rem;
+      margin: 0 0 .85rem;
+      color: var(--cobalt-ink);
+      font: 700 .72rem/1 var(--mono);
+      letter-spacing: .13em;
+      text-transform: uppercase;
+    }
+    .beacon {
+      width: .65rem;
+      height: .65rem;
+      border: 2px solid var(--beacon);
+      border-radius: 50%;
+      background: var(--paper);
+    }
+    .header-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: end;
+      gap: 2rem;
+    }
+    h1 {
+      max-width: 18ch;
+      margin: 0;
+      font: 800 clamp(2.5rem, 7vw, 5.8rem)/.88 var(--display);
+      letter-spacing: -.035em;
+      text-transform: uppercase;
+      overflow-wrap: anywhere;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(8rem, auto));
+      gap: .85rem 1.5rem;
+      margin: 0;
+    }
+    .summary div { border-top: 1px solid var(--line); padding-top: .55rem; }
+    .summary dt {
+      color: var(--muted);
+      font: 700 .66rem/1.2 var(--mono);
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+    .summary dd {
+      margin: .25rem 0 0;
+      font: 700 1rem/1.2 var(--mono);
+    }
+    .header-actions { margin-top: 1.5rem; }
+    .files {
+      counter-reset: evidence;
+      display: grid;
+      gap: 0;
+      margin: 2.25rem 0 0;
+      padding: 0;
+      list-style: none;
+      border-bottom: 1px solid var(--line);
+    }
+    .file {
+      counter-increment: evidence;
+      display: grid;
+      grid-template-columns: minmax(0, 1.7fr) minmax(18rem, .8fr);
+      position: relative;
+      min-width: 0;
+      border-top: 1px solid var(--line);
+      background: var(--paper);
+    }
+    .file::before {
+      content: "EVIDENCE " counter(evidence, decimal-leading-zero);
+      position: absolute;
+      z-index: 1;
+      top: 0;
+      left: 0;
+      padding: .55rem .7rem;
+      border-right: 1px solid var(--line);
+      border-bottom: 2px solid var(--beacon);
+      background: var(--paper);
+      color: var(--cobalt-ink);
+      font: 700 .66rem/1 var(--mono);
+      letter-spacing: .08em;
+    }
+    .preview {
+      display: grid;
+      place-items: center;
+      min-width: 0;
+      min-height: 16rem;
+      overflow: hidden;
+      border-right: 1px solid var(--line);
+      background: var(--media);
+    }
+    .preview img,
+    .preview video {
+      display: block;
+      width: 100%;
+      max-height: 72vh;
+      object-fit: contain;
+    }
+    .preview audio { width: min(84%, 42rem); margin: 5rem 1rem 3rem; }
+    .preview--file::after {
+      content: "ATTACHED FILE";
+      color: #adc0d8;
+      font: 700 .72rem/1 var(--mono);
+      letter-spacing: .16em;
+    }
+    .details {
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      min-width: 0;
+      padding: clamp(3.75rem, 6vw, 6rem) clamp(1.25rem, 3vw, 2.25rem)
+        clamp(1.25rem, 3vw, 2.25rem);
+    }
+    .details h2 {
+      margin: 0;
+      font: 800 clamp(1.55rem, 3vw, 2.6rem)/1 var(--display);
+      letter-spacing: -.015em;
+      overflow-wrap: anywhere;
+    }
+    .meta {
+      margin-top: .65rem;
+      color: var(--muted);
+      font: 500 .72rem/1.5 var(--mono);
+      overflow-wrap: anywhere;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: .6rem; margin-top: 1.4rem; }
+    .actions a,
+    .actions button {
+      min-height: 2.6rem;
+      border: 1px solid var(--line);
+      border-radius: 3px;
+      padding: .62rem .85rem;
+      background: transparent;
+      color: var(--slate);
+      font: 700 .72rem/1 var(--mono);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .actions a:first-child {
+      border-color: var(--cobalt);
+      background: var(--cobalt);
+      color: #ffffff;
+    }
+    :where(a, button):focus-visible {
+      outline: 3px solid var(--focus);
+      outline-offset: 3px;
+    }
+    @media (max-width: 760px) {
+      main { width: min(100% - 1.25rem, 42rem); padding-top: 1.25rem; }
+      .header-grid { grid-template-columns: 1fr; align-items: start; gap: 1.5rem; }
+      .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+      .file { grid-template-columns: 1fr; }
+      .preview { min-height: 12rem; border-right: 0; border-bottom: 1px solid var(--line); }
+      .details { padding-top: 3.75rem; }
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --cloud: #08111f;
+        --paper: #111d2e;
+        --slate: #e7eef7;
+        --muted: #9dafc3;
+        --line: #33465d;
+        --cobalt: #70a4ff;
+        --cobalt-ink: #9bbdff;
+        --beacon: #ff8a4c;
+        --media: #050b14;
+        --focus: #ff9a62;
+      }
+      .actions a:first-child { background: #245fb8; color: #ffffff; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header class="manifest-header">
+    <p class="eyebrow"><span class="beacon" aria-hidden="true"></span>Airplan evidence manifest</p>
+    <div class="header-grid">
+      <h1>{{.Title}}</h1>
+      <dl class="summary">
+        <div><dt>Items</dt><dd>{{len .Files}}</dd></div>
+        <div><dt>Payload</dt><dd>{{formatBytes .TotalBytes}}</dd></div>
+      </dl>
+    </div>
+    <div class="actions header-actions">
+      <button type="button" data-copy-overview>Copy overview URL</button>
+      {{with .RepositoryURL}}<a href="{{.}}">Repository</a>{{end}}
+    </div>
+  </header>
+  <ol class="files" aria-label="Uploaded files">
+  {{range .Files}}<li class="file">
+    <div class="preview{{if eq .MediaKind "file"}} preview--file{{end}}">
+      {{if eq .MediaKind "image"}}<img src="{{.Path}}" alt="{{.Name}}" loading="lazy">{{end}}
+      {{if eq .MediaKind "video"}}<video src="{{.Path}}" controls preload="metadata"></video>{{end}}
+      {{if eq .MediaKind "audio"}}<audio src="{{.Path}}" controls preload="metadata"></audio>{{end}}
+    </div>
+    <div class="details">
+      <h2>{{.Name}}</h2>
+      <div class="meta">{{.ContentType}} · {{formatBytes .Bytes}}</div>
+      <div class="actions">
+        <a href="{{.Path}}">Open</a>
+        <a href="{{.Path}}" download>Download</a>
+        <button type="button" data-copy="{{.Path}}">Copy URL</button>
+      </div>
+    </div>
+  </li>{{end}}
+  </ol>
+</main>
+<script>document.addEventListener('click',async e=>{const b=e.target.closest('[data-copy],[data-copy-overview]');if(!b)return;const u=b.hasAttribute('data-copy-overview')?location.href:new URL(b.dataset.copy,document.baseURI).href;try{await navigator.clipboard.writeText(u);const old=b.textContent;b.textContent='Copied';setTimeout(()=>b.textContent=old,1200)}catch{prompt('Copy URL',u)}})</script>
+</body>
+</html>

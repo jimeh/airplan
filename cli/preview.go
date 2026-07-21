@@ -12,27 +12,30 @@ import (
 )
 
 type previewOptions struct {
-	format           string
-	lang             string
-	slug             string
-	title            string
-	indexable        bool
-	noExternalAssets bool
-	mermaidURL       string
-	repository       string
-	maxSize          string
-	template         string
-	profile          string
-	config           string
-	output           string
+	format             string
+	lang               string
+	slug               string
+	title              string
+	indexable          bool
+	noExternalAssets   bool
+	mermaidURL         string
+	repository         string
+	maxSize            string
+	template           string
+	collectionTemplate string
+	files              bool
+	maxTotalSize       string
+	profile            string
+	config             string
+	output             string
 }
 
 func newPreviewCmd() *cobra.Command {
 	opts := &previewOptions{}
 	cmd := &cobra.Command{
-		Use:   "preview [flags] [file]",
+		Use:   "preview [flags] [file ...]",
 		Short: "Render a document locally without uploading it",
-		Args:  cobra.MaximumNArgs(1),
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runPreview(cmd, args, opts)
 		},
@@ -56,9 +59,15 @@ func newPreviewCmd() *cobra.Command {
 	f.StringVar(&opts.repository, "repo", "",
 		"repository context: auto, none, or URL (default: auto)")
 	f.StringVar(&opts.maxSize, "max-size", "10MiB",
-		"input size limit, e.g. 10MiB, 512k, 1048576; 0 = no limit")
+		"per-input limit (10MiB documents, 1GiB collections); 0 = no limit")
 	f.StringVar(&opts.template, "template", "",
 		"custom page template file (md and text input)")
+	f.StringVar(&opts.collectionTemplate, "collection-template", "",
+		"custom collection overview template file")
+	f.BoolVar(&opts.files, "files", false,
+		"render named inputs as a collection overview")
+	f.StringVar(&opts.maxTotalSize, "max-total-size", "2GiB",
+		"collection total size limit; 0 = no limit")
 	f.StringVarP(&opts.profile, "profile", "p", "",
 		"config profile name (default: config default)")
 	f.StringVar(&opts.config, "config", "",
@@ -74,6 +83,14 @@ func runPreview(
 	args []string,
 	opts *previewOptions,
 ) error {
+	if opts.files || len(args) > 1 {
+		return runCollectionPreview(cmd, args, opts)
+	}
+	for _, name := range []string{"collection-template", "max-total-size"} {
+		if cmd.Flags().Changed(name) {
+			return fmt.Errorf("--%s is only valid for collection previews", name)
+		}
+	}
 	maxSize, err := airplan.ParseSize(opts.maxSize)
 	if err != nil {
 		return fmt.Errorf("--max-size: %s",
@@ -165,6 +182,90 @@ func runPreview(
 		return err
 	}
 	if err := writeFileAtomic(opts.output, doc.HTML, 0o644); err != nil {
+		return fmt.Errorf("write preview %s: %w", opts.output, err)
+	}
+	return nil
+}
+
+func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOptions) error {
+	if len(args) == 0 || (len(args) == 1 && args[0] == "-") {
+		return errors.New("--files requires one or more named files")
+	}
+	for _, name := range []string{"format", "lang", "slug", "template", "no-external-assets", "mermaid-url"} {
+		if cmd.Flags().Changed(name) {
+			return fmt.Errorf("--%s is only valid for document previews", name)
+		}
+	}
+	maxSize, err := airplan.ParseSize(opts.maxSize)
+	if err != nil {
+		return err
+	}
+	if !cmd.Flags().Changed("max-size") {
+		maxSize = airplan.DefaultMaxCollectionFileSize
+	}
+	if maxSize == 0 {
+		maxSize = -1
+	}
+	maxTotal, err := airplan.ParseSize(opts.maxTotalSize)
+	if err != nil {
+		return err
+	}
+	if maxTotal == 0 {
+		maxTotal = -1
+	}
+	overrides := airplan.Settings{CollectionTemplate: opts.collectionTemplate, Repository: opts.repository}
+	if cmd.Flags().Changed("indexable") {
+		overrides.Indexable = &opts.indexable
+	}
+	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{Path: opts.config, Profile: opts.profile, Overrides: overrides})
+	if err != nil {
+		return err
+	}
+	for _, warning := range cfg.Warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", warning)
+	}
+	ctx, cancel := timeoutContext(cmd.Context(), cfg)
+	defer cancel()
+	inputs := make([]airplan.FileInput, 0, len(args))
+	closers := make([]*os.File, 0, len(args))
+	defer func() {
+		for _, f := range closers {
+			_ = f.Close()
+		}
+	}()
+	for _, path := range args {
+		if opts.output != "" && opts.output != "-" {
+			same, e := samePreviewPath(path, opts.output)
+			if e != nil {
+				return e
+			}
+			if same {
+				return errors.New("--output must not overwrite a preview input")
+			}
+		}
+		info, e := os.Stat(path)
+		if e != nil {
+			return e
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("collection input %q is not a regular file", path)
+		}
+		f, e := os.Open(path)
+		if e != nil {
+			return e
+		}
+		closers = append(closers, f)
+		inputs = append(inputs, airplan.FileInput{Name: path, Reader: f, Size: info.Size()})
+	}
+	body, _, err := airplan.RenderCollection(ctx, airplan.FilesInput{Files: inputs, Title: opts.title, MaxSize: maxSize, MaxTotalSize: maxTotal}, airplan.CollectionRenderOptions{Indexable: cfg.Indexable, TemplatePath: cfg.CollectionTemplate, Repository: cfg.Repository})
+	if err != nil {
+		return err
+	}
+	if opts.output == "" || opts.output == "-" {
+		_, err = cmd.OutOrStdout().Write(body)
+		return err
+	}
+	if err = writeFileAtomic(opts.output, body, 0o644); err != nil {
 		return fmt.Errorf("write preview %s: %w", opts.output, err)
 	}
 	return nil

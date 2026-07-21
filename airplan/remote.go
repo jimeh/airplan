@@ -25,6 +25,8 @@ type RemoteUpload struct {
 
 	// MarkerKey is the marker's full storage key, including key_prefix.
 	MarkerKey string
+	Kind      UploadKind
+	Conflict  bool
 
 	// Slug is inferred only when exactly one valid direct-child HTML page
 	// filename exists. It is a display hint, not trusted marker data.
@@ -49,12 +51,13 @@ type RemoteUpload struct {
 }
 
 type remoteGroup struct {
-	dir      string
-	marker   *objectInfo
-	keys     []string
-	objects  map[string]objectInfo
-	bytes    int64
-	pageKeys []string
+	dir              string
+	marker           *objectInfo
+	collectionMarker *objectInfo
+	keys             []string
+	objects          map[string]objectInfo
+	bytes            int64
+	pageKeys         []string
 }
 
 // ListRemote discovers exact marker-key candidates under key_prefix using
@@ -104,6 +107,9 @@ func (c *Client) ListRemote(ctx context.Context) ([]RemoteUpload, error) {
 		case MarkerFilename:
 			marker := obj
 			group.marker = &marker
+		case CollectionMarkerFilename:
+			marker := obj
+			group.collectionMarker = &marker
 		default:
 			if _, ok := pageSlug(segments[1]); ok {
 				group.pageKeys = append(group.pageKeys, obj.Key)
@@ -113,20 +119,47 @@ func (c *Client) ListRemote(ctx context.Context) ([]RemoteUpload, error) {
 
 	uploads := make([]RemoteUpload, 0, len(groups))
 	for _, group := range groups {
-		if group.marker == nil {
+		if group.marker == nil && group.collectionMarker == nil {
 			continue
+		}
+		marker := group.marker
+		kind := UploadKindDocument
+		conflict := false
+		if group.collectionMarker != nil {
+			marker = group.collectionMarker
+			kind = UploadKindCollection
+		}
+		if group.marker != nil && group.collectionMarker != nil {
+			conflict = true
+			marker = group.marker
+			kind = ""
 		}
 		sort.Strings(group.keys)
 		upload := RemoteUpload{
 			Dir:          group.dir,
-			MarkerKey:    group.marker.Key,
+			MarkerKey:    marker.Key,
+			Kind:         kind,
+			Conflict:     conflict,
 			Keys:         group.keys,
 			Objects:      len(group.keys),
 			Bytes:        group.bytes,
-			LastModified: group.marker.LastModified.UTC(),
+			LastModified: marker.LastModified.UTC(),
 			objects:      group.objects,
 		}
-		if len(group.pageKeys) == 1 {
+		if !conflict && kind == UploadKindCollection {
+			for _, key := range group.pageKeys {
+				if strings.HasSuffix(key, "/index.html") {
+					upload.Key = key
+					break
+				}
+			}
+			if upload.Key != "" {
+				upload.URL, _, err = PublicURL(c.cfg, upload.Key)
+				if err != nil {
+					return nil, err
+				}
+			}
+		} else if !conflict && len(group.pageKeys) == 1 {
 			upload.Key = group.pageKeys[0]
 			pageName := strings.TrimPrefix(
 				upload.Key, strings.TrimSuffix(upload.MarkerKey, MarkerFilename),

@@ -68,6 +68,8 @@ func TestAppendManifestRecordCreatesManifestAndRoundTrips(t *testing.T) {
 		URL:           "https://plans.example.com/vq3n/plan.html",
 		Bucket:        "plans",
 		Profile:       "work",
+		Kind:          string(UploadKindDocument),
+		Slug:          "plan",
 		Title:         "Refactor auth",
 		Bytes:         18432,
 		MarkerVersion: MarkerVersion,
@@ -102,8 +104,9 @@ func TestAppendManifestRecordCreatesManifestAndRoundTrips(t *testing.T) {
 	wantLine := `{"type":"upload","time":"2026-07-08T14:03:11Z",` +
 		`"key":"vq3n/plan.html","source_key":"vq3n/plan.md",` +
 		`"url":"https://plans.example.com/vq3n/plan.html",` +
-		`"bucket":"plans","profile":"work","title":"Refactor auth",` +
-		`"bytes":18432,"marker_version":2}`
+		`"bucket":"plans","profile":"work","kind":"document","slug":"plan",` +
+		`"title":"Refactor auth",` +
+		`"bytes":18432,"marker_version":3}`
 	if lines[0] != wantLine {
 		t.Fatalf("first line = %s, want %s", lines[0], wantLine)
 	}
@@ -223,7 +226,7 @@ func TestReadManifestRecognizesLegacyAndSkipsUnsupportedMarkerVersion(
 			`"bucket":"plans","bytes":1}`,
 		`{"type":"upload","time":"2026-07-08T13:30:11Z",` +
 			`"key":"future.html","url":"https://plans.example.com/future.html",` +
-			`"bucket":"plans","bytes":1,"marker_version":3}`,
+			`"bucket":"plans","bytes":1,"marker_version":4}`,
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
 			`"key":"v1.html","url":"https://plans.example.com/v1.html",` +
 			`"bucket":"plans","bytes":1,"marker_version":1}`,
@@ -322,6 +325,27 @@ func TestMatchingManifestUploadsMatchesFlatLegacyKeys(t *testing.T) {
 	}
 }
 
+func TestMatchingManifestUploadsMatchesCollectionDirectChildren(t *testing.T) {
+	dir := strings.Repeat("c", 26)
+	record := ManifestRecord{
+		Type: "upload", Kind: string(UploadKindCollection),
+		Key: dir + "/index.html", MarkerKey: dir + "/" + CollectionMarkerFilename,
+		URL: "https://plans.example.com/base/" + dir + "/index.html",
+	}
+	for _, target := range []string{
+		dir + "/shot.png",
+		"https://plans.example.com/base/" + dir + "/demo.webm",
+	} {
+		if matches := MatchingManifestUploads([]ManifestRecord{record}, target); len(matches) != 1 {
+			t.Fatalf("target %q matches = %+v", target, matches)
+		}
+	}
+	if matches := MatchingManifestUploads([]ManifestRecord{record},
+		"https://other.example.com/base/"+dir+"/demo.webm"); len(matches) != 0 {
+		t.Fatalf("cross-host target matched: %+v", matches)
+	}
+}
+
 func TestReadManifestSkipsMalformedAndUnknownType(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.jsonl")
 	data := strings.Join([]string{
@@ -355,6 +379,8 @@ func TestReadManifestSkipsMalformedAndUnknownType(t *testing.T) {
 			Key:           "upload.html",
 			URL:           "https://plans.example.com/upload.html",
 			Bucket:        "plans",
+			Kind:          string(UploadKindDocument),
+			Slug:          "upload",
 			Bytes:         1,
 			MarkerVersion: 1,
 		},

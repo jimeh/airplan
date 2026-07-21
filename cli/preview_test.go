@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -45,6 +46,104 @@ func TestPreviewRendersMarkdownWithoutUploadConfig(t *testing.T) {
 	}
 	if strings.Contains(got, `class="raw"`) {
 		t.Error("local preview unexpectedly contains a raw source link")
+	}
+}
+
+func TestPreviewRendersCollectionWithCustomTemplate(t *testing.T) {
+	isolateEnv(t)
+	dir := t.TempDir()
+	first := filepath.Join(dir, "shot one.svg")
+	second := filepath.Join(dir, "demo.webm")
+	tmpl := filepath.Join(dir, "collection.tmpl")
+	if err := os.WriteFile(first, []byte("<svg></svg>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("video"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tmpl, []byte(`{{.Title}}|{{range .Files}}{{.Name}}={{.Path}};{{end}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := newRootCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{
+		"preview", "--files", "--repo", "none",
+		"--title", "Evidence", "--collection-template", tmpl, first, second,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.String() != "Evidence|shot one.svg=./shot%20one.svg;demo.webm=./demo.webm;" {
+		t.Fatalf("preview = %q", stdout.String())
+	}
+}
+
+func TestDocumentPreviewRejectsCollectionOnlyFlags(t *testing.T) {
+	for _, flag := range []string{
+		"--collection-template=collection.tmpl",
+		"--max-total-size=1MiB",
+	} {
+		t.Run(flag, func(t *testing.T) {
+			isolateEnv(t)
+			cmd := newRootCmd()
+			cmd.SetIn(strings.NewReader("# Plan\n"))
+			cmd.SetArgs([]string{"preview", flag, "-"})
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(
+				err.Error(), "only valid for collection previews",
+			) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestCollectionPreviewAppliesConfiguredTimeout(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("AIRPLAN_TIMEOUT", "1ns")
+	input := filepath.Join(t.TempDir(), "shot.png")
+	if err := os.WriteFile(input, []byte("image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{"preview", "--files", "--repo", "none", input})
+	err := cmd.Execute()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("error = %v, want context deadline exceeded", err)
+	}
+}
+
+func TestCollectionPreviewReportsConfigWarnings(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX permission warning does not apply on Windows")
+	}
+	isolateEnv(t)
+	dir := t.TempDir()
+	input := filepath.Join(dir, "shot.png")
+	config := filepath.Join(dir, "config.toml")
+	if err := os.WriteFile(input, []byte("image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config, []byte(
+		"access_key_id = \"id\"\nsecret_access_key = \"secret\"\n",
+	), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newRootCmd()
+	var stderr bytes.Buffer
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{
+		"preview", "--files", "--repo", "none", "--config", config, input,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(),
+		"contains credentials and is group- or world-readable") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }
 

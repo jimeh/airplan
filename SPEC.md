@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.24.0**
+**Spec version: 0.25.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -11,11 +11,12 @@ breaking changes, **minor** covers backward-compatible additions,
 and **patch** covers clarifications and compatible corrections. The
 first implementation release does not by itself force spec 1.0.
 
-`airplan` uploads AI/LLM agent plan files (markdown or HTML) to
-S3-compatible object storage under a randomized, unguessable URL path
-and prints the resulting URL. An agent finishes writing a plan, runs
-`airplan plan.md`, and drops a clickable, effectively-private link into
-chat for a human to review in the browser.
+`airplan` uploads AI/LLM agent documents and file collections to
+S3-compatible object storage under randomized, unguessable URL paths and
+prints the resulting public URLs. An agent can publish a plan as a readable
+page, or upload screenshots, recordings, and other artifacts as one collection
+with a generated overview page, then link the result from chat, an issue, or a
+pull request.
 
 This document specifies **behavior only**: what the tool does, its
 interfaces, and its on-the-wire and on-disk formats. It contains no
@@ -25,8 +26,9 @@ same URLs, same page features, same manifest format. How _our_
 implementation is built lives in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
 Non-goals: no server component, no accounts, no embedded manifest web UI or
-background sync daemon, no remotely persisted catalog or deletion journal,
-and not a general pastebin.
+background sync daemon, no remotely persisted catalog or deletion journal, no
+recursive directory upload, and no media transcoding, thumbnail generation,
+or archive expansion. Airplan is not a public catalog or general pastebin.
 
 ---
 
@@ -35,20 +37,22 @@ and not a general pastebin.
 One process, one straight-line pipeline, no daemon:
 
 ```
-input (file|stdin)
-  → detect format (md | html)
-  → render (md → HTML page)  [skip for html]
-  → generate object key (random dir + slug)
-  → PUT ownership marker
-  → PUT page — and, for md/text input, the original alongside
-  → append manifest entry
-  → print public URL to stdout
+input (file(s)|stdin)
+  → select document or collection mode
+  → preflight and render the primary HTML page
+  → generate one random upload directory
+  → PUT the kind-specific ownership marker
+  → PUT source or collection files
+  → PUT the primary HTML page last
+  → append one manifest entry
+  → print public URL(s) to stdout
 ```
 
 Upload output contract (critical for agent use):
 
-- **stdout**: the final public URL and nothing else. With `--json`,
-  a single JSON object and nothing else.
+- **stdout**: for a document, the final public page URL and nothing else. For a
+  collection, one direct file URL per input in argument order followed by the
+  overview URL. With `--json`, one JSON object and nothing else.
 - **stderr**: all logs, warnings, progress, errors.
 - **exit code**: 0 on success; non-zero on any failure. Never print a
   URL that wasn't successfully uploaded.
@@ -60,7 +64,25 @@ Upload output contract (critical for agent use):
 
 ## 2. Input Handling
 
-`airplan [flags] [file]` — `file` omitted or `-` reads stdin.
+`airplan [flags] [file ...]` — no file, or one `-`, reads a document from
+stdin. Collections require one or more named regular files.
+
+Airplan selects collection mode before rendering or storage mutation when any
+of these conditions hold:
+
+1. `--files` is set.
+2. More than one path is supplied.
+3. One named input has a recognized media or generic-binary extension. The
+   deterministic set includes common image, video, audio, PDF, and archive
+   formats; SVG is included even though it is text.
+4. One named input contains a NUL byte in its first 8 KiB or those bytes are
+   not valid UTF-8.
+
+An explicit `--format md|html|txt` forces document mode and retains document
+validation. Stdin is always document mode. `--files` and `--format` are
+mutually exclusive.
+
+### Document input
 
 Three input formats: markdown (rendered, §3), HTML (uploaded as-is,
 §4), and plain text (rendered as a highlighted code page, §3).
@@ -101,6 +123,36 @@ optional trailing `b`/`ib`; matching is case-insensitive (`10MB`, `512k`,
 `1gib`). Unit tails without `k`/`m`/`g`, such as `10ib`, are invalid. `0`
 removes the limit. There is deliberately no config key, so raising or removing
 the guard stays a per-invocation decision.
+
+### Collection input
+
+Collection preflight completes before a random directory is generated or any
+object is uploaded. It opens every input and keeps that exact file open through
+upload, rejects directories and non-regular files, records the basename and
+size, detects a content type, rejects duplicate basenames, enforces all limits,
+renders the overview, and encodes the complete marker.
+
+Member names are direct basenames, never paths. Empty names, `.`, `..`,
+`.airplan.json`, `.airplan-collection.json`, `index.html`, names containing
+slashes, backslashes, NUL, or control characters, and duplicate names are
+rejected. A collection may contain up to 100 files. Zero-byte members are
+valid.
+
+`--title` sets the overview title. Without it, a one-file collection uses the
+member basename; multiple files use `<first basename> and <N> more`.
+
+The default collection limits are **1 GiB per file** and **2 GiB total**.
+`--max-size` applies per member; `--max-total-size` applies to the sum. A value
+of `0` removes the corresponding limit. Both use the size syntax documented
+above. Collection files are uploaded from seekable readers with their known
+sizes instead of being buffered wholly in memory. Growth after preflight cannot
+append undeclared bytes; unexpected truncation fails the upload.
+
+Content types use a deterministic extension mapping for common browser media,
+including PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV, MP3, M4A, Ogg, WAV,
+and PDF. Unknown extensions use conservative content sniffing, then
+`application/octet-stream`. The original bytes are never sanitized, rewritten,
+transcoded, expanded, or otherwise interpreted.
 
 ---
 
@@ -324,6 +376,62 @@ implementation-independent; the template _syntax_ is
 implementation-defined, so user template files are not portable
 across implementations.
 
+### Collection overview pages
+
+Every collection has a generated `index.html` primary page. The built-in page
+is self-contained and has no Airplan-managed external resources. It preserves
+input order, shows the collection title, repository context when present, file
+count, and total member bytes, and presents each member according to its media
+kind:
+
+- images render inline with lazy loading and filename-derived alt text;
+- video and audio use controls, `preload="metadata"`, and never autoplay;
+- PDF, archive, text, and unknown members use compact generic file cards;
+- every member shows its filename, content type, human-readable size, and
+  `Open`, `Download`, and `Copy URL` actions;
+- an overview copy action returns the absolute `index.html` URL;
+- open and download links work without JavaScript, while copy buttons are a
+  progressive enhancement;
+- relative member URLs remain correct under custom domains and key prefixes;
+- titles, filenames, types, and repository metadata are HTML-escaped;
+- the layout supports narrow and wide viewports plus light and dark color
+  schemes, and includes `noindex, nofollow` unless `--indexable` is set.
+
+Unknown content remains a normal openable and downloadable file. The page does
+not claim it is unsafe or broken merely because Airplan cannot preview it.
+
+Users may replace the collection page through `collection_template` in config,
+`AIRPLAN_COLLECTION_TEMPLATE`, or `--collection-template PATH`. This setting is
+independent of the document `template` setting. Only the applicable template
+is loaded and parsed, so a broken collection template does not block document
+uploads and a broken document template does not block collections or as-is
+HTML. Applicable template read, parse, execution, and empty-output failures
+occur before any storage mutation.
+
+Collection template data contract:
+
+| Field            | Type   | Meaning                           |
+| ---------------- | ------ | --------------------------------- |
+| `.Title`         | string | resolved collection title         |
+| `.Files`         | file[] | ordered collection members        |
+| `.TotalBytes`    | int64  | sum of member sizes               |
+| `.Indexable`     | bool   | whether indexing is allowed       |
+| `.RepositoryURL` | string | resolved canonical repository URL |
+
+Each file has `.Name`, `.Path`, `.ContentType`, `.Bytes`, and `.MediaKind`.
+`.MediaKind` is `image`, `video`, `audio`, or `file`. `.Path` is an already
+percent-encoded relative URL such as `./Screenshot%201.png`; templates must not
+reconstruct URLs from `.Name`. The implementation-defined template function
+`formatBytes` renders a byte count in human-readable binary units.
+
+A custom template controls presentation only. It cannot rename members or
+alter the marker, result, or uploaded inventory. Airplan still declares and
+uploads every input even when the template omits its link. The template author
+is responsible for page styles, noindex markup, accessibility, copy behavior,
+JavaScript, and any external resources. `airplan template collection` prints
+the exact reusable built-in template; `airplan template` and
+`airplan template document` print the document template.
+
 ---
 
 ## 4. HTML Input
@@ -364,72 +472,131 @@ already is the original file.
 
 ## 5. Upload Behavior
 
-- Every upload first creates
-  `[<key_prefix>/]<random>/.airplan.json`, the ownership marker for
-  that random directory. The marker is UTF-8 JSON uploaded with
-  `Content-Type: application/json` and `Cache-Control: no-store`.
-  Its maximum size is 64 KiB. New uploads write version 2:
+- Every new upload writes ownership marker version 3. Readers continue to
+  manage versions 1 and 2, but writers never migrate or emit them. Marker
+  versions describe wire-schema generations; `kind` distinguishes documents
+  from collections. Older clients fail closed on new v3 uploads.
+
+- The exact marker basename supplies an untrusted LIST-only kind hint:
+
+  | Kind         | Marker basename            |
+  | ------------ | -------------------------- |
+  | `document`   | `.airplan.json`            |
+  | `collection` | `.airplan-collection.json` |
+
+  Existing v1/v2 uploads remain documents under `.airplan.json`. Marker
+  content remains authoritative. A v3 marker whose `kind` disagrees with its
+  basename is invalid. A directory containing both names has conflicting
+  ownership declarations and grants no managed read or deletion authority.
+
+- Markers are UTF-8 JSON uploaded with
+  `Content-Type: application/json` and `Cache-Control: no-store`, and are at
+  most 64 KiB. A v3 document marker is:
 
   ```json
   {
     "schema": "airplan-upload",
-    "version": 2,
+    "version": 3,
     "directory": "vq3nhk2p7r4wzt5c6ydjm3xhqd",
-    "created_at": "2026-07-08T14:03:11Z",
+    "created_at": "2026-07-21T12:00:00Z",
+    "kind": "document",
+    "slug": "plan",
     "format": "md",
-    "page": "plan.html",
-    "page_bytes": 18432,
-    "source": "plan.md",
+    "objects": [
+      {
+        "name": "plan.html",
+        "role": "page",
+        "bytes": 18432,
+        "content_type": "text/html; charset=utf-8"
+      },
+      {
+        "name": "plan.md",
+        "role": "source",
+        "bytes": 4096,
+        "content_type": "text/markdown; charset=utf-8"
+      }
+    ],
     "title": "Refactor auth",
     "repo": "https://github.com/acme/service"
   }
   ```
 
-  `schema`, `version`, `directory`, `created_at`, `format`, `page`,
-  and `page_bytes` are required in version 2. `schema` is exactly
-  `airplan-upload`. Readers support marker versions 1 and 2;
-  writers emit version 2. `directory` must equal the
-  containing 26-character random directory. `created_at` is RFC
-  3339 UTC. `format` is `md`, `html`, or `txt`. `page` and optional
-  `source` are relative basenames — never paths — and must match the
-  filename rules for that format in §3 and §8. `source` is omitted
-  for HTML and under `--no-source`; `title` is omitted only when
-  empty. `page_bytes` is positive and describes the rendered page
-  object. `repo`, when present, is the canonical HTTPS repository
-  URL resolved from `--repo`; `auto` and `none` are never stored.
-  The marker never stores connection-local profile, endpoint,
-  credentials, bucket, key prefix, or public URL metadata. Version 1
-  omits `page_bytes` and `repo`; inspection obtains its page size from
-  listing metadata. Unknown fields are ignored. Duplicate field names, invalid
-  UTF-8, malformed JSON, an unsupported version, unsafe or
-  inconsistent filenames, non-canonical repositories, missing or
-  non-positive version 2 page sizes, and oversized markers make the
-  marker invalid. Unsupported versions remain visible to LIST-only
-  discovery but cannot be inspected, fetched, deleted, purged, or synced.
+  A v3 collection uses the same declared-object model:
 
-- The rendered page (or as-is HTML) is uploaded with:
-  - `Content-Type: text/html; charset=utf-8`
-  - `Cache-Control: no-store` — capability documents must remain
-    revocable by deletion; neither browsers nor shared caches should
-    retain a reusable response.
-  - `x-amz-meta-title`: the resolved title. The marker's `title` is
-    authoritative for remote management; this metadata remains a
-    convenience for direct object inspection.
-- Markdown input additionally uploads the original source as
-  `<random>/<slug>.md` (`text/markdown; charset=utf-8`, same cache
-  headers) unless `--no-source`; text input likewise uploads its
-  original file as `<random>/<slug>.<ext>`
-  (`text/plain; charset=utf-8`, §3). The pair shares the random
-  directory, so the page can link to it relatively (`./<slug>.md`,
-  or `./<slug>.<ext>` for text input) on any domain.
-- Upload order is marker → source, when present → page. Failure of
-  any PUT fails the command and no local manifest upload record is
-  written. Because the marker is first, any partial upload remains
-  recognizably owned by airplan and appears remotely as `incomplete`
-  until `purge --remote` removes it. An upload becomes `complete`
-  when the marker's declared page and optional source both exist and,
-  for version 2, the listed page size equals `page_bytes`.
-  stdout still carries only the page URL after the page PUT succeeds.
+  ```json
+  {
+    "schema": "airplan-upload",
+    "version": 3,
+    "directory": "vq3nhk2p7r4wzt5c6ydjm3xhqd",
+    "created_at": "2026-07-21T12:00:00Z",
+    "kind": "collection",
+    "objects": [
+      {
+        "name": "index.html",
+        "role": "page",
+        "bytes": 9216,
+        "content_type": "text/html; charset=utf-8"
+      },
+      {
+        "name": "login.png",
+        "role": "file",
+        "bytes": 184320,
+        "content_type": "image/png"
+      }
+    ],
+    "title": "Login flow",
+    "repo": "https://github.com/acme/service"
+  }
+  ```
+
+- `schema`, `version`, `directory`, `created_at`, `kind`, and `objects` are
+  required in v3. `schema` is exactly `airplan-upload`; `directory` matches the
+  containing random directory; `created_at` is RFC 3339 UTC. `repo`, when
+  present, is the canonical resolved HTTPS repository URL. Connection-local
+  profile, endpoint, credentials, bucket, prefix, and public URL metadata are
+  never stored.
+
+- `objects` is non-empty, has unique safe direct basenames, and contains
+  exactly one positive-size HTML `page`. Every object declares `name`, `role`,
+  `bytes`, and a syntactically valid normalized `content_type`. A document has
+  a required valid `slug`, required `format` (`md`, `html`, or `txt`), no
+  `file` objects, and at most one positive-size `source` following the existing
+  document filename rules. A collection omits `slug` and `format`, uses
+  `index.html` as its page, declares no source, and contains one through 100
+  `file` objects whose sizes may be zero. Unknown roles or kinds are invalid.
+
+- Unknown marker fields are ignored for forward-compatible extensions.
+  Duplicate field names, invalid UTF-8, malformed JSON, unsupported versions,
+  unsafe or inconsistent filenames, invalid roles, sizes, content types, or
+  repositories, and oversized markers are invalid. Unsupported markers remain
+  visible to LIST-only discovery but cannot be inspected as valid, fetched,
+  deleted, purged, or synced.
+
+- Version 1 and 2 markers are decoded into the v3 declared-object model after
+  their original wire rules validate. Version 1 omits `page_bytes` and `repo`;
+  version 2 requires positive `page_bytes` and may include `repo`.
+
+- Every payload uses `Cache-Control: no-store`. Primary pages use
+  `Content-Type: text/html; charset=utf-8`; collection members use their
+  declared content types. Airplan does not force browser-viewable media to
+  download because direct image and video URLs are part of the intended use.
+  `x-amz-meta-title` remains convenience metadata; the marker title is
+  authoritative for remote management.
+
+- Document order is `.airplan.json` → optional source → page. Collection
+  order is `.airplan-collection.json` → files in argument order →
+  `index.html`. Any PUT failure fails the command and writes no local upload
+  record or stdout URL. Marker-first creation leaves interrupted uploads
+  discoverable; page-last creation prevents an overview from appearing before
+  its declared payloads. An upload is complete only when every declared object
+  exists with its declared size. Extra unrecognized objects do not affect
+  completeness.
+
+- After complete storage, Airplan assembles result URLs and best-effort appends
+  one manifest upload record. A manifest warning does not revoke an otherwise
+  successful upload. Collection stdout remains withheld until the marker,
+  every member, and the overview have all uploaded successfully.
+
 - Bucket must **not** allow listing publicly; privacy rests on the
   key being unguessable. Documentation covers the R2 setup: public
   bucket via custom domain (listing is not exposed) or Workers
@@ -441,30 +608,34 @@ already is the original file.
 ## 6. CLI Interface
 
 ```
-airplan [flags] [file]
+airplan [flags] [file ...]
 ```
 
-`file` omitted or `-` → read stdin.
+No file, or one `-`, reads a document from stdin. Multiple paths are one
+collection.
 
-| Flag                   | Default        | Notes                               |
-| ---------------------- | -------------- | ----------------------------------- |
-| `--format`             | auto           | `md`\|`html`\|`txt`; overrides §2   |
-| `--slug S`             | from filename  | filename portion of the URL         |
-| `--title T`            | from content   | page title (see §3 fallback chain)  |
-| `--template P`         | built-in       | custom page template (md and text)  |
-| `--no-source`          | off            | don't upload the original .md       |
-| `--indexable`          | off            | no noindex meta (md and html, §3–4) |
-| `--no-external-assets` | off            | disable managed view-time loads     |
-| `--mermaid-url URL`    | pinned URL     | alternate HTTPS Mermaid module      |
-| `--repo VALUE`         | `auto`         | `auto`, `none`, or repository URL   |
-| `--max-size N`         | 10MiB          | input size limit; 0 = no limit (§2) |
-| `--timeout D`          | 30s            | operation timeout; 0 = none         |
-| `--lang L`             | from filename  | highlight language, text only (§3)  |
-| `--json`               | off            | JSON object on stdout               |
-| `--profile P`          | config default | named profile from config file      |
-| `--config PATH`        | XDG default    | alternate config file               |
-| `--open`               | off            | open resulting URL in browser       |
-| `--version`            |                |                                     |
+| Flag                      | Default        | Notes                              |
+| ------------------------- | -------------- | ---------------------------------- |
+| `--files`                 | off            | force named inputs into collection |
+| `--format`                | auto           | document-only `md`\|`html`\|`txt`  |
+| `--slug S`                | from filename  | document-only URL filename         |
+| `--title T`               | from content   | document or collection title       |
+| `--template P`            | built-in       | document template                  |
+| `--collection-template P` | built-in       | collection overview template       |
+| `--no-source`             | off            | document-only source suppression   |
+| `--indexable`             | off            | omit noindex on the primary page   |
+| `--no-external-assets`    | off            | document-only managed load control |
+| `--mermaid-url URL`       | pinned URL     | document-only Mermaid module       |
+| `--repo VALUE`            | `auto`         | `auto`, `none`, or repository URL  |
+| `--max-size N`            | mode-specific  | 10MiB document; 1GiB per file      |
+| `--max-total-size N`      | 2GiB           | collection total; 0 = no limit     |
+| `--timeout D`             | 30s            | operation timeout; 0 = none        |
+| `--lang L`                | from filename  | document text highlight language   |
+| `--json`                  | off            | JSON object on stdout              |
+| `--profile P`             | config default | named profile from config file     |
+| `--config PATH`           | XDG default    | alternate config file              |
+| `--open`                  | off            | open the primary page              |
+| `--version`               |                |                                    |
 
 Plus flag overrides for every connection setting (`--endpoint`,
 `--bucket`, `--region`, `--public-base-url`, `--key-prefix`) for
@@ -479,6 +650,13 @@ Frequent flags get short forms: `-p` (`--profile`), `-s` (`--slug`),
 If `--open` fails to launch a browser (common in headless/agent
 environments), a warning goes to stderr and the exit code is
 unaffected — the upload succeeded and the URL was already printed.
+
+Flags explicitly used in the wrong mode fail before storage mutation.
+`--format`, `--lang`, `--slug`, `--template`, `--no-source`,
+`--no-external-assets`, and `--mermaid-url` are document-only. `--files`,
+`--collection-template`, and `--max-total-size` are collection-only.
+`--open` always opens the primary page: a document page or collection
+overview, never an arbitrary member.
 
 Released binaries report their release version under `--version`.
 GoReleaser builds may stamp it directly; binaries installed through
@@ -522,7 +700,13 @@ Examples:
 airplan plan.md
 # → https://plans.example.com/vq3nhk2p7r4wzt5c6ydjm3xhqd/plan.html
 
+airplan login.png demo.webm
+# → https://plans.example.com/vq3n.../login.png
+# → https://plans.example.com/vq3n.../demo.webm
+# → https://plans.example.com/vq3n.../index.html
+
 cat plan.md | airplan --slug refactor-auth
+airplan --files README.md
 airplan --json report.html
 airplan --profile personal --open plan.md
 ```
@@ -544,6 +728,29 @@ airplan --profile personal --open plan.md
 `bytes` and `content_type` describe the uploaded page object (the
 one `url` points at), not the markdown source.
 
+Collection `--json` output remains one line and one object. `url`, `key`,
+`bytes`, and `content_type` describe `index.html`; `files` maps members in
+input order:
+
+```json
+{
+  "url": "https://plans.example.com/vq3n.../index.html",
+  "key": "vq3n.../index.html",
+  "files": [
+    {
+      "name": "login.png",
+      "url": "https://plans.example.com/vq3n.../login.png",
+      "key": "vq3n.../login.png",
+      "bytes": 184320,
+      "content_type": "image/png"
+    }
+  ],
+  "bucket": "plans",
+  "bytes": 9216,
+  "content_type": "text/html; charset=utf-8"
+}
+```
+
 Errors: human-readable single-line message to stderr prefixed
 `airplan:`; with `--json`, errors still go to stderr as text (stdout
 stays reserved for the success object).
@@ -554,8 +761,8 @@ stays reserved for the success object).
 airplan config schema
 airplan config profiles [--config PATH] [--json]
 airplan skill
-airplan template
-airplan preview [flags] [file]
+airplan template [document|collection]
+airplan preview [flags] [file ...]
 airplan completion bash|zsh|fish|powershell
 airplan list|ls [--remote] [--json]
 airplan show [--json] <url|key>
@@ -575,7 +782,9 @@ It does not load configuration, inspect credentials, access storage or the
 network, or write state, so it works with only the installed binary and from
 any working directory. The same content is available through the public core
 library API.
-`template` prints the built-in page template (see §3).
+`template` prints a built-in template (see §3). With no argument or with
+`document`, it prints the document template. `template collection` prints the
+collection overview template.
 `preview` runs input detection and page rendering locally, writing the
 resulting HTML to stdout or to `--output PATH`. It supports the rendering
 flags `--format`, `--lang`, `--slug`, `--title`, `--template`,
@@ -592,6 +801,15 @@ resolves to the input file is rejected without modifying the input. File output
 is written completely to a temporary file beside the destination and then
 atomically renamed into place; any failure before the rename leaves an existing
 destination unchanged.
+
+`preview --files` or multiple named inputs renders a collection overview. It
+supports `--title`, `--collection-template`, `--indexable`, `--repo`,
+`--max-size`, and `--max-total-size`, performs the same collection preflight,
+and accesses neither storage nor the manifest. The output uses the same
+relative member paths as an upload. Airplan does not copy or inline member
+files for preview, so media resolves locally when the output is saved beside
+the inputs; callers may stage files together when inputs came from different
+directories.
 
 `ls` is an exact non-destructive alias for `list`.
 
@@ -646,6 +864,7 @@ the first `[profiles.*]` header):
 endpoint        = "https://<account-id>.r2.cloudflarestorage.com"
 region          = "auto"
 # template = "~/.config/airplan/my-template.html"  # optional
+# collection_template = "~/.config/airplan/my-collection.html"
 # repo = "auto"       # GitHub context: auto, none, or explicit URL
 # no_source = true    # behavior defaults; flags override
 # timeout = "30s"     # operation timeout; 0 = none
@@ -728,6 +947,7 @@ AIRPLAN_SECRET_ACCESS_KEY
 AIRPLAN_PUBLIC_BASE_URL
 AIRPLAN_KEY_PREFIX
 AIRPLAN_TEMPLATE
+AIRPLAN_COLLECTION_TEMPLATE
 AIRPLAN_NO_EXTERNAL_ASSETS
 AIRPLAN_MERMAID_URL
 AIRPLAN_REPO
@@ -787,10 +1007,14 @@ the published schema's `additionalProperties: false`.
 If the config file contains credentials and is group- or
 world-readable, a warning is printed to stderr.
 
-Behavioral defaults: `no_source`, `indexable`, `no_external_assets`,
-`mermaid_url`, `repo`, and `timeout` may be
+Behavioral defaults: `template`, `collection_template`, `no_source`,
+`indexable`, `no_external_assets`, `mermaid_url`, `repo`, and `timeout` may be
 set at the root or profile level; their flags override the config
 values.
+
+`template` applies only to rendered documents. `collection_template` applies
+only to collection overview pages. Configuring either does not cause it to be
+loaded or validated during the other mode.
 
 `no_external_assets` covers only airplan-managed view-time loads, including
 Mermaid. It does not rewrite or block external content authored in trusted
@@ -871,6 +1095,7 @@ be unguessable at internet scale, URL-safe, robust to case-folding
 Scheme:
 
 ```
+# document
 [<key_prefix>/]<random>/.airplan.json
 [<key_prefix>/]<random>/<slug>.html
 [<key_prefix>/]<random>/<slug>.md      (markdown input, unless
@@ -878,14 +1103,19 @@ Scheme:
 [<key_prefix>/]<random>/<slug>.<ext>   (text input's original file,
                                         unless --no-source; <ext>
                                         per §3)
+
+# collection
+[<key_prefix>/]<random>/.airplan-collection.json
+[<key_prefix>/]<random>/<member basename>  (one per input)
+[<key_prefix>/]<random>/index.html
 ```
 
-Each upload owns one random directory. A valid `.airplan.json`
-marker establishes airplan's authority over everything under that
-directory; filename shape without the marker never establishes
-ownership. Management commands treat the marked directory as the
-unit of deletion, so page, source, marker, and any partial-upload
-remnants never get separated.
+Each upload owns one random directory. Exactly one valid kind-specific marker
+establishes Airplan's authority over everything under that directory; filename
+shape without a marker never establishes ownership. Both marker names create a
+conflict and grant no authority. Management commands treat the directory as
+one deletion unit, so page, source or members, marker, extras, and any
+partial-upload remnants never get separated.
 
 - `<random>`: 16 bytes from a cryptographically secure random source
   (never a seeded PRNG), encoded lowercase base32 (RFC 4648
@@ -893,13 +1123,17 @@ remnants never get separated.
   Lowercase-only sidesteps case-folding corruption that
   base62/base64 URLs suffer; 128 bits makes brute-force enumeration
   (even with no rate limiting) computationally absurd.
-- `<slug>`: human-readable filename portion so links look sane in
+- `<slug>`: document-only human-readable filename portion so links look sane in
   chat and downloads name themselves. From `--slug`, else the source
   filename stem, else `plan`. Sanitized: lowercased, non
   `[a-z0-9-]` → `-`, collapsed, trimmed, max 64 chars; if
   sanitization leaves an empty string (e.g. an all-non-ASCII
   filename), fall back to `plan`. Contributes zero entropy by
   design — privacy never depends on it.
+- Collection uploads have no slug. Their primary page is always `index.html`,
+  and member basenames provide the human-readable direct URLs. Names are
+  percent-encoded when assembled into public URLs but remain unencoded object
+  key segments in storage, JSON, and manifest data.
 - `.html` extension: helps any static host / CDN infer content type
   and makes saved files open correctly.
 
@@ -909,6 +1143,9 @@ Example keys:
 vq3nhk2p7r4wzt5c6ydjm3xhqd/.airplan.json
 vq3nhk2p7r4wzt5c6ydjm3xhqd/refactor-auth.html
 vq3nhk2p7r4wzt5c6ydjm3xhqd/refactor-auth.md
+gaj4jmvi6dverjkoy6khas2ble/.airplan-collection.json
+gaj4jmvi6dverjkoy6khas2ble/Screenshot 1.png
+gaj4jmvi6dverjkoy6khas2ble/index.html
 ```
 
 Final URL: `<public_base_url>/<key>`, with each key path segment
@@ -946,13 +1183,20 @@ Record schema — exact field names are part of this spec, so two
 conforming implementations can share a manifest:
 
 ```json
-{"type":"upload","time":"2026-07-08T14:03:11Z",
+{"type":"upload","time":"2026-07-21T12:00:00Z",
  "key":"vq3n.../plan.html","source_key":"vq3n.../plan.md",
  "marker_key":"vq3n.../.airplan.json",
  "url":"https://plans.example.com/vq3n.../plan.html",
- "bucket":"plans","profile":"work","format":"md",
+ "bucket":"plans","profile":"work","kind":"document",
+ "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
- "bytes":18432,"marker_version":2}
+ "bytes":18432,"marker_version":3}
+{"type":"upload","time":"2026-07-21T12:03:00Z",
+ "key":"gaj4.../index.html",
+ "marker_key":"gaj4.../.airplan-collection.json",
+ "url":"https://plans.example.com/gaj4.../index.html",
+ "bucket":"plans","profile":"work","kind":"collection",
+ "title":"login.png and 1 more","bytes":9216,"marker_version":3}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
@@ -961,16 +1205,17 @@ conforming implementations can share a manifest:
 (Shown wrapped for readability; on disk each record is one line.)
 
 - `time` is RFC 3339, UTC.
-- `upload` records: `source_key` is omitted for HTML input and
-  under `--no-source`; `title` is omitted when empty; `bytes`
-  describes the page object; `profile` is the resolved profile
-  name, omitted when root-level values were used; `marker_version`
-  is the ownership-marker version written for the upload. `marker_key`
-  is the exact remote ownership key; readers derive it from `key` for
-  older records. `format` and canonical `repo` preserve portable
-  marker metadata. Current
-  writers always include `marker_version`; its absence identifies a
-  legacy upload recorded before ownership markers were introduced.
+- `upload` records: `kind` is `document` or `collection`. `slug` and `format`
+  are present for documents and omitted for collections. `source_key` is
+  document-only and omitted for HTML or under `--no-source`. `key` and `url`
+  identify the primary page; `bytes` describes that page, not collection
+  payload bytes. `title` is omitted when empty; `profile` is omitted for
+  root-level settings. `marker_key` is the exact kind-specific ownership key.
+  `repo` preserves canonical repository metadata. The full collection
+  inventory remains only in the remote marker.
+- Current writers always include `marker_version: 3`; its absence identifies
+  legacy pre-marker history. Readers infer `kind: document` and derive its
+  slug from the page key for valid older records that omit those fields.
 - New `delete` tombstones include `marker_key`, `bucket`, the receiving
   `profile`, and reason `deleted` or `remote_missing`. Their identity is
   `(bucket, marker_key)`. Legacy key-only tombstones remain valid.
@@ -984,7 +1229,7 @@ conforming implementations can share a manifest:
   Readers retain an otherwise-valid upload with no `marker_version`
   as legacy history, but it never authorizes delete or purge. An
   unsupported nonzero `marker_version` is invalid and skipped with a
-  warning. Marker versions 1 and 2 are managed; pre-marker entries remain
+  warning. Marker versions 1, 2, and 3 are managed; pre-marker entries remain
   visible as read-only legacy history and are never pruned by `sync`.
 
 Concurrent invocations are expected (parallel agents on one
@@ -1020,93 +1265,85 @@ machine) and must be safe:
   `--profile NAME` filters both table and JSON output to that exact recorded
   profile; `--profile=` selects records made with root-level settings.
   `--config` is rejected unless `--remote` is also present.
-- `airplan list --remote`: cheaply discovers marker directories made
-  from any machine. It performs only paginated bucket LIST operations
-  beneath the active profile's `key_prefix`; it does not GET markers,
-  HEAD pages, or trust marker content. It groups every returned object
-  beneath an exact
-  `[key_prefix/]<26-char lowercase base32>/` directory, then emits only
-  groups containing the exact `.airplan.json` marker key. Page/source
-  filename shape without that marker is never evidence of visibility.
-  Unmarked directories are invisible.
-- Remote list rows have `DATE`, `OBJECTS`, `SIZE`, `SLUG`, `DIRECTORY`, and
-  `URL` columns. `DATE` is the marker object's storage
+- `airplan list --remote`: cheaply discovers marker directories made from any
+  machine. It performs only paginated bucket LIST operations beneath the
+  active profile's `key_prefix`; it does not GET markers, HEAD pages, or trust
+  marker content. It groups every returned object beneath an exact
+  `[key_prefix/]<26-char lowercase base32>/` directory, then emits groups
+  containing `.airplan.json`, `.airplan-collection.json`, or both. Payload
+  filename shape without either marker is never evidence of visibility.
+- Remote list rows have `DATE`, `KIND`, `OBJECTS`, `SIZE`, `SLUG`, `DIRECTORY`,
+  and `URL` columns. `DATE` is the selected marker object's storage
   last-modified time. `OBJECTS` and `SIZE` count every object and byte
   recursively beneath the random directory, including the marker,
-  nested keys, and unrecognized extras. `SLUG` is inferred only when
-  exactly one direct-child object matches the §8 page filename shape
-  (`[a-z0-9-]{1,64}.html`): it is that object's basename without
-  `.html`. The matching object's full key and public URL are inferred using
-  the selected connection's `key_prefix` and normal URL assembly. These are
-  unvalidated LIST hints; no marker or page request is made. With zero or
-  multiple matching objects, `SLUG` and `URL` are `-` and no page key is
-  inferred. URL fallback without `public_base_url` emits the normal warning
-  once per command.
+  nested keys, and unrecognized extras. `KIND` is `document` or `collection`
+  from the exact marker basename, and remains an untrusted hint.
+  `.airplan.json` retains the existing unambiguous direct-child HTML inference
+  for `SLUG`, key, and URL. `.airplan-collection.json` leaves `SLUG` empty and
+  selects an exact direct-child `index.html` as its key and URL even when other
+  HTML members exist. With both marker names, `KIND` is `conflict` and page,
+  slug, and URL inference is suppressed. No marker or page request is made.
+  URL fallback without `public_base_url` emits the normal warning once.
   `DIRECTORY` is the 26-character random directory without
   `key_prefix`. Rows sort by marker last-modified time, then marker
   key.
-- `list --remote --json` prints an array with one object per row. Its
-  stable fields are `time` (RFC 3339 marker last-modified time), `dir`,
-  `marker_key` (the full storage key), `objects`, and `bytes`; `slug`, `key`,
-  and `url` are present only when inferred unambiguously. These entries describe
-  marker-key presence and directory occupancy, not validated uploads.
+- `list --remote --json` prints an array with one object per row. Its stable
+  fields are `time`, `dir`, `marker_key`, `objects`, `bytes`, and `kind` when
+  one marker kind is implied. `conflict` is true for dual-marker directories;
+  `slug`, `key`, and `url` appear only when inferred. These entries describe
+  marker-key presence and occupancy, not validated uploads.
   A malformed, oversized, or unsupported marker remains visible here
   because ordinary remote listing never reads it.
-- `airplan show <url|key>` performs targeted inspection of one remote
-  marker directory. The target may be its random directory, marker,
-  or any direct child; full URLs and path-style endpoint URLs obey the
-  same connection, bucket, and prefix checks as `delete`. `show`
-  fetches and validates the marker, lists every object recursively
-  beneath the directory, and reports marker fields, declared page and
-  source existence and sizes, total object count and bytes, and a
-  state of `complete`, `incomplete`, or `invalid`. A valid marker is
-  `complete` when its declared page and optional source both exist;
-  otherwise it is `incomplete`. Extra objects do not affect state. A
-  present marker whose bytes cannot be validated is `invalid`; this is
-  a successful inspection result but grants no deletion authority. A
-  missing marker is an error. Storage, authentication, timeout,
-  cancellation, and other request failures fail the command; they are
-  never reported as marker states.
+- `airplan show <url|key>` performs targeted inspection of one remote marker
+  directory. The target may be its random directory, either marker name, or
+  any direct child. `show` lists the directory, requires exactly one ownership
+  marker, fetches and validates it, and reports every declared object's
+  existence and size plus total directory object count and bytes. A valid
+  marker is `complete` only when every declared object exists with its declared
+  size; otherwise it is `incomplete`. Extra objects do not affect state. A
+  present invalid marker, including a dual-marker conflict, produces a
+  successful `invalid` inspection but grants no authority. A missing marker is
+  an error. Storage, authentication, timeout, cancellation, and other request
+  failures fail the command rather than becoming marker states.
 - `show --json` emits one object. All states contain `state`, `dir`,
   `marker_key`, `objects`, and `bytes`. Valid states additionally
-  contain `time` (marker `created_at`), `format`, `marker_version`,
-  `page`, `title` when non-empty, and `repo` when present; `source`
-  is present when declared. `page` and
-  `source` are objects containing `key`, `url`, `exists`, and `bytes`,
-  with `bytes` omitted when the object is missing. An invalid result
+  contain `time`, `kind`, `marker_version`, `page`, `title` when non-empty,
+  and `repo` when present; documents also expose `format` and optional
+  `source`, while collections expose an ordered `files` array. Declared object
+  entries contain `key`, `url`, `exists`, `expected_bytes`, and `bytes`, with
+  `bytes` omitted when missing. An invalid result
   additionally contains `error`, a stable coarse code:
-  `oversized`, `malformed_json`, `unsupported_version`, or
-  `invalid_fields`; it never exposes untrusted marker fields. Human
+  `oversized`, `malformed_json`, `unsupported_version`, `invalid_fields`, or
+  `conflicting_markers`; it never exposes untrusted marker fields. Human
   output presents the same information as a labeled detail block.
 - `airplan get <url|key>` fetches one object from a marker-managed upload.
   Full URLs, bare keys, random directories, configured prefixes, and
   path-style endpoint URLs obey the same connection, bucket, and prefix
-  rules as `delete`. Before returning any bytes, `get` fetches and validates
-  the exact ownership marker in the target directory. A missing, malformed,
-  oversized, unsupported, or inconsistent marker is an error; there is no
-  manifest reconciliation path. A random-directory target selects the
-  marker-declared page, or the declared source under `--source`; requesting
-  the source when none is declared is an error. An explicit declared page or
-  source target fetches that exact object. An explicit marker target fetches
-  the marker bytes. Any other child is rejected, and `--source` with any
-  explicit child target is rejected as ambiguous. A missing selected object
-  is an error naming its full storage key.
+  rules as `delete`. Before returning bytes, `get` concurrently probes both
+  exact marker keys, requires one to exist and the other to be confirmed
+  absent, and validates the existing marker. This preserves object-read-only
+  credentials without requiring LIST permission. A timeout, authorization
+  failure, or ambiguous probe fails closed. A random-directory target selects
+  the primary page, or the document source under `--source`; requesting source
+  from a collection or source-less document is an error. An explicit declared
+  page, document source, collection file, or existing marker fetches that exact
+  object. Any undeclared child is rejected, as is `--source` with an explicit
+  child. A missing selected object is an error naming its full key.
   Raw fetched bytes, with no added newline or other output, go to stdout by
   default. `--output PATH` writes the complete bytes to a temporary file
   beside the destination and atomically renames it into place; `--output -`
   is equivalent to stdout. Written files are user-only (0600 on POSIX
   systems); fetched bytes are not shared with other local users by
-  default. `get` never writes the local manifest or changes remote
-  storage.
-- `airplan delete <url|key>` only deletes a marker-managed upload.
-  The target may be the random directory, its `.airplan.json` marker,
-  or the page/source named by a valid marker. Any other sibling key is
-  rejected. Before issuing any deletion, airplan fetches and validates
-  the exact marker in the target directory. A missing, malformed,
-  oversized, unsupported, or inconsistent marker is an error and no
-  bucket objects are touched. A directory without a valid marker is
-  not an airplan upload, regardless of its key shape; native storage
-  tooling is the escape hatch.
+  default. Payload download streams to its destination so large recordings do
+  not require whole-object buffering. `get` never writes the local manifest or
+  changes remote storage.
+- `airplan delete <url|key>` only deletes a marker-managed upload. The target
+  may be the random directory, its existing marker, or any page, source, or
+  collection file declared by the valid marker. Other siblings are rejected.
+  Before any deletion, Airplan resolves exactly one marker by the same
+  fail-closed dual probe as `get` and validates it. Missing, conflicting,
+  malformed, oversized, unsupported, or inconsistent ownership touches no
+  bucket objects. Native storage tooling is the escape hatch.
   Full URLs must use HTTP(S) and match the configured public base URL
   or endpoint by host and base path; HTTP and HTTPS variants of the
   same host are equivalent because the URL is parsed, not fetched. A
@@ -1131,6 +1368,10 @@ machine) and must be safe:
   only when they are HTTP(S) URLs whose host matches the recorded public
   URL; URL query strings and fragments are ignored. With zero or multiple
   matching records, normal config resolution proceeds without inference.
+  A collection history record may match any direct child beneath its recorded
+  random directory after the same host checks. This selects connection context
+  only; the remote marker must still declare the requested target before read
+  or deletion authority exists.
   Explicit flag or environment selection always wins and is never silently
   changed. An inferred profile removed from the selected config is an
   actionable selection error. Missing, unreadable, or ambiguous
@@ -1161,6 +1402,10 @@ machine) and must be safe:
   `default_profile`, single-profile inference, or root-level config.
   Thus a profile's uploads are only purged with that profile's
   connection and credentials.
+  `--slug PATTERN` applies only to documents. Collections have no slug and are
+  excluded even from `--slug '*'`; age, profile, scope, or `--all` select them.
+  Member filenames and collection `index.html` are never reinterpreted as
+  slugs.
   Requires at least one filter or an explicit `--all`. `--dry-run`
   previews; confirmation prompt unless `--yes`. EOF before an answer
   is an error that directs non-interactive callers to use `--yes`; an
@@ -1175,9 +1420,10 @@ machine) and must be safe:
 - `purge --remote` starts from the same marker-key candidates as
   `list --remote`, but fetches and validates markers because it is a
   destructive operation. It may select both `complete` and
-  `incomplete` uploads, using marker `created_at` for `--older-than`
-  and the marker-declared page slug for `--slug` even if the page is
-  missing. It never selects an invalid marker. Such a directory cannot
+  `incomplete` uploads, using marker `created_at` for `--older-than`.
+  `--slug` selects documents only and uses the marker-declared slug even if the
+  page is missing. It never selects an invalid marker or marker conflict. Such
+  a directory cannot
   be deleted by airplan; `show` can inspect it and native storage
   tooling must clean it. Marker-last deletion keeps an interrupted
   purge discoverable and retryable.
@@ -1191,8 +1437,10 @@ machine) and must be safe:
   into the local manifest. One paginated LIST snapshot supplies remote
   marker candidates and object sizes. Missing local candidates have their
   markers fetched concurrently and are imported only when the supported
-  marker validates and every declared payload is present; version 2 also
-  requires the listed page size to match `page_bytes`. Imported profile,
+  marker validates and every declared object is present at its declared size.
+  Imported v3 records retain kind, exact marker identity, primary page,
+  document slug/format/source where applicable, title, and repository, but do
+  not duplicate collection inventories. Imported profile,
   bucket, and public URL values come from the receiving machine's resolved
   connection, never the marker.
   By default, active scoped local records absent from LIST are considered for
@@ -1241,3 +1489,13 @@ machine) and must be safe:
 - Markdown rendering preserves raw HTML and link destinations, and HTML
   input is uploaded as authored. Both may execute active content, so
   only share documents from trusted sources.
+- Collection members are uploaded byte-for-byte. HTML and SVG members may
+  execute active content when opened, while media content types intentionally
+  allow browsers and external proxies to render the originals. Only upload
+  trusted artifacts.
+- Screenshots and recordings may reveal tokens, usernames, private messages,
+  browser chrome, or unrelated desktop content. Review captures before upload.
+  Filenames are also exposed in direct public URLs and the overview page.
+- The generated collection overview HTML-escapes authored metadata and builds
+  relative URLs only from validated direct basenames. It never interpolates
+  filenames, titles, content types, or repository data as raw HTML.

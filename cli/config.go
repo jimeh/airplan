@@ -187,6 +187,10 @@ func configDisplayFields(
 		},
 		{Name: "key_prefix", Value: cfg.KeyPrefix, Set: cfg.KeyPrefix != ""},
 		{Name: "template", Value: cfg.Template, Set: cfg.Template != ""},
+		{
+			Name: "collection_template", Value: cfg.CollectionTemplate,
+			Set: cfg.CollectionTemplate != "",
+		},
 		{Name: "no_source", Value: cfg.NoSource, Set: true},
 		{Name: "indexable", Value: cfg.Indexable, Set: true},
 		{

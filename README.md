@@ -4,7 +4,7 @@
 
 # airplan
 
-**Turn a local document into a readable, shareable link.**
+**Turn local documents and artifacts into shareable links.**
 
 [![GitHub Release](https://img.shields.io/github/v/release/jimeh/airplan?logo=github&label=Release)](https://github.com/jimeh/airplan/releases/latest)
 [![Go Reference](https://img.shields.io/badge/pkg.go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/jimeh/airplan/airplan)
@@ -14,8 +14,8 @@
 
 </div>
 
-airplan uploads a Markdown document, HTML page, or source file to
-S3-compatible storage and prints an unguessable URL:
+airplan uploads documents and file collections to S3-compatible storage and
+prints unguessable URLs:
 
 ```console
 $ airplan plan.md
@@ -30,12 +30,19 @@ hard to reach.
 It also works whenever you want to share a local document without running a
 server or using a paste service.
 
+Collections make screenshots, browser recordings, PDFs, archives, and other
+artifacts easy to attach to a pull request or issue. Airplan uploads the
+original files together, generates an overview page with media previews and
+copyable direct links, and treats the directory as one cleanup unit.
+
 - Markdown becomes a polished page with light and dark themes.
   Authored HTML and link destinations are preserved, so treat it as trusted
   content.
 - Source and plain-text files become highlighted, gist-like pages.
 - HTML stays HTML, with no rendering step. Treat HTML input as trusted code: it
   may execute scripts when someone opens the link.
+- Images, video, and audio render on a responsive collection overview. Generic
+  files remain available through direct open and download links.
 - Files live in a bucket you own. There are no accounts or background services.
 - The command has a predictable output contract for scripts and agents.
 
@@ -86,8 +93,9 @@ access. Binaries built locally with `go install` are not project-signed.
 ### Install the agent skill
 
 This repository includes an [airplan agent skill](skills/airplan/SKILL.md) for
-compatible coding agents. It teaches the agent to upload a document when you
-ask for a shareable link, then return that link in chat.
+compatible coding agents. It teaches an agent to upload a requested document or
+file set, including visual evidence captured during authorized pull-request or
+issue work, then return direct and overview links.
 
 Install it globally with the [Skills CLI](https://skills.sh/):
 
@@ -110,8 +118,8 @@ airplan skill > ~/.agents/skills/airplan/SKILL.md
 ```
 
 The `airplan` CLI must also be installed and configured on the machine where
-the agent runs. Once it is, ask the agent to share a plan as a link and open the
-result from your phone, tablet, or any other browser.
+the agent runs. Once it is, ask the agent to share a plan, screenshot, or
+recording as a link and open the result from any browser.
 
 Release assets include separate SPDX JSON SBOMs, and the archives are covered by
 GitHub artifact attestations. After downloading the release assets, verify them:
@@ -155,6 +163,7 @@ public_base_url   = "https://plans.example.com"
 access_key_id     = "..." # or AIRPLAN_ACCESS_KEY_ID
 secret_access_key = "..." # or AIRPLAN_SECRET_ACCESS_KEY
 # repo = "auto"           # infer GitHub origin for Markdown links
+# collection_template = "~/.config/airplan/collection.html"
 ```
 
 Explicit access and secret keys must be configured as a pair. Omit both to use
@@ -187,7 +196,7 @@ The custom domain should serve uploaded objects without exposing a public
 bucket listing. As a quick check, its root URL should return an error while a
 known object URL loads normally.
 
-## Share a document
+## Share documents and files
 
 Pass airplan a file and use the URL it prints:
 
@@ -198,6 +207,31 @@ airplan pkg/server/handler.go     # source → highlighted page
 airplan --open plan.md            # upload and open in a browser
 airplan --json plan.md            # structured result for scripts
 ```
+
+Pass multiple files to create one collection. Airplan prints each direct file
+URL in argument order, then the overview URL:
+
+```console
+$ airplan login.png settings.png demo.webm
+https://plans.example.com/vq3n.../login.png
+https://plans.example.com/vq3n.../settings.png
+https://plans.example.com/vq3n.../demo.webm
+https://plans.example.com/vq3n.../index.html
+```
+
+A single recognized media or binary file also becomes a collection. Use
+`--files` when one text-like input should be uploaded unchanged instead of
+rendered as a document:
+
+```sh
+airplan screenshot.png
+airplan --files README.md
+airplan --json screenshot.png recording.webm
+```
+
+Collection JSON retains `.url` for the overview and puts the ordered direct
+links in `.files[].url`. The original file bytes are unchanged. Duplicate
+basenames, directories, and reserved names are rejected before upload.
 
 Standard input works too. It defaults to Markdown when no format can be
 inferred:
@@ -215,7 +249,14 @@ contact S3, or update the upload history.
 ```sh
 airplan preview plan.md > plan.html
 airplan preview -o plan.html plan.md
+airplan preview --files screenshot.png demo.webm -o index.html
 ```
+
+Use `--collection-template custom.html` to replace the collection overview
+without affecting document templates. `airplan template collection` prints the
+built-in starting point; `airplan template` continues to print the document
+template. Collection preview does not copy large members, so save the overview
+beside staged input files when its local media links need to work.
 
 ### Manage uploads
 
@@ -238,13 +279,13 @@ shows every profile. Local list does not use configuration, so `--config`
 requires `--remote`.
 
 `--remote` reads the bucket instead, so it can find uploads from other machines.
-Remote discovery recognizes exact `.airplan.json` ownership markers with one
-bucket listing; it does not fetch each marker. When exactly one valid HTML page
-is a direct child, list also infers its key and URL from that same response;
-these are unvalidated hints, and ambiguous rows show no URL. Markerless
-directories are invisible to airplan and cannot be fetched, deleted, or purged
-through it. Use `airplan show` when you need validated marker details and
-completeness state.
+Remote discovery recognizes document `.airplan.json` and collection
+`.airplan-collection.json` ownership markers with one bucket listing; it does
+not fetch each marker. The marker name supplies an untrusted kind hint, letting
+collection rows select exact `index.html` even beside other HTML files. A
+directory containing both names is a conflict with no inferred URL and cannot
+be managed through Airplan. Markerless directories are invisible. Use
+`airplan show` for validated kind, declared files, and completeness.
 
 `preview` and `get` accept `-o` as shorthand for `--output`. When `show`, `get`,
 or `delete` uniquely matches marker-managed local history, its recorded profile
@@ -260,11 +301,12 @@ controls concurrent marker requests (default 8, range 1-64). It converges the
 active remote inventory, not the historical JSONL event stream; deletion
 history is not uploaded.
 
-New uploads use ownership marker version 2, which includes the rendered page
-size plus optional canonical repository metadata. Current airplan releases can
-still manage version 1 markers; older clients must be upgraded before they can
-manage version 2 uploads. Repository metadata is stored remotely for every
-input format when `--repo` supplies or discovers a repository.
+Every new upload uses ownership marker version 3 with one declared-object model
+for pages, document sources, and collection files. Documents require a slug;
+collections have no slug and always use `index.html`. Current Airplan releases
+still manage marker versions 1 and 2. Older clients must be upgraded before
+they can manage any new v3 upload. Repository metadata is stored remotely for
+every input mode when `--repo` supplies or discovers a repository.
 
 ## Pages airplan creates
 
@@ -299,12 +341,24 @@ does not block external content authored in trusted Markdown, HTML, or custom
 templates. The original Markdown remains exact in source view and the optional
 source object.
 
+Collection overview pages render images inline, video and audio with controls,
+and arbitrary files as linked cards. Every member has Open, Download, and Copy
+URL actions, and the page can copy its own overview URL. Media never autoplays;
+images lazy-load; links remain usable without JavaScript. The page is
+self-contained, responsive, light/dark aware, and noindexed by default.
+
+Collections accept at most 100 files. Defaults are 1 GiB per member and 2 GiB
+total; use `--max-size` and `--max-total-size` to adjust them per invocation,
+with `0` meaning unlimited. Increase `--timeout` explicitly for a substantial
+recording. Members stream from disk and downloads stream to their destination
+rather than buffering whole recordings in memory.
+
 ## Automation and agents
 
-For upload invocations (`airplan <file>`), the command-line contract is
-intentionally simple:
+For upload invocations, the command-line contract is intentionally simple:
 
-- On a successful upload, stdout contains the URL and nothing else.
+- A successful document prints its page URL and nothing else.
+- A successful collection prints ordered direct URLs followed by its overview.
 - With `--json`, stdout contains one JSON object instead.
 - Logs, warnings, progress, and errors go to stderr.
 - A non-zero exit means no upload URL was produced.
@@ -314,6 +368,8 @@ That makes direct capture safe:
 ```sh
 url=$(airplan plan.md)
 url=$(airplan --json plan.md | jq -r .url)
+overview=$(airplan --json screenshot.png demo.webm | jq -r .url)
+image=$(airplan --json screenshot.png | jq -r '.files[0].url')
 ```
 
 Do not invent or reuse a URL after a failed command. For the complete CLI,
@@ -395,22 +451,23 @@ access and secret keys must be set as a pair. If neither is set through
 credential chain, including `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
 the shared credentials file.
 
-| Variable                     | Purpose                                       |
-| ---------------------------- | --------------------------------------------- |
-| `AIRPLAN_CONFIG`             | Select an alternate config file               |
-| `AIRPLAN_PROFILE`            | Select a named `[profiles.*]` profile         |
-| `AIRPLAN_ENDPOINT`           | Set the S3-compatible API endpoint            |
-| `AIRPLAN_BUCKET`             | Set the destination bucket                    |
-| `AIRPLAN_REGION`             | Set the S3 signing region                     |
-| `AIRPLAN_ACCESS_KEY_ID`      | Set the explicit access key ID                |
-| `AIRPLAN_SECRET_ACCESS_KEY`  | Set the matching secret access key            |
-| `AIRPLAN_PUBLIC_BASE_URL`    | Set the base URL used for public links        |
-| `AIRPLAN_KEY_PREFIX`         | Prefix and scope uploaded object keys         |
-| `AIRPLAN_TEMPLATE`           | Select a custom HTML page template            |
-| `AIRPLAN_NO_EXTERNAL_ASSETS` | Disable airplan-managed external loads        |
-| `AIRPLAN_MERMAID_URL`        | Set an alternate HTTPS Mermaid module URL     |
-| `AIRPLAN_REPO`               | Set `auto`, `none`, or a repository URL       |
-| `AIRPLAN_TIMEOUT`            | Set a duration such as `30s`; `0` disables it |
+| Variable                      | Purpose                                       |
+| ----------------------------- | --------------------------------------------- |
+| `AIRPLAN_CONFIG`              | Select an alternate config file               |
+| `AIRPLAN_PROFILE`             | Select a named `[profiles.*]` profile         |
+| `AIRPLAN_ENDPOINT`            | Set the S3-compatible API endpoint            |
+| `AIRPLAN_BUCKET`              | Set the destination bucket                    |
+| `AIRPLAN_REGION`              | Set the S3 signing region                     |
+| `AIRPLAN_ACCESS_KEY_ID`       | Set the explicit access key ID                |
+| `AIRPLAN_SECRET_ACCESS_KEY`   | Set the matching secret access key            |
+| `AIRPLAN_PUBLIC_BASE_URL`     | Set the base URL used for public links        |
+| `AIRPLAN_KEY_PREFIX`          | Prefix and scope uploaded object keys         |
+| `AIRPLAN_TEMPLATE`            | Select a custom HTML page template            |
+| `AIRPLAN_COLLECTION_TEMPLATE` | Select a collection overview template         |
+| `AIRPLAN_NO_EXTERNAL_ASSETS`  | Disable airplan-managed external loads        |
+| `AIRPLAN_MERMAID_URL`         | Set an alternate HTTPS Mermaid module URL     |
+| `AIRPLAN_REPO`                | Set `auto`, `none`, or a repository URL       |
+| `AIRPLAN_TIMEOUT`             | Set a duration such as `30s`; `0` disables it |
 
 `no_source` and `indexable` do not have environment variables. Configure them
 in TOML or override them with `--no-source` and `--indexable`.
@@ -467,6 +524,12 @@ while it remains unknown, but it is not access-controlled:
   reusable response after deletion.
 - Bucket listing must remain private.
 
+Collections broaden what can leak through a capability URL. Review screenshots
+and recordings for tokens, usernames, private messages, browser chrome, and
+unrelated desktop content before uploading. Filenames are public in direct URLs
+and on the overview. HTML and SVG members may execute active content when
+opened; Airplan uploads every member byte-for-byte and does not sanitize it.
+
 Use `airplan purge --older-than 30d --yes` manually or from cron when uploads
 should expire. For large remote inventories, `purge --remote --concurrency N`
 changes only parallel marker inspection (default 8, range 1-64); destructive
@@ -483,6 +546,7 @@ import (
     "context"
     "fmt"
     "io"
+    "os"
 
     "github.com/jimeh/airplan/airplan"
 )
@@ -504,6 +568,36 @@ func upload(ctx context.Context, f io.Reader) error {
         return err
     }
     fmt.Println(res.URL)
+    return nil
+}
+```
+
+Collections use seekable readers and declared sizes so large members can
+stream without whole-file buffering:
+
+```go
+func uploadFiles(ctx context.Context, client *airplan.Client) error {
+    image, err := os.Open("screenshot.png")
+    if err != nil {
+        return err
+    }
+    defer image.Close()
+
+    info, err := image.Stat()
+    if err != nil {
+        return err
+    }
+    res, err := client.UploadFiles(ctx, airplan.FilesInput{
+        Files: []airplan.FileInput{{
+            Name:   "screenshot.png",
+            Reader: image,
+            Size:   info.Size(),
+        }},
+    })
+    if err != nil {
+        return err
+    }
+    fmt.Println(res.Files[0].URL, res.URL)
     return nil
 }
 ```

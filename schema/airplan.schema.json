@@ -36,6 +36,10 @@
           "type": "string",
           "description": "Path to the HTML template used for rendered pages."
         },
+        "collection_template": {
+          "type": "string",
+          "description": "Path to the HTML template used for collection overview pages."
+        },
         "no_source": {
           "type": "boolean",
           "description": "Omit uploading the original source alongside rendered output."
@@ -97,6 +101,10 @@
     "template": {
       "type": "string",
       "description": "Path to the HTML template used for rendered pages."
+    },
+    "collection_template": {
+      "type": "string",
+      "description": "Path to the HTML template used for collection overview pages."
     },
     "no_source": {
       "type": "boolean",

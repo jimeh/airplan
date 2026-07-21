@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"sync"
 	"time"
@@ -241,8 +242,12 @@ func (c *Client) syncImport(
 		Key: inspection.Page.Key, MarkerKey: inspection.MarkerKey,
 		URL: inspection.Page.URL, Bucket: c.cfg.Bucket,
 		Profile: c.cfg.Profile, Format: inspection.Format,
+		Kind:  string(inspection.Kind),
 		Title: inspection.Title, Repo: inspection.Repo,
 		Bytes: inspection.Page.Bytes, MarkerVersion: inspection.MarkerVersion,
+	}
+	if inspection.Kind == UploadKindDocument {
+		record.Slug, _ = pageSlug(filepath.Base(inspection.Page.Key))
 	}
 	if inspection.Source != nil {
 		record.SourceKey = inspection.Source.Key
@@ -279,7 +284,7 @@ func (c *Client) syncPrune(
 	tombstone := ManifestRecord{
 		Type: "delete", Time: time.Now().UTC().Truncate(time.Second),
 		Key: record.Key, MarkerKey: markerKey, Bucket: c.cfg.Bucket,
-		Profile: c.cfg.Profile, Reason: "remote_missing",
+		Profile: c.cfg.Profile, Reason: "remote_missing", Kind: record.Kind,
 	}
 	return syncJobResult{tombstone: &tombstone}
 }

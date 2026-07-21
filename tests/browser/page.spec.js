@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createServer } from 'node:http';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,11 +42,13 @@ export default {
 `;
 
 let baseURL;
+let collectionURL;
 let fixtureSource;
 let mermaidURL;
 let server;
 let sourceURL;
 let tempRoot;
+let collectionHTML;
 
 const test = base.extend({
   page: async ({ page }, use) => {
@@ -73,6 +75,7 @@ test.beforeAll(async () => {
   tempRoot = await mkdtemp(join(tmpdir(), 'airplan-browser-'));
   fixtureSource = await readFile(fixturePath, 'utf8');
   const outputPath = join(tempRoot, 'index.html');
+  const collectionOutputPath = join(tempRoot, 'collection.html');
   const configRoot = join(tempRoot, 'config');
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => !name.startsWith('AIRPLAN_')),
@@ -103,18 +106,48 @@ test.beforeAll(async () => {
     ],
     { cwd: repoRoot, env },
   );
+  await writeFile(join(tempRoot, 'shot.svg'),
+    '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">' +
+    '<rect width="20" height="20" fill="green"/></svg>');
+  await writeFile(join(tempRoot, 'demo.webm'), 'video fixture');
+  await writeFile(join(tempRoot, 'sound.ogg'), 'audio fixture');
+  await writeFile(join(tempRoot, 'notes.bin'), 'generic fixture');
+  await execFileAsync(
+    goPath,
+    [
+      'run', '.', 'preview', '--files', '--repo', 'none', '--title',
+      '<Evidence & results>', '--output', collectionOutputPath,
+      join(tempRoot, 'shot.svg'), join(tempRoot, 'demo.webm'),
+      join(tempRoot, 'sound.ogg'), join(tempRoot, 'notes.bin'),
+    ],
+    { cwd: repoRoot, env },
+  );
   const html = await readFile(outputPath);
+  collectionHTML = await readFile(collectionOutputPath);
   const sourceHTML = await readFile(sourceFixturePath);
   const match = html.toString().match(/await import\("([^"]+)"\)/);
   if (!match) throw new Error('rendered fixture has no Mermaid module URL');
   [, mermaidURL] = match;
 
-  server = createServer((request, response) => {
+  server = createServer(async (request, response) => {
     let body;
     if (request.url === '/') {
       body = html;
     } else if (request.url === '/source') {
       body = sourceHTML;
+    } else if (request.url === '/collection') {
+      body = collectionHTML;
+    } else if (request.url === '/shot.svg') {
+      body = await readFile(join(tempRoot, 'shot.svg'));
+      response.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+      response.end(body);
+      return;
+    } else if (request.url === '/demo.webm' ||
+      request.url === '/sound.ogg' || request.url === '/notes.bin') {
+      body = await readFile(join(tempRoot, request.url.slice(1)));
+      response.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+      response.end(body);
+      return;
     } else {
       response.writeHead(404).end();
       return;
@@ -128,8 +161,49 @@ test.beforeAll(async () => {
   });
   const address = server.address();
   baseURL = `http://127.0.0.1:${address.port}`;
+  collectionURL = `${baseURL}/collection`;
   sourceURL = `${baseURL}/source`;
 });
+
+test('collection overview presents and links every media kind',
+  async ({ context, page }) => {
+    await context.grantPermissions(
+      ['clipboard-read', 'clipboard-write'], { origin: baseURL },
+    );
+    await page.goto(collectionURL);
+    await expect(page).toHaveTitle('<Evidence & results>');
+    await expect(page.getByRole('heading', {
+      level: 1, name: '<Evidence & results>',
+    })).toBeVisible();
+    await expect(page.locator('ol.files > li.file')).toHaveCount(4);
+    await expect(page.locator('img[loading="lazy"]')).toHaveCount(1);
+    await expect(page.locator('video[controls]:not([autoplay])')).toHaveCount(1);
+    await expect(page.locator('audio[controls]:not([autoplay])')).toHaveCount(1);
+    await expect(page.locator('.preview--file')).toHaveCount(1);
+    await expect.poll(() => page.locator('.preview--file').evaluate(
+      (element) => getComputedStyle(element, '::after').content,
+    )).toBe('"ATTACHED FILE"');
+    await expect(page.getByRole('heading', { name: 'notes.bin' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open' })).toHaveCount(4);
+    await expect(page.getByRole('link', { name: 'Download' })).toHaveCount(4);
+    await page.keyboard.press('Tab');
+    const overviewCopy = page.getByRole('button', {
+      name: 'Copy overview URL',
+    });
+    await expect(overviewCopy).toBeFocused();
+    await expect(overviewCopy).toHaveCSS('outline-style', 'solid');
+    await expect(overviewCopy).toHaveCSS('outline-width', '3px');
+    await page.locator('[data-copy="./notes.bin"]').click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(`${baseURL}/notes.bin`);
+    await overviewCopy.click();
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe(collectionURL);
+    const overflow = await page.evaluate(() => (
+      document.documentElement.scrollWidth > document.documentElement.clientWidth
+    ));
+    expect(overflow).toBe(false);
+  });
 
 test.afterAll(async () => {
   if (server) {

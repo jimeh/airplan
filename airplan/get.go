@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 )
 
@@ -19,6 +20,52 @@ type GetResult struct {
 	// Key is the full storage key fetched.
 	Key  string
 	Body []byte
+}
+
+// GetUploadTo validates one declared target and streams it to dst. It is the
+// preferred API for potentially large collection members.
+func (c *Client) GetUploadTo(ctx context.Context, urlOrKey string,
+	opts GetOptions, dst io.Writer,
+) (string, error) {
+	if dst == nil {
+		return "", errors.New("airplan: nil download writer")
+	}
+	if err := c.validate(ctx); err != nil {
+		return "", err
+	}
+	key, err := KeyFromURLOrKey(c.cfg, urlOrKey)
+	if err != nil {
+		return "", err
+	}
+	dirPrefix, err := uploadDirPrefix(key)
+	if err != nil {
+		return "", err
+	}
+	dir := strings.TrimSuffix(dirPrefix, "/")
+	dir = dir[strings.LastIndex(dir, "/")+1:]
+	resolved, err := c.resolveMarker(ctx, dirPrefix)
+	if err != nil {
+		return "", err
+	}
+	marker, err := DecodeUploadMarkerForName(resolved.Body, dir, resolved.Basename)
+	if err != nil {
+		return "", err
+	}
+	objectKey, err := resolveGetTarget(key, dirPrefix, resolved.Key, marker, opts)
+	if err != nil {
+		return "", err
+	}
+	if objectKey == resolved.Key {
+		_, err = dst.Write(resolved.Body)
+		return objectKey, err
+	}
+	if err = c.st.getTo(ctx, objectKey, dst); err != nil {
+		if errors.Is(err, errObjectNotFound) {
+			return "", fmt.Errorf("airplan: upload object %q is missing", objectKey)
+		}
+		return "", err
+	}
+	return objectKey, nil
 }
 
 // GetUpload validates the upload's ownership marker and fetches one declared
@@ -39,30 +86,23 @@ func (c *Client) GetUpload(
 	}
 	dir := strings.TrimSuffix(dirPrefix, "/")
 	dir = dir[strings.LastIndex(dir, "/")+1:]
-	markerKey := dirPrefix + MarkerFilename
-
-	markerBody, err := c.st.getBytes(ctx, markerKey, MaxMarkerSize)
+	resolved, err := c.resolveMarker(ctx, dirPrefix)
 	if err != nil {
-		if errors.Is(err, errObjectNotFound) {
-			return nil, fmt.Errorf(
-				"airplan: ownership marker %q is missing", markerKey,
-			)
-		}
 		return nil, err
 	}
-	marker, err := DecodeUploadMarker(markerBody, dir)
+	marker, err := DecodeUploadMarkerForName(resolved.Body, dir, resolved.Basename)
 	if err != nil {
 		return nil, err
 	}
 
 	objectKey, err := resolveGetTarget(
-		key, dirPrefix, markerKey, marker, opts,
+		key, dirPrefix, resolved.Key, marker, opts,
 	)
 	if err != nil {
 		return nil, err
 	}
-	if objectKey == markerKey {
-		return &GetResult{Key: markerKey, Body: markerBody}, nil
+	if objectKey == resolved.Key {
+		return &GetResult{Key: resolved.Key, Body: resolved.Body}, nil
 	}
 
 	body, err := c.st.getBytes(ctx, objectKey, 0)
@@ -106,6 +146,14 @@ func resolveGetTarget(
 			)
 		}
 		return key, nil
+	}
+	for _, object := range marker.Objects {
+		if object.Role == MarkerRoleFile && key == dirPrefix+object.Name {
+			if opts.Source {
+				return "", errors.New("airplan: --source cannot be used with an explicit child target")
+			}
+			return key, nil
+		}
 	}
 	return "", fmt.Errorf(
 		"airplan: get target %q is not the directory, marker, or declared payload",

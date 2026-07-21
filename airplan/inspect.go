@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -20,10 +21,12 @@ const (
 
 // InspectedObject describes one marker-declared payload object.
 type InspectedObject struct {
-	Key    string
-	URL    string
-	Exists bool
-	Bytes  int64
+	Key           string
+	URL           string
+	Exists        bool
+	Bytes         int64
+	ExpectedBytes int64
+	ExpectedKnown bool
 }
 
 // UploadInspection is the result of targeted remote marker inspection.
@@ -36,6 +39,7 @@ type UploadInspection struct {
 
 	CreatedAt time.Time
 	Format    string
+	Kind      UploadKind
 	Title     string
 	// Repo is the canonical repository URL declared by marker v2, or empty.
 	Repo string
@@ -43,6 +47,7 @@ type UploadInspection struct {
 	MarkerVersion int
 	Page          *InspectedObject
 	Source        *InspectedObject
+	Files         []*InspectedObject
 	// Warnings contains non-fatal URL assembly caveats for callers to report.
 	Warnings []string
 
@@ -73,27 +78,46 @@ func (c *Client) InspectUpload(
 
 	dir := strings.TrimSuffix(dirPrefix, "/")
 	dir = dir[strings.LastIndex(dir, "/")+1:]
-	markerKey := dirPrefix + MarkerFilename
-
 	objects, err := c.st.listKeys(ctx, dirPrefix)
 	if err != nil {
 		return nil, err
 	}
-	markerBody, err := c.st.getBytes(ctx, markerKey, MaxMarkerSize)
+	var markerKeys []string
+	for _, object := range objects {
+		base := filepath.Base(object.Key)
+		if base == MarkerFilename || base == CollectionMarkerFilename {
+			markerKeys = append(markerKeys, object.Key)
+		}
+	}
+	if len(markerKeys) == 0 {
+		markerKeys = append(markerKeys, dirPrefix+MarkerFilename)
+	}
+	if len(markerKeys) > 1 {
+		return &UploadInspection{
+			State: UploadInvalid, Dir: dir,
+			MarkerKey: markerKeys[0], Objects: len(objects),
+			Error: MarkerErrorConflictingMarkers,
+		}, nil
+	}
+	markerBody, err := c.st.getBytes(ctx, markerKeys[0], MaxMarkerSize)
 	if err != nil {
 		if errors.Is(err, errObjectNotFound) {
 			return nil, fmt.Errorf("airplan: ownership marker %q is missing",
-				markerKey)
+				markerKeys[0])
 		}
 		return nil, err
+	}
+	resolved := &resolvedMarker{
+		Key:      markerKeys[0],
+		Basename: filepath.Base(markerKeys[0]), Body: markerBody,
 	}
 
 	return c.inspectUploadSnapshot(ctx, RemoteUpload{
 		Dir:       dir,
-		MarkerKey: markerKey,
+		MarkerKey: resolved.Key,
 		Objects:   len(objects),
 		objects:   byObjectKey(objects),
-	}, markerBody)
+	}, resolved.Body)
 }
 
 func byObjectKey(objects []objectInfo) map[string]objectInfo {
@@ -107,6 +131,12 @@ func byObjectKey(objects []objectInfo) map[string]objectInfo {
 func (c *Client) inspectListedUpload(
 	ctx context.Context, upload RemoteUpload,
 ) (*UploadInspection, error) {
+	if upload.Conflict {
+		return &UploadInspection{
+			State: UploadInvalid, Dir: upload.Dir,
+			MarkerKey: upload.MarkerKey, Error: MarkerErrorConflictingMarkers,
+		}, nil
+	}
 	markerBody, err := c.st.getBytes(ctx, upload.MarkerKey, MaxMarkerSize)
 	if err != nil {
 		if errors.Is(err, errObjectNotFound) {
@@ -138,7 +168,8 @@ func (c *Client) inspectUploadSnapshot(
 		inspection.Bytes += int64(len(markerBody))
 	}
 
-	marker, err := DecodeUploadMarker(markerBody, upload.Dir)
+	marker, err := DecodeUploadMarkerForName(markerBody, upload.Dir,
+		filepath.Base(upload.MarkerKey))
 	if err != nil {
 		code, ok := MarkerCode(err)
 		if !ok {
@@ -150,18 +181,37 @@ func (c *Client) inspectUploadSnapshot(
 	}
 	inspection.CreatedAt = marker.CreatedAt
 	inspection.Format = marker.Format
+	inspection.Kind = marker.Kind
 	inspection.Title = marker.Title
 	inspection.Repo = marker.Repo
 	inspection.MarkerVersion = marker.Version
-	dirPrefix := strings.TrimSuffix(upload.MarkerKey, MarkerFilename)
+	dirPrefix := strings.TrimSuffix(upload.MarkerKey, filepath.Base(upload.MarkerKey))
 	var fallback bool
 	inspection.Page, fallback = c.inspectedObject(dirPrefix+marker.Page, byKey)
+	inspection.Page.ExpectedBytes = marker.PageBytes
+	inspection.Page.ExpectedKnown = marker.Version >= 2
 	if marker.Source != "" {
 		var sourceFallback bool
 		inspection.Source, sourceFallback = c.inspectedObject(
 			dirPrefix+marker.Source, byKey,
 		)
+		for _, object := range marker.Objects {
+			if object.Role == MarkerRoleSource {
+				inspection.Source.ExpectedBytes = object.Bytes
+				inspection.Source.ExpectedKnown = true
+			}
+		}
 		fallback = fallback || sourceFallback
+	}
+	for _, object := range marker.Objects {
+		if object.Role != MarkerRoleFile {
+			continue
+		}
+		file, fileFallback := c.inspectedObject(dirPrefix+object.Name, byKey)
+		file.ExpectedBytes = object.Bytes
+		file.ExpectedKnown = true
+		inspection.Files = append(inspection.Files, file)
+		fallback = fallback || fileFallback
 	}
 	if fallback {
 		inspection.Warnings = append(inspection.Warnings,
@@ -170,9 +220,16 @@ func (c *Client) inspectUploadSnapshot(
 	inspection.State = UploadComplete
 	if !inspection.Page.Exists ||
 		(inspection.Source != nil && !inspection.Source.Exists) ||
-		(marker.Version == MarkerVersion &&
-			inspection.Page.Bytes != marker.PageBytes) {
+		(marker.Version >= 2 && inspection.Page.Bytes != marker.PageBytes) {
 		inspection.State = UploadIncomplete
+	}
+	if inspection.Source != nil && inspection.Source.ExpectedBytes > 0 && inspection.Source.Bytes != inspection.Source.ExpectedBytes {
+		inspection.State = UploadIncomplete
+	}
+	for _, file := range inspection.Files {
+		if !file.Exists || file.Bytes != file.ExpectedBytes {
+			inspection.State = UploadIncomplete
+		}
 	}
 	return inspection, nil
 }

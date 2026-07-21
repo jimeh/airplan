@@ -64,10 +64,11 @@ func runShow(cmd *cobra.Command, opts *showOptions, target string) error {
 }
 
 type showJSONObject struct {
-	Key    string `json:"key"`
-	URL    string `json:"url"`
-	Exists bool   `json:"exists"`
-	Bytes  *int64 `json:"bytes,omitempty"`
+	Key           string `json:"key"`
+	URL           string `json:"url"`
+	Exists        bool   `json:"exists"`
+	Bytes         *int64 `json:"bytes,omitempty"`
+	ExpectedBytes *int64 `json:"expected_bytes,omitempty"`
 }
 
 type showJSONRecord struct {
@@ -78,11 +79,13 @@ type showJSONRecord struct {
 	Bytes     int64                   `json:"bytes"`
 	Time      *time.Time              `json:"time,omitempty"`
 	Format    string                  `json:"format,omitempty"`
+	Kind      airplan.UploadKind      `json:"kind,omitempty"`
 	Version   int                     `json:"marker_version,omitempty"`
 	Title     string                  `json:"title,omitempty"`
 	Repo      string                  `json:"repo,omitempty"`
 	Page      *showJSONObject         `json:"page,omitempty"`
 	Source    *showJSONObject         `json:"source,omitempty"`
+	Files     []*showJSONObject       `json:"files,omitempty"`
 	Error     airplan.MarkerErrorCode `json:"error,omitempty"`
 }
 
@@ -95,11 +98,15 @@ func showJSONFromInspection(in *airplan.UploadInspection) showJSONRecord {
 		t := in.CreatedAt
 		out.Time = &t
 		out.Format = in.Format
+		out.Kind = in.Kind
 		out.Version = in.MarkerVersion
 		out.Title = in.Title
 		out.Repo = in.Repo
 		out.Page = showJSONFromObject(in.Page)
 		out.Source = showJSONFromObject(in.Source)
+		for _, file := range in.Files {
+			out.Files = append(out.Files, showJSONFromObject(file))
+		}
 	}
 	return out
 }
@@ -108,7 +115,13 @@ func showJSONFromObject(in *airplan.InspectedObject) *showJSONObject {
 	if in == nil {
 		return nil
 	}
-	out := &showJSONObject{Key: in.Key, URL: in.URL, Exists: in.Exists}
+	out := &showJSONObject{
+		Key: in.Key, URL: in.URL, Exists: in.Exists,
+	}
+	if in.ExpectedKnown {
+		expected := in.ExpectedBytes
+		out.ExpectedBytes = &expected
+	}
 	if in.Exists {
 		bytes := in.Bytes
 		out.Bytes = &bytes
@@ -146,8 +159,13 @@ func printInspection(w io.Writer, in *airplan.UploadInspection) error {
 	if err := write("DATE", in.CreatedAt.UTC().Format(time.RFC3339)); err != nil {
 		return err
 	}
-	if err := write("FORMAT", in.Format); err != nil {
+	if err := write("KIND", in.Kind); err != nil {
 		return err
+	}
+	if in.Format != "" {
+		if err := write("FORMAT", in.Format); err != nil {
+			return err
+		}
 	}
 	if err := write("MARKER VERSION", in.MarkerVersion); err != nil {
 		return err
@@ -171,6 +189,11 @@ func printInspection(w io.Writer, in *airplan.UploadInspection) error {
 	}
 	if in.Source != nil {
 		if err := printInspectedObject(tw, "SOURCE", in.Source); err != nil {
+			return err
+		}
+	}
+	for i, file := range in.Files {
+		if err := printInspectedObject(tw, fmt.Sprintf("FILE %d", i+1), file); err != nil {
 			return err
 		}
 	}
