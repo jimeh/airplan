@@ -210,6 +210,40 @@ test('collection overview presents and links every media kind',
     expect(overflow).toBe(false);
   });
 
+test('collection overview shares document theme controls',
+  async ({ page }) => {
+    await page.goto(collectionURL);
+    const root = page.locator('html');
+    const lightTheme = page.getByRole('button', { name: 'Light theme' });
+    const systemTheme = page.getByRole('button', { name: 'System theme' });
+    const darkTheme = page.getByRole('button', { name: 'Dark theme' });
+
+    await expect(systemTheme).toHaveAttribute('aria-pressed', 'true');
+    await expect(root).not.toHaveAttribute('data-theme', /.+/);
+
+    await darkTheme.click();
+    await expect(root).toHaveAttribute('data-theme', 'dark');
+    await expect(darkTheme).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(() => page.evaluate(
+      () => localStorage.getItem('airplan-theme'),
+    )).toBe('dark');
+
+    await page.reload();
+    await expect(root).toHaveAttribute('data-theme', 'dark');
+    await expect(darkTheme).toHaveAttribute('aria-pressed', 'true');
+
+    await lightTheme.click();
+    await expect(root).toHaveAttribute('data-theme', 'light');
+    await expect(lightTheme).toHaveAttribute('aria-pressed', 'true');
+
+    await systemTheme.click();
+    await expect(root).not.toHaveAttribute('data-theme', /.+/);
+    await expect(systemTheme).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(() => page.evaluate(
+      () => localStorage.getItem('airplan-theme'),
+    )).toBeNull();
+  });
+
 test.afterAll(async () => {
   if (server) {
     await new Promise((resolve, reject) => {

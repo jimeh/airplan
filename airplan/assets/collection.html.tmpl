@@ -6,6 +6,14 @@
   <meta name="color-scheme" content="light dark">
   {{if not .Indexable}}<meta name="robots" content="noindex,nofollow">{{end}}
   <title>{{.Title}}</title>
+  <script>
+  try {
+    const theme = localStorage.getItem('airplan-theme');
+    if (theme === 'light' || theme === 'dark') {
+      document.documentElement.dataset.theme = theme;
+    }
+  } catch (_) {}
+  </script>
   <style>
     :root {
       color-scheme: light dark;
@@ -16,9 +24,14 @@
       --link: light-dark(#0969da, #4493f8);
       --border: light-dark(#d1d9e0, #3d444d);
       --surface: light-dark(#f6f8fa, #151b23);
+      --control-track: light-dark(#eff1f3, #21262d);
+      --control-active: light-dark(#ffffff, #30363d);
       --control-hover: light-dark(#eff1f3, #21262d);
+      --control-divider: light-dark(#d8dee4, #30363d);
       --page-width: 54rem;
     }
+    :root[data-theme="light"] { color-scheme: light; }
+    :root[data-theme="dark"] { color-scheme: dark; }
     * { box-sizing: border-box; }
     body {
       margin: 0;
@@ -46,6 +59,11 @@
       padding-top: .75rem;
       font-size: .85rem;
     }
+    .page-actions {
+      display: inline-flex;
+      align-items: center;
+      gap: .15rem;
+    }
     .toolbar a,
     .toolbar button,
     .actions a,
@@ -70,6 +88,43 @@
     .actions button:hover {
       background: var(--control-hover);
       color: var(--fg);
+    }
+    .mode-toggle {
+      display: inline-flex;
+      gap: 2px;
+      padding: 2px;
+      border-radius: 8px;
+      background: var(--control-track);
+    }
+    .mode-toggle button {
+      width: 1.85rem;
+      min-height: 1.85rem;
+      border-radius: 6px;
+      padding: .3rem 0;
+    }
+    .mode-toggle button.active {
+      background: var(--control-active);
+      color: var(--fg);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, .2);
+    }
+    .themetoggle {
+      position: relative;
+      margin-left: .5rem;
+    }
+    .themetoggle::before {
+      position: absolute;
+      top: 50%;
+      left: -.575rem;
+      width: 1px;
+      height: 1rem;
+      background: var(--control-divider);
+      content: "";
+      transform: translateY(-50%);
+    }
+    .icon {
+      display: block;
+      width: 1rem;
+      height: 1rem;
     }
     :where(a, button):focus-visible {
       outline: 2px solid var(--link);
@@ -158,7 +213,11 @@
     }
     @media (max-width: 36rem) {
       .page-shell { padding-inline: 1rem; }
-      .toolbar { min-height: 3rem; }
+      .toolbar {
+        justify-content: space-between;
+        min-height: 3rem;
+      }
+      .themetoggle { margin-left: auto; }
       header { padding-top: 1rem; }
       h1 { font-size: 1.75em; }
       .file-header { display: block; }
@@ -167,13 +226,41 @@
         margin: .65rem 0 -.35rem -.65rem;
       }
     }
+    @media print {
+      :root,
+      :root[data-theme] { color-scheme: light; }
+      .toolbar { display: none; }
+    }
+    [hidden] { display: none !important; }
   </style>
 </head>
 <body>
 <div class="page-shell">
   <nav class="toolbar" aria-label="Collection controls">
-    <button type="button" data-copy-overview>Copy page link</button>
-    {{with .RepositoryURL}}<a href="{{.}}">Repository</a>{{end}}
+    <div class="page-actions">
+      <button type="button" data-copy-overview>Copy page link</button>
+      {{with .RepositoryURL}}<a href="{{.}}">Repository</a>{{end}}
+    </div>
+    <div class="themetoggle mode-toggle js-only" hidden
+      role="group" aria-label="Color theme">
+      <button type="button" data-theme="light" aria-pressed="false"
+        aria-label="Light theme" title="Light theme"><svg class="icon"
+        aria-hidden="true" viewBox="0 0 16 16" fill="none"
+        stroke="currentColor" stroke-width="1.5"
+        stroke-linecap="round"><circle cx="8" cy="8" r="2.75"/><path
+        d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.23 3.23l1.06 1.06M11.71 11.71l1.06 1.06M12.77 3.23l-1.06 1.06M4.29 11.71l-1.06 1.06"/></svg></button>
+      <button type="button" class="active" data-theme="system"
+        aria-pressed="true" aria-label="System theme"
+        title="System theme"><svg class="icon" aria-hidden="true"
+        viewBox="0 0 16 16" fill="none" stroke="currentColor"
+        stroke-width="1.5" stroke-linecap="round"
+        stroke-linejoin="round"><rect x="1.5" y="2.5" width="13"
+        height="9" rx="1.25"/><path d="M5.5 14h5M8 11.5V14"/></svg></button>
+      <button type="button" data-theme="dark" aria-pressed="false"
+        aria-label="Dark theme" title="Dark theme"><svg class="icon"
+        aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path
+        d="M6.2 1.35a.75.75 0 0 1 .56.9A5.45 5.45 0 0 0 13.75 8.7a.75.75 0 0 1 .93.51.75.75 0 0 1-.22.77A7.15 7.15 0 1 1 5.43 1.46a.75.75 0 0 1 .77-.11Zm-1.18 1.9a5.65 5.65 0 1 0 7.54 7.13 6.95 6.95 0 0 1-7.54-7.13Z"/></svg></button>
+    </div>
   </nav>
   <header>
     <h1>{{.Title}}</h1>
@@ -200,6 +287,59 @@
   </li>{{end}}
   </ol>
 </div>
-<script>document.addEventListener('click',async e=>{const b=e.target.closest('[data-copy],[data-copy-overview]');if(!b)return;const u=b.hasAttribute('data-copy-overview')?location.href:new URL(b.dataset.copy,document.baseURI).href;try{await navigator.clipboard.writeText(u);const old=b.textContent;b.textContent='Copied';setTimeout(()=>b.textContent=old,1200)}catch{prompt('Copy link',u)}})</script>
+<script>
+document.querySelectorAll('.js-only').forEach(e => { e.hidden = false });
+const root = document.documentElement;
+const themeMedia = matchMedia('(prefers-color-scheme: dark)');
+const selectedTheme = () => root.dataset.theme || 'system';
+const resolvedTheme = () => selectedTheme() === 'system'
+  ? (themeMedia.matches ? 'dark' : 'light')
+  : selectedTheme();
+function syncThemeButtons() {
+  document.querySelectorAll('.themetoggle button').forEach(button => {
+    const active = button.dataset.theme === selectedTheme();
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+document.querySelectorAll('.themetoggle button').forEach(button => {
+  button.addEventListener('click', () => {
+    const theme = button.dataset.theme;
+    if (theme === 'system') delete root.dataset.theme;
+    else root.dataset.theme = theme;
+    try {
+      if (theme === 'system') localStorage.removeItem('airplan-theme');
+      else localStorage.setItem('airplan-theme', theme);
+    } catch (_) {}
+    syncThemeButtons();
+    dispatchEvent(new CustomEvent('airplan:themechange', {
+      detail: { theme: resolvedTheme() }
+    }));
+  });
+});
+themeMedia.addEventListener('change', () => {
+  if (selectedTheme() === 'system') {
+    dispatchEvent(new CustomEvent('airplan:themechange', {
+      detail: { theme: resolvedTheme() }
+    }));
+  }
+});
+syncThemeButtons();
+document.addEventListener('click', async event => {
+  const button = event.target.closest('[data-copy],[data-copy-overview]');
+  if (!button) return;
+  const url = button.hasAttribute('data-copy-overview')
+    ? location.href
+    : new URL(button.dataset.copy, document.baseURI).href;
+  try {
+    await navigator.clipboard.writeText(url);
+    const old = button.textContent;
+    button.textContent = 'Copied';
+    setTimeout(() => { button.textContent = old }, 1200);
+  } catch (_) {
+    prompt('Copy link', url);
+  }
+});
+</script>
 </body>
 </html>

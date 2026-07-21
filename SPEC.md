@@ -397,8 +397,10 @@ kind:
   progressive enhancement;
 - relative member URLs remain correct under custom domains and key prefixes;
 - titles, filenames, types, and repository metadata are HTML-escaped;
-- the layout supports narrow and wide viewports plus light and dark color
-  schemes, and includes `noindex, nofollow` unless `--indexable` is set.
+- the layout supports narrow and wide viewports plus Light, System, and Dark
+  themes using the same persisted `airplan-theme` preference as document
+  pages; System follows `prefers-color-scheme`, while print uses Light;
+- the page includes `noindex, nofollow` unless `--indexable` is set.
 
 Unknown content remains a normal openable and downloadable file. The page does
 not claim it is unsafe or broken merely because Airplan cannot preview it.
