@@ -275,10 +275,12 @@ test('built-in pages share canonical toolbar control styling',
       const toggle = toolbar.querySelector('.themetoggle');
       const button = toggle.querySelector('[data-theme="system"]');
       const icon = button.querySelector('.icon');
+      const action = toolbar.querySelector('.toolbar-actions button');
       const toolbarStyle = getComputedStyle(toolbar);
       const toggleStyle = getComputedStyle(toggle);
       const buttonStyle = getComputedStyle(button);
       const iconStyle = getComputedStyle(icon);
+      const actionStyle = getComputedStyle(action);
       return {
         toolbarWidth: toolbar.getBoundingClientRect().width,
         themeRight: window.innerWidth - toggle.getBoundingClientRect().right,
@@ -295,6 +297,17 @@ test('built-in pages share canonical toolbar control styling',
         buttonRadius: buttonStyle.borderRadius,
         iconWidth: iconStyle.width,
         iconHeight: iconStyle.height,
+        actionHeight: action.getBoundingClientRect().height,
+        actionPadding: actionStyle.padding,
+        actionRadius: actionStyle.borderRadius,
+        actionDisplay: actionStyle.display,
+        actionAlignItems: actionStyle.alignItems,
+        actionJustifyContent: actionStyle.justifyContent,
+        actionGap: actionStyle.gap,
+        actionColor: actionStyle.color,
+        actionBackground: actionStyle.backgroundColor,
+        actionFontSize: actionStyle.fontSize,
+        actionLineHeight: actionStyle.lineHeight,
       };
     });
 

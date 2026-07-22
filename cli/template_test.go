@@ -62,6 +62,7 @@ func TestTemplateCommandOutputCanBeUsedAsCustomTemplate(t *testing.T) {
 			t.Fatalf("dumped template contains internal marker %q", internal)
 		}
 	}
+	assertDumpedSharedThemeAssets(t, dumped.String())
 
 	path := filepath.Join(t.TempDir(), "page.html")
 	if err := os.WriteFile(path, dumped.Bytes(), 0o600); err != nil {
@@ -104,6 +105,7 @@ func TestCollectionTemplateCommandOutputCanBeUsedAsCustomTemplate(t *testing.T) 
 			t.Fatalf("dumped collection template contains internal marker %q", internal)
 		}
 	}
+	assertDumpedSharedThemeAssets(t, dumped.String())
 
 	path := filepath.Join(t.TempDir(), "collection.html")
 	if err := os.WriteFile(path, dumped.Bytes(), 0o600); err != nil {
@@ -129,5 +131,27 @@ func TestCollectionTemplateCommandOutputCanBeUsedAsCustomTemplate(t *testing.T) 
 	if !strings.Contains(rendered.String(), "example.txt") ||
 		!strings.Contains(rendered.String(), "--page-width: 54rem") {
 		t.Fatal("dumped template did not render the built-in collection page")
+	}
+}
+
+func assertDumpedSharedThemeAssets(t *testing.T, dumped string) {
+	t.Helper()
+	for _, sentinel := range []struct {
+		name, value string
+	}{
+		{"theme-toggle markup", `role="group" aria-label="Color theme"`},
+		{
+			"early persisted-theme initialization",
+			`const theme = localStorage.getItem('airplan-theme');`,
+		},
+		{
+			"runtime theme behavior",
+			`window.dispatchEvent(new CustomEvent('airplan:themechange'`,
+		},
+	} {
+		if !strings.Contains(dumped, sentinel.value) {
+			t.Errorf("dumped template missing %s sentinel %q",
+				sentinel.name, sentinel.value)
+		}
 	}
 }
