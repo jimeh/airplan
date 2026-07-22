@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/jimeh/airplan/compare/v0.4.0...v0.4.1) (2026-07-22)
+
+
+### Bug Fixes
+
+* keep built-in page controls consistent ([#60](https://github.com/jimeh/airplan/issues/60)) ([5440b6e](https://github.com/jimeh/airplan/commit/5440b6eac7385f1a3209a4792def8ea98b77e32e))
+
 ## [0.4.0](https://github.com/jimeh/airplan/compare/v0.3.0...v0.4.0) (2026-07-21)
 
 
