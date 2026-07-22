@@ -60,10 +60,10 @@ copyable direct links, and treats the directory as one cleanup unit.
   is a file collection with an image preview and direct links to every
   original artifact.
 
-[airplan-demo-implementation-plan]: https://demo.airplan.dev/4hikbul5tivrrwfmooql6pfglu/implementation-plan.html
-[airplan-demo-how-it-works]: https://demo.airplan.dev/lubguqayc6pzamciid6evuhvce/how-airplan-works.html
-[airplan-demo-go-api]: https://demo.airplan.dev/vairdhe5dgpetqyf54alnuvjsm/upload-example.html
-[airplan-demo-collection]: https://dev-plans.airplan.dev/zgmiqqtay7mshujaei64jvtwiy/index.html
+[airplan-demo-implementation-plan]: https://demo.airplan.dev/7wfymyuuyvuigb3muf7y6vozmu/implementation-plan.html
+[airplan-demo-how-it-works]: https://demo.airplan.dev/qqxjhb5mco7p7dvq63wyg6bwwi/how-airplan-works.html
+[airplan-demo-go-api]: https://demo.airplan.dev/nskng5pszgdo2cuacqsukzxm4q/upload-example.html
+[airplan-demo-collection]: https://demo.airplan.dev/rvsw7xatp2432kx2bz6rnzlqfe/index.html
 
 The exact behavior is defined in [SPEC.md](SPEC.md).
 
