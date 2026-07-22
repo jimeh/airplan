@@ -90,6 +90,10 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Page assets** (`airplan/assets/`): embedded via go:embed. Mermaid is the
   only airplan-managed external load and is conditional. Update its pin with
   `mise run update:mermaid`; dependency-only updates never bump SPEC.md.
+  Shared base/theme assets and theme-toggle markup are baked into both complete
+  standalone template outputs; document and collection assets remain
+  page-specific. Keep new bake markers and assets covered by template
+  round-trip and marker tests.
 - **Live demos**: README demo links are maintained by
   `.github/workflows/update-demos.yml` from the sources and upload-mode goldens
   in `airplan/testdata/`. Published demo URLs are permanent; automation may

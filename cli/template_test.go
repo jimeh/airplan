@@ -54,7 +54,9 @@ func TestTemplateCommandOutputCanBeUsedAsCustomTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, internal := range []string{
-		"{{.CSS}}", "{{.JS}}", "airplan:page-css", "airplan:page-js",
+		"{{.CSS}}", "{{.JS}}", "airplan:shared-css",
+		"airplan:page-css", "airplan:theme-init-js",
+		"airplan:theme-js", "airplan:page-js", "airplan:theme-toggle",
 	} {
 		if strings.Contains(dumped.String(), internal) {
 			t.Fatalf("dumped template contains internal marker %q", internal)
@@ -82,5 +84,50 @@ func TestTemplateCommandOutputCanBeUsedAsCustomTemplate(t *testing.T) {
 	if !strings.Contains(rendered.String(), "<h1>Round trip</h1>") ||
 		!strings.Contains(rendered.String(), "--page-width: 54rem") {
 		t.Fatal("dumped template did not render the built-in page")
+	}
+}
+
+func TestCollectionTemplateCommandOutputCanBeUsedAsCustomTemplate(t *testing.T) {
+	var dumped bytes.Buffer
+	cmd := newTemplateCmd()
+	cmd.SetOut(&dumped)
+	cmd.SetArgs([]string{"collection"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, internal := range []string{
+		"airplan:shared-css", "airplan:collection-css",
+		"airplan:theme-init-js", "airplan:theme-js",
+		"airplan:collection-js", "airplan:theme-toggle",
+	} {
+		if strings.Contains(dumped.String(), internal) {
+			t.Fatalf("dumped collection template contains internal marker %q", internal)
+		}
+	}
+
+	path := filepath.Join(t.TempDir(), "collection.html")
+	if err := os.WriteFile(path, dumped.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tmpl, err := airplan.LoadCollectionTemplate(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var rendered bytes.Buffer
+	err = tmpl.Execute(&rendered, airplan.CollectionTemplateData{
+		Title: "Round trip",
+		Files: []airplan.CollectionTemplateFile{{
+			Name: "example.txt", Path: "./example.txt",
+			ContentType: "text/plain", Bytes: 12, MediaKind: "file",
+		}},
+		TotalBytes: 12,
+	})
+	if err != nil {
+		t.Fatalf("execute dumped collection template: %v", err)
+	}
+	if !strings.Contains(rendered.String(), "example.txt") ||
+		!strings.Contains(rendered.String(), "--page-width: 54rem") {
+		t.Fatal("dumped template did not render the built-in collection page")
 	}
 }

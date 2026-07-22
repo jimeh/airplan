@@ -25,32 +25,90 @@ import (
 //go:embed assets/page.html.tmpl
 var builtinTemplateLayout string
 
+//go:embed assets/collection.html.tmpl
+var builtinCollectionTemplateLayout string
+
+//go:embed assets/shared.css
+var sharedCSS string
+
 //go:embed assets/page.css
 var pageCSS string
+
+//go:embed assets/collection.css
+var collectionCSS string
+
+//go:embed assets/theme-init.js
+var themeInitJS string
+
+//go:embed assets/theme.js
+var themeJS string
 
 //go:embed assets/page.js
 var pageJS string
 
+//go:embed assets/collection.js
+var collectionJS string
+
+//go:embed assets/theme-toggle.html.tmpl
+var themeToggle string
+
 // builtinTemplate is the exact reusable custom-template source printed
-// by `airplan template`. Page-specific CSS and JavaScript are baked in;
+// by `airplan template`. Shared and page-specific assets are baked in;
 // SyntaxCSS remains data because it is coupled to generated highlighting
 // classes (SPEC.md §3).
-var builtinTemplate = bakeBuiltinTemplate(pageCSS, pageJS)
+var builtinTemplate = bakeTemplate(builtinTemplateLayout,
+	templateReplacement{"/* airplan:shared-css */", sharedCSS},
+	templateReplacement{"/* airplan:page-css */", pageCSS},
+	templateReplacement{"/* airplan:theme-init-js */", themeInitJS},
+	templateReplacement{"/* airplan:theme-js */", themeJS},
+	templateReplacement{"/* airplan:page-js */", pageJS},
+	templateReplacement{"<!-- airplan:theme-toggle -->", themeToggle},
+)
+
+// builtinCollectionTemplate is the exact reusable custom-template source
+// printed by `airplan template collection`.
+var builtinCollectionTemplate = bakeTemplate(builtinCollectionTemplateLayout,
+	templateReplacement{"/* airplan:shared-css */", sharedCSS},
+	templateReplacement{"/* airplan:collection-css */", collectionCSS},
+	templateReplacement{"/* airplan:theme-init-js */", themeInitJS},
+	templateReplacement{"/* airplan:theme-js */", themeJS},
+	templateReplacement{"/* airplan:collection-js */", collectionJS},
+	templateReplacement{"<!-- airplan:theme-toggle -->", themeToggle},
+)
 
 // executableBuiltinTemplate omits source comments because html/template
 // replaces literal CSS and JS comments with whitespace when parsing.
 // Keeping the comments in builtinTemplate makes its dumped customization
 // source useful without introducing trailing spaces in rendered pages.
-var executableBuiltinTemplate = bakeBuiltinTemplate(
-	templateAsset(pageCSS),
-	templateAsset(pageJS),
+var executableBuiltinTemplate = bakeTemplate(builtinTemplateLayout,
+	templateReplacement{"/* airplan:shared-css */", templateAsset(sharedCSS)},
+	templateReplacement{"/* airplan:page-css */", templateAsset(pageCSS)},
+	templateReplacement{"/* airplan:theme-init-js */", templateAsset(themeInitJS)},
+	templateReplacement{"/* airplan:theme-js */", templateAsset(themeJS)},
+	templateReplacement{"/* airplan:page-js */", templateAsset(pageJS)},
+	templateReplacement{"<!-- airplan:theme-toggle -->", themeToggle},
 )
 
-func bakeBuiltinTemplate(css, js string) string {
-	return strings.NewReplacer(
-		"/* airplan:page-css */", css,
-		"/* airplan:page-js */", js,
-	).Replace(builtinTemplateLayout)
+var executableBuiltinCollectionTemplate = bakeTemplate(
+	builtinCollectionTemplateLayout,
+	templateReplacement{"/* airplan:shared-css */", templateAsset(sharedCSS)},
+	templateReplacement{"/* airplan:collection-css */", templateAsset(collectionCSS)},
+	templateReplacement{"/* airplan:theme-init-js */", templateAsset(themeInitJS)},
+	templateReplacement{"/* airplan:theme-js */", templateAsset(themeJS)},
+	templateReplacement{"/* airplan:collection-js */", templateAsset(collectionJS)},
+	templateReplacement{"<!-- airplan:theme-toggle -->", themeToggle},
+)
+
+type templateReplacement struct {
+	marker, source string
+}
+
+func bakeTemplate(layout string, replacements ...templateReplacement) string {
+	pairs := make([]string, 0, len(replacements)*2)
+	for _, replacement := range replacements {
+		pairs = append(pairs, replacement.marker, replacement.source)
+	}
+	return strings.NewReplacer(pairs...).Replace(layout)
 }
 
 // templateAsset removes source-only full-line comments before CSS and

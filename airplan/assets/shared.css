@@ -1,0 +1,186 @@
+:root {
+  color-scheme: light dark;
+  --bg: light-dark(#ffffff, #0d1117);
+  --fg: light-dark(#1f2328, #e6edf3);
+  --heading: light-dark(#1f2328, #f0f6fc);
+  --subheading: light-dark(#3d444d, #c9d1d9);
+  --muted: light-dark(#59636e, #9198a1);
+  --link: light-dark(#0969da, #4493f8);
+  --border: light-dark(#d1d9e0, #3d444d);
+  --surface-subtle: light-dark(#f6f8fa, #151b23);
+  --code-inline-bg: light-dark(#eff1f3, #212830);
+  --code-bg: light-dark(#f6f8fa, #151b23);
+  --code-border: light-dark(#d1d9e0, #30363d);
+  --control-track: light-dark(#eff1f3, #21262d);
+  --control-active: light-dark(#ffffff, #30363d);
+  --control-hover: light-dark(#eff1f3, #21262d);
+  --control-divider: light-dark(#d8dee4, #30363d);
+  --on-link: light-dark(#ffffff, #0d1117);
+  --page-width: 54rem;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
+    Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-size: 16px;
+  line-height: 1.7;
+  -webkit-text-size-adjust: 100%;
+}
+
+.toolbar {
+  width: 100%;
+  padding: 0.75rem 1.25rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.toolbar:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+.toolbar a,
+.toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  font: inherit;
+  color: var(--muted);
+  background: transparent;
+  text-decoration: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 0.4rem 0.65rem;
+  cursor: pointer;
+}
+
+.toolbar a:hover,
+.toolbar button:hover {
+  color: var(--fg);
+  background: var(--control-hover);
+}
+
+.toolbar a:focus-visible,
+.toolbar button:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Mode controls, not action buttons: quiet inset tracks whose active
+   segments sit as raised pills. */
+.mode-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--control-track);
+  border: 0;
+  border-radius: 8px;
+}
+
+.mode-toggle button {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.3rem 0.55rem;
+}
+
+.mode-toggle button:hover {
+  color: var(--fg);
+}
+
+.mode-toggle button.active {
+  color: var(--fg);
+  background: var(--control-active);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.themetoggle button {
+  width: 1.85rem;
+  padding-inline: 0;
+}
+
+.themetoggle:not(:first-child) {
+  position: relative;
+  margin-left: 0.5rem;
+}
+
+.themetoggle:not(:first-child)::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  /* Balance against the preceding action's 0.65rem inline padding. */
+  left: -0.825rem;
+  width: 1px;
+  height: 1rem;
+  background: var(--control-divider);
+  transform: translateY(-50%);
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.sr-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 36rem) {
+  .toolbar {
+    padding-inline: 1rem;
+  }
+
+  .themetoggle:not(:first-child) {
+    margin-left: 0;
+  }
+
+  .themetoggle:not(:first-child)::before {
+    display: none;
+  }
+}
+
+@media print {
+  :root,
+  :root[data-theme] {
+    color-scheme: light;
+  }
+
+  .toolbar {
+    display: none !important;
+  }
+}
