@@ -3,7 +3,6 @@ package airplan
 import (
 	"bytes"
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"html/template"
@@ -23,9 +22,6 @@ const (
 	DefaultMaxCollectionFileSize  = int64(1 << 30)
 	DefaultMaxCollectionTotalSize = int64(2 << 30)
 )
-
-//go:embed assets/collection.html.tmpl
-var builtinCollectionTemplate string
 
 // CollectionTemplateData is the stable custom collection template contract.
 type CollectionTemplateData struct {
@@ -121,7 +117,7 @@ func collectionTemplateFuncs() template.FuncMap {
 
 func parseBuiltinCollectionTemplate() (*template.Template, error) {
 	return template.New("collection").Funcs(collectionTemplateFuncs()).Parse(
-		builtinCollectionTemplate,
+		executableBuiltinCollectionTemplate,
 	)
 }
 

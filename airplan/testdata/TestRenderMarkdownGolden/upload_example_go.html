@@ -13,6 +13,7 @@ try {
     document.documentElement.dataset.theme = theme;
   }
 } catch (_) {}
+
 </script>
 <style>
 :root {
@@ -33,6 +34,173 @@ try {
   --control-hover: light-dark(#eff1f3, #21262d);
   --control-divider: light-dark(#d8dee4, #30363d);
   --on-link: light-dark(#ffffff, #0d1117);
+  --page-width: 54rem;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
+    Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  font-size: 16px;
+  line-height: 1.7;
+  -webkit-text-size-adjust: 100%;
+}
+
+.toolbar {
+  width: 100%;
+  padding: 0.75rem 1.25rem 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.toolbar:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+.toolbar a,
+.toolbar button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  white-space: nowrap;
+  font: inherit;
+  color: var(--muted);
+  background: transparent;
+  text-decoration: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 0.4rem 0.65rem;
+  cursor: pointer;
+}
+
+.toolbar a:hover,
+.toolbar button:hover {
+  color: var(--fg);
+  background: var(--control-hover);
+}
+
+.toolbar a:focus-visible,
+.toolbar button:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.toolbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.mode-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--control-track);
+  border: 0;
+  border-radius: 8px;
+}
+
+.mode-toggle button {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.3rem 0.55rem;
+}
+
+.mode-toggle button:hover {
+  color: var(--fg);
+}
+
+.mode-toggle button.active {
+  color: var(--fg);
+  background: var(--control-active);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+.themetoggle button {
+  width: 1.85rem;
+  padding-inline: 0;
+}
+
+.themetoggle:not(:first-child) {
+  position: relative;
+  margin-left: 0.5rem;
+}
+
+.themetoggle:not(:first-child)::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: -0.825rem;
+  width: 1px;
+  height: 1rem;
+  background: var(--control-divider);
+  transform: translateY(-50%);
+}
+
+.icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.sr-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+@media (max-width: 36rem) {
+  .toolbar {
+    padding-inline: 1rem;
+  }
+
+  .themetoggle:not(:first-child) {
+    margin-left: 0;
+  }
+
+  .themetoggle:not(:first-child)::before {
+    display: none;
+  }
+}
+
+@media print {
+  :root,
+  :root[data-theme] {
+    color-scheme: light;
+  }
+
+  .toolbar {
+    display: none !important;
+  }
+}
+
+:root {
   --dialog-backdrop: light-dark(
     rgba(31, 35, 40, 0.45),
     rgba(0, 0, 0, 0.66)
@@ -48,36 +216,12 @@ try {
   --alert-warning-bg: light-dark(#fff8c5, #272115);
   --alert-caution: light-dark(#cf222e, #f85149);
   --alert-caution-bg: light-dark(#ffebe9, #2d1618);
-  --page-width: 54rem;
   --prose-width: 78ch;
   --toc-width: 14rem;
 }
 
-:root[data-theme="light"] {
-  color-scheme: light;
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-}
-
-* {
-  box-sizing: border-box;
-}
-
 html {
   scroll-behavior: smooth;
-}
-
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--fg);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
-    Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-  font-size: 16px;
-  line-height: 1.7;
-  -webkit-text-size-adjust: 100%;
 }
 
 .page-shell {
@@ -91,18 +235,6 @@ body {
 .toolbar {
   grid-column: 2;
   grid-row: 1;
-  width: 100%;
-  padding: 0.75rem 1.25rem 0;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-}
-
-.toolbar:not(:has(> :not([hidden]))) {
-  display: none;
 }
 
 .toc {
@@ -302,32 +434,6 @@ body.toc-dialog-open {
   overflow: hidden;
 }
 
-.toolbar a,
-.toolbar button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.4rem;
-  white-space: nowrap;
-  font: inherit;
-  color: var(--muted);
-  background: transparent;
-  text-decoration: none;
-  border: 0;
-  border-radius: 8px;
-  padding: 0.4rem 0.65rem;
-  cursor: pointer;
-  transition:
-    color 0.15s ease-in-out,
-    background-color 0.15s ease-in-out;
-}
-
-.icon {
-  width: 16px;
-  height: 16px;
-  flex: none;
-}
-
 .icon-check,
 .icon-x {
   display: none;
@@ -343,76 +449,12 @@ body.toc-dialog-open {
   display: inline;
 }
 
-.toolbar a:hover,
-.toolbar button:hover {
-  color: var(--fg);
-  background: var(--control-hover);
-}
-
-.toolbar a:focus-visible,
-.toolbar button:focus-visible {
-  outline: 2px solid var(--link);
-  outline-offset: 2px;
-}
-
-.mode-toggle {
-  display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  background: var(--control-track);
-  border: 0;
-  border-radius: 8px;
-}
-
-.mode-toggle button {
-  border: 0;
-  border-radius: 6px;
-  padding: 0.3rem 0.55rem;
-}
-
-.mode-toggle button:hover {
-  color: var(--fg);
-}
-
-.mode-toggle button.active {
-  color: var(--fg);
-  background: var(--control-active);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-}
-
-.themetoggle button {
-  width: 1.85rem;
-  padding-inline: 0;
-}
-
 .viewtoggle {
   margin-right: auto;
 }
 
 .file-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.themetoggle:not(:first-child) {
-  position: relative;
-  margin-left: 0.5rem;
-}
-
-.themetoggle:not(:first-child)::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: -0.825rem;
-  width: 1px;
-  height: 1rem;
-  background: var(--control-divider);
-  transform: translateY(-50%);
-}
-
-[hidden] {
-  display: none !important;
+  flex-wrap: wrap;
 }
 
 .codewrap {
@@ -468,8 +510,6 @@ body.toc-dialog-open {
     scroll-behavior: auto;
   }
 
-  .toolbar a,
-  .toolbar button,
   .toc-trigger,
   .codecopy {
     transition: none;
@@ -830,15 +870,6 @@ mark {
   display: none;
 }
 
-.sr-status {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
-
 @media (max-width: 78rem) {
   .page-shell {
     display: block;
@@ -873,7 +904,6 @@ mark {
     display: grid;
     grid-template-columns: max-content 1fr max-content;
     justify-content: stretch;
-    padding-inline: 1rem;
   }
 
   .toolbar .viewtoggle {
@@ -900,14 +930,6 @@ mark {
     grid-row: 1;
   }
 
-  .themetoggle:not(:first-child) {
-    margin-left: 0;
-  }
-
-  .themetoggle:not(:first-child)::before {
-    display: none;
-  }
-
   .toc,
   .content {
     padding-inline: 1.25rem;
@@ -925,12 +947,6 @@ mark {
 }
 
 @media print {
-  :root,
-  :root[data-theme] {
-    color-scheme: light;
-  }
-
-  .toolbar,
   .toc,
   .toc-trigger,
   .toc-dialog,
@@ -1396,7 +1412,7 @@ mark {
 <body>
 <div class="page-shell">
 <nav class="toolbar" aria-label="Document controls">
-  <div class="file-actions">
+  <div class="file-actions toolbar-actions">
   <a class="download" href="./upload-example.go" download
     aria-label="Download source"
     title="Download source"><svg
@@ -1408,26 +1424,27 @@ mark {
     class="icon" aria-hidden="true" viewBox="0 0 16 16"
     fill="currentColor"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg><span>Raw</span></a>
   </div>
-  <div class="themetoggle mode-toggle js-only" hidden
-    role="group" aria-label="Color theme">
-    <button type="button" data-theme="light" aria-pressed="false"
-      aria-label="Light theme" title="Light theme"><svg class="icon"
-      aria-hidden="true" viewBox="0 0 16 16" fill="none"
-      stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle
-      cx="8" cy="8" r="2.75"/><path
-      d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.23 3.23l1.06 1.06M11.71 11.71l1.06 1.06M12.77 3.23l-1.06 1.06M4.29 11.71l-1.06 1.06"/></svg></button>
-    <button type="button" class="active" data-theme="system"
-      aria-pressed="true" aria-label="System theme"
-      title="System theme"><svg class="icon" aria-hidden="true"
-      viewBox="0 0 16 16" fill="none" stroke="currentColor"
-      stroke-width="1.5" stroke-linecap="round"
-      stroke-linejoin="round"><rect x="1.5" y="2.5" width="13"
-      height="9" rx="1.25"/><path d="M5.5 14h5M8 11.5V14"/></svg></button>
-    <button type="button" data-theme="dark" aria-pressed="false"
-      aria-label="Dark theme" title="Dark theme"><svg class="icon"
-      aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path
-      d="M6.2 1.35a.75.75 0 0 1 .56.9A5.45 5.45 0 0 0 13.75 8.7a.75.75 0 0 1 .93.51.75.75 0 0 1-.22.77A7.15 7.15 0 1 1 5.43 1.46a.75.75 0 0 1 .77-.11Zm-1.18 1.9a5.65 5.65 0 1 0 7.54 7.13 6.95 6.95 0 0 1-7.54-7.13Z"/></svg></button>
-  </div>
+<div class="themetoggle mode-toggle js-only" hidden
+  role="group" aria-label="Color theme">
+  <button type="button" data-theme="light" aria-pressed="false"
+    aria-label="Light theme" title="Light theme"><svg class="icon"
+    aria-hidden="true" viewBox="0 0 16 16" fill="none"
+    stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle
+    cx="8" cy="8" r="2.75"/><path
+    d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.23 3.23l1.06 1.06M11.71 11.71l1.06 1.06M12.77 3.23l-1.06 1.06M4.29 11.71l-1.06 1.06"/></svg></button>
+  <button type="button" class="active" data-theme="system"
+    aria-pressed="true" aria-label="System theme"
+    title="System theme"><svg class="icon" aria-hidden="true"
+    viewBox="0 0 16 16" fill="none" stroke="currentColor"
+    stroke-width="1.5" stroke-linecap="round"
+    stroke-linejoin="round"><rect x="1.5" y="2.5" width="13"
+    height="9" rx="1.25"/><path d="M5.5 14h5M8 11.5V14"/></svg></button>
+  <button type="button" data-theme="dark" aria-pressed="false"
+    aria-label="Dark theme" title="Dark theme"><svg class="icon"
+    aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path
+    d="M6.2 1.35a.75.75 0 0 1 .56.9A5.45 5.45 0 0 0 13.75 8.7a.75.75 0 0 1 .93.51.75.75 0 0 1-.22.77A7.15 7.15 0 1 1 5.43 1.46a.75.75 0 0 1 .77-.11Zm-1.18 1.9a5.65 5.65 0 1 0 7.54 7.13 6.95 6.95 0 0 1-7.54-7.13Z"/></svg></button>
+</div>
+
 </nav>
 <main class="content" id="rendered">
 <div class="filehead"><code>upload-example.go</code></div>
@@ -1550,6 +1567,11 @@ mark {
     if (selectedTheme() === 'system') announceThemeChange();
   });
   syncThemeButtons();
+}());
+
+(function () {
+  'use strict';
+  var d = document;
 
   var live = d.createElement('div');
   live.className = 'sr-status';

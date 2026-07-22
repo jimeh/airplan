@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" role="img"
+  aria-labelledby="title description">
+  <title id="title">Release verification summary</title>
+  <desc id="description">
+    Three completed verification checks for an Airplan release.
+  </desc>
+  <rect width="1200" height="675" fill="#0d1117" />
+  <rect x="76" y="74" width="1048" height="527" rx="28" fill="#161b22"
+    stroke="#30363d" stroke-width="4" />
+  <text x="132" y="168" fill="#f0f6fc" font-family="system-ui, sans-serif"
+    font-size="50" font-weight="700">Release verification</text>
+  <text x="132" y="220" fill="#8b949e" font-family="system-ui, sans-serif"
+    font-size="26">Collection upload evidence</text>
+  <g font-family="system-ui, sans-serif" font-size="30" fill="#c9d1d9">
+    <circle cx="154" cy="315" r="22" fill="#238636" />
+    <path d="m143 315 8 8 15-18" fill="none" stroke="#fff"
+      stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+    <text x="202" y="326">Automated checks passed</text>
+    <circle cx="154" cy="415" r="22" fill="#238636" />
+    <path d="m143 415 8 8 15-18" fill="none" stroke="#fff"
+      stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+    <text x="202" y="426">Browser review completed</text>
+    <circle cx="154" cy="515" r="22" fill="#238636" />
+    <path d="m143 515 8 8 15-18" fill="none" stroke="#fff"
+      stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+    <text x="202" y="526">Artifacts ready to share</text>
+  </g>
+</svg>

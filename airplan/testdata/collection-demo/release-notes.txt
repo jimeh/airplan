@@ -1,0 +1,5 @@
+Release verification evidence
+
+- Automated checks passed.
+- Light and dark themes reviewed.
+- Desktop and narrow layouts reviewed.

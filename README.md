@@ -56,10 +56,14 @@ copyable direct links, and treats the directory as one cleanup unit.
   is a concise architecture overview showing the CLI and library workflows.
 - [Upload with airplan's Go API][airplan-demo-go-api]
   is a runnable Go example presented as a highlighted, gist-like page.
+- [Release verification evidence][airplan-demo-collection]
+  is a file collection with an image preview and direct links to every
+  original artifact.
 
 [airplan-demo-implementation-plan]: https://demo.airplan.dev/4hikbul5tivrrwfmooql6pfglu/implementation-plan.html
 [airplan-demo-how-it-works]: https://demo.airplan.dev/lubguqayc6pzamciid6evuhvce/how-airplan-works.html
 [airplan-demo-go-api]: https://demo.airplan.dev/vairdhe5dgpetqyf54alnuvjsm/upload-example.html
+[airplan-demo-collection]: https://dev-plans.airplan.dev/zgmiqqtay7mshujaei64jvtwiy/index.html
 
 The exact behavior is defined in [SPEC.md](SPEC.md).
 

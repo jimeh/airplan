@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.25.0**
+**Spec version: 0.26.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -266,7 +266,9 @@ described below.
     controls. At narrow sizes the rendered/source and theme toggles share the
     first row at opposite edges, with available file controls clustered and
     left-aligned below. When no rendered/source toggle is available, the file
-    controls instead occupy the first row opposite the theme toggle.
+    controls instead occupy the first row opposite the theme toggle. Toolbar
+    controls update immediately without color or background transitions when
+    their active state or the page theme changes.
   - Rendered/source toggle: switch between the rendered plan and a
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter
@@ -388,7 +390,7 @@ kind:
 
 - images render at full available width and intrinsic aspect ratio in a
   rounded, overflow-clipped frame with lazy loading and filename-derived alt
-  text;
+  text; the preview itself links to the direct member URL, matching `Open`;
 - video renders edge-to-edge in the same frame, while audio uses a bordered
   container; both use controls, `preload="metadata"`, and never autoplay;
 - PDF, archive, text, and unknown members use compact file rows without empty
@@ -402,7 +404,9 @@ kind:
 - titles, filenames, types, and repository metadata are HTML-escaped;
 - the layout supports narrow and wide viewports plus Light, System, and Dark
   themes using the same persisted `airplan-theme` preference as document
-  pages; System follows `prefers-color-scheme`, while print uses Light;
+  pages; the collection toolbar and shared controls use the same structure,
+  dimensions, spacing, and interaction styling as document pages; System
+  follows `prefers-color-scheme`, while print uses Light;
 - the page includes `noindex, nofollow` unless `--indexable` is set.
 
 Unknown content remains a normal openable and downloadable file. The page does

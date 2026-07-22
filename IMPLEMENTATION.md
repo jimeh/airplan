@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.25.0.
+may contradict it. Targets spec version 0.26.0.
 
 ---
 
@@ -176,21 +176,29 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   72-hour minimum age, stays within the current major, verifies jsDelivr, and
   refreshes generated/rendered artifacts. Dependency-only updates do not alter
   this document or SPEC.md.
+- Built-in document and collection templates share source assets for base
+  styling, early theme selection, runtime theme behavior, and theme-control
+  markup. A generalized bake step expands shared and page-specific assets into
+  each embedded layout before parsing. The source-friendly expansion retains
+  asset comments for `airplan template [document|collection]`; executable
+  expansion removes source-only comments so rendered output stays clean. Both
+  commands therefore emit complete, standalone, reusable templates without
+  exposing internal bake markers.
 - Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, structured headings/ToC entries, format metadata,
   title, slug, indexing intent, frontmatter, repository context, and source
-  names/paths. The built-in page CSS
-  and JS are expanded into the embedded template source before parsing, so
-  `airplan template` prints an exact reusable template containing only public
-  data fields.
+  names/paths. Document-specific CSS and JS cover the page grid, prose, source
+  view, table of contents, copy controls, and Mermaid integration.
 - Collection rendering uses a separate embedded `html/template` and stable
   `CollectionTemplateData` / `CollectionTemplateFile` surface. Preflight
   validates names and limits, resolves deterministic MIME/media kinds, creates
   already-escaped relative paths, and executes only the applicable collection
-  template. The built-in template provides responsive image, video, audio, and
-  generic-file presentation. `airplan template collection` exposes its exact
-  source without coupling document customizations to collections.
+  template. The built-in template provides collection-specific responsive
+  image, video, audio, and generic-file presentation, links image previews to
+  their direct members, and uses the document toolbar's canonical shared
+  geometry and interaction styling. Custom document and collection templates
+  remain independently configurable.
 - Local rendering: `RenderInput` owns read limits, binary and invalid
   UTF-8 rejection,
   format detection, title/slug resolution, template execution, and
@@ -433,6 +441,8 @@ deletion has succeeded.
 - Browser: Chromium collection fixtures cover image/video/audio and generic
   cards, direct and copy links, no-JavaScript behavior, hostile-looking names,
   narrow/wide layouts, and light/dark themes for built-in and custom templates.
+  Computed-style checks enforce shared toolbar geometry and transition-free
+  theme changes across built-in document and collection pages.
 - Integration: MinIO in a container (CI service / testcontainers);
   document and mixed collection round trips, byte/header preservation,
   marker bytes, remote kind discovery and conflicts, complete / incomplete /

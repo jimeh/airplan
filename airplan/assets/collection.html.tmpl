@@ -1,277 +1,39 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light dark">
-  {{if not .Indexable}}<meta name="robots" content="noindex,nofollow">{{end}}
-  <title>{{.Title}}</title>
-  <script>
-  try {
-    const theme = localStorage.getItem('airplan-theme');
-    if (theme === 'light' || theme === 'dark') {
-      document.documentElement.dataset.theme = theme;
-    }
-  } catch (_) {}
-  </script>
-  <style>
-    :root {
-      color-scheme: light dark;
-      --bg: light-dark(#ffffff, #0d1117);
-      --fg: light-dark(#1f2328, #e6edf3);
-      --heading: light-dark(#1f2328, #f0f6fc);
-      --muted: light-dark(#59636e, #9198a1);
-      --link: light-dark(#0969da, #4493f8);
-      --border: light-dark(#d1d9e0, #3d444d);
-      --surface: light-dark(#f6f8fa, #151b23);
-      --control-track: light-dark(#eff1f3, #21262d);
-      --control-active: light-dark(#ffffff, #30363d);
-      --control-hover: light-dark(#eff1f3, #21262d);
-      --control-divider: light-dark(#d8dee4, #30363d);
-      --page-width: 54rem;
-    }
-    :root[data-theme="light"] { color-scheme: light; }
-    :root[data-theme="dark"] { color-scheme: dark; }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      background: var(--bg);
-      color: var(--fg);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
-        Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
-      font-size: 16px;
-      line-height: 1.7;
-      -webkit-text-size-adjust: 100%;
-    }
-    .page-shell {
-      width: min(100%, var(--page-width));
-      min-height: 100vh;
-      margin: 0 auto;
-      padding: 0 1.5rem 4rem;
-    }
-    .toolbar {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-      align-items: center;
-      gap: .5rem;
-      min-height: 3.5rem;
-      padding-top: .75rem;
-      font-size: .85rem;
-    }
-    .page-actions {
-      display: inline-flex;
-      align-items: center;
-      gap: .15rem;
-    }
-    .toolbar a,
-    .toolbar button,
-    .actions a,
-    .actions button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 2.1rem;
-      border: 0;
-      border-radius: 8px;
-      padding: .4rem .65rem;
-      background: transparent;
-      color: var(--muted);
-      font: inherit;
-      text-decoration: none;
-      white-space: nowrap;
-      cursor: pointer;
-    }
-    .toolbar a:hover,
-    .toolbar button:hover,
-    .actions a:hover,
-    .actions button:hover {
-      background: var(--control-hover);
-      color: var(--fg);
-    }
-    .mode-toggle {
-      display: inline-flex;
-      gap: 2px;
-      padding: 2px;
-      border-radius: 8px;
-      background: var(--control-track);
-    }
-    .mode-toggle button {
-      width: 1.85rem;
-      min-height: 1.85rem;
-      border-radius: 6px;
-      padding: .3rem 0;
-    }
-    .mode-toggle button.active {
-      background: var(--control-active);
-      color: var(--fg);
-      box-shadow: 0 1px 2px rgba(0, 0, 0, .2);
-    }
-    .themetoggle {
-      position: relative;
-      margin-left: .5rem;
-    }
-    .themetoggle::before {
-      position: absolute;
-      top: 50%;
-      left: -.575rem;
-      width: 1px;
-      height: 1rem;
-      background: var(--control-divider);
-      content: "";
-      transform: translateY(-50%);
-    }
-    .icon {
-      display: block;
-      width: 1rem;
-      height: 1rem;
-    }
-    :where(a, button):focus-visible {
-      outline: 2px solid var(--link);
-      outline-offset: 2px;
-    }
-    header {
-      padding: 1.5rem 0 1.75rem;
-      border-bottom: 1px solid var(--border);
-    }
-    h1 {
-      margin: .35em 0 .35em;
-      color: var(--heading);
-      font-size: 2em;
-      font-weight: 700;
-      letter-spacing: -.025em;
-      line-height: 1.25;
-      overflow-wrap: anywhere;
-    }
-    .summary {
-      margin: 0;
-      color: var(--muted);
-      font-size: .9rem;
-    }
-    .files {
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-    .file {
-      padding: 1.5rem 0 1.75rem;
-      border-bottom: 1px solid var(--border);
-    }
-    .file-header {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 1rem;
-    }
-    .details { min-width: 0; }
-    .details h2 {
-      margin: 0;
-      color: var(--heading);
-      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-        "Liberation Mono", monospace;
-      font-size: .95rem;
-      font-weight: 600;
-      line-height: 1.5;
-      overflow-wrap: anywhere;
-    }
-    .meta {
-      margin-top: .2rem;
-      color: var(--muted);
-      font-size: .8rem;
-      overflow-wrap: anywhere;
-    }
-    .actions {
-      display: flex;
-      flex: none;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-      gap: .15rem;
-      margin: -.35rem 0 0;
-      font-size: .82rem;
-    }
-    .actions a:first-child { color: var(--link); }
-    .preview {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-top: 1rem;
-      overflow: hidden;
-      border-radius: 8px;
-      background: var(--surface);
-    }
-    .preview--audio { border: 1px solid var(--border); }
-    .preview img {
-      display: block;
-      width: 100%;
-      height: auto;
-    }
-    .preview video {
-      display: block;
-      width: 100%;
-      max-height: 70vh;
-      object-fit: contain;
-    }
-    .preview audio {
-      width: min(100% - 2rem, 40rem);
-      margin: 1.5rem 1rem;
-    }
-    @media (max-width: 36rem) {
-      .page-shell { padding-inline: 1rem; }
-      .toolbar {
-        justify-content: space-between;
-        min-height: 3rem;
-      }
-      .themetoggle { margin-left: auto; }
-      header { padding-top: 1rem; }
-      h1 { font-size: 1.75em; }
-      .file-header { display: block; }
-      .actions {
-        justify-content: flex-start;
-        margin: .65rem 0 -.35rem -.65rem;
-      }
-    }
-    @media print {
-      :root,
-      :root[data-theme] { color-scheme: light; }
-      .toolbar { display: none; }
-    }
-    [hidden] { display: none !important; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+{{- if not .Indexable}}
+<meta name="robots" content="noindex, nofollow">
+{{- end}}
+<title>{{.Title}}</title>
+<script>
+/* airplan:theme-init-js */
+</script>
+<style>
+/* airplan:shared-css */
+/* airplan:collection-css */
+</style>
 </head>
 <body>
 <div class="page-shell">
-  <nav class="toolbar" aria-label="Collection controls">
-    <div class="page-actions">
-      <button type="button" data-copy-overview>Copy page link</button>
-      {{with .RepositoryURL}}<a href="{{.}}">Repository</a>{{end}}
-    </div>
-    <div class="themetoggle mode-toggle js-only" hidden
-      role="group" aria-label="Color theme">
-      <button type="button" data-theme="light" aria-pressed="false"
-        aria-label="Light theme" title="Light theme"><svg class="icon"
-        aria-hidden="true" viewBox="0 0 16 16" fill="none"
-        stroke="currentColor" stroke-width="1.5"
-        stroke-linecap="round"><circle cx="8" cy="8" r="2.75"/><path
-        d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.23 3.23l1.06 1.06M11.71 11.71l1.06 1.06M12.77 3.23l-1.06 1.06M4.29 11.71l-1.06 1.06"/></svg></button>
-      <button type="button" class="active" data-theme="system"
-        aria-pressed="true" aria-label="System theme"
-        title="System theme"><svg class="icon" aria-hidden="true"
-        viewBox="0 0 16 16" fill="none" stroke="currentColor"
-        stroke-width="1.5" stroke-linecap="round"
-        stroke-linejoin="round"><rect x="1.5" y="2.5" width="13"
-        height="9" rx="1.25"/><path d="M5.5 14h5M8 11.5V14"/></svg></button>
-      <button type="button" data-theme="dark" aria-pressed="false"
-        aria-label="Dark theme" title="Dark theme"><svg class="icon"
-        aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path
-        d="M6.2 1.35a.75.75 0 0 1 .56.9A5.45 5.45 0 0 0 13.75 8.7a.75.75 0 0 1 .93.51.75.75 0 0 1-.22.77A7.15 7.15 0 1 1 5.43 1.46a.75.75 0 0 1 .77-.11Zm-1.18 1.9a5.65 5.65 0 1 0 7.54 7.13 6.95 6.95 0 0 1-7.54-7.13Z"/></svg></button>
-    </div>
-  </nav>
-  <header>
-    <h1>{{.Title}}</h1>
-    <p class="summary">{{len .Files}} {{if eq (len .Files) 1}}file{{else}}files{{end}} · {{formatBytes .TotalBytes}}</p>
-  </header>
-  <ol class="files" aria-label="Uploaded files">
-  {{range .Files}}<li class="file">
+<nav class="toolbar" aria-label="Collection controls">
+  <div class="collection-actions toolbar-actions">
+    <button type="button" data-copy-overview>Copy page link</button>
+    {{- with .RepositoryURL}}
+    <a href="{{.}}">Repository</a>
+    {{- end}}
+  </div>
+<!-- airplan:theme-toggle -->
+</nav>
+<header>
+  <h1>{{.Title}}</h1>
+  <p class="summary">{{len .Files}} {{if eq (len .Files) 1}}file{{else}}files{{end}} · {{formatBytes .TotalBytes}}</p>
+</header>
+<ol class="files" aria-label="Uploaded files">
+{{- range .Files}}
+  <li class="file">
     <div class="file-header">
       <div class="details">
         <h2>{{.Name}}</h2>
@@ -283,67 +45,28 @@
         <button type="button" data-copy="{{.Path}}">Copy link</button>
       </div>
     </div>
-    {{if ne .MediaKind "file"}}<div class="preview preview--{{.MediaKind}}">
-      {{if eq .MediaKind "image"}}<img src="{{.Path}}" alt="{{.Name}}" loading="lazy">{{end}}
-      {{if eq .MediaKind "video"}}<video src="{{.Path}}" controls preload="metadata"></video>{{end}}
-      {{if eq .MediaKind "audio"}}<audio src="{{.Path}}" controls preload="metadata"></audio>{{end}}
-    </div>{{end}}
-  </li>{{end}}
-  </ol>
+    {{- if ne .MediaKind "file"}}
+    <div class="preview preview--{{.MediaKind}}">
+      {{- if eq .MediaKind "image"}}
+      <a class="preview-link" href="{{.Path}}">
+        <img src="{{.Path}}" alt="{{.Name}}" loading="lazy">
+      </a>
+      {{- end}}
+      {{- if eq .MediaKind "video"}}
+      <video src="{{.Path}}" controls preload="metadata"></video>
+      {{- end}}
+      {{- if eq .MediaKind "audio"}}
+      <audio src="{{.Path}}" controls preload="metadata"></audio>
+      {{- end}}
+    </div>
+    {{- end}}
+  </li>
+{{- end}}
+</ol>
 </div>
 <script>
-document.querySelectorAll('.js-only').forEach(e => { e.hidden = false });
-const root = document.documentElement;
-const themeMedia = matchMedia('(prefers-color-scheme: dark)');
-const selectedTheme = () => root.dataset.theme || 'system';
-const resolvedTheme = () => selectedTheme() === 'system'
-  ? (themeMedia.matches ? 'dark' : 'light')
-  : selectedTheme();
-function syncThemeButtons() {
-  document.querySelectorAll('.themetoggle button').forEach(button => {
-    const active = button.dataset.theme === selectedTheme();
-    button.classList.toggle('active', active);
-    button.setAttribute('aria-pressed', active ? 'true' : 'false');
-  });
-}
-document.querySelectorAll('.themetoggle button').forEach(button => {
-  button.addEventListener('click', () => {
-    const theme = button.dataset.theme;
-    if (theme === 'system') delete root.dataset.theme;
-    else root.dataset.theme = theme;
-    try {
-      if (theme === 'system') localStorage.removeItem('airplan-theme');
-      else localStorage.setItem('airplan-theme', theme);
-    } catch (_) {}
-    syncThemeButtons();
-    dispatchEvent(new CustomEvent('airplan:themechange', {
-      detail: { theme: resolvedTheme() }
-    }));
-  });
-});
-themeMedia.addEventListener('change', () => {
-  if (selectedTheme() === 'system') {
-    dispatchEvent(new CustomEvent('airplan:themechange', {
-      detail: { theme: resolvedTheme() }
-    }));
-  }
-});
-syncThemeButtons();
-document.addEventListener('click', async event => {
-  const button = event.target.closest('[data-copy],[data-copy-overview]');
-  if (!button) return;
-  const url = button.hasAttribute('data-copy-overview')
-    ? location.href
-    : new URL(button.dataset.copy, document.baseURI).href;
-  try {
-    await navigator.clipboard.writeText(url);
-    const old = button.textContent;
-    button.textContent = 'Copied';
-    setTimeout(() => { button.textContent = old }, 1200);
-  } catch (_) {
-    prompt('Copy link', url);
-  }
-});
+/* airplan:theme-js */
+/* airplan:collection-js */
 </script>
 </body>
 </html>

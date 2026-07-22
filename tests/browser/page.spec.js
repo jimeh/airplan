@@ -182,13 +182,21 @@ test('collection overview presents and links every media kind',
     })).toBeVisible();
     await expect(page.locator('ol.files > li.file')).toHaveCount(4);
     await expect(page.locator('img[loading="lazy"]')).toHaveCount(1);
+    const imageFile = page.locator('.file', {
+      has: page.getByRole('heading', { name: 'shot.svg' }),
+    });
+    const imagePreview = imageFile.locator('.preview--image > a');
+    await expect(imagePreview).toHaveAttribute('href', './shot.svg');
+    await expect(imageFile.getByRole('link', { name: 'Open' }))
+      .toHaveAttribute('href', './shot.svg');
+    await expect(imagePreview).toHaveAccessibleName('shot.svg');
     await expect(page.locator('video[controls]:not([autoplay])')).toHaveCount(1);
     await expect(page.locator('audio[controls]:not([autoplay])')).toHaveCount(1);
     await expect(page.locator('.file .preview')).toHaveCount(3);
     const visualMediaGaps = await page.locator(
       '.preview img, .preview video',
     ).evaluateAll((media) => media.map((element) => {
-      const frame = element.parentElement.getBoundingClientRect();
+      const frame = element.closest('.preview').getBoundingClientRect();
       const content = element.getBoundingClientRect();
       return {
         top: content.top - frame.top,
@@ -266,6 +274,74 @@ test('collection overview shares document theme controls',
     await expect.poll(() => page.evaluate(
       () => localStorage.getItem('airplan-theme'),
     )).toBeNull();
+  });
+
+test('built-in pages share canonical toolbar control styling',
+  async ({ page }) => {
+    const controlStyles = async () => page.evaluate(() => {
+      const toolbar = document.querySelector('.toolbar');
+      const toggle = toolbar.querySelector('.themetoggle');
+      const button = toggle.querySelector('[data-theme="system"]');
+      const icon = button.querySelector('.icon');
+      const action = toolbar.querySelector('.toolbar-actions button');
+      const toolbarStyle = getComputedStyle(toolbar);
+      const toggleStyle = getComputedStyle(toggle);
+      const buttonStyle = getComputedStyle(button);
+      const iconStyle = getComputedStyle(icon);
+      const actionStyle = getComputedStyle(action);
+      return {
+        toolbarWidth: toolbar.getBoundingClientRect().width,
+        themeRight: window.innerWidth - toggle.getBoundingClientRect().right,
+        toolbarPaddingLeft: toolbarStyle.paddingLeft,
+        toolbarPaddingRight: toolbarStyle.paddingRight,
+        toolbarGap: toolbarStyle.gap,
+        toggleHeight: toggle.getBoundingClientRect().height,
+        toggleGap: toggleStyle.gap,
+        togglePadding: toggleStyle.padding,
+        toggleRadius: toggleStyle.borderRadius,
+        buttonWidth: button.getBoundingClientRect().width,
+        buttonHeight: button.getBoundingClientRect().height,
+        buttonPadding: buttonStyle.padding,
+        buttonRadius: buttonStyle.borderRadius,
+        iconWidth: iconStyle.width,
+        iconHeight: iconStyle.height,
+        actionHeight: action.getBoundingClientRect().height,
+        actionPadding: actionStyle.padding,
+        actionRadius: actionStyle.borderRadius,
+        actionDisplay: actionStyle.display,
+        actionAlignItems: actionStyle.alignItems,
+        actionJustifyContent: actionStyle.justifyContent,
+        actionGap: actionStyle.gap,
+        actionColor: actionStyle.color,
+        actionBackground: actionStyle.backgroundColor,
+        actionFontSize: actionStyle.fontSize,
+        actionLineHeight: actionStyle.lineHeight,
+      };
+    });
+
+    await page.goto(baseURL);
+    const documentStyles = await controlStyles();
+    await page.goto(collectionURL);
+    expect(await controlStyles()).toEqual(documentStyles);
+  });
+
+test('toolbar controls do not transition during theme changes',
+  async ({ page }) => {
+    for (const url of [baseURL, collectionURL]) {
+      await page.goto(url);
+      const controls = page.locator('.toolbar a, .toolbar button');
+      await expect.poll(async () => controls.evaluateAll((elements) => (
+        elements.every((element) => (
+          getComputedStyle(element).transitionDuration === '0s'
+        ))
+      ))).toBe(true);
+      await page.getByRole('button', { name: 'Dark theme' }).click();
+      await expect.poll(async () => controls.evaluateAll((elements) => (
+        elements.every((element) => (
+          getComputedStyle(element).transitionDuration === '0s'
+        ))
+      ))).toBe(true);
+    }
   });
 
 test.afterAll(async () => {
