@@ -182,13 +182,21 @@ test('collection overview presents and links every media kind',
     })).toBeVisible();
     await expect(page.locator('ol.files > li.file')).toHaveCount(4);
     await expect(page.locator('img[loading="lazy"]')).toHaveCount(1);
+    const imageFile = page.locator('.file', {
+      has: page.getByRole('heading', { name: 'shot.svg' }),
+    });
+    const imagePreview = imageFile.locator('.preview--image > a');
+    await expect(imagePreview).toHaveAttribute('href', './shot.svg');
+    await expect(imageFile.getByRole('link', { name: 'Open' }))
+      .toHaveAttribute('href', './shot.svg');
+    await expect(imagePreview).toHaveAccessibleName('shot.svg');
     await expect(page.locator('video[controls]:not([autoplay])')).toHaveCount(1);
     await expect(page.locator('audio[controls]:not([autoplay])')).toHaveCount(1);
     await expect(page.locator('.file .preview')).toHaveCount(3);
     const visualMediaGaps = await page.locator(
       '.preview img, .preview video',
     ).evaluateAll((media) => media.map((element) => {
-      const frame = element.parentElement.getBoundingClientRect();
+      const frame = element.closest('.preview').getBoundingClientRect();
       const content = element.getBoundingClientRect();
       return {
         top: content.top - frame.top,

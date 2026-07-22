@@ -48,7 +48,9 @@
     {{- if ne .MediaKind "file"}}
     <div class="preview preview--{{.MediaKind}}">
       {{- if eq .MediaKind "image"}}
-      <img src="{{.Path}}" alt="{{.Name}}" loading="lazy">
+      <a class="preview-link" href="{{.Path}}">
+        <img src="{{.Path}}" alt="{{.Name}}" loading="lazy">
+      </a>
       {{- end}}
       {{- if eq .MediaKind "video"}}
       <video src="{{.Path}}" controls preload="metadata"></video>

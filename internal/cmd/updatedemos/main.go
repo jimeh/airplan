@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -25,25 +27,29 @@ const defaultReadmePath = "README.md"
 type demo struct {
 	id         string
 	reference  string
-	sourcePath string
+	inputPaths []string
 	goldenPath string
-	slug       string
+	pageName   string
 	args       []string
 }
 
 type demoContent struct {
-	page   []byte
-	source []byte
+	objects []demoObject
+}
+
+type demoObject struct {
+	name string
+	body []byte
 }
 
 var repositoryDemos = []demo{
 	{
 		id:         "implementation plan",
 		reference:  "airplan-demo-implementation-plan",
-		sourcePath: "airplan/testdata/implementation-plan.md",
+		inputPaths: []string{"airplan/testdata/implementation-plan.md"},
 		goldenPath: "airplan/testdata/TestRenderMarkdownGolden/" +
 			"implementation_plan.html",
-		slug: "implementation-plan",
+		pageName: "implementation-plan.html",
 		args: []string{
 			"--repo", "https://github.com/octo-org/identity-platform",
 		},
@@ -51,10 +57,10 @@ var repositoryDemos = []demo{
 	{
 		id:         "architecture overview",
 		reference:  "airplan-demo-how-it-works",
-		sourcePath: "airplan/testdata/how-airplan-works.md",
+		inputPaths: []string{"airplan/testdata/how-airplan-works.md"},
 		goldenPath: "airplan/testdata/TestRenderMarkdownGolden/" +
 			"how_airplan_works.html",
-		slug: "how-airplan-works",
+		pageName: "how-airplan-works.html",
 		args: []string{
 			"--repo", "https://github.com/jimeh/airplan",
 		},
@@ -62,18 +68,34 @@ var repositoryDemos = []demo{
 	{
 		id:         "Go API example",
 		reference:  "airplan-demo-go-api",
-		sourcePath: "airplan/testdata/upload-example.go",
+		inputPaths: []string{"airplan/testdata/upload-example.go"},
 		goldenPath: "airplan/testdata/TestRenderMarkdownGolden/" +
 			"upload_example_go.html",
-		slug: "upload-example",
+		pageName: "upload-example.html",
 		args: []string{
 			"--title", "Upload with airplan's Go API",
+		},
+	},
+	{
+		id:        "collection evidence",
+		reference: "airplan-demo-collection",
+		inputPaths: []string{
+			"airplan/testdata/collection-demo/verification-summary.svg",
+			"airplan/testdata/collection-demo/checks.json",
+			"airplan/testdata/collection-demo/release-notes.txt",
+		},
+		goldenPath: "airplan/testdata/TestRenderCollectionGolden/" +
+			"release_verification_evidence.html",
+		pageName: "index.html",
+		args: []string{
+			"--title", "Release verification evidence",
+			"--repo", "https://github.com/jimeh/airplan",
 		},
 	},
 }
 
 type fetcher interface {
-	Fetch(context.Context, string, bool) ([]byte, error)
+	Fetch(context.Context, string) ([]byte, error)
 }
 
 type airplanFetcher struct {
@@ -81,19 +103,11 @@ type airplanFetcher struct {
 }
 
 func (f airplanFetcher) Fetch(
-	ctx context.Context, pageURL string, source bool,
+	ctx context.Context, objectURL string,
 ) ([]byte, error) {
-	target := pageURL
-	if source {
-		var err error
-		target, err = uploadDirectoryURL(pageURL)
-		if err != nil {
-			return nil, err
-		}
-	}
-	result, err := f.client.GetUpload(ctx, target, airplan.GetOptions{
-		Source: source,
-	})
+	result, err := f.client.GetUpload(
+		ctx, objectURL, airplan.GetOptions{},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -110,8 +124,8 @@ type commandPublisher struct {
 }
 
 func (p commandPublisher) Publish(ctx context.Context, d demo) (string, error) {
-	args := append([]string(nil), d.args...)
-	args = append(args, d.sourcePath)
+	args := append([]string{"--json"}, d.args...)
+	args = append(args, d.inputPaths...)
 	cmd := exec.CommandContext(ctx, p.path, args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
@@ -119,11 +133,16 @@ func (p commandPublisher) Publish(ctx context.Context, d demo) (string, error) {
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("upload %s: %w", d.id, err)
 	}
-	result := strings.TrimSpace(stdout.String())
-	if err := validatePageURL(result, d); err != nil {
+	var result struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		return "", fmt.Errorf("upload %s: decode result: %w", d.id, err)
+	}
+	if err := validatePageURL(result.URL, d); err != nil {
 		return "", fmt.Errorf("upload %s: %w", d.id, err)
 	}
-	return result, nil
+	return result.URL, nil
 }
 
 func main() {
@@ -274,23 +293,18 @@ func demoIsFresh(
 	if err := validatePageURL(pageURL, d); err != nil {
 		return false, err.Error()
 	}
-	pageMatches, err := remoteMatches(
-		ctx, fetch, pageURL, false, content.page,
-	)
-	if err != nil {
-		return false, "page: " + err.Error()
-	}
-	if !pageMatches {
-		return false, "page bytes differ"
-	}
-	sourceMatches, err := remoteMatches(
-		ctx, fetch, pageURL, true, content.source,
-	)
-	if err != nil {
-		return false, "source: " + err.Error()
-	}
-	if !sourceMatches {
-		return false, "source bytes differ"
+	for _, object := range content.objects {
+		objectURL, err := demoObjectURL(pageURL, d.pageName, object.name)
+		if err != nil {
+			return false, object.name + ": " + err.Error()
+		}
+		matches, err := remoteMatches(ctx, fetch, objectURL, object.body)
+		if err != nil {
+			return false, object.name + ": " + err.Error()
+		}
+		if !matches {
+			return false, object.name + " bytes differ"
+		}
 	}
 	return true, ""
 }
@@ -300,21 +314,38 @@ func loadDemoContent(d demo) (demoContent, error) {
 	if err != nil {
 		return demoContent{}, fmt.Errorf("read %s golden: %w", d.id, err)
 	}
-	source, err := os.ReadFile(d.sourcePath)
-	if err != nil {
-		return demoContent{}, fmt.Errorf("read %s source: %w", d.id, err)
+	content := demoContent{objects: []demoObject{
+		{name: d.pageName, body: page},
+	}}
+	seen := map[string]bool{d.pageName: true}
+	for _, inputPath := range d.inputPaths {
+		body, err := os.ReadFile(inputPath)
+		if err != nil {
+			return demoContent{}, fmt.Errorf(
+				"read %s input %q: %w", d.id, inputPath, err,
+			)
+		}
+		name := filepath.Base(inputPath)
+		if seen[name] {
+			return demoContent{}, fmt.Errorf(
+				"%s has duplicate object name %q", d.id, name,
+			)
+		}
+		seen[name] = true
+		content.objects = append(content.objects, demoObject{
+			name: name, body: body,
+		})
 	}
-	return demoContent{page: page, source: source}, nil
+	return content, nil
 }
 
 func remoteMatches(
 	ctx context.Context,
 	fetch fetcher,
-	pageURL string,
-	source bool,
+	objectURL string,
 	expected []byte,
 ) (bool, error) {
-	actual, err := fetch.Fetch(ctx, pageURL, source)
+	actual, err := fetch.Fetch(ctx, objectURL)
 	if err != nil {
 		return false, err
 	}
@@ -371,12 +402,15 @@ func replaceDemoURL(
 	return bytes.Replace(readme, oldLine, newLine, 1), nil
 }
 
-func uploadDirectoryURL(pageURL string) (string, error) {
+func demoObjectURL(pageURL, pageName, objectName string) (string, error) {
+	if objectName == pageName {
+		return pageURL, nil
+	}
 	parsed, err := url.Parse(pageURL)
 	if err != nil {
 		return "", err
 	}
-	parsed.Path = path.Dir(parsed.Path)
+	parsed.Path = path.Join(path.Dir(parsed.Path), objectName)
 	parsed.RawPath = ""
 	return parsed.String(), nil
 }
@@ -392,8 +426,8 @@ func validatePageURL(raw string, d demo) error {
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
 		return errors.New("demo URL must not contain a query or fragment")
 	}
-	if path.Base(parsed.Path) != d.slug+".html" {
-		return fmt.Errorf("demo URL page does not match slug %q", d.slug)
+	if path.Base(parsed.Path) != d.pageName {
+		return fmt.Errorf("demo URL page does not match %q", d.pageName)
 	}
 	return nil
 }

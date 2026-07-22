@@ -390,7 +390,7 @@ kind:
 
 - images render at full available width and intrinsic aspect ratio in a
   rounded, overflow-clipped frame with lazy loading and filename-derived alt
-  text;
+  text; the preview itself links to the direct member URL, matching `Open`;
 - video renders edge-to-edge in the same frame, while audio uses a bordered
   container; both use controls, `preload="metadata"`, and never autoplay;
 - PDF, archive, text, and unknown members use compact file rows without empty

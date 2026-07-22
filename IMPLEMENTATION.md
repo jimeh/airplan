@@ -195,9 +195,10 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   validates names and limits, resolves deterministic MIME/media kinds, creates
   already-escaped relative paths, and executes only the applicable collection
   template. The built-in template provides collection-specific responsive
-  image, video, audio, and generic-file presentation while using the document
-  toolbar's canonical shared geometry and interaction styling. Custom document
-  and collection templates remain independently configurable.
+  image, video, audio, and generic-file presentation, links image previews to
+  their direct members, and uses the document toolbar's canonical shared
+  geometry and interaction styling. Custom document and collection templates
+  remain independently configurable.
 - Local rendering: `RenderInput` owns read limits, binary and invalid
   UTF-8 rejection,
   format detection, title/slug resolution, template execution, and

@@ -81,6 +81,51 @@ func TestUploadFilesStreamsOneCollection(t *testing.T) {
 	}
 }
 
+func TestRenderCollectionGolden(t *testing.T) {
+	t.Run("release_verification_evidence", func(t *testing.T) {
+		paths := []string{
+			filepath.Join(
+				"testdata", "collection-demo", "verification-summary.svg",
+			),
+			filepath.Join("testdata", "collection-demo", "checks.json"),
+			filepath.Join("testdata", "collection-demo", "release-notes.txt"),
+		}
+		files := make([]FileInput, 0, len(paths))
+		for _, path := range paths {
+			body, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			files = append(files, FileInput{
+				Name: filepath.Base(path), Reader: bytes.NewReader(body),
+				Size: int64(len(body)),
+			})
+		}
+
+		body, prepared, err := RenderCollection(
+			context.Background(),
+			FilesInput{Files: files, Title: "Release verification evidence"},
+			CollectionRenderOptions{
+				Repository: "https://github.com/jimeh/airplan",
+			},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(prepared) != len(files) || prepared[0].MediaKind != "image" {
+			t.Fatalf("prepared files = %+v", prepared)
+		}
+		want := htmlGoldens.Do(t, body)
+		if !bytes.Equal(body, want) {
+			t.Errorf(
+				"rendered output differs from %s "+
+					"(set GOLDEN_UPDATE=1 to refresh)",
+				htmlGoldens.File(t),
+			)
+		}
+	})
+}
+
 func TestRenderCollectionCustomTemplateAndValidation(t *testing.T) {
 	tmpl := filepath.Join(t.TempDir(), "collection.tmpl")
 	if err := os.WriteFile(tmpl, []byte(`{{range .Files}}{{.Name}}={{.Path}};{{end}}`), 0o600); err != nil {

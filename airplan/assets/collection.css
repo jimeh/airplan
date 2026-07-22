@@ -126,6 +126,16 @@ h1 {
   border: 1px solid var(--border);
 }
 
+.preview-link {
+  display: block;
+  width: 100%;
+}
+
+.preview-link:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: -2px;
+}
+
 .preview img {
   display: block;
   width: 100%;

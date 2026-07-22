@@ -22,49 +22,47 @@ func (f publishFunc) Publish(ctx context.Context, d demo) (string, error) {
 	return f(ctx, d)
 }
 
-type fetchKey struct {
-	url    string
-	source bool
-}
-
-type stubFetcher map[fetchKey][]byte
+type stubFetcher map[string][]byte
 
 func (f stubFetcher) Fetch(
-	_ context.Context, pageURL string, source bool,
+	_ context.Context, objectURL string,
 ) ([]byte, error) {
-	body, ok := f[fetchKey{url: pageURL, source: source}]
+	body, ok := f[objectURL]
 	if !ok {
-		return nil, fmt.Errorf("no stored object for %s (source=%t)",
-			pageURL, source)
+		return nil, fmt.Errorf("no stored object for %s", objectURL)
 	}
 	return append([]byte(nil), body...), nil
 }
 
-func TestUploadDirectoryURL(t *testing.T) {
+func TestDemoObjectURL(t *testing.T) {
 	for _, tt := range []struct {
 		name string
-		in   string
+		page string
+		file string
 		want string
 	}{
 		{
-			name: "root prefix",
-			in:   "https://demo.example/abcdefghijklmnopqrstuvwxyz/example.html",
-			want: "https://demo.example/abcdefghijklmnopqrstuvwxyz",
+			name: "page unchanged",
+			page: "https://demo.example/abcdefghijklmnopqrstuvwxyz/index.html",
+			file: "index.html",
+			want: "https://demo.example/abcdefghijklmnopqrstuvwxyz/index.html",
 		},
 		{
 			name: "escaped prefix",
-			in: "https://demo.example/team%20plans/" +
-				"abcdefghijklmnopqrstuvwxyz/example.html",
-			want: "https://demo.example/team%20plans/abcdefghijklmnopqrstuvwxyz",
+			page: "https://demo.example/team%20plans/" +
+				"abcdefghijklmnopqrstuvwxyz/index.html",
+			file: "shot one.svg",
+			want: "https://demo.example/team%20plans/" +
+				"abcdefghijklmnopqrstuvwxyz/shot%20one.svg",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := uploadDirectoryURL(tt.in)
+			got, err := demoObjectURL(tt.page, "index.html", tt.file)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if got != tt.want {
-				t.Fatalf("uploadDirectoryURL() = %q, want %q", got, tt.want)
+				t.Fatalf("demoObjectURL() = %q, want %q", got, tt.want)
 			}
 		})
 	}
@@ -117,14 +115,15 @@ func TestAirplanFetcherUsesRealGetUploadSelection(t *testing.T) {
 	fetch := airplanFetcher{client: client}
 	pageURL := "https://demo.example/" + dir + "/example.html"
 
-	page, err := fetch.Fetch(ctx, pageURL, false)
+	page, err := fetch.Fetch(ctx, pageURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(page, objects[dir+"/example.html"]) {
 		t.Fatalf("page = %q", page)
 	}
-	source, err := fetch.Fetch(ctx, pageURL, true)
+	sourceURL := "https://demo.example/" + dir + "/example.md"
+	source, err := fetch.Fetch(ctx, sourceURL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,12 +132,36 @@ func TestAirplanFetcherUsesRealGetUploadSelection(t *testing.T) {
 	}
 }
 
+func TestRepositoryDemosMatchReadmeAndFixtures(t *testing.T) {
+	t.Chdir(filepath.Clean(filepath.Join("..", "..", "..")))
+	readme, err := os.ReadFile(defaultReadmePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	urls, err := demoURLs(readme, repositoryDemos)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, demo := range repositoryDemos {
+		if err := validatePageURL(urls[demo.reference], demo); err != nil {
+			t.Fatalf("%s URL: %v", demo.id, err)
+		}
+		content, err := loadDemoContent(demo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := len(content.objects), len(demo.inputPaths)+1; got != want {
+			t.Fatalf("%s objects = %d, want %d", demo.id, got, want)
+		}
+	}
+}
+
 func TestUpdateReadmeKeepsFreshCurrentDemo(t *testing.T) {
 	fixture := newDemoFixture(t, "page", "source")
 	current := "https://demo.example/current/example.html"
 	fetcher := stubFetcher{
-		{url: current}:               []byte("page"),
-		{url: current, source: true}: []byte("source"),
+		current: []byte("page"),
+		"https://demo.example/current/example.md": []byte("source"),
 	}
 	fixture.writeReadme(t, current)
 	published := false
@@ -162,10 +185,10 @@ func TestUpdateReadmePrefersFreshCurrentDemoOverFreshCandidate(t *testing.T) {
 	current := "https://demo.example/current/example.html"
 	candidate := "https://demo.example/candidate/example.html"
 	fetcher := stubFetcher{
-		{url: current}:                 []byte("page"),
-		{url: current, source: true}:   []byte("source"),
-		{url: candidate}:               []byte("page"),
-		{url: candidate, source: true}: []byte("source"),
+		current: []byte("page"),
+		"https://demo.example/current/example.md": []byte("source"),
+		candidate: []byte("page"),
+		"https://demo.example/candidate/example.md": []byte("source"),
 	}
 	fixture.writeReadme(t, current)
 	candidatePath := filepath.Join(fixture.dir, "candidate.md")
@@ -187,10 +210,10 @@ func TestUpdateReadmeReusesFreshCandidate(t *testing.T) {
 	current := "https://demo.example/current/example.html"
 	candidate := "https://demo.example/candidate/example.html"
 	fetcher := stubFetcher{
-		{url: current}:                 []byte("old page"),
-		{url: current, source: true}:   []byte("source"),
-		{url: candidate}:               []byte("page"),
-		{url: candidate, source: true}: []byte("source"),
+		current: []byte("old page"),
+		"https://demo.example/current/example.md": []byte("source"),
+		candidate: []byte("page"),
+		"https://demo.example/candidate/example.md": []byte("source"),
 	}
 	fixture.writeReadme(t, current)
 	candidatePath := filepath.Join(fixture.dir, "candidate.md")
@@ -211,8 +234,8 @@ func TestUpdateReadmeUploadsStaleDemo(t *testing.T) {
 	fixture := newDemoFixture(t, "page", "source")
 	current := "https://demo.example/current/example.html"
 	fetcher := stubFetcher{
-		{url: current}:               []byte("old page"),
-		{url: current, source: true}: []byte("source"),
+		current: []byte("old page"),
+		"https://demo.example/current/example.md": []byte("source"),
 	}
 	fixture.writeReadme(t, current)
 	want := "https://demo.example/new/example.html"
@@ -239,8 +262,8 @@ func TestUpdateReadmeUploadsWhenSourceIsStale(t *testing.T) {
 	fixture := newDemoFixture(t, "page", "source")
 	current := "https://demo.example/current/example.html"
 	fetcher := stubFetcher{
-		{url: current}:               []byte("page"),
-		{url: current, source: true}: []byte("old source"),
+		current: []byte("page"),
+		"https://demo.example/current/example.md": []byte("old source"),
 	}
 	fixture.writeReadme(t, current)
 	want := "https://demo.example/source-refresh/example.html"
@@ -260,12 +283,59 @@ func TestUpdateReadmeUploadsWhenSourceIsStale(t *testing.T) {
 	fixture.wantURL(t, want)
 }
 
+func TestUpdateReadmeUploadsWhenCollectionMemberIsStale(t *testing.T) {
+	dir := t.TempDir()
+	goldenPath := filepath.Join(dir, "index.html")
+	imagePath := filepath.Join(dir, "shot.svg")
+	notesPath := filepath.Join(dir, "notes.txt")
+	for path, body := range map[string]string{
+		goldenPath: "overview", imagePath: "image", notesPath: "notes",
+	} {
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fixture := demoFixture{
+		dir: dir, readmePath: filepath.Join(dir, "README.md"),
+		entry: demo{
+			id: "collection", reference: "demo-collection",
+			inputPaths: []string{imagePath, notesPath},
+			goldenPath: goldenPath, pageName: "index.html",
+		},
+	}
+	current := "https://demo.example/current/index.html"
+	fixture.writeReadme(t, current)
+	fetcher := stubFetcher{
+		current:                                  []byte("overview"),
+		"https://demo.example/current/shot.svg":  []byte("old image"),
+		"https://demo.example/current/notes.txt": []byte("notes"),
+	}
+	want := "https://demo.example/refreshed/index.html"
+	published := 0
+	err := fixture.update(t, fetcher, "", false, publishFunc(
+		func(_ context.Context, got demo) (string, error) {
+			published++
+			if len(got.inputPaths) != 2 {
+				t.Fatalf("published inputs = %v", got.inputPaths)
+			}
+			return want, nil
+		},
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published != 1 {
+		t.Fatalf("published %d times, want 1", published)
+	}
+	fixture.wantURL(t, want)
+}
+
 func TestUpdateReadmeAllowsCandidateWithoutNewReference(t *testing.T) {
 	fixture := newDemoFixture(t, "page", "source")
 	current := "https://demo.example/current/example.html"
 	fetcher := stubFetcher{
-		{url: current}:               []byte("page"),
-		{url: current, source: true}: []byte("source"),
+		current: []byte("page"),
+		"https://demo.example/current/example.md": []byte("source"),
 	}
 	fixture.writeReadme(t, current)
 	candidatePath := filepath.Join(fixture.dir, "candidate.md")
@@ -289,10 +359,10 @@ func TestUpdateReadmeForceUploadsWithFreshCandidate(t *testing.T) {
 	current := "https://demo.example/current/example.html"
 	candidate := "https://demo.example/candidate/example.html"
 	fetcher := stubFetcher{
-		{url: current}:                 []byte("page"),
-		{url: current, source: true}:   []byte("source"),
-		{url: candidate}:               []byte("page"),
-		{url: candidate, source: true}: []byte("source"),
+		current: []byte("page"),
+		"https://demo.example/current/example.md": []byte("source"),
+		candidate: []byte("page"),
+		"https://demo.example/candidate/example.md": []byte("source"),
 	}
 	fixture.writeReadme(t, current)
 	candidatePath := filepath.Join(fixture.dir, "candidate.md")
@@ -329,8 +399,8 @@ func newDemoFixture(t *testing.T, pageBody string, sourceBody string) demoFixtur
 		readmePath: filepath.Join(dir, "README.md"),
 		entry: demo{
 			id: "example", reference: "demo-example",
-			sourcePath: sourcePath, goldenPath: goldenPath,
-			slug: "example",
+			inputPaths: []string{sourcePath}, goldenPath: goldenPath,
+			pageName: "example.html",
 		},
 	}
 }
