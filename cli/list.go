@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -55,31 +56,79 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 	if opts.remote {
 		return runRemoteList(cmd, opts)
 	}
-	if cmd.Flags().Changed("config") {
-		return fmt.Errorf("--config requires --remote")
-	}
 
-	records, warnings, err := airplan.ReadManifest("")
+	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
+	if err != nil {
+		// Preserve config-free local history when the default config cannot
+		// select one of several profiles, and preserve the historical use of
+		// --profile as a local-manifest filter. Explicit config/backend
+		// selectors remain authoritative and surface their errors.
+		if !allowsConfigFreeLocalList(cmd) {
+			return err
+		}
+		cfg = &airplan.Config{
+			Backend: airplan.BackendS3, Profile: opts.profile,
+		}
+		if err := applyManifestSelection(cmd, cfg); err != nil {
+			return err
+		}
+	}
+	var profile *string
+	if cmd.Flags().Changed("profile") {
+		profile = &opts.profile
+	} else if os.Getenv("AIRPLAN_PROFILE") != "" {
+		profile = &cfg.Profile
+	}
+	if cfg.EffectiveBackend() == airplan.BackendAirplan {
+		ctx, cancel := timeoutContext(cmd.Context(), cfg)
+		defer cancel()
+		client, err := airplan.New(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		listed, err := client.ListManifest(ctx,
+			airplan.ListManifestOptions{Scope: airplan.ManifestScopeService})
+		if err != nil {
+			return err
+		}
+		return outputManifestList(cmd, listed.Records, listed.Warnings, opts.json)
+	}
+	listed, err := airplan.ListManifestHistory(cfg.ManifestPath, profile)
 	if err != nil {
 		return err
 	}
+	return outputManifestList(
+		cmd, listed.Records, listed.Warnings, opts.json,
+	)
+}
 
+func allowsConfigFreeLocalList(cmd *cobra.Command) bool {
+	if cmd.Flags().Changed("config") {
+		return false
+	}
+	if _, explicit := selectedManifestPath(cmd); explicit {
+		return false
+	}
+	for _, name := range []string{
+		"AIRPLAN_CONFIG", "AIRPLAN_BACKEND", "AIRPLAN_API_URL",
+		"AIRPLAN_API_TOKEN", "AIRPLAN_PROFILE",
+	} {
+		if os.Getenv(name) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+func outputManifestList(
+	cmd *cobra.Command, uploads []airplan.ManifestRecord,
+	warnings []string, jsonOutput bool,
+) error {
 	stderr := cmd.ErrOrStderr()
 	for _, warning := range warnings {
 		fmt.Fprintf(stderr, "airplan: warning: %s\n", warning)
 	}
-
-	uploads := airplan.ManifestUploads(records)
-	if cmd.Flags().Changed("profile") {
-		filtered := uploads[:0]
-		for _, upload := range uploads {
-			if upload.Profile == opts.profile {
-				filtered = append(filtered, upload)
-			}
-		}
-		uploads = filtered
-	}
-	if opts.json {
+	if jsonOutput {
 		if uploads == nil {
 			uploads = []airplan.ManifestRecord{}
 		}
@@ -101,7 +150,7 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 	if err != nil {
 		return err
 	}
-	if cfg.PublicBaseURL == "" {
+	if cfg.EffectiveBackend() == airplan.BackendS3 && cfg.PublicBaseURL == "" {
 		for _, upload := range uploads {
 			if upload.URL != "" {
 				fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n",

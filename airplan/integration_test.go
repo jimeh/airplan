@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/jimeh/airplan/internal/httpapi"
 	"github.com/testcontainers/testcontainers-go"
 	tcminio "github.com/testcontainers/testcontainers-go/modules/minio"
 )
@@ -362,6 +364,112 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	}
 	if len(remote) != 1 || remote[0].Dir != invalidDir {
 		t.Fatalf("remote uploads after deletes = %+v", remote)
+	}
+
+	testHTTPBackendRoundTrip(ctx, t, cfg)
+}
+
+func testHTTPBackendRoundTrip(
+	ctx context.Context, t *testing.T, storageConfig *Config,
+) {
+	t.Helper()
+	serverConfig := *storageConfig
+	serverConfig.DisableManifest = false
+	serverConfig.ManifestPath = filepath.Join(t.TempDir(), "server-manifest.jsonl")
+	serverConfig.Profile = "server"
+	serverConfig.Repository = "none"
+	serverClient, err := New(ctx, &serverConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const token = "01234567890123456789012345678901"
+	handler, err := httpapi.NewHandler(
+		&HTTPOperations{Client: serverClient, ServerVersion: "integration"},
+		httpapi.Options{Token: token},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	remoteClient, err := New(ctx, &Config{
+		Backend: BackendAirplan, APIURL: server.URL, APIToken: token,
+		Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	document, err := remoteClient.Upload(ctx, Input{
+		Reader: strings.NewReader("# HTTP Integration\n\nRemote body.\n"),
+		Name:   "http-integration.md", MaxSize: -1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := remoteClient.ListManifest(ctx, ListManifestOptions{
+		Scope: ManifestScopeService,
+	})
+	if err != nil || len(manifest.Records) != 1 ||
+		manifest.Records[0].MarkerKey != document.MarkerKey {
+		t.Fatalf("HTTP manifest = %+v, %v", manifest, err)
+	}
+	storage, err := remoteClient.ListRemote(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteByDir(t, storage, document.ID)
+	inspection, err := remoteClient.InspectUpload(ctx, document.URL)
+	if err != nil || inspection.State != UploadComplete {
+		t.Fatalf("HTTP inspection = %+v, %v", inspection, err)
+	}
+	var page bytes.Buffer
+	if _, err := remoteClient.GetUploadTo(
+		ctx, document.URL, GetOptions{}, &page,
+	); err != nil || !strings.Contains(page.String(), "Remote body") {
+		t.Fatalf("HTTP download = %q, %v", page.String(), err)
+	}
+	plan, err := remoteClient.PlanPurge(ctx, PurgePlanOptions{
+		Source: UploadSourceManifest, All: true,
+	})
+	if err != nil || len(plan.Candidates) != 1 ||
+		plan.Candidates[0].UploadID != document.ID {
+		t.Fatalf("HTTP purge plan = %+v, %v", plan, err)
+	}
+	purged, err := remoteClient.Purge(ctx, PurgeRequest{
+		UploadIDs: []string{document.ID},
+	})
+	if err != nil || len(purged.Items) != 1 ||
+		purged.Items[0].Deleted == nil {
+		t.Fatalf("HTTP purge = %+v, %v", purged, err)
+	}
+
+	collection, err := remoteClient.UploadFiles(ctx, FilesInput{
+		Files: []FileInput{
+			{
+				Name: "shot.png", Reader: bytes.NewReader([]byte("png")),
+				Size: 3,
+			},
+			{
+				Name: "notes.txt", Reader: bytes.NewReader([]byte("notes")),
+				Size: 5,
+			},
+		},
+		MaxSize: -1, MaxTotalSize: -1,
+	})
+	if err != nil || len(collection.Files) != 2 {
+		t.Fatalf("HTTP collection = %+v, %v", collection, err)
+	}
+	var member bytes.Buffer
+	if _, err := remoteClient.GetUploadTo(
+		ctx, collection.Files[1].URL, GetOptions{}, &member,
+	); err != nil || member.String() != "notes" {
+		t.Fatalf("HTTP collection member = %q, %v", member.String(), err)
+	}
+	if _, err := remoteClient.DeleteUpload(
+		ctx, collection.Files[0].URL,
+	); err != nil {
+		t.Fatal(err)
 	}
 }
 

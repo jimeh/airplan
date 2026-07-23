@@ -134,6 +134,60 @@ func TestDeleteProfileFlagOverridesManifestInference(t *testing.T) {
 	}
 }
 
+func TestDeleteDoesNotInferAirplanBackendProfile(t *testing.T) {
+	isolateEnv(t)
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+
+	active := newFakeDeleteS3(t, map[string][]string{
+		deleteDirA + "/": {deleteDirA + "/plan.html"},
+	}, nil)
+	remoteCalls := 0
+	remote := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) {
+			remoteCalls++
+			w.WriteHeader(http.StatusInternalServerError)
+		},
+	))
+	t.Cleanup(remote.Close)
+	writeDeleteManifest(t, stateHome, deleteDirA, "remote", "")
+
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	config := fmt.Sprintf(`
+bucket = "plans"
+public_base_url = "https://plans.example.com"
+timeout = "0"
+default_profile = "local"
+
+[profiles.local]
+endpoint = %q
+
+[profiles.remote]
+backend = "airplan"
+api_url = %q
+api_token = "01234567890123456789012345678901"
+`, active.server.URL, remote.URL)
+	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, stderr, err := executeCommand(t, "", "",
+		"delete", "--config", configPath, deleteDirA+"/plan.html")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if strings.Contains(stderr, "using profile") {
+		t.Fatalf("stderr = %q, airplan profile must not be inferred", stderr)
+	}
+	if remoteCalls != 0 {
+		t.Fatalf("remote calls = %d, want 0", remoteCalls)
+	}
+	if active.deleteCalls() != 1 || active.markerDeleteCalls() != 1 {
+		t.Fatalf("local deletes = %d/%d, want 1/1",
+			active.deleteCalls(), active.markerDeleteCalls())
+	}
+}
+
 func TestDeleteDuplicateManifestRecordsUseLatestProfile(t *testing.T) {
 	isolateEnv(t)
 	stateHome := t.TempDir()

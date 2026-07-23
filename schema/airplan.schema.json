@@ -4,6 +4,23 @@
   "$defs": {
     "Settings": {
       "properties": {
+        "backend": {
+          "type": "string",
+          "enum": [
+            "s3",
+            "airplan"
+          ],
+          "description": "Operation backend: s3 for direct storage access or airplan for an Airplan HTTP server; defaults to s3.",
+          "default": "s3"
+        },
+        "api_url": {
+          "type": "string",
+          "description": "Absolute HTTP(S) URL of an Airplan server; HTTP is allowed only for loopback hosts."
+        },
+        "api_token": {
+          "type": "string",
+          "description": "Bearer token used to authenticate to an Airplan server."
+        },
         "endpoint": {
           "type": "string",
           "description": "Absolute HTTP(S) S3-compatible API endpoint URL; path prefixes are allowed."
@@ -70,6 +87,23 @@
     }
   },
   "properties": {
+    "backend": {
+      "type": "string",
+      "enum": [
+        "s3",
+        "airplan"
+      ],
+      "description": "Operation backend: s3 for direct storage access or airplan for an Airplan HTTP server; defaults to s3.",
+      "default": "s3"
+    },
+    "api_url": {
+      "type": "string",
+      "description": "Absolute HTTP(S) URL of an Airplan server; HTTP is allowed only for loopback hosts."
+    },
+    "api_token": {
+      "type": "string",
+      "description": "Bearer token used to authenticate to an Airplan server."
+    },
     "endpoint": {
       "type": "string",
       "description": "Absolute HTTP(S) S3-compatible API endpoint URL; path prefixes are allowed."

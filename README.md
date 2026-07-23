@@ -43,7 +43,8 @@ copyable direct links, and treats the directory as one cleanup unit.
   may execute scripts when someone opens the link.
 - Images, video, and audio render on a responsive collection overview. Generic
   files remain available through direct open and download links.
-- Files live in a bucket you own. There are no accounts or background services.
+- Files live in a bucket you own. Use S3 directly or run one single-user
+  Airplan server that keeps storage credentials off client machines.
 - The command has a predictable output contract for scripts and agents.
 
 ## Live examples
@@ -160,6 +161,7 @@ Create `~/.config/airplan/config.toml`:
 
 ```toml
 #:schema https://github.com/jimeh/airplan/releases/latest/download/airplan.schema.json
+backend           = "s3"
 endpoint          = "https://<account-id>.r2.cloudflarestorage.com"
 bucket            = "plans"
 region            = "auto"
@@ -182,6 +184,82 @@ Better TOML extension.
 Run `airplan config schema` to inspect every available file setting. See the
 [configuration reference](#configuration-reference) for profiles,
 environment-only setup, precedence, and diagnostic commands.
+
+### Run a single-user Airplan server
+
+The default `s3` backend keeps today's self-contained behavior: the CLI owns
+S3 credentials and calls storage directly. To configure S3 once for clients on
+other machines, run the built-in REST and MCP server:
+
+```sh
+openssl rand -base64 32 > /run/secrets/airplan-token
+chmod 600 /run/secrets/airplan-token
+
+airplan --profile storage \
+  --manifest /var/lib/airplan/manifest.jsonl \
+  serve --token-file /run/secrets/airplan-token
+```
+
+`serve` defaults to `127.0.0.1:8080` and requires an `s3` profile. It checks
+storage before listening and exposes:
+
+- the authenticated REST API under `/api/v1`;
+- authenticated MCP Streamable HTTP at `/mcp`;
+- unauthenticated liveness at `/healthz`; and
+- the authoritative OpenAPI 3.0.3 schema at `/openapi.yaml`.
+
+The default `info` log level keeps stderr quiet apart from the listening line
+and server failures. `warn` and `error` suppress the listening line. Use
+`--log-level debug` to diagnose request completion,
+safe authentication rejection reasons, Origin and size-limit failures, and MCP
+tool outcomes. `--log-level trace` additionally shows sanitized request, MCP
+method, and SDK lifecycle events:
+
+```sh
+airplan --profile storage serve \
+  --token-file /run/secrets/airplan-token \
+  --log-level debug
+```
+
+`AIRPLAN_SERVER_LOG_LEVEL` is the environment fallback; an explicit flag wins.
+Logs never include Authorization values, request or MCP bodies, tool arguments
+or results, uploaded content, capability URLs, storage identity, credentials,
+or filesystem paths.
+
+Configure a client profile with only the server URL and bearer token:
+
+```toml
+[profiles.shared]
+backend   = "airplan"
+api_url   = "https://airplan.example.com"
+api_token = "..." # or AIRPLAN_API_TOKEN
+```
+
+Normal commands then use the server without local S3 credentials:
+
+```sh
+airplan --profile shared plan.md
+airplan --profile shared list
+airplan --profile shared list --remote
+airplan --profile shared sync
+airplan --profile shared purge --older-than 30d
+```
+
+Terminate TLS at a trusted reverse proxy. HTTPS is required for non-loopback
+client URLs, and a non-loopback listen address requires
+`--allow-non-loopback`. Configure proxy body limits, buffering, and timeouts
+for large streaming uploads and downloads. Airplan v1 server authentication is one
+static bearer token: there are no accounts, roles, OAuth flow, or token
+issuance.
+
+Run only one server process for a manifest. The file must be on persistent
+storage. A same-user local CLI and `serve` share the normal platform manifest
+by default, so `airplan --profile storage list` on the server machine includes
+uploads received through the API. Containers and services usually run with a
+different state directory; mount a persistent directory and pass the same
+explicit `--manifest` path when shared local history is desired. The server
+API scopes manifest results to its configured profile, bucket, and key prefix
+and does not expose unrelated records from a shared local file.
 
 ### Cloudflare R2 setup
 
@@ -276,13 +354,22 @@ airplan sync                     # reconcile remote uploads into local history
 
 Each successful upload is recorded in
 `~/.local/state/airplan/manifest.jsonl`. Local commands use that history by
-default. `ls` aliases `list`, and `-r` aliases `--remote` for `list` and
+default. Override it globally with `--manifest PATH` or `AIRPLAN_MANIFEST`;
+relative paths resolve from the current working directory. The option applies
+to direct S3 commands, `serve`, and stdio MCP using S3. An HTTP client rejects
+an explicit `--manifest` because only the server may choose its filesystem
+path, and ignores `AIRPLAN_MANIFEST`.
+
+`ls` aliases `list`, and `-r` aliases `--remote` for `list` and
 `purge`. An explicit `list --profile NAME` filters local history by its recorded
 profile; `--profile=` selects root-level history. Without that flag, local list
-shows every profile. Local list does not use configuration, so `--config`
-requires `--remote`.
+shows every profile. Without resolvable configuration, local list assumes the
+`s3` backend and remains config-free. A config can also select an `airplan`
+profile, in which case list reads the server manifest and `--config` is useful
+without `--remote`.
 
-`--remote` reads the bucket instead, so it can find uploads from other machines.
+`--remote` reads storage through the selected backend instead, so it can find
+uploads from other machines.
 Remote discovery recognizes document `.airplan.json` and collection
 `.airplan-collection.json` ownership markers with one bucket listing; it does
 not fetch each marker. The marker name supplies an untrusted kind hint, letting
@@ -379,6 +466,19 @@ image=$(airplan --json screenshot.png | jq -r '.files[0].url')
 Do not invent or reuse a URL after a failed command. For the complete CLI,
 config, key, and manifest contracts, use [SPEC.md](SPEC.md).
 
+The same operation set is available to MCP clients. For a local agent, add
+`airplan mcp` as a stdio server; it follows the selected `s3` or `airplan`
+profile exactly like the CLI. For remote agents, connect to the server's
+Streamable HTTP endpoint at `https://airplan.example.com/mcp` and configure
+`Authorization: Bearer <token>`. Clients that cannot attach a custom
+Authorization header are not supported by the initial single-user server.
+
+The MCP server intentionally exposes only upload, list, inspect, delete, sync,
+and two-phase purge tools. Local stdio also supports collection upload from
+local paths. Hosted MCP does not accept server-local paths and therefore omits
+that tool. Template dumping, config inspection, arbitrary object access, and
+filesystem browsing are not exposed.
+
 ## Configuration reference
 
 airplan resolves settings in this order, from highest to lowest priority:
@@ -402,6 +502,7 @@ override only what differs:
 
 ```toml
 # Root-level keys must appear before the first [profiles.*] table.
+backend = "s3"
 endpoint = "https://<account-id>.r2.cloudflarestorage.com"
 region = "auto"
 key_prefix = "jimeh"
@@ -414,7 +515,18 @@ public_base_url = "https://plans.work.example.com"
 [profiles.personal]
 bucket = "personal-plans"
 public_base_url = "https://plans.example.com"
+
+[profiles.shared]
+backend = "airplan"
+api_url = "https://airplan.example.com"
+api_token = "..."
 ```
+
+`backend` defaults to `s3`, so existing configuration is unchanged. An
+`airplan` profile needs only `api_url` and `api_token`; it does not load the
+AWS credential chain. S3 values inherited from a root configuration are
+inactive for that profile. Conversely, API settings are inactive for an `s3`
+profile.
 
 Select a profile for one command with `--profile` / `-p`, or for profile-aware
 commands in a project-specific shell environment with `AIRPLAN_PROFILE`:
@@ -435,8 +547,8 @@ scopes remote list and purge operations.
 
 ### Environment variables
 
-A config file is not required. You can provide the complete storage setup
-through environment variables instead:
+A config file is not required. You can provide a complete backend setup
+through environment variables instead. For direct S3:
 
 ```sh
 export AIRPLAN_ENDPOINT="https://<account-id>.r2.cloudflarestorage.com"
@@ -445,6 +557,16 @@ export AIRPLAN_REGION="auto"
 export AIRPLAN_PUBLIC_BASE_URL="https://plans.example.com"
 export AIRPLAN_ACCESS_KEY_ID="..."
 export AIRPLAN_SECRET_ACCESS_KEY="..."
+
+airplan plan.md
+```
+
+For a server-backed client:
+
+```sh
+export AIRPLAN_BACKEND="airplan"
+export AIRPLAN_API_URL="https://airplan.example.com"
+export AIRPLAN_API_TOKEN="..."
 
 airplan plan.md
 ```
@@ -459,6 +581,11 @@ the shared credentials file.
 | ----------------------------- | --------------------------------------------- |
 | `AIRPLAN_CONFIG`              | Select an alternate config file               |
 | `AIRPLAN_PROFILE`             | Select a named `[profiles.*]` profile         |
+| `AIRPLAN_BACKEND`             | Select `s3` or `airplan`                      |
+| `AIRPLAN_API_URL`             | Set an Airplan server base URL                |
+| `AIRPLAN_API_TOKEN`           | Set its bearer token                          |
+| `AIRPLAN_SERVER_LOG_LEVEL`    | Set `serve` logging from `error` to `trace`   |
+| `AIRPLAN_MANIFEST`            | Select a local S3/service manifest            |
 | `AIRPLAN_ENDPOINT`            | Set the S3-compatible API endpoint            |
 | `AIRPLAN_BUCKET`              | Set the destination bucket                    |
 | `AIRPLAN_REGION`              | Set the S3 signing region                     |
@@ -485,10 +612,10 @@ airplan config show --json     # return the same diagnostics for scripts
 airplan config schema          # print the complete config file JSON Schema
 ```
 
-`config show` always redacts access and secret key values. It resolves the
-active configuration without contacting storage or resolving the standard AWS
-credential chain. `config profiles --json` provides a scriptable profile
-inventory without requiring each profile to be complete.
+`config show` always redacts access keys, secret keys, and API tokens. It
+resolves the active configuration without contacting storage or resolving the
+standard AWS credential chain. `config profiles --json` provides a scriptable
+profile inventory without requiring each profile to be complete.
 
 ## Shell completion
 

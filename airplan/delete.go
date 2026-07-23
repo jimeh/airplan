@@ -11,15 +11,15 @@ import (
 // DeleteResult describes a completed delete (SPEC.md §9).
 type DeleteResult struct {
 	// Keys are the object keys removed, in operation order. The marker is last.
-	Keys []string
+	Keys []string `json:"keys"`
 
 	// PageKey is the marker-declared page key and manifest tombstone key.
-	PageKey   string
-	MarkerKey string
-	Kind      UploadKind
+	PageKey   string     `json:"page_key"`
+	MarkerKey string     `json:"marker_key"`
+	Kind      UploadKind `json:"kind"`
 
 	// Warnings collects non-fatal manifest outcomes.
-	Warnings []string
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ManifestProfileMismatchError reports that local history associates a delete
@@ -36,6 +36,18 @@ func (e *ManifestProfileMismatchError) Error() string {
 	)
 }
 
+type missingMarkerRecordError struct {
+	message string
+}
+
+func (e *missingMarkerRecordError) Error() string {
+	return e.message
+}
+
+func (e *missingMarkerRecordError) Unwrap() error {
+	return errOwnershipMarkerMissing
+}
+
 // DeleteUpload validates the upload's ownership marker, removes every
 // non-marker object, removes the marker separately, and appends a manifest
 // tombstone (SPEC.md §9).
@@ -43,6 +55,12 @@ func (c *Client) DeleteUpload(
 	ctx context.Context, urlOrKey string,
 ) (*DeleteResult, error) {
 	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
+	if c.remote != nil {
+		return c.remote.DeleteUpload(ctx, urlOrKey)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
 		return nil, err
 	}
 	key, err := KeyFromURLOrKey(c.cfg, urlOrKey)
@@ -119,7 +137,7 @@ func validateDeleteTarget(
 		allowed = allowed || key == dirPrefix+object.Name
 	}
 	if !allowed {
-		return fmt.Errorf(
+		return invalidTargetf(
 			"airplan: delete target %q is not the directory, marker, or declared payload",
 			key,
 		)
@@ -235,7 +253,7 @@ func (c *Client) ensureGoneRecord(
 				!strings.Contains(rel, "/")
 		}
 		if !allowed {
-			return ManifestRecord{}, fmt.Errorf(
+			return ManifestRecord{}, invalidTargetf(
 				"target %q is not the directory, marker, or recorded payload",
 				target,
 			)
@@ -245,7 +263,9 @@ func (c *Client) ensureGoneRecord(
 	if len(warnings) > 0 {
 		return ManifestRecord{}, fmt.Errorf("local manifest is incomplete: %s", warnings[0])
 	}
-	return ManifestRecord{}, errors.New("no matching active marker-versioned manifest record")
+	return ManifestRecord{}, &missingMarkerRecordError{
+		message: "no matching active marker-versioned manifest record",
+	}
 }
 
 func profileLabel(profile string) string {

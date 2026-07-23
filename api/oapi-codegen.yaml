@@ -1,0 +1,11 @@
+package: generated
+output: ../internal/httpapi/generated/api.gen.go
+generate:
+  models: true
+  client: true
+  std-http-server: true
+  strict-server: true
+  embedded-spec: true
+output-options:
+  name-normalizer: ToCamelCaseWithInitialisms
+  prefer-skip-optional-pointer: true

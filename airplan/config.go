@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -20,6 +21,17 @@ import (
 // DefaultTimeout is the default operation timeout (SPEC.md §6).
 const DefaultTimeout = 30 * time.Second
 
+// Backend selects how Airplan operations are invoked.
+type Backend string
+
+const (
+	// BackendS3 invokes the S3-backed operation service in-process.
+	BackendS3 Backend = "s3"
+
+	// BackendAirplan invokes an Airplan server over HTTP.
+	BackendAirplan Backend = "airplan"
+)
+
 type configFieldDefinition struct {
 	name           string
 	builtin        bool
@@ -28,6 +40,18 @@ type configFieldDefinition struct {
 }
 
 var configFieldDefinitions = []configFieldDefinition{
+	{
+		name: "backend", builtin: true, envName: "AIRPLAN_BACKEND",
+		overrideSource: "ConfigOptions.Overrides.backend",
+	},
+	{
+		name: "api_url", envName: "AIRPLAN_API_URL",
+		overrideSource: "ConfigOptions.Overrides.api_url",
+	},
+	{
+		name: "api_token", envName: "AIRPLAN_API_TOKEN",
+		overrideSource: "ConfigOptions.Overrides.api_token",
+	},
 	{
 		name: "endpoint", envName: "AIRPLAN_ENDPOINT",
 		overrideSource: "--endpoint",
@@ -90,6 +114,9 @@ var configFieldDefinitions = []configFieldDefinition{
 // (SPEC.md §7). Boolean fields are pointers so profile merging can
 // distinguish "unset" from "false".
 type Settings struct {
+	Backend            string `toml:"backend" json:"backend,omitempty" jsonschema:"enum=s3,enum=airplan,default=s3" jsonschema_description:"Operation backend: s3 for direct storage access or airplan for an Airplan HTTP server; defaults to s3."`
+	APIURL             string `toml:"api_url" json:"api_url,omitempty" jsonschema_description:"Absolute HTTP(S) URL of an Airplan server; HTTP is allowed only for loopback hosts."`
+	APIToken           string `toml:"api_token" json:"api_token,omitempty" jsonschema_description:"Bearer token used to authenticate to an Airplan server."`
 	Endpoint           string `toml:"endpoint" json:"endpoint,omitempty" jsonschema_description:"Absolute HTTP(S) S3-compatible API endpoint URL; path prefixes are allowed."`
 	Bucket             string `toml:"bucket" json:"bucket,omitempty" jsonschema_description:"Bucket where rendered plans are uploaded."`
 	Region             string `toml:"region" json:"region,omitempty" jsonschema_description:"S3 signing region; R2 commonly uses auto."`
@@ -124,6 +151,9 @@ type FileConfig struct {
 // SPEC.md §7. Flag overrides are overlaid by the caller afterwards,
 // then completeness is checked with Validate.
 type Config struct {
+	Backend            Backend
+	APIURL             string
+	APIToken           string
 	Endpoint           string
 	Bucket             string
 	Region             string
@@ -355,6 +385,7 @@ func ResolveConfig(opts ConfigOptions) (*ConfigResolution, error) {
 	}
 
 	cfg := &Config{
+		Backend:    BackendS3,
 		Region:     "auto",
 		Profile:    profile,
 		MermaidURL: DefaultMermaidURL,
@@ -381,6 +412,7 @@ func ResolveConfig(opts ConfigOptions) (*ConfigResolution, error) {
 	if loaded {
 		warnReadableCredentials(cfg, path, fileConfig)
 	}
+	warnInactiveBackendFields(cfg, opts, getenv, meta, loaded, profile)
 
 	return &ConfigResolution{
 		Config: cfg,
@@ -543,6 +575,12 @@ func overrideFields(settings Settings) []configFieldDefinition {
 
 func configOverrideIsSet(settings Settings, name string) bool {
 	switch name {
+	case "backend":
+		return settings.Backend != ""
+	case "api_url":
+		return settings.APIURL != ""
+	case "api_token":
+		return settings.APIToken != ""
 	case "endpoint":
 		return settings.Endpoint != ""
 	case "bucket":
@@ -611,35 +649,38 @@ func parseTimeout(s string) (time.Duration, error) {
 	return d, nil
 }
 
-// Validate checks configuration completeness and correctness for an
-// upload (SPEC.md §7).
+// EffectiveBackend returns the configured backend, treating the zero value as
+// the backward-compatible S3 default.
+func (c *Config) EffectiveBackend() Backend {
+	if c == nil || c.Backend == "" {
+		return BackendS3
+	}
+	return c.Backend
+}
+
+// Validate checks configuration completeness and correctness for an upload
+// through the selected backend (SPEC.md §7).
 func (c *Config) Validate() error {
 	if c == nil {
 		return errors.New("airplan: config is nil")
 	}
 
-	var missing []string
-	if c.Endpoint == "" {
-		missing = append(missing, "endpoint")
-	}
-	if c.Bucket == "" {
-		missing = append(missing, "bucket")
-	}
-	if len(missing) > 0 {
-		where := "root-level values were used"
-		if c.Profile != "" {
-			where = fmt.Sprintf("profile %q was resolved", c.Profile)
-		}
-
+	switch c.EffectiveBackend() {
+	case BackendS3:
+		return c.validateS3()
+	case BackendAirplan:
+		return c.validateAirplan()
+	default:
 		return fmt.Errorf(
-			"airplan: missing required config field(s) %s; %s; "+
-				"set via flag(s) %s, env var(s) %s, or config file key(s) %s",
-			strings.Join(missing, ", "),
-			where,
-			flagNames(missing),
-			envNames(missing),
-			strings.Join(missing, ", "),
+			"airplan: invalid backend %q: must be %q or %q",
+			c.Backend, BackendS3, BackendAirplan,
 		)
+	}
+}
+
+func (c *Config) validateS3() error {
+	if err := c.validateRequiredFields([]string{"endpoint", "bucket"}); err != nil {
+		return err
 	}
 
 	if (c.AccessKeyID == "") != (c.SecretAccessKey == "") {
@@ -672,6 +713,91 @@ func (c *Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func (c *Config) validateAirplan() error {
+	if err := c.validateRequiredFields([]string{"api_url", "api_token"}); err != nil {
+		return err
+	}
+	if err := validateHTTPURL("api_url", c.APIURL); err != nil {
+		return err
+	}
+	u, err := url.Parse(c.APIURL)
+	if err != nil {
+		return fmt.Errorf("airplan: invalid api_url %q: %w", c.APIURL, err)
+	}
+	if u.Scheme != "https" && !isLoopbackHost(u.Hostname()) {
+		return fmt.Errorf(
+			"airplan: invalid api_url %q: HTTPS is required for "+
+				"non-loopback hosts",
+			c.APIURL,
+		)
+	}
+	if c.Repository != "" && c.Repository != "auto" &&
+		c.Repository != "none" {
+		if _, err := NormalizeRepositoryURL(c.Repository); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Config) validateRequiredFields(fields []string) error {
+	missing := make([]string, 0, len(fields))
+	for _, field := range fields {
+		switch field {
+		case "endpoint":
+			if c.Endpoint == "" {
+				missing = append(missing, field)
+			}
+		case "bucket":
+			if c.Bucket == "" {
+				missing = append(missing, field)
+			}
+		case "api_url":
+			if c.APIURL == "" {
+				missing = append(missing, field)
+			}
+		case "api_token":
+			if c.APIToken == "" {
+				missing = append(missing, field)
+			}
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	where := "root-level values were used"
+	if c.Profile != "" {
+		where = fmt.Sprintf("profile %q was resolved", c.Profile)
+	}
+	return fmt.Errorf(
+		"airplan: missing required config field(s) %s; %s; set via %s",
+		strings.Join(missing, ", "),
+		where,
+		configSetupMethods(missing),
+	)
+}
+
+func configSetupMethods(fields []string) string {
+	methods := make([]string, 0, 3)
+	if flags := flagNames(fields); flags != "" {
+		methods = append(methods, "flag(s) "+flags)
+	}
+	methods = append(methods,
+		"env var(s) "+envNames(fields),
+		"config file key(s) "+strings.Join(fields, ", "),
+	)
+	return strings.Join(methods, ", or ")
+}
+
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func validateMermaidURL(raw string) error {
@@ -791,6 +917,26 @@ func DefaultConfigPath() (string, error) {
 	return filepath.Join(home, ".config", "airplan", "config.toml"), nil
 }
 
+// ResolveManifestPath applies the process-level manifest path precedence:
+// explicit path, AIRPLAN_MANIFEST, then DefaultManifestPath. Relative paths
+// are intentionally preserved for the caller to resolve against its working
+// directory.
+func ResolveManifestPath(
+	path string,
+	getenv func(string) string,
+) (string, error) {
+	if path != "" {
+		return path, nil
+	}
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	if path = getenv("AIRPLAN_MANIFEST"); path != "" {
+		return path, nil
+	}
+	return DefaultManifestPath()
+}
+
 func resolveConfigPath(
 	path string,
 	getenv func(string) string,
@@ -907,13 +1053,13 @@ func resolveProfile(
 	// Completeness counts everything above profiles in the precedence
 	// order: root values, env vars, and flag overrides (SPEC.md §7,
 	// resolution step 4).
-	rootCfg := &Config{Region: "auto"}
+	rootCfg := &Config{Backend: BackendS3, Region: "auto"}
 	applySettings(rootCfg, fileConfig.Settings, rootKeyDefined(meta, true))
 	if err := applyEnv(rootCfg, getenv); err != nil {
 		return "", err
 	}
 	applyOverrides(rootCfg, opts.Overrides)
-	if rootCfg.Endpoint != "" && rootCfg.Bucket != "" {
+	if connectionSettingsComplete(rootCfg) {
 		return "", nil
 	}
 
@@ -922,6 +1068,19 @@ func resolveProfile(
 			"incomplete; available profiles: %s",
 		strings.Join(names, ", "),
 	)
+}
+
+func connectionSettingsComplete(cfg *Config) bool {
+	switch cfg.EffectiveBackend() {
+	case BackendS3:
+		return cfg.Endpoint != "" && cfg.Bucket != ""
+	case BackendAirplan:
+		return cfg.APIURL != "" && cfg.APIToken != ""
+	default:
+		// Let purpose-specific validation report the invalid discriminant
+		// instead of replacing it with profile ambiguity.
+		return true
+	}
 }
 
 func validateDefaultProfile(fileConfig FileConfig) error {
@@ -972,6 +1131,18 @@ func applySettings(
 	settings Settings,
 	defined func(string) bool,
 ) {
+	if defined("backend") {
+		cfg.Backend = Backend(settings.Backend)
+		if cfg.Backend == "" {
+			cfg.Backend = BackendS3
+		}
+	}
+	if defined("api_url") {
+		cfg.APIURL = settings.APIURL
+	}
+	if defined("api_token") {
+		cfg.APIToken = settings.APIToken
+	}
 	if defined("endpoint") {
 		cfg.Endpoint = settings.Endpoint
 	}
@@ -1059,6 +1230,12 @@ func applyEnvBoolValue(field *bool, value, name string) error {
 
 func applyEnvStringValue(cfg *Config, name, value string) {
 	switch name {
+	case "backend":
+		cfg.Backend = Backend(value)
+	case "api_url":
+		cfg.APIURL = value
+	case "api_token":
+		cfg.APIToken = value
 	case "endpoint":
 		cfg.Endpoint = value
 	case "bucket":
@@ -1087,7 +1264,12 @@ func applyEnvStringValue(cfg *Config, name, value string) {
 // applyOverrides overlays top-of-precedence values (CLI flags): empty
 // strings and nil bools are "not set" and leave cfg untouched.
 func applyOverrides(cfg *Config, s Settings) {
+	if s.Backend != "" {
+		cfg.Backend = Backend(s.Backend)
+	}
 	for field, value := range map[*string]string{
+		&cfg.APIURL:             s.APIURL,
+		&cfg.APIToken:           s.APIToken,
 		&cfg.Endpoint:           s.Endpoint,
 		&cfg.Bucket:             s.Bucket,
 		&cfg.Region:             s.Region,
@@ -1128,6 +1310,65 @@ func warnReadableCredentials(
 	)
 }
 
+func warnInactiveBackendFields(
+	cfg *Config,
+	opts ConfigOptions,
+	getenv func(string) string,
+	meta toml.MetaData,
+	loaded bool,
+	profile string,
+) {
+	var inactive []string
+	switch cfg.EffectiveBackend() {
+	case BackendS3:
+		inactive = []string{"api_url", "api_token"}
+	case BackendAirplan:
+		inactive = []string{
+			"endpoint", "access_key_id", "secret_access_key",
+		}
+	default:
+		return
+	}
+
+	for _, name := range inactive {
+		if !configFieldExplicitForSelection(
+			name, opts, getenv, meta, loaded, profile,
+		) {
+			continue
+		}
+		cfg.Warnings = append(cfg.Warnings, fmt.Sprintf(
+			"config field %s is inactive when backend is %q",
+			name, cfg.EffectiveBackend(),
+		))
+	}
+}
+
+func configFieldExplicitForSelection(
+	name string,
+	opts ConfigOptions,
+	getenv func(string) string,
+	meta toml.MetaData,
+	loaded bool,
+	profile string,
+) bool {
+	for _, definition := range configFieldDefinitions {
+		if definition.name != name {
+			continue
+		}
+		if configOverrideIsSet(opts.Overrides, name) {
+			return true
+		}
+		if definition.envName != "" && getenv(definition.envName) != "" {
+			return true
+		}
+		if profile != "" {
+			return meta.IsDefined("profiles", profile, name)
+		}
+		return loaded && meta.IsDefined(name)
+	}
+	return false
+}
+
 func readableCredentialWarnings(
 	path string,
 	fileConfig FileConfig,
@@ -1154,11 +1395,13 @@ func readableCredentialWarnings(
 }
 
 func containsCredentials(fileConfig FileConfig) bool {
-	if fileConfig.AccessKeyID != "" || fileConfig.SecretAccessKey != "" {
+	if fileConfig.AccessKeyID != "" || fileConfig.SecretAccessKey != "" ||
+		fileConfig.APIToken != "" {
 		return true
 	}
 	for _, profile := range fileConfig.Profiles {
-		if profile.AccessKeyID != "" || profile.SecretAccessKey != "" {
+		if profile.AccessKeyID != "" || profile.SecretAccessKey != "" ||
+			profile.APIToken != "" {
 			return true
 		}
 	}
@@ -1168,7 +1411,13 @@ func containsCredentials(fileConfig FileConfig) bool {
 func flagNames(fields []string) string {
 	names := make([]string, 0, len(fields))
 	for _, field := range fields {
-		names = append(names, "--"+strings.ReplaceAll(field, "_", "-"))
+		for _, definition := range configFieldDefinitions {
+			if definition.name == field &&
+				strings.HasPrefix(definition.overrideSource, "--") {
+				names = append(names, definition.overrideSource)
+				break
+			}
+		}
 	}
 	return strings.Join(names, ", ")
 }

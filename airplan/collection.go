@@ -66,6 +66,9 @@ type FilesInput struct {
 	// MaxTotalSize limits all member bytes; zero uses the 2 GiB default and
 	// negative values disable the limit.
 	MaxTotalSize int64
+	// RepositoryURL is an already-resolved canonical repository URL supplied
+	// by a remote client so the server never inspects its own working tree.
+	RepositoryURL string
 }
 
 // FileResult describes one uploaded collection member.
@@ -167,7 +170,17 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 	if err := c.validate(ctx); err != nil {
 		return nil, err
 	}
-	files, title, repo, total, err := prepareCollection(ctx, in, c.cfg.Repository)
+	if c.remote != nil {
+		return c.remote.UploadFiles(ctx, in)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
+		return nil, err
+	}
+	repository := c.cfg.Repository
+	if in.RepositoryURL != "" {
+		repository = in.RepositoryURL
+	}
+	files, title, repo, total, err := prepareCollection(ctx, in, repository)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +213,7 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 	if err = c.st.put(ctx, object{Key: markerKey, Body: markerBody, ContentType: markerContentType}); err != nil {
 		return nil, err
 	}
-	res := &FilesResult{Result: Result{Bucket: c.cfg.Bucket, Title: title, CreatedAt: createdAt, MarkerVersion: MarkerVersion, MarkerKey: markerKey, RepositoryURL: repo, Kind: string(UploadKindCollection), ContentType: pageContentType}}
+	res := &FilesResult{Result: Result{ID: dir, Bucket: c.cfg.Bucket, Title: title, CreatedAt: createdAt, MarkerVersion: MarkerVersion, MarkerKey: markerKey, RepositoryURL: repo, Kind: string(UploadKindCollection), ContentType: pageContentType}}
 	for _, f := range files {
 		key := BuildKey(c.cfg.KeyPrefix, dir, f.Name)
 		if _, err = f.Reader.Seek(0, io.SeekStart); err != nil {

@@ -21,31 +21,31 @@ const MaxRemoteConcurrency = 64
 // content has not been fetched or trusted.
 type RemoteUpload struct {
 	// Dir is the 26-character random directory without key_prefix.
-	Dir string
+	Dir string `json:"dir"`
 
 	// MarkerKey is the marker's full storage key, including key_prefix.
-	MarkerKey string
-	Kind      UploadKind
-	Conflict  bool
+	MarkerKey string     `json:"marker_key"`
+	Kind      UploadKind `json:"kind,omitempty"`
+	Conflict  bool       `json:"conflict,omitempty"`
 
 	// Slug is inferred only when exactly one valid direct-child HTML page
 	// filename exists. It is a display hint, not trusted marker data.
-	Slug string
+	Slug string `json:"slug,omitempty"`
 
 	// Key and URL are inferred with Slug from the same single direct-child
 	// HTML page. They are LIST-derived hints, not validated marker data.
-	Key string
-	URL string
+	Key string `json:"key,omitempty"`
+	URL string `json:"url,omitempty"`
 
 	// Keys contains every object key recursively beneath the directory.
-	Keys []string
+	Keys []string `json:"keys"`
 
 	// Objects and Bytes describe all Keys, including the marker and extras.
-	Objects int
-	Bytes   int64
+	Objects int   `json:"objects"`
+	Bytes   int64 `json:"bytes"`
 
 	// LastModified is the marker object's storage timestamp.
-	LastModified time.Time
+	LastModified time.Time `json:"last_modified"`
 
 	objects map[string]objectInfo
 }
@@ -64,6 +64,12 @@ type remoteGroup struct {
 // LIST operations only. It never fetches markers or heads payload objects.
 func (c *Client) ListRemote(ctx context.Context) ([]RemoteUpload, error) {
 	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
+	if c.remote != nil {
+		return c.remote.ListRemote(ctx)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
 		return nil, err
 	}
 	prefix := strings.Trim(c.cfg.KeyPrefix, "/")
@@ -213,6 +219,12 @@ func (c *Client) InspectRemoteUploads(
 	ctx context.Context, uploads []RemoteUpload, concurrency int,
 ) ([]RemoteInspectionResult, error) {
 	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
+	if c.remote != nil {
+		return c.remote.InspectRemoteUploads(ctx, uploads, concurrency)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
 		return nil, err
 	}
 	limit, err := ValidateRemoteConcurrency(concurrency)

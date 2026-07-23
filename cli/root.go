@@ -66,6 +66,7 @@ type rootOptions struct {
 	open               bool
 	profile            string
 	config             string
+	manifest           string
 
 	// Connection overrides for one-off use (SPEC.md §6).
 	endpoint      string
@@ -92,7 +93,10 @@ func newRootCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return run(cmd, args, opts)
 		},
+		PersistentPreRunE: validatePersistentOptions,
 	}
+	cmd.PersistentFlags().StringVar(&opts.manifest, "manifest", "",
+		"local manifest path (default: AIRPLAN_MANIFEST or platform state dir)")
 
 	f := cmd.Flags()
 	f.StringVar(&opts.format, "format", "",
@@ -125,6 +129,8 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newDeleteCmd())
 	cmd.AddCommand(newPurgeCmd())
 	cmd.AddCommand(newSyncCmd())
+	cmd.AddCommand(newServeCmd())
+	cmd.AddCommand(newMCPCmd())
 	return cmd
 }
 
@@ -183,6 +189,32 @@ func resolveVersion(
 // stdout; warnings and errors go to stderr.
 func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	stderr := cmd.ErrOrStderr()
+	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
+		Path:      opts.config,
+		Profile:   opts.profile,
+		Overrides: flagOverrides(cmd, opts),
+	})
+	if err != nil {
+		return err
+	}
+	if err := applyManifestSelection(cmd, cfg); err != nil {
+		return err
+	}
+	if cfg.EffectiveBackend() == airplan.BackendAirplan {
+		for _, name := range []string{
+			"endpoint", "bucket", "region", "public-base-url", "key-prefix",
+			"template", "collection-template", "no-source",
+			"indexable", "no-external-assets", "mermaid-url",
+		} {
+			if cmd.Flags().Changed(name) {
+				return fmt.Errorf(
+					"--%s is controlled by the Airplan server and cannot "+
+						"be overridden by an airplan backend client",
+					name,
+				)
+			}
+		}
+	}
 	collection, err := selectCollectionMode(args, opts)
 	if err != nil {
 		return err
@@ -209,15 +241,6 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	}
 	if maxTotalSize == 0 {
 		maxTotalSize = -1
-	}
-
-	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{
-		Path:      opts.config,
-		Profile:   opts.profile,
-		Overrides: flagOverrides(cmd, opts),
-	})
-	if err != nil {
-		return err
 	}
 
 	// The resolved timeout bounds the upload operation after config

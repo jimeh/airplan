@@ -170,6 +170,9 @@ func configDisplayFields(
 ) []configDisplayField {
 	cfg := resolution.Config
 	fields := []configDisplayField{
+		{Name: "backend", Value: string(cfg.EffectiveBackend()), Set: true},
+		{Name: "api_url", Value: cfg.APIURL, Set: cfg.APIURL != ""},
+		{Name: "api_token", Set: cfg.APIToken != "", Sensitive: true},
 		{Name: "endpoint", Value: cfg.Endpoint, Set: cfg.Endpoint != ""},
 		{Name: "bucket", Value: cfg.Bucket, Set: cfg.Bucket != ""},
 		{Name: "region", Value: cfg.Region, Set: cfg.Region != ""},
@@ -236,6 +239,10 @@ func printConfigShow(
 	switch credentialMode {
 	case "standard_aws_chain":
 		credentialMode = "standard AWS credential chain"
+	case "bearer_token":
+		credentialMode = "Airplan bearer token"
+	case "missing_bearer_token":
+		credentialMode = "missing Airplan bearer token"
 	case "partial":
 		credentialMode = "partial explicit configuration"
 	case "explicit":
@@ -282,6 +289,12 @@ func formatConfigSource(source *airplan.ConfigSource) string {
 }
 
 func configCredentialMode(cfg *airplan.Config) string {
+	if cfg.EffectiveBackend() == airplan.BackendAirplan {
+		if cfg.APIToken != "" {
+			return "bearer_token"
+		}
+		return "missing_bearer_token"
+	}
 	switch {
 	case cfg.AccessKeyID == "" && cfg.SecretAccessKey == "":
 		return "standard_aws_chain"

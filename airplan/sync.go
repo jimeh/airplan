@@ -61,6 +61,17 @@ func (c *Client) SyncManifest(
 	if err := c.validate(ctx); err != nil {
 		return nil, err
 	}
+	if c.remote != nil {
+		if opts.ManifestPath != "" {
+			return nil, errors.New(
+				"airplan: manifest path cannot be selected for the airplan backend",
+			)
+		}
+		return c.remote.SyncManifest(ctx, opts)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
+		return nil, err
+	}
 	concurrency, err := ValidateRemoteConcurrency(opts.Concurrency)
 	if err != nil {
 		return nil, err

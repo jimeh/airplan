@@ -2,10 +2,12 @@ package airplan
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -16,6 +18,18 @@ import (
 )
 
 const testDir = "vq3nhk2p7r4wzt5c6ydjm3xhqd"
+
+func TestInvalidTargetErrorPreservesCauseAndClassification(t *testing.T) {
+	cause := url.EscapeError("private parse cause")
+	err := wrapInvalidTarget(cause)
+	if !errors.Is(err, errInvalidTarget) {
+		t.Fatalf("error is not classified as invalid target: %v", err)
+	}
+	var got url.EscapeError
+	if !errors.As(err, &got) || got != cause {
+		t.Fatalf("wrapped cause = %q, want %q", got, cause)
+	}
+}
 
 func TestKeyFromURLOrKey(t *testing.T) {
 	cfg := &Config{

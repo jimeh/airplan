@@ -3,6 +3,7 @@ package airplan
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -220,6 +221,10 @@ func TestGetUploadMarkerAndObjectFailures(t *testing.T) {
 			if err == nil || got != nil ||
 				!strings.Contains(err.Error(), tt.wantSubstr) {
 				t.Fatalf("result = %+v, error = %v", got, err)
+			}
+			if tt.name == "missing page" &&
+				!errors.Is(err, errObjectNotFound) {
+				t.Fatalf("error = %v, want object-not-found cause", err)
 			}
 		})
 	}

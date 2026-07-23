@@ -22,6 +22,18 @@ type GetResult struct {
 	Body []byte
 }
 
+type uploadObjectMissingError struct {
+	key string
+}
+
+func (e *uploadObjectMissingError) Error() string {
+	return fmt.Sprintf("airplan: upload object %q is missing", e.key)
+}
+
+func (e *uploadObjectMissingError) Unwrap() error {
+	return errObjectNotFound
+}
+
 // GetUploadTo validates one declared target and streams it to dst. It is the
 // preferred API for potentially large collection members.
 func (c *Client) GetUploadTo(ctx context.Context, urlOrKey string,
@@ -31,6 +43,12 @@ func (c *Client) GetUploadTo(ctx context.Context, urlOrKey string,
 		return "", errors.New("airplan: nil download writer")
 	}
 	if err := c.validate(ctx); err != nil {
+		return "", err
+	}
+	if c.remote != nil {
+		return c.remote.GetUploadTo(ctx, urlOrKey, opts, dst)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
 		return "", err
 	}
 	objectKey, resolved, err := c.resolveGetObject(ctx, urlOrKey, opts)
@@ -43,7 +61,7 @@ func (c *Client) GetUploadTo(ctx context.Context, urlOrKey string,
 	}
 	if err = c.st.getTo(ctx, objectKey, dst); err != nil {
 		if errors.Is(err, errObjectNotFound) {
-			return "", fmt.Errorf("airplan: upload object %q is missing", objectKey)
+			return "", &uploadObjectMissingError{key: objectKey}
 		}
 		return "", err
 	}
@@ -58,6 +76,12 @@ func (c *Client) GetUpload(
 	if err := c.validate(ctx); err != nil {
 		return nil, err
 	}
+	if c.remote != nil {
+		return c.remote.GetUpload(ctx, urlOrKey, opts)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
+		return nil, err
+	}
 	objectKey, resolved, err := c.resolveGetObject(ctx, urlOrKey, opts)
 	if err != nil {
 		return nil, err
@@ -69,13 +93,43 @@ func (c *Client) GetUpload(
 	body, err := c.st.getBytes(ctx, objectKey, 0)
 	if err != nil {
 		if errors.Is(err, errObjectNotFound) {
-			return nil, fmt.Errorf(
-				"airplan: upload object %q is missing", objectKey,
-			)
+			return nil, &uploadObjectMissingError{key: objectKey}
 		}
 		return nil, err
 	}
 	return &GetResult{Key: objectKey, Body: body}, nil
+}
+
+func (c *Client) openUpload(
+	ctx context.Context, urlOrKey string, opts GetOptions,
+) (string, io.ReadCloser, string, error) {
+	if err := c.validate(ctx); err != nil {
+		return "", nil, "", err
+	}
+	if c.remote != nil {
+		return "", nil, "", errors.New(
+			"airplan: streaming object access requires an s3 backend",
+		)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
+		return "", nil, "", err
+	}
+	objectKey, resolved, err := c.resolveGetObject(ctx, urlOrKey, opts)
+	if err != nil {
+		return "", nil, "", err
+	}
+	if objectKey == resolved.Key {
+		return objectKey, io.NopCloser(strings.NewReader(string(resolved.Body))),
+			markerContentType, nil
+	}
+	body, contentType, err := c.st.open(ctx, objectKey)
+	if err != nil {
+		if errors.Is(err, errObjectNotFound) {
+			return "", nil, "", &uploadObjectMissingError{key: objectKey}
+		}
+		return "", nil, "", err
+	}
+	return objectKey, body, contentType, nil
 }
 
 func (c *Client) resolveGetObject(
@@ -124,14 +178,16 @@ func resolveGetTarget(
 			return pageKey, nil
 		}
 		if sourceKey == "" {
-			return "", errors.New("airplan: upload declares no source object")
+			return "", invalidTargetf(
+				"airplan: upload declares no source object",
+			)
 		}
 		return sourceKey, nil
 	}
 	if key == markerKey || key == pageKey ||
 		(sourceKey != "" && key == sourceKey) {
 		if opts.Source {
-			return "", errors.New(
+			return "", invalidTargetf(
 				"airplan: --source cannot be used with an explicit child target",
 			)
 		}
@@ -140,12 +196,14 @@ func resolveGetTarget(
 	for _, object := range marker.Objects {
 		if object.Role == MarkerRoleFile && key == dirPrefix+object.Name {
 			if opts.Source {
-				return "", errors.New("airplan: --source cannot be used with an explicit child target")
+				return "", invalidTargetf(
+					"airplan: --source cannot be used with an explicit child target",
+				)
 			}
 			return key, nil
 		}
 	}
-	return "", fmt.Errorf(
+	return "", invalidTargetf(
 		"airplan: get target %q is not the directory, marker, or declared payload",
 		key,
 	)

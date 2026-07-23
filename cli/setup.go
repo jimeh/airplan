@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -21,6 +22,9 @@ func loadCommandConfig(
 		Profile: profile,
 	})
 	if err != nil {
+		return nil, err
+	}
+	if err := applyManifestSelection(cmd, cfg); err != nil {
 		return nil, err
 	}
 	for _, w := range cfg.Warnings {
@@ -63,7 +67,8 @@ func inferManifestProfile(
 		return flagProfile, false
 	}
 
-	records, _, err := airplan.ReadManifest("")
+	manifestPath, _ := selectedManifestPath(cmd)
+	records, _, err := airplan.ReadManifest(manifestPath)
 	if err != nil {
 		return flagProfile, false
 	}
@@ -79,12 +84,67 @@ func inferManifestProfile(
 	return matches[0].Profile, true
 }
 
+func selectedManifestPath(cmd *cobra.Command) (string, bool) {
+	if cmd != nil {
+		if flag := cmd.Flag("manifest"); flag != nil && flag.Changed {
+			return flag.Value.String(), true
+		}
+	}
+	return os.Getenv("AIRPLAN_MANIFEST"), false
+}
+
+func applyManifestSelection(cmd *cobra.Command, cfg *airplan.Config) error {
+	path, explicit := selectedManifestPath(cmd)
+	if cfg.EffectiveBackend() == airplan.BackendAirplan {
+		if explicit {
+			return errors.New(
+				"--manifest cannot be used with the airplan backend; " +
+					"configure it on airplan serve",
+			)
+		}
+		return nil
+	}
+	if path != "" {
+		cfg.ManifestPath = path
+	}
+	return nil
+}
+
+func validatePersistentOptions(cmd *cobra.Command, _ []string) error {
+	_, explicit := selectedManifestPath(cmd)
+	if !explicit {
+		return nil
+	}
+	switch cmd.CommandPath() {
+	case "airplan", "airplan list", "airplan show", "airplan get",
+		"airplan delete", "airplan purge", "airplan sync", "airplan serve",
+		"airplan mcp":
+		return nil
+	default:
+		return fmt.Errorf("--manifest does not apply to %s", cmd.CommandPath())
+	}
+}
+
 func setupTargetClient(
 	cmd *cobra.Command, path, flagProfile, target string,
 ) (*airplan.Client, *airplan.Config, context.Context,
 	context.CancelFunc, error,
 ) {
 	profile, inferred := inferManifestProfile(cmd, target, flagProfile)
+	if inferred {
+		// Manifest profile inference is a local S3 convenience. An airplan
+		// profile would turn local history into an implicit HTTP redirect,
+		// so fall back to ordinary profile resolution instead.
+		inferredCfg, loadErr := airplan.LoadConfig(airplan.ConfigOptions{
+			Path:    path,
+			Profile: profile,
+		})
+		if loadErr == nil &&
+			inferredCfg.EffectiveBackend() != airplan.BackendS3 {
+			profile = flagProfile
+			inferred = false
+		}
+	}
 	client, cfg, ctx, cancel, err := setupClient(cmd, path, profile)
 	if err != nil {
 		if inferred {
