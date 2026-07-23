@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -79,13 +78,14 @@ type safeMCPHandler struct {
 	base slog.Handler
 }
 
-func (h *safeMCPHandler) Enabled(ctx context.Context, level slog.Level) bool {
-	return h.base.Enabled(ctx, mappedMCPLevel(level))
+func (h *safeMCPHandler) Enabled(ctx context.Context, _ slog.Level) bool {
+	return h.base.Enabled(ctx, LevelTrace)
 }
 
 func (h *safeMCPHandler) Handle(ctx context.Context, record slog.Record) error {
-	level := mappedMCPLevel(record.Level)
-	safe := slog.NewRecord(record.Time, level, "mcp sdk event", record.PC)
+	safe := slog.NewRecord(
+		record.Time, LevelTrace, "mcp sdk event", record.PC,
+	)
 	safe.AddAttrs(
 		slog.String("event", safeMCPEvent(record.Message)),
 		slog.String("request_id", RequestID(ctx)),
@@ -99,13 +99,6 @@ func (h *safeMCPHandler) WithAttrs([]slog.Attr) slog.Handler {
 
 func (h *safeMCPHandler) WithGroup(string) slog.Handler {
 	return &safeMCPHandler{base: h.base}
-}
-
-func mappedMCPLevel(level slog.Level) slog.Level {
-	if level >= slog.LevelWarn {
-		return slog.LevelDebug
-	}
-	return LevelTrace
 }
 
 func safeMCPEvent(message string) string {
@@ -142,10 +135,7 @@ func RequestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := RequestID(r.Context())
 		if !validRequestID.MatchString(requestID) {
-			requestID = r.Header.Get(RequestIDHeader)
-			if !validRequestID.MatchString(requestID) {
-				requestID = newRequestID()
-			}
+			requestID = newRequestID()
 		}
 		w.Header().Set(RequestIDHeader, requestID)
 		ctx := context.WithValue(r.Context(), requestIDContextKey{}, requestID)
@@ -170,7 +160,7 @@ func HTTPMiddleware(
 		requestID := RequestID(r.Context())
 		logger.Log(r.Context(), LevelTrace, "request started",
 			"transport", transport,
-			"method", r.Method,
+			"method", safeHTTPMethod(r.Method),
 			"path", requestPath,
 			"request_id", requestID,
 		)
@@ -185,14 +175,14 @@ func HTTPMiddleware(
 		if status == http.StatusRequestEntityTooLarge && transport != "mcp" {
 			logger.DebugContext(r.Context(), "request rejected",
 				"transport", transport,
-				"reason", "body_limit",
+				"reason", "size_limit",
 				"request_id", requestID,
 			)
 		}
 		if status >= http.StatusInternalServerError {
 			logger.ErrorContext(r.Context(), "request failed",
 				"transport", transport,
-				"method", r.Method,
+				"method", safeHTTPMethod(r.Method),
 				"path", requestPath,
 				"status", status,
 				"request_id", requestID,
@@ -200,13 +190,23 @@ func HTTPMiddleware(
 		}
 		logger.DebugContext(r.Context(), "request completed",
 			"transport", transport,
-			"method", r.Method,
+			"method", safeHTTPMethod(r.Method),
 			"path", requestPath,
 			"status", status,
 			"duration", duration,
 			"request_id", requestID,
 		)
 	}))
+}
+
+func safeHTTPMethod(method string) string {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodPost, http.MethodDelete,
+		http.MethodOptions:
+		return method
+	default:
+		return "unknown"
+	}
 }
 
 type responseRecorder struct {
@@ -233,10 +233,7 @@ func (w *responseRecorder) Unwrap() http.ResponseWriter {
 }
 
 func (w *responseRecorder) Flush() {
-	err := http.NewResponseController(w.ResponseWriter).Flush()
-	if err != nil && !errors.Is(err, http.ErrNotSupported) {
-		return
-	}
+	_ = http.NewResponseController(w.ResponseWriter).Flush()
 }
 
 func (w *responseRecorder) Hijack() (

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -134,8 +135,7 @@ func runServe(cmd *cobra.Command, opts *serveOptions) error {
 	defer stop()
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(listener) }()
-	fmt.Fprintf(cmd.ErrOrStderr(), "airplan: serving on http://%s\n",
-		listener.Addr())
+	writeServeListen(cmd.ErrOrStderr(), logger, listener.Addr().String())
 	select {
 	case err := <-serveErr:
 		if errors.Is(err, http.ErrServerClosed) {
@@ -151,6 +151,12 @@ func runServe(cmd *cobra.Command, opts *serveOptions) error {
 		return fmt.Errorf("airplan: HTTP server shutdown: %w", err)
 	}
 	return nil
+}
+
+func writeServeListen(writer io.Writer, logger *slog.Logger, address string) {
+	if logger.Enabled(context.Background(), slog.LevelInfo) {
+		fmt.Fprintf(writer, "airplan: serving on http://%s\n", address)
+	}
 }
 
 func serveLogLevel(cmd *cobra.Command, flagValue string) (slog.Level, error) {

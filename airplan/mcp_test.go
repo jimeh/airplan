@@ -327,6 +327,7 @@ func TestHostedMCPLogsSafeToolOutcome(t *testing.T) {
 		"mcp tool completed",
 		"tool=upload_document",
 		"outcome=error",
+		"error_class=tool",
 		"error_class=input_too_large",
 	} {
 		if !strings.Contains(output, want) {
@@ -341,6 +342,63 @@ func TestHostedMCPLogsSafeToolOutcome(t *testing.T) {
 			t.Fatalf("logs contain sensitive sentinel %q: %s",
 				sentinel, output)
 		}
+	}
+}
+
+func TestMCPLogsSDKLevelFailuresWithSafeClasses(t *testing.T) {
+	const unknownToolSentinel = "private-unknown-tool-sentinel"
+	client := &Client{cfg: &Config{}, remote: &mcpTestTransport{}}
+	var logs bytes.Buffer
+	logger := serverlog.New(&logs, slog.LevelDebug)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServerWithOptions(client, "test", MCPServerOptions{
+		Logger: logger,
+	})
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	if _, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: unknownToolSentinel,
+	}); err == nil {
+		t.Fatal("unknown tool call succeeded")
+	}
+	invalid, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "upload_document",
+		Arguments: map[string]any{
+			"content": 123,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !invalid.IsError {
+		t.Fatalf("invalid argument result = %+v", invalid)
+	}
+
+	output := logs.String()
+	for _, want := range []string{
+		"tool=unknown outcome=error error_class=protocol",
+		"tool=upload_document outcome=error error_class=tool",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("logs do not contain %q: %s", want, output)
+		}
+	}
+	if strings.Contains(output, unknownToolSentinel) {
+		t.Fatalf("unknown tool name leaked: %s", output)
 	}
 }
 

@@ -1620,19 +1620,22 @@ reverse proxy. The built-in server does not manage certificates.
 
 Server logs are line-oriented text on stderr only. At `info`, the process
 prints its existing listening line and otherwise remains quiet except for
-server failures. `debug` adds completed REST and MCP requests with transport,
-method, safe route path, status, duration, and request ID; bearer rejection
-reasons; Origin and body-limit rejections; and MCP tool name, outcome, duration,
-and safe failure class. `trace` additionally adds request starts, MCP protocol
-method lifecycle, and sanitized SDK lifecycle events. Trace is more verbose
-than debug and is rendered as `TRACE`.
+server failures. The listening line is also present at `debug` and `trace` but
+is suppressed at `warn` and `error`. `debug` adds completed REST and MCP
+requests with transport, allowlisted method, safe route path, status, duration,
+and a server-generated request ID; bearer rejection reasons; Origin and
+size-limit rejections; and MCP tool name, outcome, duration, and safe failure
+class. `trace` additionally adds request starts, MCP protocol method lifecycle,
+and sanitized SDK lifecycle events. Trace is more verbose than debug and is
+rendered as `TRACE`.
 
 Authentication rejection reasons may distinguish missing, duplicate,
 wrong-scheme, malformed-shape, and mismatched credentials in local debug logs,
 while every client still receives the same generic authentication response.
-No level logs raw HTTP or MCP bodies, Authorization values, tool arguments or
-results, upload content, capability URLs or keys, S3 response bodies,
-endpoints, buckets, credentials, token metadata, or filesystem paths.
+Incoming request-ID values are ignored rather than reflected. No level logs raw
+HTTP or MCP bodies, Authorization values, tool arguments or results, upload
+content, capability URLs or keys, S3 response bodies, endpoints, buckets,
+credentials, token metadata, or filesystem paths.
 
 `serve` validates its S3 readiness before listening, uses bounded HTTP header
 and idle timeouts, and shuts down gracefully on SIGINT or SIGTERM. It is a

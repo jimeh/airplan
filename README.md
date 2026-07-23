@@ -209,8 +209,9 @@ storage before listening and exposes:
 - the authoritative OpenAPI 3.0.3 schema at `/openapi.yaml`.
 
 The default `info` log level keeps stderr quiet apart from the listening line
-and server failures. Use `--log-level debug` to diagnose request completion,
-safe authentication rejection reasons, Origin/body-limit failures, and MCP
+and server failures. `warn` and `error` suppress the listening line. Use
+`--log-level debug` to diagnose request completion,
+safe authentication rejection reasons, Origin and size-limit failures, and MCP
 tool outcomes. `--log-level trace` additionally shows sanitized request, MCP
 method, and SDK lifecycle events:
 

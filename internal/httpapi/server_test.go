@@ -360,30 +360,27 @@ func TestBearerAuthRejectsDuplicateAndMalformedValues(t *testing.T) {
 	}
 }
 
-func TestRequestIDAcceptsOnlyConstrainedValues(t *testing.T) {
+func TestRequestIDIsServerGenerated(t *testing.T) {
 	handler := newTestHandler(t, &stubOperations{}, Options{})
-	for _, test := range []struct {
-		incoming string
-		wantSame bool
-	}{
-		{incoming: "agent.request-42_ok", wantSame: true},
-		{incoming: "bad request id", wantSame: false},
-		{incoming: strings.Repeat("a", 65), wantSame: false},
+	for _, incoming := range []string{
+		"agent.request-42_ok",
+		"bad request id",
+		strings.Repeat("a", 65),
 	} {
 		request := authorizedRequest(
 			http.MethodGet,
 			"/api/v1/capabilities",
 			nil,
 		)
-		request.Header.Set(requestIDHeader, test.incoming)
+		request.Header.Set(requestIDHeader, incoming)
 		recorder := httptest.NewRecorder()
 		handler.ServeHTTP(recorder, request)
 		got := recorder.Header().Get(requestIDHeader)
 		if got == "" {
 			t.Fatal("response request ID is empty")
 		}
-		if (got == test.incoming) != test.wantSame {
-			t.Fatalf("response request ID = %q for incoming %q", got, test.incoming)
+		if got == incoming {
+			t.Fatalf("response reflected client request ID %q", incoming)
 		}
 	}
 }

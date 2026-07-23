@@ -54,11 +54,19 @@ func TestInfoFilteringAndSafeMCPLogger(t *testing.T) {
 	debugLogger := New(&output, slog.LevelDebug)
 	sdkLogger := SafeMCPLogger(debugLogger)
 	sdkLogger.Error("server connect failed", "error", sentinel)
-	if !strings.Contains(output.String(), "event=protocol_event") {
-		t.Fatalf("safe MCP event missing: %s", output.String())
+	if output.Len() != 0 {
+		t.Fatalf("SDK lifecycle event emitted below trace: %s", output.String())
+	}
+
+	traceLogger := New(&output, LevelTrace)
+	sdkLogger = SafeMCPLogger(traceLogger)
+	sdkLogger.Info("server session connected", "session_id", sentinel)
+	if !strings.Contains(output.String(), "level=TRACE") ||
+		!strings.Contains(output.String(), "event=session_connected") {
+		t.Fatalf("known safe MCP lifecycle event missing: %s", output.String())
 	}
 	if strings.Contains(output.String(), sentinel) ||
-		strings.Contains(output.String(), "server connect failed") {
+		strings.Contains(output.String(), "server session connected") {
 		t.Fatalf("safe MCP logger leaked SDK detail: %s", output.String())
 	}
 }
@@ -116,6 +124,62 @@ func TestNestedRequestIDMiddlewareReusesOneGeneratedID(t *testing.T) {
 	if outerID == "" || innerID != outerID || returnedID != outerID {
 		t.Fatalf("request IDs: outer=%q inner=%q returned=%q",
 			outerID, innerID, returnedID)
+	}
+}
+
+func TestHTTPLoggingIgnoresClientRequestIDAndUnknownMethod(t *testing.T) {
+	const (
+		requestIDSentinel = "private-token-request-id-sentinel"
+		methodSentinel    = "PRIVATE_METHOD_SENTINEL"
+	)
+	var output bytes.Buffer
+	logger := New(&output, slog.LevelDebug)
+	handler := HTTPMiddleware(
+		logger,
+		"rest",
+		func(*http.Request) string { return "unmatched" },
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		}),
+	)
+	request := httptest.NewRequest(methodSentinel, "/ignored", nil)
+	request.Header.Set(RequestIDHeader, requestIDSentinel)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	logs := output.String()
+	if strings.Contains(logs, requestIDSentinel) ||
+		strings.Contains(logs, methodSentinel) {
+		t.Fatalf("request log leaked client-controlled metadata: %s", logs)
+	}
+	if !strings.Contains(logs, "method=unknown") {
+		t.Fatalf("unknown method was not normalized: %s", logs)
+	}
+	returnedID := recorder.Header().Get(RequestIDHeader)
+	if returnedID == "" || returnedID == requestIDSentinel {
+		t.Fatalf("response request ID = %q", returnedID)
+	}
+}
+
+func TestRESTSizeLimitReasonIsNeutral(t *testing.T) {
+	var output bytes.Buffer
+	logger := New(&output, slog.LevelDebug)
+	handler := HTTPMiddleware(
+		logger,
+		"rest",
+		func(*http.Request) string { return "/api/v1/uploads/documents" },
+		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+		}),
+	)
+	handler.ServeHTTP(
+		httptest.NewRecorder(),
+		httptest.NewRequest(
+			http.MethodPost, "/api/v1/uploads/documents", nil,
+		),
+	)
+	if !strings.Contains(output.String(), "reason=size_limit") ||
+		strings.Contains(output.String(), "reason=body_limit") {
+		t.Fatalf("unexpected REST 413 classification: %s", output.String())
 	}
 }
 

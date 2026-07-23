@@ -57,8 +57,9 @@ generic. Trace logs add sanitized protocol lifecycle metadata, never raw HTTP
 or MCP frames. No log level records Authorization values, token length or
 other token metadata, request bodies, tool arguments/results, upload content,
 capability URLs or keys, S3 endpoints/buckets/response bodies, credentials, or
-filesystem paths. Treat debug and trace output as operational data despite
-these exclusions.
+filesystem paths. Request IDs are server-generated; incoming `X-Request-Id`
+values are ignored rather than reflected into responses or logs. Treat debug
+and trace output as operational data despite these exclusions.
 
 ## Capability URLs and uploaded content
 

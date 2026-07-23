@@ -73,6 +73,28 @@ func TestServeLogLevelPrecedence(t *testing.T) {
 	}
 }
 
+func TestServeListenLineFollowsInfoThreshold(t *testing.T) {
+	const want = "airplan: serving on http://127.0.0.1:8080\n"
+	for _, test := range []struct {
+		level slog.Level
+		want  bool
+	}{
+		{level: slog.LevelError},
+		{level: slog.LevelWarn},
+		{level: slog.LevelInfo, want: true},
+		{level: slog.LevelDebug, want: true},
+		{level: serverlog.LevelTrace, want: true},
+	} {
+		var output bytes.Buffer
+		logger := serverlog.New(&output, test.level)
+		writeServeListen(&output, logger, "127.0.0.1:8080")
+		if got := output.String(); (got == want) != test.want {
+			t.Fatalf("level %v output = %q, want line = %t",
+				test.level, got, test.want)
+		}
+	}
+}
+
 func TestLoopbackListenGuard(t *testing.T) {
 	for _, address := range []string{
 		"127.0.0.1:8080", "[::1]:8080", "localhost:8080",

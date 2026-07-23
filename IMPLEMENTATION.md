@@ -543,11 +543,13 @@ The process is deliberately single-instance and relies on persistent
 file-backed manifest state.
 
 Serve-only observability uses `log/slog` with one text logger on stderr.
-Request-ID and completion middleware wraps both transports; route names are
-allowlisted before logging so an unmatched URL cannot disclose a capability
-key. Bearer validation returns a closed set of safe rejection reasons after
-fixed-size digest comparison. REST and MCP use the same validator and generic
-wire response.
+Request-ID and completion middleware wraps both transports. IDs are generated
+by the server, reused by nested middleware, and never accepted from request
+headers. Route names and methods are allowlisted before logging so unmatched or
+unexpected request metadata cannot disclose a capability key or another
+client-controlled value. Bearer validation returns a closed set of safe
+rejection reasons after fixed-size digest comparison. REST and MCP use the same
+validator and generic wire response.
 
 The MCP SDK receives a logger through both `ServerOptions` and
 `StreamableHTTPOptions`, but an adapter discards SDK messages and attributes

@@ -415,11 +415,14 @@ func mcpLoggingMiddleware(logger *slog.Logger) mcp.Middleware {
 			result, err := next(ctx, method, request)
 			duration := time.Since(started)
 			outcome := "success"
+			errorClass := "none"
 			if err != nil {
 				outcome = "error"
+				errorClass = "protocol"
 			} else if toolResult, ok := result.(*mcp.CallToolResult); ok &&
 				toolResult.IsError {
 				outcome = "error"
+				errorClass = "tool"
 			}
 			logger.Log(ctx, serverlog.LevelTrace, "mcp method completed",
 				"method", safeMCPMethod(method),
@@ -431,6 +434,7 @@ func mcpLoggingMiddleware(logger *slog.Logger) mcp.Middleware {
 				logger.DebugContext(ctx, "mcp tool completed",
 					"tool", safeMCPToolName(request),
 					"outcome", outcome,
+					"error_class", errorClass,
 					"duration", duration,
 					"request_id", requestID,
 				)
