@@ -30,7 +30,7 @@ func (s *stubOperations) Capabilities(context.Context) (Capabilities, error) {
 		APIVersion:     "v1",
 		ServerVersion:  "test",
 		Operations:     []string{"upload_document"},
-		UploadFormats:  []string{"md"},
+		UploadFormats:  []CapabilitiesUploadFormats{"md"},
 		Limits:         UploadLimits{DocumentBytes: 1024},
 		MarkerVersions: []int{3},
 	}, s.capabilitiesErr

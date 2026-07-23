@@ -7,29 +7,33 @@ package generated
 
 import (
 	"bytes"
+	"compress/flate"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/oapi-codegen/runtime"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
-// Defines values for CapabilitiesApiVersion.
+// Defines values for CapabilitiesAPIVersion.
 const (
-	V1 CapabilitiesApiVersion = "v1"
+	V1 CapabilitiesAPIVersion = "v1"
 )
 
-// Valid indicates whether the value is a known member of the CapabilitiesApiVersion enum.
-func (e CapabilitiesApiVersion) Valid() bool {
+// Valid indicates whether the value is a known member of the CapabilitiesAPIVersion enum.
+func (e CapabilitiesAPIVersion) Valid() bool {
 	switch e {
 	case V1:
 		return true
@@ -40,7 +44,7 @@ func (e CapabilitiesApiVersion) Valid() bool {
 
 // Defines values for CapabilitiesUploadFormats.
 const (
-	CapabilitiesUploadFormatsHtml CapabilitiesUploadFormats = "html"
+	CapabilitiesUploadFormatsHTML CapabilitiesUploadFormats = "html"
 	CapabilitiesUploadFormatsMd   CapabilitiesUploadFormats = "md"
 	CapabilitiesUploadFormatsTxt  CapabilitiesUploadFormats = "txt"
 )
@@ -48,7 +52,7 @@ const (
 // Valid indicates whether the value is a known member of the CapabilitiesUploadFormats enum.
 func (e CapabilitiesUploadFormats) Valid() bool {
 	switch e {
-	case CapabilitiesUploadFormatsHtml:
+	case CapabilitiesUploadFormatsHTML:
 		return true
 	case CapabilitiesUploadFormatsMd:
 		return true
@@ -79,7 +83,7 @@ func (e DeleteResultKind) Valid() bool {
 
 // Defines values for DocumentMetadataFormat.
 const (
-	DocumentMetadataFormatHtml DocumentMetadataFormat = "html"
+	DocumentMetadataFormatHTML DocumentMetadataFormat = "html"
 	DocumentMetadataFormatMd   DocumentMetadataFormat = "md"
 	DocumentMetadataFormatTxt  DocumentMetadataFormat = "txt"
 )
@@ -87,7 +91,7 @@ const (
 // Valid indicates whether the value is a known member of the DocumentMetadataFormat enum.
 func (e DocumentMetadataFormat) Valid() bool {
 	switch e {
-	case DocumentMetadataFormatHtml:
+	case DocumentMetadataFormatHTML:
 		return true
 	case DocumentMetadataFormatMd:
 		return true
@@ -262,7 +266,7 @@ func (e UploadResultKind) Valid() bool {
 
 // Capabilities defines model for Capabilities.
 type Capabilities struct {
-	ApiVersion     CapabilitiesApiVersion      `json:"api_version"`
+	APIVersion     CapabilitiesAPIVersion      `json:"api_version"`
 	Limits         UploadLimits                `json:"limits"`
 	MarkerVersions []int                       `json:"marker_versions"`
 	Operations     []string                    `json:"operations"`
@@ -270,23 +274,23 @@ type Capabilities struct {
 	UploadFormats  []CapabilitiesUploadFormats `json:"upload_formats"`
 }
 
-// CapabilitiesApiVersion defines model for Capabilities.ApiVersion.
-type CapabilitiesApiVersion string
+// CapabilitiesAPIVersion defines model for Capabilities.APIVersion.
+type CapabilitiesAPIVersion string
 
 // CapabilitiesUploadFormats defines model for Capabilities.UploadFormats.
 type CapabilitiesUploadFormats string
 
 // CollectionMetadata defines model for CollectionMetadata.
 type CollectionMetadata struct {
-	MaxSize       *int64  `json:"max_size,omitempty"`
-	MaxTotalSize  *int64  `json:"max_total_size,omitempty"`
-	RepositoryUrl *string `json:"repository_url,omitempty"`
-	Title         *string `json:"title,omitempty"`
+	MaxSize       int64  `json:"max_size,omitempty"`
+	MaxTotalSize  int64  `json:"max_total_size,omitempty"`
+	RepositoryURL string `json:"repository_url,omitempty"`
+	Title         string `json:"title,omitempty"`
 }
 
 // DeleteResult defines model for DeleteResult.
 type DeleteResult struct {
-	Id        string           `json:"id"`
+	ID        string           `json:"id"`
 	Keys      []string         `json:"keys"`
 	Kind      DeleteResultKind `json:"kind"`
 	MarkerKey string           `json:"marker_key"`
@@ -299,13 +303,13 @@ type DeleteResultKind string
 
 // DocumentMetadata defines model for DocumentMetadata.
 type DocumentMetadata struct {
-	Format        *DocumentMetadataFormat `json:"format,omitempty"`
-	Lang          *string                 `json:"lang,omitempty"`
-	MaxSize       *int64                  `json:"max_size,omitempty"`
-	Name          string                  `json:"name"`
-	RepositoryUrl *string                 `json:"repository_url,omitempty"`
-	Slug          *string                 `json:"slug,omitempty"`
-	Title         *string                 `json:"title,omitempty"`
+	Format        DocumentMetadataFormat `json:"format,omitempty"`
+	Lang          string                 `json:"lang,omitempty"`
+	MaxSize       int64                  `json:"max_size,omitempty"`
+	Name          string                 `json:"name"`
+	RepositoryURL string                 `json:"repository_url,omitempty"`
+	Slug          string                 `json:"slug,omitempty"`
+	Title         string                 `json:"title,omitempty"`
 }
 
 // DocumentMetadataFormat defines model for DocumentMetadata.Format.
@@ -317,13 +321,13 @@ type FileResult struct {
 	ContentType string `json:"content_type"`
 	Key         string `json:"key"`
 	Name        string `json:"name"`
-	Url         string `json:"url"`
+	URL         string `json:"url"`
 }
 
 // GetUploadRequest defines model for GetUploadRequest.
 type GetUploadRequest struct {
-	Source   *bool  `json:"source,omitempty"`
-	UrlOrKey string `json:"url_or_key"`
+	Source   bool   `json:"source,omitempty"`
+	URLOrKey string `json:"url_or_key"`
 }
 
 // Health defines model for Health.
@@ -336,12 +340,12 @@ type HealthStatus string
 
 // InspectedObject defines model for InspectedObject.
 type InspectedObject struct {
-	Bytes         int64   `json:"bytes"`
-	Exists        bool    `json:"exists"`
-	ExpectedBytes int64   `json:"expected_bytes"`
-	ExpectedKnown bool    `json:"expected_known"`
-	Key           string  `json:"key"`
-	Url           *string `json:"url,omitempty"`
+	Bytes         int64  `json:"bytes"`
+	Exists        bool   `json:"exists"`
+	ExpectedBytes int64  `json:"expected_bytes"`
+	ExpectedKnown bool   `json:"expected_known"`
+	Key           string `json:"key"`
+	URL           string `json:"url,omitempty"`
 }
 
 // ManifestList defines model for ManifestList.
@@ -352,21 +356,21 @@ type ManifestList struct {
 
 // ManifestRecord defines model for ManifestRecord.
 type ManifestRecord struct {
-	Bucket        *string             `json:"bucket,omitempty"`
-	Bytes         *int64              `json:"bytes,omitempty"`
-	Format        *string             `json:"format,omitempty"`
-	Key           string              `json:"key"`
-	Kind          *ManifestRecordKind `json:"kind,omitempty"`
-	MarkerKey     *string             `json:"marker_key,omitempty"`
-	MarkerVersion *int                `json:"marker_version,omitempty"`
-	Reason        *string             `json:"reason,omitempty"`
-	RepositoryUrl *string             `json:"repository_url,omitempty"`
-	Slug          *string             `json:"slug,omitempty"`
-	SourceKey     *string             `json:"source_key,omitempty"`
-	Time          time.Time           `json:"time"`
-	Title         *string             `json:"title,omitempty"`
-	Type          ManifestRecordType  `json:"type"`
-	Url           *string             `json:"url,omitempty"`
+	Bucket        string             `json:"bucket,omitempty"`
+	Bytes         int64              `json:"bytes,omitempty"`
+	Format        string             `json:"format,omitempty"`
+	Key           string             `json:"key"`
+	Kind          ManifestRecordKind `json:"kind,omitempty"`
+	MarkerKey     string             `json:"marker_key,omitempty"`
+	MarkerVersion int                `json:"marker_version,omitempty"`
+	Reason        string             `json:"reason,omitempty"`
+	RepositoryURL string             `json:"repository_url,omitempty"`
+	Slug          string             `json:"slug,omitempty"`
+	SourceKey     string             `json:"source_key,omitempty"`
+	Time          time.Time          `json:"time"`
+	Title         string             `json:"title,omitempty"`
+	Type          ManifestRecordType `json:"type"`
+	URL           string             `json:"url,omitempty"`
 }
 
 // ManifestRecordKind defines model for ManifestRecord.Kind.
@@ -377,28 +381,28 @@ type ManifestRecordType string
 
 // Problem defines model for Problem.
 type Problem struct {
-	Code      string  `json:"code"`
-	Detail    *string `json:"detail,omitempty"`
-	Instance  *string `json:"instance,omitempty"`
-	RequestId string  `json:"request_id"`
-	Status    int     `json:"status"`
-	Title     string  `json:"title"`
-	Type      string  `json:"type"`
+	Code      string `json:"code"`
+	Detail    string `json:"detail,omitempty"`
+	Instance  string `json:"instance,omitempty"`
+	RequestID string `json:"request_id"`
+	Status    int    `json:"status"`
+	Title     string `json:"title"`
+	Type      string `json:"type"`
 }
 
 // PurgeCandidate defines model for PurgeCandidate.
 type PurgeCandidate struct {
 	Inspection *UploadInspection `json:"inspection,omitempty"`
 	Record     ManifestRecord    `json:"record"`
-	UploadId   string            `json:"upload_id"`
+	UploadID   string            `json:"upload_id"`
 	Warnings   []string          `json:"warnings"`
 }
 
 // PurgeItemResult defines model for PurgeItemResult.
 type PurgeItemResult struct {
 	Deleted  *DeleteResult `json:"deleted,omitempty"`
-	Error    *string       `json:"error,omitempty"`
-	UploadId string        `json:"upload_id"`
+	Error    string        `json:"error,omitempty"`
+	UploadID string        `json:"upload_id"`
 }
 
 // PurgePreview defines model for PurgePreview.
@@ -410,10 +414,10 @@ type PurgePreview struct {
 
 // PurgePreviewRequest defines model for PurgePreviewRequest.
 type PurgePreviewRequest struct {
-	All           *bool                     `json:"all,omitempty"`
-	Concurrency   *int                      `json:"concurrency,omitempty"`
-	CreatedBefore *time.Time                `json:"created_before,omitempty"`
-	Slug          *string                   `json:"slug,omitempty"`
+	All           bool                      `json:"all,omitempty"`
+	Concurrency   int                       `json:"concurrency,omitempty"`
+	CreatedBefore time.Time                 `json:"created_before,omitempty"`
+	Slug          string                    `json:"slug,omitempty"`
 	Source        PurgePreviewRequestSource `json:"source"`
 }
 
@@ -434,15 +438,15 @@ type PurgeResult struct {
 type RemoteUpload struct {
 	Bytes        int64            `json:"bytes"`
 	Conflict     bool             `json:"conflict"`
-	Id           string           `json:"id"`
-	Key          *string          `json:"key,omitempty"`
+	ID           string           `json:"id"`
+	Key          string           `json:"key,omitempty"`
 	Keys         []string         `json:"keys"`
 	Kind         RemoteUploadKind `json:"kind"`
 	LastModified time.Time        `json:"last_modified"`
 	MarkerKey    string           `json:"marker_key"`
 	Objects      int              `json:"objects"`
-	Slug         *string          `json:"slug,omitempty"`
-	Url          *string          `json:"url,omitempty"`
+	Slug         string           `json:"slug,omitempty"`
+	URL          string           `json:"url,omitempty"`
 }
 
 // RemoteUploadKind defines model for RemoteUpload.Kind.
@@ -466,9 +470,9 @@ type SyncFailureOperation string
 
 // SyncRequest defines model for SyncRequest.
 type SyncRequest struct {
-	Concurrency *int  `json:"concurrency,omitempty"`
-	DryRun      *bool `json:"dry_run,omitempty"`
-	Prune       *bool `json:"prune,omitempty"`
+	Concurrency int  `json:"concurrency,omitempty"`
+	DryRun      bool `json:"dry_run,omitempty"`
+	Prune       bool `json:"prune,omitempty"`
 }
 
 // SyncResult defines model for SyncResult.
@@ -486,26 +490,26 @@ type SyncResult struct {
 
 // TargetRequest defines model for TargetRequest.
 type TargetRequest struct {
-	UrlOrKey string `json:"url_or_key"`
+	URLOrKey string `json:"url_or_key"`
 }
 
 // UploadInspection defines model for UploadInspection.
 type UploadInspection struct {
 	Bytes         int64                 `json:"bytes"`
 	CreatedAt     *time.Time            `json:"created_at,omitempty"`
-	Error         *string               `json:"error,omitempty"`
+	Error         string                `json:"error,omitempty"`
 	Files         []InspectedObject     `json:"files"`
-	Format        *string               `json:"format,omitempty"`
-	Id            string                `json:"id"`
-	Kind          *UploadInspectionKind `json:"kind,omitempty"`
+	Format        string                `json:"format,omitempty"`
+	ID            string                `json:"id"`
+	Kind          UploadInspectionKind  `json:"kind,omitempty"`
 	MarkerKey     string                `json:"marker_key"`
-	MarkerVersion *int                  `json:"marker_version,omitempty"`
+	MarkerVersion int                   `json:"marker_version,omitempty"`
 	Objects       int                   `json:"objects"`
 	Page          *InspectedObject      `json:"page,omitempty"`
-	RepositoryUrl *string               `json:"repository_url,omitempty"`
+	RepositoryURL string                `json:"repository_url,omitempty"`
 	Source        *InspectedObject      `json:"source,omitempty"`
 	State         UploadInspectionState `json:"state"`
-	Title         *string               `json:"title,omitempty"`
+	Title         string                `json:"title,omitempty"`
 	Warnings      []string              `json:"warnings"`
 }
 
@@ -528,16 +532,16 @@ type UploadResult struct {
 	Bytes         int64            `json:"bytes"`
 	ContentType   string           `json:"content_type"`
 	CreatedAt     time.Time        `json:"created_at"`
-	Files         *[]FileResult    `json:"files,omitempty"`
-	Id            string           `json:"id"`
+	Files         []FileResult     `json:"files,omitempty"`
+	ID            string           `json:"id"`
 	Key           string           `json:"key"`
 	Kind          UploadResultKind `json:"kind"`
 	MarkerVersion int              `json:"marker_version"`
-	RepositoryUrl *string          `json:"repository_url,omitempty"`
-	SourceKey     *string          `json:"source_key,omitempty"`
-	SourceUrl     *string          `json:"source_url,omitempty"`
-	Title         *string          `json:"title,omitempty"`
-	Url           string           `json:"url"`
+	RepositoryURL string           `json:"repository_url,omitempty"`
+	SourceKey     string           `json:"source_key,omitempty"`
+	SourceURL     string           `json:"source_url,omitempty"`
+	Title         string           `json:"title,omitempty"`
+	URL           string           `json:"url"`
 	Warnings      []string         `json:"warnings"`
 }
 
@@ -1630,8 +1634,8 @@ type GetCapabilitiesResponse struct {
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *Capabilities
-	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
-	ApplicationproblemJSONDefault *Problem
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -1639,9 +1643,9 @@ func (r GetCapabilitiesResponse) GetJSON200() *Capabilities {
 	return r.JSON200
 }
 
-// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
-func (r GetCapabilitiesResponse) GetApplicationproblemJSONDefault() *Problem {
-	return r.ApplicationproblemJSONDefault
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r GetCapabilitiesResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
 }
 
 // GetBody returns the raw response body bytes
@@ -1678,8 +1682,8 @@ type ExecutePurgeResponse struct {
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *PurgeResult
-	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
-	ApplicationproblemJSONDefault *Problem
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -1687,9 +1691,9 @@ func (r ExecutePurgeResponse) GetJSON200() *PurgeResult {
 	return r.JSON200
 }
 
-// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
-func (r ExecutePurgeResponse) GetApplicationproblemJSONDefault() *Problem {
-	return r.ApplicationproblemJSONDefault
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ExecutePurgeResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
 }
 
 // GetBody returns the raw response body bytes
@@ -1726,8 +1730,8 @@ type PreviewPurgeResponse struct {
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *PurgePreview
-	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
-	ApplicationproblemJSONDefault *Problem
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -1735,9 +1739,9 @@ func (r PreviewPurgeResponse) GetJSON200() *PurgePreview {
 	return r.JSON200
 }
 
-// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
-func (r PreviewPurgeResponse) GetApplicationproblemJSONDefault() *Problem {
-	return r.ApplicationproblemJSONDefault
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r PreviewPurgeResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
 }
 
 // GetBody returns the raw response body bytes
@@ -1774,8 +1778,8 @@ type ListStorageUploadsResponse struct {
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *StorageList
-	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
-	ApplicationproblemJSONDefault *Problem
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -1783,9 +1787,9 @@ func (r ListStorageUploadsResponse) GetJSON200() *StorageList {
 	return r.JSON200
 }
 
-// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
-func (r ListStorageUploadsResponse) GetApplicationproblemJSONDefault() *Problem {
-	return r.ApplicationproblemJSONDefault
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ListStorageUploadsResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
 }
 
 // GetBody returns the raw response body bytes
@@ -1822,8 +1826,8 @@ type SyncManifestResponse struct {
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *SyncResult
-	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
-	ApplicationproblemJSONDefault *Problem
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -1831,9 +1835,9 @@ func (r SyncManifestResponse) GetJSON200() *SyncResult {
 	return r.JSON200
 }
 
-// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
-func (r SyncManifestResponse) GetApplicationproblemJSONDefault() *Problem {
-	return r.ApplicationproblemJSONDefault
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r SyncManifestResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
 }
 
 // GetBody returns the raw response body bytes
@@ -1870,8 +1874,8 @@ type ListManifestUploadsResponse struct {
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *ManifestList
-	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
-	ApplicationproblemJSONDefault *Problem
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -1879,9 +1883,9 @@ func (r ListManifestUploadsResponse) GetJSON200() *ManifestList {
 	return r.JSON200
 }
 
-// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
-func (r ListManifestUploadsResponse) GetApplicationproblemJSONDefault() *Problem {
-	return r.ApplicationproblemJSONDefault
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ListManifestUploadsResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
 }
 
 // GetBody returns the raw response body bytes
@@ -1918,8 +1922,8 @@ type UploadCollectionResponse struct {
 	HTTPResponse *http.Response
 	// JSON201 the response for an HTTP 201 `application/json` response
 	JSON201 *UploadResult
-	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
-	ApplicationproblemJSONDefault *Problem
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
 }
 
 // GetJSON201 returns the response for an HTTP 201 `application/json` response
@@ -1927,9 +1931,9 @@ func (r UploadCollectionResponse) GetJSON201() *UploadResult {
 	return r.JSON201
 }
 
-// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
-func (r UploadCollectionResponse) GetApplicationproblemJSONDefault() *Problem {
-	return r.ApplicationproblemJSONDefault
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r UploadCollectionResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
 }
 
 // GetBody returns the raw response body bytes
@@ -1966,8 +1970,8 @@ type DeleteUploadResponse struct {
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *DeleteResult
-	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
-	ApplicationproblemJSONDefault *Problem
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -1975,9 +1979,9 @@ func (r DeleteUploadResponse) GetJSON200() *DeleteResult {
 	return r.JSON200
 }
 
-// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
-func (r DeleteUploadResponse) GetApplicationproblemJSONDefault() *Problem {
-	return r.ApplicationproblemJSONDefault
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r DeleteUploadResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
 }
 
 // GetBody returns the raw response body bytes
@@ -2014,8 +2018,8 @@ type UploadDocumentResponse struct {
 	HTTPResponse *http.Response
 	// JSON201 the response for an HTTP 201 `application/json` response
 	JSON201 *UploadResult
-	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
-	ApplicationproblemJSONDefault *Problem
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
 }
 
 // GetJSON201 returns the response for an HTTP 201 `application/json` response
@@ -2023,9 +2027,9 @@ func (r UploadDocumentResponse) GetJSON201() *UploadResult {
 	return r.JSON201
 }
 
-// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
-func (r UploadDocumentResponse) GetApplicationproblemJSONDefault() *Problem {
-	return r.ApplicationproblemJSONDefault
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r UploadDocumentResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
 }
 
 // GetBody returns the raw response body bytes
@@ -2059,22 +2063,22 @@ func (r UploadDocumentResponse) ContentType() string {
 
 // GetUploadResponse200Headers the declared response headers of an HTTP 200 response for GetUpload
 type GetUploadResponse200Headers struct {
-	ContentDisposition *string
-	XAirplanObjectKey  *string
+	ContentDisposition string
+	XAirplanObjectKey  string
 }
 
 type GetUploadResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
-	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
-	ApplicationproblemJSONDefault *Problem
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
 	// Headers200 the parsed response headers for an HTTP 200 response
 	Headers200 *GetUploadResponse200Headers
 }
 
-// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
-func (r GetUploadResponse) GetApplicationproblemJSONDefault() *Problem {
-	return r.ApplicationproblemJSONDefault
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r GetUploadResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
 }
 
 // GetBody returns the raw response body bytes
@@ -2111,8 +2115,8 @@ type InspectUploadResponse struct {
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *UploadInspection
-	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
-	ApplicationproblemJSONDefault *Problem
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2120,9 +2124,9 @@ func (r InspectUploadResponse) GetJSON200() *UploadInspection {
 	return r.JSON200
 }
 
-// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
-func (r InspectUploadResponse) GetApplicationproblemJSONDefault() *Problem {
-	return r.ApplicationproblemJSONDefault
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r InspectUploadResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
 }
 
 // GetBody returns the raw response body bytes
@@ -2159,8 +2163,8 @@ type HealthResponse struct {
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
 	JSON200 *Health
-	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
-	ApplicationproblemJSONDefault *Problem
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
@@ -2168,9 +2172,9 @@ func (r HealthResponse) GetJSON200() *Health {
 	return r.JSON200
 }
 
-// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
-func (r HealthResponse) GetApplicationproblemJSONDefault() *Problem {
-	return r.ApplicationproblemJSONDefault
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r HealthResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
 }
 
 // GetBody returns the raw response body bytes
@@ -2207,8 +2211,8 @@ type GetOpenAPIResponse struct {
 	HTTPResponse *http.Response
 	// YAML200 the response for an HTTP 200 `application/yaml` response
 	YAML200 *string
-	// ApplicationproblemJSONDefault the response for an HTTP default `application/problem+json` response
-	ApplicationproblemJSONDefault *Problem
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
 }
 
 // GetYAML200 returns the response for an HTTP 200 `application/yaml` response
@@ -2216,9 +2220,9 @@ func (r GetOpenAPIResponse) GetYAML200() *string {
 	return r.YAML200
 }
 
-// GetApplicationproblemJSONDefault returns the response for an HTTP default `application/problem+json` response
-func (r GetOpenAPIResponse) GetApplicationproblemJSONDefault() *Problem {
-	return r.ApplicationproblemJSONDefault
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r GetOpenAPIResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
 }
 
 // GetBody returns the raw response body bytes
@@ -2508,7 +2512,7 @@ func ParseGetCapabilitiesResponse(rsp *http.Response) (*GetCapabilitiesResponse,
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.ApplicationProblemJSONDefault = &dest
 
 	}
 
@@ -2541,7 +2545,7 @@ func ParseExecutePurgeResponse(rsp *http.Response) (*ExecutePurgeResponse, error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.ApplicationProblemJSONDefault = &dest
 
 	}
 
@@ -2574,7 +2578,7 @@ func ParsePreviewPurgeResponse(rsp *http.Response) (*PreviewPurgeResponse, error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.ApplicationProblemJSONDefault = &dest
 
 	}
 
@@ -2607,7 +2611,7 @@ func ParseListStorageUploadsResponse(rsp *http.Response) (*ListStorageUploadsRes
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.ApplicationProblemJSONDefault = &dest
 
 	}
 
@@ -2640,7 +2644,7 @@ func ParseSyncManifestResponse(rsp *http.Response) (*SyncManifestResponse, error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.ApplicationProblemJSONDefault = &dest
 
 	}
 
@@ -2673,7 +2677,7 @@ func ParseListManifestUploadsResponse(rsp *http.Response) (*ListManifestUploadsR
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.ApplicationProblemJSONDefault = &dest
 
 	}
 
@@ -2706,7 +2710,7 @@ func ParseUploadCollectionResponse(rsp *http.Response) (*UploadCollectionRespons
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.ApplicationProblemJSONDefault = &dest
 
 	}
 
@@ -2739,7 +2743,7 @@ func ParseDeleteUploadResponse(rsp *http.Response) (*DeleteUploadResponse, error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.ApplicationProblemJSONDefault = &dest
 
 	}
 
@@ -2772,7 +2776,7 @@ func ParseUploadDocumentResponse(rsp *http.Response) (*UploadDocumentResponse, e
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.ApplicationProblemJSONDefault = &dest
 
 	}
 
@@ -2798,7 +2802,7 @@ func ParseGetUploadResponse(rsp *http.Response) (*GetUploadResponse, error) {
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.ApplicationProblemJSONDefault = &dest
 
 	}
 
@@ -2810,14 +2814,14 @@ func ParseGetUploadResponse(rsp *http.Response) (*GetUploadResponse, error) {
 			if err := runtime.BindStyledParameterWithOptions("simple", "Content-Disposition", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			}
-			headers.ContentDisposition = &value
+			headers.ContentDisposition = value
 		}
 		if values := rsp.Header.Values("X-Airplan-Object-Key"); len(values) > 0 {
 			var value string
 			if err := runtime.BindStyledParameterWithOptions("simple", "X-Airplan-Object-Key", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
 				return nil, err
 			}
-			headers.XAirplanObjectKey = &value
+			headers.XAirplanObjectKey = value
 		}
 		response.Headers200 = &headers
 	}
@@ -2851,7 +2855,7 @@ func ParseInspectUploadResponse(rsp *http.Response) (*InspectUploadResponse, err
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.ApplicationProblemJSONDefault = &dest
 
 	}
 
@@ -2884,7 +2888,7 @@ func ParseHealthResponse(rsp *http.Response) (*HealthResponse, error) {
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.ApplicationProblemJSONDefault = &dest
 
 	}
 
@@ -2917,7 +2921,7 @@ func ParseGetOpenAPIResponse(rsp *http.Response) (*GetOpenAPIResponse, error) {
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
-		response.ApplicationproblemJSONDefault = &dest
+		response.ApplicationProblemJSONDefault = &dest
 
 	}
 
@@ -3654,28 +3658,24 @@ type GetUploadResponseObject interface {
 }
 
 type GetUpload200ResponseHeaders struct {
-	ContentDisposition *string
-	XAirplanObjectKey  *string
+	ContentDisposition string
+	XAirplanObjectKey  string
 }
 
-type GetUpload200ApplicationoctetStreamResponse struct {
+type GetUpload200ApplicationOctetStreamResponse struct {
 	Body          io.Reader
 	Headers       GetUpload200ResponseHeaders
 	ContentLength int64
 }
 
-func (response GetUpload200ApplicationoctetStreamResponse) VisitGetUploadResponse(w http.ResponseWriter) error {
+func (response GetUpload200ApplicationOctetStreamResponse) VisitGetUploadResponse(w http.ResponseWriter) error {
 
 	w.Header().Set("Content-Type", "application/octet-stream")
 	if response.ContentLength != 0 {
 		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
 	}
-	if response.Headers.ContentDisposition != nil {
-		w.Header().Set("Content-Disposition", fmt.Sprint(*response.Headers.ContentDisposition))
-	}
-	if response.Headers.XAirplanObjectKey != nil {
-		w.Header().Set("X-Airplan-Object-Key", fmt.Sprint(*response.Headers.XAirplanObjectKey))
-	}
+	w.Header().Set("Content-Disposition", fmt.Sprint(response.Headers.ContentDisposition))
+	w.Header().Set("X-Airplan-Object-Key", fmt.Sprint(response.Headers.XAirplanObjectKey))
 	w.WriteHeader(200)
 
 	if closer, ok := response.Body.(io.ReadCloser); ok {
@@ -3786,12 +3786,12 @@ type GetOpenAPIResponseObject interface {
 	VisitGetOpenAPIResponse(w http.ResponseWriter) error
 }
 
-type GetOpenAPI200ApplicationyamlResponse struct {
+type GetOpenAPI200ApplicationYamlResponse struct {
 	Body          io.Reader
 	ContentLength int64
 }
 
-func (response GetOpenAPI200ApplicationyamlResponse) VisitGetOpenAPIResponse(w http.ResponseWriter) error {
+func (response GetOpenAPI200ApplicationYamlResponse) VisitGetOpenAPIResponse(w http.ResponseWriter) error {
 
 	w.Header().Set("Content-Type", "application/yaml")
 	if response.ContentLength != 0 {
@@ -4271,4 +4271,150 @@ func (sh *strictHandler) GetOpenAPI(w http.ResponseWriter, r *http.Request) {
 	} else if response != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
 	}
+}
+
+// Base64 encoded, compressed with deflate, json marshaled OpenAPI spec.
+// Stored as a slice of fixed-width chunks rather than one concatenated
+// const string: with thousands of chunks the chained `+` fold is several
+// times slower for the Go compiler than parsing a slice literal.
+var swaggerSpec = []string{
+	"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",
+}
+
+// decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
+// after base64-decoding and flate-decompressing the embedded blob.
+func decodeSpec() ([]byte, error) {
+	encoded := strings.Join(swaggerSpec, "")
+	compressed, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("error base64 decoding spec: %w", err)
+	}
+	zr := flate.NewReader(bytes.NewReader(compressed))
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(zr); err != nil {
+		return nil, fmt.Errorf("read flate: %w", err)
+	}
+	if err := zr.Close(); err != nil {
+		return nil, fmt.Errorf("close flate reader: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+var rawSpec = decodeSpecCached()
+
+// a naive cache of the decoded OpenAPI spec
+func decodeSpecCached() func() ([]byte, error) {
+	data, err := decodeSpec()
+	return func() ([]byte, error) {
+		return data, err
+	}
+}
+
+// Constructs a synthetic filesystem for resolving external references when loading openapi specifications.
+func PathToRawSpec(pathToFile string) map[string]func() ([]byte, error) {
+	res := make(map[string]func() ([]byte, error))
+	if len(pathToFile) > 0 {
+		res[pathToFile] = rawSpec
+	}
+
+	return res
+}
+
+// GetSpec returns the OpenAPI specification corresponding to the generated
+// code in this file. External references in the spec are resolved through
+// PathToRawSpec; externally-referenced files must be embedded in their
+// corresponding Go packages (via the import-mapping feature). URL-based
+// external refs are not supported.
+func GetSpec() (swagger *openapi3.T, err error) {
+	resolvePath := PathToRawSpec("")
+
+	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = true
+	loader.ReadFromURIFunc = func(loader *openapi3.Loader, url *url.URL) ([]byte, error) {
+		pathToFile := url.String()
+		pathToFile = path.Clean(pathToFile)
+		getSpec, ok := resolvePath[pathToFile]
+		if !ok {
+			err1 := fmt.Errorf("path not found: %s", pathToFile)
+			return nil, err1
+		}
+		return getSpec()
+	}
+	var specData []byte
+	specData, err = rawSpec()
+	if err != nil {
+		return
+	}
+	swagger, err = loader.LoadFromData(specData)
+	if err != nil {
+		return
+	}
+	return
+}
+
+// GetSpecJSON returns the raw JSON bytes of the embedded OpenAPI
+// specification: decompressed but not unmarshaled. External references
+// are not resolved here; the bytes are the spec exactly as embedded by
+// codegen. The result is cached at package init time, so repeated calls
+// are cheap.
+func GetSpecJSON() ([]byte, error) {
+	return rawSpec()
+}
+
+// GetSwagger returns the OpenAPI specification corresponding to the
+// generated code in this file.
+//
+// Deprecated: GetSwagger predates kin-openapi renaming openapi3.Swagger
+// to openapi3.T. Use [GetSpec] instead. This wrapper is retained for
+// backwards compatibility.
+func GetSwagger() (*openapi3.T, error) {
+	return GetSpec()
 }

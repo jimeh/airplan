@@ -42,7 +42,8 @@ func (t *httpTransport) Upload(
 		}
 	}
 	result, err := t.client.UploadDocument(ctx, httpapi.DocumentMetadata{
-		Name: in.Name, Format: in.Format, Title: in.Title, Slug: in.Slug,
+		Name: in.Name, Format: httpapi.DocumentMetadataFormat(in.Format),
+		Title: in.Title, Slug: in.Slug,
 		Lang: in.Lang, RepositoryURL: repository, MaxSize: in.MaxSize,
 	}, in.Reader)
 	if err != nil {
@@ -85,7 +86,7 @@ func (t *httpTransport) UploadFiles(
 
 func coreUploadResult(result httpapi.UploadResult) FilesResult {
 	core := FilesResult{Result: Result{
-		ID: result.ID, Kind: result.Kind, URL: result.URL, Key: result.Key,
+		ID: result.ID, Kind: string(result.Kind), URL: result.URL, Key: result.Key,
 		SourceURL: result.SourceURL, SourceKey: result.SourceKey,
 		Bucket: result.Bucket, Bytes: result.Bytes,
 		ContentType: result.ContentType, Title: result.Title,
@@ -167,7 +168,8 @@ func coreInspection(result httpapi.UploadInspection) *UploadInspection {
 		core.CreatedAt = *result.CreatedAt
 	}
 	for _, file := range result.Files {
-		core.Files = append(core.Files, coreInspectedObject(file))
+		file := file
+		core.Files = append(core.Files, coreInspectedObject(&file))
 	}
 	return core
 }
@@ -281,17 +283,17 @@ func (t *httpTransport) SyncManifest(
 		Invalid: result.Invalid, Retained: result.Retained,
 		Warnings: append([]string(nil), result.Warnings...),
 	}
-	for _, record := range result.Added {
+	for _, record := range result.AddedRecords {
 		core.Added = append(core.Added, coreManifestRecord(record))
 	}
-	for _, record := range result.Tombstoned {
+	for _, record := range result.TombstoneRecords {
 		core.Tombstoned = append(
 			core.Tombstoned, coreManifestRecord(record),
 		)
 	}
 	for _, failure := range result.Failures {
 		core.Failures = append(core.Failures, SyncFailure{
-			MarkerKey: failure.MarkerKey, Operation: failure.Operation,
+			MarkerKey: failure.MarkerKey, Operation: string(failure.Operation),
 			Error: failure.Error,
 		})
 	}
@@ -308,12 +310,12 @@ func (t *httpTransport) PlanPurge(
 	ctx context.Context, opts PurgePlanOptions,
 ) (*PurgePlan, error) {
 	request := httpapi.PurgePreviewRequest{
-		Source: string(opts.Source), Slug: opts.Slug, All: opts.All,
+		Source: httpapi.PurgePreviewRequestSource(opts.Source),
+		Slug:   opts.Slug, All: opts.All,
 		Concurrency: opts.Concurrency,
 	}
 	if !opts.CreatedBefore.IsZero() {
-		createdBefore := opts.CreatedBefore
-		request.CreatedBefore = &createdBefore
+		request.CreatedBefore = opts.CreatedBefore
 	}
 	result, err := t.client.PreviewPurge(ctx, request)
 	if err != nil {
@@ -341,7 +343,7 @@ func (t *httpTransport) Purge(
 	ctx context.Context, req PurgeRequest,
 ) (*PurgeResult, error) {
 	result, err := t.client.ExecutePurge(ctx, httpapi.PurgeRequest{
-		UploadIDs: req.UploadIDs,
+		UploadIds: req.UploadIDs,
 	})
 	if err != nil {
 		return nil, transportError(err)

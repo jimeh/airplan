@@ -10,17 +10,6 @@ import (
 
 const problemBaseURL = "https://airplan.dev/problems/"
 
-// Problem is an RFC 9457 response with stable machine-facing extensions.
-type Problem struct {
-	Type      string `json:"type"`
-	Title     string `json:"title"`
-	Status    int    `json:"status"`
-	Detail    string `json:"detail,omitempty"`
-	Instance  string `json:"instance,omitempty"`
-	Code      string `json:"code"`
-	RequestID string `json:"request_id"`
-}
-
 // ProblemError lets the operation adapter return a safe, typed HTTP failure.
 type ProblemError struct {
 	Problem Problem

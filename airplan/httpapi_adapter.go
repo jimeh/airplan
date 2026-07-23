@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"path"
 	"strings"
-	"time"
 
 	"github.com/jimeh/airplan/internal/httpapi"
 )
@@ -47,7 +46,7 @@ func (o *HTTPOperations) Capabilities(
 			"list_storage", "sync_manifest", "preview_purge",
 			"execute_purge",
 		},
-		UploadFormats: []string{"md", "html", "txt"},
+		UploadFormats: []httpapi.CapabilitiesUploadFormats{"md", "html", "txt"},
 		Limits: httpapi.UploadLimits{
 			DocumentBytes:        DefaultMaxInputSize,
 			CollectionFileBytes:  DefaultMaxCollectionFileSize,
@@ -67,7 +66,7 @@ func (o *HTTPOperations) UploadDocument(
 	}
 	result, err := client.Upload(ctx, Input{
 		Reader: upload.Document, Name: upload.Metadata.Name,
-		Format: upload.Metadata.Format, Title: upload.Metadata.Title,
+		Format: string(upload.Metadata.Format), Title: upload.Metadata.Title,
 		Slug: upload.Metadata.Slug, Lang: upload.Metadata.Lang,
 		RepositoryURL: upload.Metadata.RepositoryURL,
 		MaxSize:       upload.Metadata.MaxSize,
@@ -116,7 +115,8 @@ func wireUploadResult(
 		})
 	}
 	return httpapi.UploadResult{
-		ID: result.ID, Kind: result.Kind, URL: result.URL, Key: result.Key,
+		ID: result.ID, Kind: httpapi.UploadResultKind(result.Kind),
+		URL: result.URL, Key: result.Key,
 		SourceURL: result.SourceURL, SourceKey: result.SourceKey,
 		Bucket: result.Bucket, Bytes: result.Bytes,
 		ContentType: result.ContentType, Title: result.Title,
@@ -144,10 +144,10 @@ func (o *HTTPOperations) InspectUpload(
 func wireInspection(result *UploadInspection) httpapi.UploadInspection {
 	createdAt := result.CreatedAt
 	wire := httpapi.UploadInspection{
-		State: string(result.State), ID: result.Dir,
+		State: httpapi.UploadInspectionState(result.State), ID: result.Dir,
 		MarkerKey: result.MarkerKey, Objects: result.Objects,
 		Bytes: result.Bytes, CreatedAt: &createdAt, Format: result.Format,
-		Kind: string(result.Kind), Title: result.Title,
+		Kind: httpapi.UploadInspectionKind(result.Kind), Title: result.Title,
 		RepositoryURL: result.Repo, MarkerVersion: result.MarkerVersion,
 		Warnings: append([]string(nil), result.Warnings...),
 		Error:    string(result.Error),
@@ -158,10 +158,13 @@ func wireInspection(result *UploadInspection) httpapi.UploadInspection {
 	wire.Page = wireInspectedObject(result.Page)
 	wire.Source = wireInspectedObject(result.Source)
 	for _, file := range result.Files {
-		wire.Files = append(wire.Files, wireInspectedObject(file))
+		wireFile := wireInspectedObject(file)
+		if wireFile != nil {
+			wire.Files = append(wire.Files, *wireFile)
+		}
 	}
 	if wire.Files == nil {
-		wire.Files = []*httpapi.InspectedObject{}
+		wire.Files = []httpapi.InspectedObject{}
 	}
 	return wire
 }
@@ -222,8 +225,9 @@ func wireDeleteResult(result *DeleteResult) httpapi.DeleteResult {
 	return httpapi.DeleteResult{
 		ID:   uploadIDFromMarkerKey(result.MarkerKey),
 		Keys: append([]string(nil), result.Keys...), PageKey: result.PageKey,
-		MarkerKey: result.MarkerKey, Kind: string(result.Kind),
-		Warnings: append([]string(nil), result.Warnings...),
+		MarkerKey: result.MarkerKey,
+		Kind:      httpapi.DeleteResultKind(result.Kind),
+		Warnings:  append([]string(nil), result.Warnings...),
 	}
 }
 
@@ -252,10 +256,12 @@ func (o *HTTPOperations) ListManifestUploads(
 
 func wireManifestRecord(record ManifestRecord) httpapi.ManifestRecord {
 	return httpapi.ManifestRecord{
-		Type: record.Type, Time: record.Time, Key: record.Key,
+		Type: httpapi.ManifestRecordType(record.Type),
+		Time: record.Time, Key: record.Key,
 		SourceKey: record.SourceKey, MarkerKey: record.MarkerKey,
 		URL: record.URL, Bucket: record.Bucket, Format: record.Format,
-		Kind: record.Kind, Slug: record.Slug, Title: record.Title,
+		Kind: httpapi.ManifestRecordKind(record.Kind),
+		Slug: record.Slug, Title: record.Title,
 		RepositoryURL: record.Repo, Bytes: record.Bytes,
 		Reason: record.Reason, MarkerVersion: record.MarkerVersion,
 	}
@@ -263,10 +269,10 @@ func wireManifestRecord(record ManifestRecord) httpapi.ManifestRecord {
 
 func coreManifestRecord(record httpapi.ManifestRecord) ManifestRecord {
 	return ManifestRecord{
-		Type: record.Type, Time: record.Time, Key: record.Key,
+		Type: string(record.Type), Time: record.Time, Key: record.Key,
 		SourceKey: record.SourceKey, MarkerKey: record.MarkerKey,
 		URL: record.URL, Bucket: record.Bucket, Format: record.Format,
-		Kind: record.Kind, Slug: record.Slug, Title: record.Title,
+		Kind: string(record.Kind), Slug: record.Slug, Title: record.Title,
 		Repo: record.RepositoryURL, Bytes: record.Bytes,
 		Reason: record.Reason, MarkerVersion: record.MarkerVersion,
 	}
@@ -288,7 +294,7 @@ func (o *HTTPOperations) ListStorageUploads(
 	for _, upload := range result {
 		uploads = append(uploads, httpapi.RemoteUpload{
 			ID: upload.Dir, MarkerKey: upload.MarkerKey,
-			Kind: string(upload.Kind), Conflict: upload.Conflict,
+			Kind: httpapi.RemoteUploadKind(upload.Kind), Conflict: upload.Conflict,
 			Slug: upload.Slug, Key: upload.Key, URL: upload.URL,
 			Keys:    append([]string(nil), upload.Keys...),
 			Objects: upload.Objects, Bytes: upload.Bytes,
@@ -320,15 +326,20 @@ func (o *HTTPOperations) SyncManifest(
 		Complete: len(result.Failures) == 0,
 	}
 	for _, record := range result.Added {
-		wire.Added = append(wire.Added, wireManifestRecord(record))
+		wire.AddedRecords = append(
+			wire.AddedRecords, wireManifestRecord(record),
+		)
 	}
 	for _, record := range result.Tombstoned {
-		wire.Tombstoned = append(wire.Tombstoned, wireManifestRecord(record))
+		wire.TombstoneRecords = append(
+			wire.TombstoneRecords, wireManifestRecord(record),
+		)
 	}
 	for _, failure := range result.Failures {
 		wire.Failures = append(wire.Failures, httpapi.SyncFailure{
-			MarkerKey: failure.MarkerKey, Operation: failure.Operation,
-			Error: failure.Error,
+			MarkerKey: failure.MarkerKey,
+			Operation: httpapi.SyncFailureOperation(failure.Operation),
+			Error:     failure.Error,
 		})
 	}
 	// Per-item sync failures are a successful partial result on the wire.
@@ -346,14 +357,10 @@ func (o *HTTPOperations) PreviewPurge(
 	if err != nil {
 		return httpapi.PurgePreview{}, err
 	}
-	createdBefore := request.CreatedBefore
-	cutoff := timeZero
-	if createdBefore != nil {
-		cutoff = *createdBefore
-	}
 	result, err := client.PlanPurge(ctx, PurgePlanOptions{
-		Source: UploadSource(request.Source), CreatedBefore: cutoff,
-		Slug: request.Slug, All: request.All,
+		Source:        UploadSource(request.Source),
+		CreatedBefore: request.CreatedBefore,
+		Slug:          request.Slug, All: request.All,
 		Concurrency: request.Concurrency,
 	})
 	if err != nil {
@@ -378,8 +385,6 @@ func (o *HTTPOperations) PreviewPurge(
 	return wire, nil
 }
 
-var timeZero = func() (zero time.Time) { return }()
-
 // ExecutePurge deletes only explicit reviewed IDs.
 func (o *HTTPOperations) ExecutePurge(
 	ctx context.Context, request httpapi.PurgeRequest,
@@ -389,7 +394,7 @@ func (o *HTTPOperations) ExecutePurge(
 		return httpapi.PurgeResult{}, err
 	}
 	result, purgeErr := client.Purge(ctx, PurgeRequest{
-		UploadIDs: request.UploadIDs,
+		UploadIDs: request.UploadIds,
 	})
 	if result == nil {
 		return httpapi.PurgeResult{}, apiOperationError(purgeErr)

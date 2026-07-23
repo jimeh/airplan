@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -12,16 +11,15 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
-	"strings"
+
+	"github.com/jimeh/airplan/internal/httpapi/generated"
 )
 
 const maxClientJSONResponseBytes = int64(64 << 20)
 
 // Client is the typed, non-retrying Airplan REST client foundation.
 type Client struct {
-	baseURL    *url.URL
-	token      string
-	httpClient *http.Client
+	generated generated.ClientInterface
 }
 
 // NewClient constructs a typed client for one Airplan server URL.
@@ -44,23 +42,37 @@ func NewClient(
 	if httpClient == nil {
 		httpClient = http.DefaultClient
 	}
-	return &Client{
-		baseURL:    parsed,
-		token:      token,
-		httpClient: httpClient,
-	}, nil
+	generatedClient, err := generated.NewClient(
+		baseURL,
+		generated.WithHTTPClient(httpClient),
+		generated.WithRequestEditorFn(
+			func(_ context.Context, request *http.Request) error {
+				request.Header.Set("Authorization", "Bearer "+token)
+				request.Header.Set(
+					"Accept", "application/json, application/problem+json",
+				)
+				return nil
+			},
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("construct generated Airplan client: %w", err)
+	}
+	return &Client{generated: generatedClient}, nil
 }
 
 // Health calls the unauthenticated process liveness endpoint.
 func (c *Client) Health(ctx context.Context) (Health, error) {
-	var result Health
-	err := c.doJSON(ctx, http.MethodGet, "/healthz", nil, &result)
-	return result, err
+	response, err := c.generated.Health(ctx)
+	if err != nil {
+		return Health{}, err
+	}
+	return decodeResponse[Health](response, http.StatusOK)
 }
 
 // OpenAPI returns the exact schema served by the remote process.
 func (c *Client) OpenAPI(ctx context.Context) ([]byte, error) {
-	response, err := c.do(ctx, http.MethodGet, "/openapi.yaml", "", nil)
+	response, err := c.generated.GetOpenAPI(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -73,15 +85,11 @@ func (c *Client) OpenAPI(ctx context.Context) ([]byte, error) {
 
 // Capabilities returns safe compatibility information.
 func (c *Client) Capabilities(ctx context.Context) (Capabilities, error) {
-	var result Capabilities
-	err := c.doJSON(
-		ctx,
-		http.MethodGet,
-		"/api/v1/capabilities",
-		nil,
-		&result,
-	)
-	return result, err
+	response, err := c.generated.GetCapabilities(ctx)
+	if err != nil {
+		return Capabilities{}, err
+	}
+	return decodeResponse[Capabilities](response, http.StatusOK)
 }
 
 // UploadDocument streams a multipart document upload without buffering the
@@ -114,13 +122,7 @@ func (c *Client) UploadDocument(
 		_, err = io.Copy(part, document)
 		return err
 	})
-	response, err := c.do(
-		ctx,
-		http.MethodPost,
-		"/api/v1/uploads/documents",
-		contentType,
-		body,
-	)
+	response, err := c.generated.UploadDocumentWithBody(ctx, contentType, body)
 	if err != nil {
 		return UploadResult{}, err
 	}
@@ -170,13 +172,7 @@ func (c *Client) UploadCollection(
 		}
 		return nil
 	})
-	response, err := c.do(
-		ctx,
-		http.MethodPost,
-		"/api/v1/uploads/collections",
-		contentType,
-		body,
-	)
+	response, err := c.generated.UploadCollectionWithBody(ctx, contentType, body)
 	if err != nil {
 		return UploadResult{}, err
 	}
@@ -188,15 +184,11 @@ func (c *Client) InspectUpload(
 	ctx context.Context,
 	request TargetRequest,
 ) (UploadInspection, error) {
-	var result UploadInspection
-	err := c.doJSON(
-		ctx,
-		http.MethodPost,
-		"/api/v1/uploads/inspect",
-		request,
-		&result,
-	)
-	return result, err
+	response, err := c.generated.InspectUpload(ctx, request)
+	if err != nil {
+		return UploadInspection{}, err
+	}
+	return decodeResponse[UploadInspection](response, http.StatusOK)
 }
 
 // GetUpload opens one streaming marker-declared object response. The caller
@@ -205,17 +197,7 @@ func (c *Client) GetUpload(
 	ctx context.Context,
 	request GetUploadRequest,
 ) (Download, error) {
-	body, err := json.Marshal(request)
-	if err != nil {
-		return Download{}, err
-	}
-	response, err := c.do(
-		ctx,
-		http.MethodPost,
-		"/api/v1/uploads/get",
-		"application/json",
-		bytes.NewReader(body),
-	)
+	response, err := c.generated.GetUpload(ctx, request)
 	if err != nil {
 		return Download{}, err
 	}
@@ -242,35 +224,29 @@ func (c *Client) DeleteUpload(
 	ctx context.Context,
 	request TargetRequest,
 ) (DeleteResult, error) {
-	var result DeleteResult
-	err := c.doJSON(
-		ctx,
-		http.MethodPost,
-		"/api/v1/uploads/delete",
-		request,
-		&result,
-	)
-	return result, err
+	response, err := c.generated.DeleteUpload(ctx, request)
+	if err != nil {
+		return DeleteResult{}, err
+	}
+	return decodeResponse[DeleteResult](response, http.StatusOK)
 }
 
 // ListManifestUploads lists scoped server manifest history.
 func (c *Client) ListManifestUploads(ctx context.Context) (ManifestList, error) {
-	var result ManifestList
-	err := c.doJSON(ctx, http.MethodGet, "/api/v1/uploads", nil, &result)
-	return result, err
+	response, err := c.generated.ListManifestUploads(ctx)
+	if err != nil {
+		return ManifestList{}, err
+	}
+	return decodeResponse[ManifestList](response, http.StatusOK)
 }
 
 // ListStorageUploads lists direct storage candidates.
 func (c *Client) ListStorageUploads(ctx context.Context) (StorageList, error) {
-	var result StorageList
-	err := c.doJSON(
-		ctx,
-		http.MethodGet,
-		"/api/v1/storage/uploads",
-		nil,
-		&result,
-	)
-	return result, err
+	response, err := c.generated.ListStorageUploads(ctx)
+	if err != nil {
+		return StorageList{}, err
+	}
+	return decodeResponse[StorageList](response, http.StatusOK)
 }
 
 // SyncManifest plans or applies storage-to-manifest reconciliation.
@@ -278,15 +254,11 @@ func (c *Client) SyncManifest(
 	ctx context.Context,
 	request SyncRequest,
 ) (SyncResult, error) {
-	var result SyncResult
-	err := c.doJSON(
-		ctx,
-		http.MethodPost,
-		"/api/v1/sync",
-		request,
-		&result,
-	)
-	return result, err
+	response, err := c.generated.SyncManifest(ctx, request)
+	if err != nil {
+		return SyncResult{}, err
+	}
+	return decodeResponse[SyncResult](response, http.StatusOK)
 }
 
 // PreviewPurge returns explicit candidates without deleting them.
@@ -294,15 +266,11 @@ func (c *Client) PreviewPurge(
 	ctx context.Context,
 	request PurgePreviewRequest,
 ) (PurgePreview, error) {
-	var result PurgePreview
-	err := c.doJSON(
-		ctx,
-		http.MethodPost,
-		"/api/v1/purge/preview",
-		request,
-		&result,
-	)
-	return result, err
+	response, err := c.generated.PreviewPurge(ctx, request)
+	if err != nil {
+		return PurgePreview{}, err
+	}
+	return decodeResponse[PurgePreview](response, http.StatusOK)
 }
 
 // ExecutePurge permanently deletes explicit reviewed upload IDs.
@@ -310,69 +278,11 @@ func (c *Client) ExecutePurge(
 	ctx context.Context,
 	request PurgeRequest,
 ) (PurgeResult, error) {
-	var result PurgeResult
-	err := c.doJSON(
-		ctx,
-		http.MethodPost,
-		"/api/v1/purge",
-		request,
-		&result,
-	)
-	return result, err
-}
-
-func (c *Client) doJSON(
-	ctx context.Context,
-	method string,
-	path string,
-	input any,
-	output any,
-) error {
-	var body io.Reader
-	if input != nil {
-		encoded, err := json.Marshal(input)
-		if err != nil {
-			return err
-		}
-		body = bytes.NewReader(encoded)
-	}
-	response, err := c.do(ctx, method, path, "application/json", body)
+	response, err := c.generated.ExecutePurge(ctx, request)
 	if err != nil {
-		return err
+		return PurgeResult{}, err
 	}
-	defer func() { _ = response.Body.Close() }()
-	if err = responseProblem(response); err != nil {
-		return err
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("airplan API returned HTTP %d", response.StatusCode)
-	}
-	decoder := json.NewDecoder(io.LimitReader(
-		response.Body,
-		maxClientJSONResponseBytes,
-	))
-	return decoder.Decode(output)
-}
-
-func (c *Client) do(
-	ctx context.Context,
-	method string,
-	path string,
-	contentType string,
-	body io.Reader,
-) (*http.Response, error) {
-	requestURL := *c.baseURL
-	requestURL.Path = strings.TrimRight(requestURL.Path, "/") + path
-	request, err := http.NewRequestWithContext(ctx, method, requestURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-	request.Header.Set("Accept", "application/json, application/problem+json")
-	request.Header.Set("Authorization", "Bearer "+c.token)
-	if contentType != "" && body != nil {
-		request.Header.Set("Content-Type", contentType)
-	}
-	return c.httpClient.Do(request)
+	return decodeResponse[PurgeResult](response, http.StatusOK)
 }
 
 func decodeResponse[T any](response *http.Response, status int) (T, error) {

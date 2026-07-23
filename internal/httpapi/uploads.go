@@ -24,10 +24,9 @@ type spooledFile struct {
 }
 
 func (s *Server) parseDocumentUpload(
-	w http.ResponseWriter,
-	r *http.Request,
+	requestReader *multipart.Reader,
 ) (DocumentUpload, func(), error) {
-	reader, err := s.multipartReader(w, r)
+	reader, err := parseMultipartReader(requestReader)
 	if err != nil {
 		return DocumentUpload{}, func() {}, err
 	}
@@ -118,10 +117,9 @@ func (s *Server) parseDocumentUpload(
 }
 
 func (s *Server) parseCollectionUpload(
-	w http.ResponseWriter,
-	r *http.Request,
+	requestReader *multipart.Reader,
 ) (CollectionUpload, func(), error) {
-	reader, err := s.multipartReader(w, r)
+	reader, err := parseMultipartReader(requestReader)
 	if err != nil {
 		return CollectionUpload{}, func() {}, err
 	}
@@ -250,21 +248,6 @@ func (s *Server) parseCollectionUpload(
 		})
 	}
 	return result, cleanup, nil
-}
-
-func (s *Server) multipartReader(
-	w http.ResponseWriter,
-	r *http.Request,
-) (*multipart.Reader, error) {
-	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || mediaType != "multipart/form-data" ||
-		params["boundary"] == "" {
-		return nil, invalidRequest(
-			"Content-Type must be multipart/form-data with a boundary",
-		)
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.options.MaxRequestBodyBytes)
-	return multipart.NewReader(r.Body, params["boundary"]), nil
 }
 
 func (s *Server) spoolPart(

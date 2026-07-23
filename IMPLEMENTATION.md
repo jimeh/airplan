@@ -506,6 +506,13 @@ invoked by `go generate` and checked by the repository generated-file gate.
 Authentication and request validation are explicit layers because generated
 strict handlers do not enforce either policy by themselves.
 
+The OpenAPI validator checks every route. For the two multipart upload routes,
+only generic request-body validation is disabled because kin-openapi would
+buffer the complete body; method, path, authentication, and media type remain
+validated before the generated strict handler. The bounded streaming adapter
+then validates part names/counts, JSON metadata shape and enums, filenames, and
+all requested/server size limits while spooling.
+
 The REST adapter:
 
 - accepts one static bearer token, compares fixed-size digests in constant

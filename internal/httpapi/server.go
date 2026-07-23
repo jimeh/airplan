@@ -1,17 +1,20 @@
 package httpapi
 
 import (
-	"encoding/json"
+	"bytes"
+	"context"
 	"errors"
 	"fmt"
-	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 
+	"github.com/getkin/kin-openapi/openapi3filter"
 	contract "github.com/jimeh/airplan/api"
+	"github.com/jimeh/airplan/internal/httpapi/generated"
+	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 )
 
 const (
@@ -37,14 +40,16 @@ type Options struct {
 	MaxCollectionFiles      int
 }
 
-// Server is the typed REST adapter around the shared Airplan operation
-// service. Use Handler to install request-ID middleware.
+// Server implements the OpenAPI-generated strict server interface around the
+// shared Airplan operation service.
 type Server struct {
 	operations Operations
 	auth       *BearerAuth
 	options    Options
 	openAPI    []byte
 }
+
+var _ generated.StrictServerInterface = (*Server)(nil)
 
 // NewServer validates transport policy and constructs a REST adapter.
 func NewServer(operations Operations, options Options) (*Server, error) {
@@ -80,202 +85,302 @@ func NewServer(operations Operations, options Options) (*Server, error) {
 	}, nil
 }
 
-// NewHandler constructs the complete REST handler.
+// NewHandler constructs the complete generated REST handler.
 func NewHandler(operations Operations, options Options) (http.Handler, error) {
 	server, err := NewServer(operations, options)
 	if err != nil {
 		return nil, err
 	}
-	return server.Handler(), nil
+	return server.Handler()
 }
 
-// Handler returns the REST server with request-ID propagation installed.
-func (s *Server) Handler() http.Handler {
-	return requestIDMiddleware(http.HandlerFunc(s.serveHTTP))
-}
-
-func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path {
-	case "/healthz":
-		if r.Method != http.MethodGet {
-			s.methodNotAllowed(w, r, http.MethodGet)
-			return
-		}
-		writeJSON(w, http.StatusOK, Health{Status: "ok"})
-	case "/openapi.yaml":
-		if r.Method != http.MethodGet {
-			s.methodNotAllowed(w, r, http.MethodGet)
-			return
-		}
-		w.Header().Set("Content-Type", "application/yaml")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(s.openAPI)
-	default:
-		if strings.HasPrefix(r.URL.Path, "/api/v1/") {
-			s.auth.Wrap(http.HandlerFunc(s.serveAPI)).ServeHTTP(w, r)
-			return
-		}
-		writeProblem(w, r, requestProblem(
-			http.StatusNotFound,
-			"not_found",
-			"Not found",
-			"The requested route does not exist.",
-		))
-	}
-}
-
-func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path {
-	case "/api/v1/capabilities":
-		if !requireMethod(w, r, http.MethodGet) {
-			return
-		}
-		result, err := s.operations.Capabilities(r.Context())
-		s.writeResult(w, r, http.StatusOK, result, err)
-	case "/api/v1/uploads/documents":
-		if !requireMethod(w, r, http.MethodPost) {
-			return
-		}
-		s.uploadDocument(w, r)
-	case "/api/v1/uploads/collections":
-		if !requireMethod(w, r, http.MethodPost) {
-			return
-		}
-		s.uploadCollection(w, r)
-	case "/api/v1/uploads/inspect":
-		if !requireMethod(w, r, http.MethodPost) {
-			return
-		}
-		var request TargetRequest
-		if !s.decodeJSON(w, r, &request) ||
-			!validateTarget(w, r, request.URLOrKey) {
-			return
-		}
-		result, err := s.operations.InspectUpload(r.Context(), request)
-		s.writeResult(w, r, http.StatusOK, result, err)
-	case "/api/v1/uploads/get":
-		if !requireMethod(w, r, http.MethodPost) {
-			return
-		}
-		s.getUpload(w, r)
-	case "/api/v1/uploads/delete":
-		if !requireMethod(w, r, http.MethodPost) {
-			return
-		}
-		var request TargetRequest
-		if !s.decodeJSON(w, r, &request) ||
-			!validateTarget(w, r, request.URLOrKey) {
-			return
-		}
-		result, err := s.operations.DeleteUpload(r.Context(), request)
-		s.writeResult(w, r, http.StatusOK, result, err)
-	case "/api/v1/uploads":
-		if !requireMethod(w, r, http.MethodGet) {
-			return
-		}
-		result, err := s.operations.ListManifestUploads(r.Context())
-		s.writeResult(w, r, http.StatusOK, result, err)
-	case "/api/v1/storage/uploads":
-		if !requireMethod(w, r, http.MethodGet) {
-			return
-		}
-		result, err := s.operations.ListStorageUploads(r.Context())
-		s.writeResult(w, r, http.StatusOK, result, err)
-	case "/api/v1/sync":
-		if !requireMethod(w, r, http.MethodPost) {
-			return
-		}
-		var request SyncRequest
-		if !s.decodeJSON(w, r, &request) ||
-			!validateConcurrency(w, r, request.Concurrency) {
-			return
-		}
-		result, err := s.operations.SyncManifest(r.Context(), request)
-		result.Complete = len(result.Failures) == 0
-		s.writeResult(w, r, http.StatusOK, result, err)
-	case "/api/v1/purge/preview":
-		if !requireMethod(w, r, http.MethodPost) {
-			return
-		}
-		var request PurgePreviewRequest
-		if !s.decodeJSON(w, r, &request) ||
-			!validatePurgePreview(w, r, request) {
-			return
-		}
-		result, err := s.operations.PreviewPurge(r.Context(), request)
-		s.writeResult(w, r, http.StatusOK, result, err)
-	case "/api/v1/purge":
-		if !requireMethod(w, r, http.MethodPost) {
-			return
-		}
-		var request PurgeRequest
-		if !s.decodeJSON(w, r, &request) ||
-			!validatePurgeRequest(w, r, request) {
-			return
-		}
-		result, err := s.operations.ExecutePurge(r.Context(), request)
-		s.writeResult(w, r, http.StatusOK, result, err)
-	default:
-		writeProblem(w, r, requestProblem(
-			http.StatusNotFound,
-			"not_found",
-			"Not found",
-			"The requested API route does not exist.",
-		))
-	}
-}
-
-func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
-	request, cleanup, err := s.parseDocumentUpload(w, r)
+// Handler registers the generated strict server and schema request validator,
+// then adds authentication, size limits, and request IDs around it.
+func (s *Server) Handler() (http.Handler, error) {
+	spec, err := generated.GetSpec()
 	if err != nil {
-		writeError(w, r, err)
-		return
+		return nil, fmt.Errorf("load generated OpenAPI schema: %w", err)
+	}
+	strict := generated.NewStrictHandlerWithOptions(
+		s,
+		nil,
+		generated.StrictHTTPServerOptions{
+			RequestErrorHandlerFunc: func(
+				w http.ResponseWriter, r *http.Request, err error,
+			) {
+				writeError(w, r, invalidRequest(err.Error()))
+			},
+			ResponseErrorHandlerFunc: func(
+				w http.ResponseWriter, r *http.Request, err error,
+			) {
+				writeError(w, r, err)
+			},
+		},
+	)
+	routes := generated.Handler(strict)
+	validatorOptions := func(excludeRequestBody bool) *nethttpmiddleware.Options {
+		return &nethttpmiddleware.Options{
+			DoNotValidateServers: true,
+			Options: openapi3filter.Options{
+				AuthenticationFunc: openapi3filter.NoopAuthenticationFunc,
+				ExcludeRequestBody: excludeRequestBody,
+			},
+			ErrorHandlerWithOpts: func(
+				_ context.Context, err error, w http.ResponseWriter,
+				r *http.Request, opts nethttpmiddleware.ErrorHandlerOpts,
+			) {
+				status := opts.StatusCode
+				if status < 400 || status > 499 {
+					status = http.StatusBadRequest
+				}
+				writeError(w, r, NewProblemError(
+					status, "invalid_request", "Invalid request", err.Error(),
+				))
+			},
+		}
+	}
+	validator := nethttpmiddleware.OapiRequestValidatorWithOptions(
+		spec, validatorOptions(false),
+	)(routes)
+	streamingValidator := nethttpmiddleware.OapiRequestValidatorWithOptions(
+		spec, validatorOptions(true),
+	)(routes)
+
+	secured := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodPost && isMultipartUploadPath(r.URL.Path) {
+				if err := validateMultipartContentType(r); err != nil {
+					writeError(w, r, err)
+					return
+				}
+				r.Body = http.MaxBytesReader(
+					w, r.Body, s.options.MaxRequestBodyBytes,
+				)
+				streamingValidator.ServeHTTP(w, r)
+				return
+			} else if r.Method == http.MethodPost {
+				r.Body = http.MaxBytesReader(
+					w, r.Body, s.options.MaxJSONBodyBytes,
+				)
+			}
+			validator.ServeHTTP(w, r)
+		})
+		if len(r.URL.Path) >= len("/api/v1/") &&
+			r.URL.Path[:len("/api/v1/")] == "/api/v1/" {
+			s.auth.Wrap(next).ServeHTTP(w, r)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+	return requestIDMiddleware(secured), nil
+}
+
+func isMultipartUploadPath(path string) bool {
+	return path == "/api/v1/uploads/documents" ||
+		path == "/api/v1/uploads/collections"
+}
+
+// Multipart bodies intentionally bypass generic schema body validation because
+// kin-openapi buffers them. The route validator still enforces method, path,
+// security shape, and parameters; this adapter checks media type while the
+// bounded streaming parser validates parts and metadata against the schema.
+func validateMultipartContentType(r *http.Request) error {
+	mediaType, parameters, err := mime.ParseMediaType(
+		r.Header.Get("Content-Type"),
+	)
+	if err != nil || mediaType != "multipart/form-data" ||
+		parameters["boundary"] == "" {
+		return invalidRequest(
+			"Content-Type must be multipart/form-data with a boundary",
+		)
+	}
+	return nil
+}
+
+// GetCapabilities implements the generated operation.
+func (s *Server) GetCapabilities(
+	ctx context.Context, _ generated.GetCapabilitiesRequestObject,
+) (generated.GetCapabilitiesResponseObject, error) {
+	result, err := s.operations.Capabilities(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return generated.GetCapabilities200JSONResponse(result), nil
+}
+
+// UploadDocument implements the generated streaming multipart operation.
+func (s *Server) UploadDocument(
+	ctx context.Context, request generated.UploadDocumentRequestObject,
+) (generated.UploadDocumentResponseObject, error) {
+	upload, cleanup, err := s.parseDocumentUpload(request.Body)
+	if err != nil {
+		return nil, err
 	}
 	defer cleanup()
-	result, err := s.operations.UploadDocument(r.Context(), request)
-	s.writeResult(w, r, http.StatusCreated, result, err)
+	result, err := s.operations.UploadDocument(ctx, upload)
+	if err != nil {
+		return nil, err
+	}
+	return generated.UploadDocument201JSONResponse(result), nil
 }
 
-func (s *Server) uploadCollection(w http.ResponseWriter, r *http.Request) {
-	request, cleanup, err := s.parseCollectionUpload(w, r)
+// UploadCollection implements the generated streaming multipart operation.
+func (s *Server) UploadCollection(
+	ctx context.Context, request generated.UploadCollectionRequestObject,
+) (generated.UploadCollectionResponseObject, error) {
+	upload, cleanup, err := s.parseCollectionUpload(request.Body)
 	if err != nil {
-		writeError(w, r, err)
-		return
+		return nil, err
 	}
 	defer cleanup()
-	result, err := s.operations.UploadCollection(r.Context(), request)
-	s.writeResult(w, r, http.StatusCreated, result, err)
+	result, err := s.operations.UploadCollection(ctx, upload)
+	if err != nil {
+		return nil, err
+	}
+	return generated.UploadCollection201JSONResponse(result), nil
 }
 
-func (s *Server) getUpload(w http.ResponseWriter, r *http.Request) {
-	var request GetUploadRequest
-	if !s.decodeJSON(w, r, &request) ||
-		!validateTarget(w, r, request.URLOrKey) {
-		return
+// InspectUpload implements the generated operation.
+func (s *Server) InspectUpload(
+	ctx context.Context, request generated.InspectUploadRequestObject,
+) (generated.InspectUploadResponseObject, error) {
+	if request.Body == nil || request.Body.URLOrKey == "" {
+		return nil, invalidRequest("url_or_key is required")
 	}
-	download, err := s.operations.GetUpload(r.Context(), request)
+	result, err := s.operations.InspectUpload(ctx, *request.Body)
 	if err != nil {
-		writeError(w, r, err)
-		return
+		return nil, err
+	}
+	return generated.InspectUpload200JSONResponse(result), nil
+}
+
+// GetUpload implements the generated streaming response operation.
+func (s *Server) GetUpload(
+	ctx context.Context, request generated.GetUploadRequestObject,
+) (generated.GetUploadResponseObject, error) {
+	if request.Body == nil || request.Body.URLOrKey == "" {
+		return nil, invalidRequest("url_or_key is required")
+	}
+	download, err := s.operations.GetUpload(ctx, *request.Body)
+	if err != nil {
+		return nil, err
 	}
 	if download.Body == nil {
-		writeError(w, r, errors.New("operation returned a nil download body"))
-		return
+		return nil, errors.New("operation returned a nil download body")
 	}
-	defer func() { _ = download.Body.Close() }()
-	contentType := download.ContentType
-	if _, _, parseErr := mime.ParseMediaType(contentType); parseErr != nil {
-		contentType = "application/octet-stream"
-	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("X-Airplan-Object-Key", download.Key)
 	filename := safeDownloadFilename(download.Filename)
-	w.Header().Set(
-		"Content-Disposition",
-		mime.FormatMediaType("attachment", map[string]string{"filename": filename}),
+	disposition := mime.FormatMediaType(
+		"attachment", map[string]string{"filename": filename},
 	)
-	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(w, download.Body)
+	key := download.Key
+	return generated.GetUpload200ApplicationOctetStreamResponse{
+		Body: download.Body,
+		Headers: generated.GetUpload200ResponseHeaders{
+			ContentDisposition: disposition,
+			XAirplanObjectKey:  key,
+		},
+	}, nil
+}
+
+// DeleteUpload implements the generated operation.
+func (s *Server) DeleteUpload(
+	ctx context.Context, request generated.DeleteUploadRequestObject,
+) (generated.DeleteUploadResponseObject, error) {
+	if request.Body == nil || request.Body.URLOrKey == "" {
+		return nil, invalidRequest("url_or_key is required")
+	}
+	result, err := s.operations.DeleteUpload(ctx, *request.Body)
+	if err != nil {
+		return nil, err
+	}
+	return generated.DeleteUpload200JSONResponse(result), nil
+}
+
+// ListManifestUploads implements the generated operation.
+func (s *Server) ListManifestUploads(
+	ctx context.Context, _ generated.ListManifestUploadsRequestObject,
+) (generated.ListManifestUploadsResponseObject, error) {
+	result, err := s.operations.ListManifestUploads(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return generated.ListManifestUploads200JSONResponse(result), nil
+}
+
+// ListStorageUploads implements the generated operation.
+func (s *Server) ListStorageUploads(
+	ctx context.Context, _ generated.ListStorageUploadsRequestObject,
+) (generated.ListStorageUploadsResponseObject, error) {
+	result, err := s.operations.ListStorageUploads(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return generated.ListStorageUploads200JSONResponse(result), nil
+}
+
+// SyncManifest implements the generated operation.
+func (s *Server) SyncManifest(
+	ctx context.Context, request generated.SyncManifestRequestObject,
+) (generated.SyncManifestResponseObject, error) {
+	if request.Body == nil {
+		return nil, invalidRequest("request body is required")
+	}
+	result, err := s.operations.SyncManifest(ctx, *request.Body)
+	if err != nil {
+		return nil, err
+	}
+	result.Complete = len(result.Failures) == 0
+	return generated.SyncManifest200JSONResponse(result), nil
+}
+
+// PreviewPurge implements the generated operation.
+func (s *Server) PreviewPurge(
+	ctx context.Context, request generated.PreviewPurgeRequestObject,
+) (generated.PreviewPurgeResponseObject, error) {
+	if request.Body == nil {
+		return nil, invalidRequest("request body is required")
+	}
+	if err := validatePurgePreview(*request.Body); err != nil {
+		return nil, err
+	}
+	result, err := s.operations.PreviewPurge(ctx, *request.Body)
+	if err != nil {
+		return nil, err
+	}
+	return generated.PreviewPurge200JSONResponse(result), nil
+}
+
+// ExecutePurge implements the generated operation.
+func (s *Server) ExecutePurge(
+	ctx context.Context, request generated.ExecutePurgeRequestObject,
+) (generated.ExecutePurgeResponseObject, error) {
+	if request.Body == nil {
+		return nil, invalidRequest("request body is required")
+	}
+	if err := validatePurgeRequest(*request.Body); err != nil {
+		return nil, err
+	}
+	result, err := s.operations.ExecutePurge(ctx, *request.Body)
+	if err != nil {
+		return nil, err
+	}
+	return generated.ExecutePurge200JSONResponse(result), nil
+}
+
+// Health implements the generated public liveness operation.
+func (s *Server) Health(
+	context.Context, generated.HealthRequestObject,
+) (generated.HealthResponseObject, error) {
+	return generated.Health200JSONResponse(Health{Status: "ok"}), nil
+}
+
+// GetOpenAPI implements the generated public schema operation.
+func (s *Server) GetOpenAPI(
+	context.Context, generated.GetOpenAPIRequestObject,
+) (generated.GetOpenAPIResponseObject, error) {
+	return generated.GetOpenAPI200ApplicationYamlResponse{
+		Body: bytes.NewReader(s.openAPI), ContentLength: int64(len(s.openAPI)),
+	}, nil
 }
 
 func safeDownloadFilename(filename string) string {
@@ -287,130 +392,35 @@ func safeDownloadFilename(filename string) string {
 	return filename
 }
 
-func (s *Server) decodeJSON(
-	w http.ResponseWriter,
-	r *http.Request,
-	destination any,
-) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, s.options.MaxJSONBodyBytes)
-	if err := decodeLimitedJSON(r.Body, s.options.MaxJSONBodyBytes, destination); err != nil {
-		writeError(w, r, err)
-		return false
-	}
-	return true
-}
-
-func (s *Server) writeResult(
-	w http.ResponseWriter,
-	r *http.Request,
-	status int,
-	result any,
-	err error,
-) {
-	if err != nil {
-		writeError(w, r, err)
-		return
-	}
-	writeJSON(w, status, result)
-}
-
-func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
-}
-
-func requireMethod(
-	w http.ResponseWriter,
-	r *http.Request,
-	method string,
-) bool {
-	if r.Method == method {
-		return true
-	}
-	w.Header().Set("Allow", method)
-	writeProblem(w, r, requestProblem(
-		http.StatusMethodNotAllowed,
-		"method_not_allowed",
-		"Method not allowed",
-		"The route does not support this HTTP method.",
-	))
-	return false
-}
-
-func (s *Server) methodNotAllowed(
-	w http.ResponseWriter,
-	r *http.Request,
-	method string,
-) {
-	requireMethod(w, r, method)
-}
-
-func validateTarget(w http.ResponseWriter, r *http.Request, target string) bool {
-	if target != "" {
-		return true
-	}
-	writeError(w, r, invalidRequest("url_or_key is required"))
-	return false
-}
-
-func validateConcurrency(
-	w http.ResponseWriter,
-	r *http.Request,
-	concurrency int,
-) bool {
-	if concurrency == 0 || (concurrency >= 1 && concurrency <= 64) {
-		return true
-	}
-	writeError(w, r, invalidRequest("concurrency must be between 1 and 64"))
-	return false
-}
-
-func validatePurgePreview(
-	w http.ResponseWriter,
-	r *http.Request,
-	request PurgePreviewRequest,
-) bool {
+func validatePurgePreview(request PurgePreviewRequest) error {
 	if request.Source != "manifest" && request.Source != "storage" {
-		writeError(w, r, invalidRequest(
-			"purge source must be manifest or storage",
-		))
-		return false
+		return invalidRequest("purge source must be manifest or storage")
 	}
-	if !validateConcurrency(w, r, request.Concurrency) {
-		return false
+	if request.Concurrency != 0 &&
+		(request.Concurrency < 1 || request.Concurrency > 64) {
+		return invalidRequest("concurrency must be between 1 and 64")
 	}
-	if !request.All && request.CreatedBefore == nil && request.Slug == "" {
-		writeError(w, r, invalidRequest(
-			"purge preview requires a filter or all=true",
-		))
-		return false
+	if !request.All && request.CreatedBefore.IsZero() && request.Slug == "" {
+		return invalidRequest("purge preview requires a filter or all=true")
 	}
-	return true
+	return nil
 }
 
-func validatePurgeRequest(
-	w http.ResponseWriter,
-	r *http.Request,
-	request PurgeRequest,
-) bool {
-	if len(request.UploadIDs) == 0 {
-		writeError(w, r, invalidRequest("upload_ids must not be empty"))
-		return false
+func validatePurgeRequest(request PurgeRequest) error {
+	if len(request.UploadIds) == 0 {
+		return invalidRequest("upload_ids must not be empty")
 	}
-	seen := make(map[string]struct{}, len(request.UploadIDs))
-	for _, uploadID := range request.UploadIDs {
+	seen := make(map[string]struct{}, len(request.UploadIds))
+	for _, uploadID := range request.UploadIds {
 		if uploadID == "" {
-			writeError(w, r, invalidRequest("upload_ids must not contain empty IDs"))
-			return false
+			return invalidRequest("upload_ids must not contain empty IDs")
 		}
 		if _, exists := seen[uploadID]; exists {
-			writeError(w, r, invalidRequest("upload_ids must be unique"))
-			return false
+			return invalidRequest("upload_ids must be unique")
 		}
 		seen[uploadID] = struct{}{}
 	}
-	return true
+	return nil
 }
 
 func applyOptionDefaults(options *Options) {
@@ -449,4 +459,13 @@ func validateOptions(options Options) error {
 		)
 	}
 	return nil
+}
+
+func parseMultipartReader(
+	reader *multipart.Reader,
+) (*multipart.Reader, error) {
+	if reader == nil {
+		return nil, invalidRequest("multipart request body is required")
+	}
+	return reader, nil
 }

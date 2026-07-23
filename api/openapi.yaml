@@ -477,6 +477,7 @@ components:
         created_at:
           type: string
           format: date-time
+          x-go-type-skip-optional-pointer: false
         marker_version:
           type: integer
           minimum: 1
@@ -560,6 +561,7 @@ components:
         created_at:
           type: string
           format: date-time
+          x-go-type-skip-optional-pointer: false
         format:
           type: string
         kind:
@@ -575,8 +577,10 @@ components:
           minimum: 0
         page:
           $ref: "#/components/schemas/InspectedObject"
+          x-go-type-skip-optional-pointer: false
         source:
           $ref: "#/components/schemas/InspectedObject"
+          x-go-type-skip-optional-pointer: false
         files:
           type: array
           items:
@@ -820,6 +824,7 @@ components:
           $ref: "#/components/schemas/ManifestRecord"
         inspection:
           $ref: "#/components/schemas/UploadInspection"
+          x-go-type-skip-optional-pointer: false
         warnings:
           type: array
           items:
@@ -861,6 +866,7 @@ components:
           type: string
         deleted:
           $ref: "#/components/schemas/DeleteResult"
+          x-go-type-skip-optional-pointer: false
         error:
           type: string
     PurgeResult:
