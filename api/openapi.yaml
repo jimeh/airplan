@@ -447,6 +447,7 @@ components:
         - content_type
         - created_at
         - marker_version
+        - marker_key
         - warnings
       properties:
         id:
@@ -481,6 +482,12 @@ components:
         marker_version:
           type: integer
           minimum: 1
+        marker_key:
+          type: string
+        format:
+          type: string
+        slug:
+          type: string
         repository_url:
           type: string
           format: uri

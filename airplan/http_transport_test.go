@@ -76,6 +76,8 @@ func TestAirplanBackendStreamsDocumentMultipart(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(Result{
 				ID: "aaaaaaaaaaaaaaaaaaaaaaaaaa", Kind: "document",
 				URL: "https://plans.example/plan", Key: "key",
+				MarkerKey: "aaaaaaaaaaaaaaaaaaaaaaaaaa/.airplan.json",
+				Format:    "md", Slug: "plan",
 			})
 		},
 	))
@@ -94,7 +96,9 @@ func TestAirplanBackendStreamsDocumentMultipart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.URL != "https://plans.example/plan" {
+	if result.URL != "https://plans.example/plan" ||
+		result.MarkerKey != "aaaaaaaaaaaaaaaaaaaaaaaaaa/.airplan.json" ||
+		result.Format != "md" || result.Slug != "plan" {
 		t.Fatalf("result = %+v", result)
 	}
 }

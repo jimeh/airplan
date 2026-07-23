@@ -100,6 +100,7 @@ func coreUploadResult(result httpapi.UploadResult) FilesResult {
 		Bucket: result.Bucket, Bytes: result.Bytes,
 		ContentType: result.ContentType, Title: result.Title,
 		CreatedAt: result.CreatedAt, MarkerVersion: result.MarkerVersion,
+		MarkerKey: result.MarkerKey, Format: result.Format, Slug: result.Slug,
 		RepositoryURL: result.RepositoryURL,
 		Warnings:      append([]string(nil), result.Warnings...),
 	}}
