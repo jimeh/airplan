@@ -3,6 +3,8 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,6 +85,89 @@ func TestPurgeRejectsExplicitEmptyProfile(t *testing.T) {
 	)
 	if err == nil || !strings.Contains(err.Error(), "non-empty profile") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestPurgeAirplanBackendSelectsRequestedSource(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		remote     bool
+		wantSource string
+	}{
+		{name: "manifest default", wantSource: "manifest"},
+		{name: "remote storage", remote: true, wantSource: "storage"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			isolateEnv(t)
+			var source string
+			server := httptest.NewServer(http.HandlerFunc(
+				func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path != "/api/v1/purge/preview" {
+						t.Fatalf("path = %q", r.URL.Path)
+					}
+					var request struct {
+						Source string `json:"source"`
+					}
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+						t.Fatal(err)
+					}
+					source = request.Source
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"candidates": []any{}, "invalid": 0,
+						"warnings": []any{},
+					})
+				},
+			))
+			t.Cleanup(server.Close)
+			config := filepath.Join(t.TempDir(), "config.toml")
+			data := fmt.Sprintf(
+				"backend = \"airplan\"\napi_url = %q\n"+
+					"api_token = \"01234567890123456789012345678901\"\n"+
+					"timeout = \"1s\"\n",
+				server.URL,
+			)
+			if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"purge", "--all", "--dry-run", "--config", config}
+			if test.remote {
+				args = append(args, "--remote")
+			}
+			stdout, stderr, err := executeCommand(t, "", "", args...)
+			if err != nil || stdout != "" || source != test.wantSource {
+				t.Fatalf("source = %q, stdout = %q, stderr = %q, error = %v",
+					source, stdout, stderr, err)
+			}
+		})
+	}
+}
+
+func TestPurgeAirplanBackendPreviewUsesTimeout(t *testing.T) {
+	isolateEnv(t)
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) {
+			time.Sleep(100 * time.Millisecond)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"candidates": []any{}, "invalid": 0, "warnings": []any{},
+			})
+		},
+	))
+	t.Cleanup(server.Close)
+	config := filepath.Join(t.TempDir(), "config.toml")
+	data := fmt.Sprintf(
+		"backend = \"airplan\"\napi_url = %q\n"+
+			"api_token = \"01234567890123456789012345678901\"\n"+
+			"timeout = \"10ms\"\n",
+		server.URL,
+	)
+	if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := executeCommand(
+		t, "", "", "purge", "--all", "--dry-run", "--config", config,
+	)
+	if err == nil || !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("error = %v, want deadline exceeded", err)
 	}
 }
 

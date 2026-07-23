@@ -481,7 +481,9 @@ transport calls the S3-backed service in memory. The HTTP transport wraps the
 generated OpenAPI client and maps wire results and problems back to public
 Airplan types. REST handlers and hosted MCP receive the same service directly;
 they do not make loopback HTTP requests or reimplement selection/deletion
-logic.
+logic. Their upload adapters translate omitted repository context to `none`,
+reject `auto`, and normalize explicit repository URLs before core rendering so
+hosted requests never initiate Git discovery against server-local paths.
 
 Local service construction resolves profile identity and manifest state before
 it creates storage. Storage is initialized lazily at the start of each

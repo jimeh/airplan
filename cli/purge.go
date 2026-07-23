@@ -121,12 +121,12 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		return err
 	}
 	source := airplan.UploadSourceManifest
-	if opts.remote || cfg.EffectiveBackend() == airplan.BackendAirplan {
+	if opts.remote {
 		source = airplan.UploadSourceStorage
 	}
 	planCtx := cmd.Context()
 	planCancel := func() {}
-	if opts.remote {
+	if opts.remote || cfg.EffectiveBackend() == airplan.BackendAirplan {
 		planCtx, planCancel = timeoutContext(planCtx, cfg)
 	}
 	defer planCancel()

@@ -3,6 +3,7 @@ package airplan
 import (
 	"context"
 	"errors"
+	"fmt"
 	"mime"
 	"net/http"
 	"path"
@@ -63,7 +64,10 @@ func (o *HTTPOperations) UploadDocument(
 	if err != nil {
 		return httpapi.UploadResult{}, err
 	}
-	repositoryURL := serverRepositoryURL(upload.Metadata.RepositoryURL)
+	repositoryURL, err := hostedRepositoryURL(upload.Metadata.RepositoryURL)
+	if err != nil {
+		return httpapi.UploadResult{}, apiOperationError(err)
+	}
 	result, err := client.Upload(ctx, Input{
 		Reader: upload.Document, Name: upload.Metadata.Name,
 		Format: string(upload.Metadata.Format), Title: upload.Metadata.Title,
@@ -92,7 +96,10 @@ func (o *HTTPOperations) UploadCollection(
 			Size: file.Size, Reader: file.Reader,
 		})
 	}
-	repositoryURL := serverRepositoryURL(upload.Metadata.RepositoryURL)
+	repositoryURL, err := hostedRepositoryURL(upload.Metadata.RepositoryURL)
+	if err != nil {
+		return httpapi.UploadResult{}, apiOperationError(err)
+	}
 	result, err := client.UploadFiles(ctx, FilesInput{
 		Files: files, Title: upload.Metadata.Title,
 		RepositoryURL: repositoryURL,
@@ -128,11 +135,23 @@ func wireUploadResult(
 	}
 }
 
-func serverRepositoryURL(repositoryURL string) string {
-	if repositoryURL == "" {
-		return "none"
+var errInvalidHostedRepository = errors.New(
+	"airplan: hosted repository must be none or an explicit repository URL",
+)
+
+func hostedRepositoryURL(repositoryURL string) (string, error) {
+	repositoryURL = strings.TrimSpace(repositoryURL)
+	if repositoryURL == "" || repositoryURL == "none" {
+		return "none", nil
 	}
-	return repositoryURL
+	if repositoryURL == "auto" {
+		return "", errInvalidHostedRepository
+	}
+	normalized, err := NormalizeRepositoryURL(repositoryURL)
+	if err != nil {
+		return "", fmt.Errorf("%w: %v", errInvalidHostedRepository, err)
+	}
+	return normalized, nil
 }
 
 func serverSafeWarnings(warnings []string) []string {
@@ -486,7 +505,8 @@ func apiOperationError(err error) error {
 		)
 	}
 	if errors.Is(err, ErrBinaryInput) || errors.Is(err, ErrInvalidUTF8) ||
-		errors.Is(err, ErrEmptyInput) {
+		errors.Is(err, ErrEmptyInput) ||
+		errors.Is(err, errInvalidHostedRepository) {
 		return httpapi.NewProblemError(
 			http.StatusUnprocessableEntity, "invalid_upload",
 			"Invalid upload", "The request does not describe a valid Airplan upload.",

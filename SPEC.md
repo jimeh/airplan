@@ -1584,8 +1584,10 @@ connection overrides and server-owned rendering policy flags are rejected
 before input is opened. Inherited settings remain inactive as described in
 §7; a client cannot choose the server's endpoint, bucket, key prefix,
 templates, source policy, indexability, or Mermaid policy.
-Raw REST requests that omit repository context disable repository discovery;
-the server never falls back to inspecting its own working directory.
+Raw REST and hosted MCP requests that omit repository context disable
+repository discovery. Hosted requests reject `auto` and accept only `none` or
+a normalizable explicit repository URL, so the server never falls back to
+inspecting its own working directory or caller-named filesystem paths.
 
 The server's manifest listing is scoped to its resolved S3 profile, bucket,
 and key prefix even when its file also contains records for other local

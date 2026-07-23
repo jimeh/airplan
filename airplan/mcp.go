@@ -87,8 +87,14 @@ func NewMCPServer(
 		ctx, cancel := mcpOperationContext(ctx, client)
 		defer cancel()
 		repository := input.RepositoryURL
-		if !localFiles && repository == "" {
-			repository = "none"
+		if !localFiles {
+			var err error
+			repository, err = hostedRepositoryURL(repository)
+			if err != nil {
+				return nil, Result{}, errors.New(
+					"airplan: repository_url must be none or an explicit repository URL",
+				)
+			}
 		}
 		result, err := client.Upload(ctx, Input{
 			Reader: strings.NewReader(input.Content), Name: input.Name,

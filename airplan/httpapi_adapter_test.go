@@ -225,8 +225,25 @@ func TestServerSafeWarningsHideTemplatePath(t *testing.T) {
 }
 
 func TestHostedAdapterSafetyAndRequiredArrays(t *testing.T) {
-	if got := serverRepositoryURL(""); got != "none" {
-		t.Fatalf("server repository = %q, want none", got)
+	for _, test := range []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{input: "", want: "none"},
+		{input: "none", want: "none"},
+		{
+			input: "git@github.com:acme/airplan.git",
+			want:  "https://github.com/acme/airplan",
+		},
+		{input: "auto", wantErr: true},
+		{input: "file:///private/repo", wantErr: true},
+	} {
+		got, err := hostedRepositoryURL(test.input)
+		if (err != nil) != test.wantErr || got != test.want {
+			t.Fatalf("hostedRepositoryURL(%q) = %q, %v; want %q, error=%t",
+				test.input, got, err, test.want, test.wantErr)
+		}
 	}
 	warnings := serverSafeWarnings([]string{
 		"manifest not recorded: /private/manifest.jsonl: denied",
