@@ -1,6 +1,6 @@
 # Airplan Backend, REST API, and MCP Server Implementation Plan
 
-Status: proposed implementation plan  
+Status: implemented in [PR #63](https://github.com/jimeh/airplan/pull/63)\
 Scope: single-user self-hosted Airplan server, REST API, and MCP transports  
 Repository baseline: Airplan spec 0.26.0
 
