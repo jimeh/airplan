@@ -37,6 +37,23 @@ airplan --json plan.md
 # {"url":"https://plans.example.com/.../plan.html", ...}
 ```
 
+### Markdown rendering
+
+Airplan turns Markdown into a polished, responsive page. Write for the content
+first; use these features when they materially improve clarity:
+
+- GFM tables, task lists, strikethrough, and autolinks, plus definition lists
+  and footnotes.
+- Syntax-highlighted fenced code and exact lowercase `mermaid` fences for
+  diagrams.
+- GitHub-style alerts: `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, and
+  `[!CAUTION]`.
+- YAML/TOML frontmatter and Pandoc-style `{.columns}` / `{.column}` fenced divs
+  for responsive columns.
+
+Airplan adds light/dark themes, heading navigation, rendered/source views, and
+copy controls automatically.
+
 Markdown preserves authored raw HTML and link destinations, while HTML is
 uploaded as authored. Both may execute active content when opened, so upload
 only trusted documents. Repository discovery is local and uses the input
