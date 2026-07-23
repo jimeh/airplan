@@ -166,8 +166,11 @@ func (c *Client) UploadCollection(
 			if err != nil {
 				return err
 			}
-			if _, err = io.Copy(part, io.LimitReader(file.Reader, file.Size)); err != nil {
-				return err
+			if _, err = io.CopyN(part, file.Reader, file.Size); err != nil {
+				return fmt.Errorf(
+					"airplan collection input %q was truncated: %w",
+					file.Name, err,
+				)
 			}
 		}
 		return nil

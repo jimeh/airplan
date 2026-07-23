@@ -2,7 +2,9 @@ package airplan
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -93,7 +95,10 @@ func NewMCPServer(
 			MaxSize: input.MaxSize,
 		})
 		if err != nil {
-			return nil, Result{}, err
+			return nil, Result{}, mcpOperationError(err, !localFiles)
+		}
+		if !localFiles {
+			result.Warnings = serverSafeWarnings(result.Warnings)
 		}
 		return uploadToolContent(result), *result, nil
 	})
@@ -140,7 +145,7 @@ func NewMCPServer(
 				MaxSize: input.MaxSize, MaxTotalSize: input.MaxTotalSize,
 			})
 			if err != nil {
-				return nil, FilesResult{}, err
+				return nil, FilesResult{}, mcpOperationError(err, false)
 			}
 			return uploadToolContent(&result.Result), *result, nil
 		})
@@ -164,13 +169,13 @@ func NewMCPServer(
 				Scope: ManifestScopeService,
 			})
 			if err != nil {
-				return nil, output, err
+				return nil, output, mcpOperationError(err, !localFiles)
 			}
 			output.Manifest = listed
 		case UploadSourceStorage:
 			uploads, err := client.ListRemote(ctx)
 			if err != nil {
-				return nil, output, err
+				return nil, output, mcpOperationError(err, !localFiles)
 			}
 			if uploads == nil {
 				uploads = []RemoteUpload{}
@@ -192,7 +197,7 @@ func NewMCPServer(
 	) (*mcp.CallToolResult, UploadInspection, error) {
 		result, err := client.InspectUpload(ctx, input.URLOrKey)
 		if err != nil {
-			return nil, UploadInspection{}, err
+			return nil, UploadInspection{}, mcpOperationError(err, !localFiles)
 		}
 		return nil, *result, nil
 	})
@@ -206,7 +211,7 @@ func NewMCPServer(
 	) (*mcp.CallToolResult, DeleteResult, error) {
 		result, err := client.DeleteUpload(ctx, input.URLOrKey)
 		if err != nil {
-			return nil, DeleteResult{}, err
+			return nil, DeleteResult{}, mcpOperationError(err, !localFiles)
 		}
 		return nil, *result, nil
 	})
@@ -223,9 +228,9 @@ func NewMCPServer(
 			Concurrency: input.Concurrency,
 		})
 		if result == nil {
-			return nil, SyncManifestResult{}, err
+			return nil, SyncManifestResult{}, mcpOperationError(err, !localFiles)
 		}
-		return nil, *result, err
+		return partialToolResult(mcpOperationError(err, !localFiles)), *result, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -249,7 +254,7 @@ func NewMCPServer(
 			Concurrency: input.Concurrency,
 		})
 		if err != nil {
-			return nil, PurgePlan{}, err
+			return nil, PurgePlan{}, mcpOperationError(err, !localFiles)
 		}
 		return nil, *result, nil
 	})
@@ -263,9 +268,9 @@ func NewMCPServer(
 	) (*mcp.CallToolResult, PurgeResult, error) {
 		result, err := client.Purge(ctx, PurgeRequest(input))
 		if result == nil {
-			return nil, PurgeResult{}, err
+			return nil, PurgeResult{}, mcpOperationError(err, !localFiles)
 		}
-		return nil, *result, err
+		return partialToolResult(mcpOperationError(err, !localFiles)), *result, nil
 	})
 
 	return server
@@ -280,6 +285,34 @@ func uploadToolContent(result *Result) *mcp.CallToolResult {
 			MIMEType:    result.ContentType,
 		},
 	}}
+}
+
+func partialToolResult(err error) *mcp.CallToolResult {
+	if err == nil {
+		return nil
+	}
+	return &mcp.CallToolResult{
+		IsError: true,
+		Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}},
+	}
+}
+
+func mcpOperationError(err error, hosted bool) error {
+	if err == nil || !hosted {
+		return err
+	}
+	switch {
+	case errors.Is(err, context.Canceled),
+		errors.Is(err, context.DeadlineExceeded):
+		return errors.New("airplan: the server operation timed out")
+	case errors.Is(err, ErrInputTooLarge):
+		return errors.New("airplan: the upload exceeds the effective size limit")
+	case errors.Is(err, ErrBinaryInput), errors.Is(err, ErrInvalidUTF8),
+		errors.Is(err, ErrEmptyInput):
+		return errors.New("airplan: the request is not a valid document upload")
+	default:
+		return errors.New("airplan: the server could not complete the operation")
+	}
 }
 
 // RunMCPStdio serves MCP frames over stdin/stdout until context cancellation.
@@ -309,7 +342,7 @@ func NewMCPHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
 		&mcp.StreamableHTTPOptions{Stateless: true},
 	)
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	originHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origins := r.Header.Values("Origin")
 		if len(origins) > 1 {
 			http.Error(w, "forbidden origin", http.StatusForbidden)
@@ -322,5 +355,83 @@ func NewMCPHTTPHandler(
 			}
 		}
 		handler.ServeHTTP(w, r)
-	}), nil
+	})
+	return limitMCPRequestBody(originHandler, mcpHTTPMaxRequestBytes), nil
+}
+
+const mcpHTTPMaxRequestBytes = 6*DefaultMaxInputSize + (1 << 20)
+
+func limitMCPRequestBody(next http.Handler, limit int64) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.ContentLength > limit {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		body := &mcpLimitedBody{
+			body: r.Body, remaining: limit, limit: limit,
+		}
+		r.Body = body
+		next.ServeHTTP(&mcpLimitResponseWriter{
+			ResponseWriter: w, body: body,
+		}, r)
+	})
+}
+
+type mcpLimitedBody struct {
+	body      io.ReadCloser
+	remaining int64
+	limit     int64
+	exceeded  bool
+}
+
+func (b *mcpLimitedBody) Read(p []byte) (int, error) {
+	if b.remaining == 0 {
+		var extra [1]byte
+		n, err := b.body.Read(extra[:])
+		if n > 0 {
+			b.exceeded = true
+			return 0, &http.MaxBytesError{Limit: b.limit}
+		}
+		return 0, err
+	}
+	if int64(len(p)) > b.remaining {
+		p = p[:b.remaining]
+	}
+	n, err := b.body.Read(p)
+	b.remaining -= int64(n)
+	return n, err
+}
+
+func (b *mcpLimitedBody) Close() error { return b.body.Close() }
+
+type mcpLimitResponseWriter struct {
+	http.ResponseWriter
+	body        *mcpLimitedBody
+	wroteHeader bool
+}
+
+func (w *mcpLimitResponseWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func (w *mcpLimitResponseWriter) WriteHeader(status int) {
+	if w.wroteHeader {
+		return
+	}
+	w.wroteHeader = true
+	if w.body.exceeded {
+		status = http.StatusRequestEntityTooLarge
+	}
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *mcpLimitResponseWriter) Write(p []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(p)
 }

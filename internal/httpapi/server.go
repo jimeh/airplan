@@ -276,6 +276,7 @@ func (s *Server) GetUpload(
 	return generated.GetUpload200ApplicationOctetStreamResponse{
 		Body: download.Body,
 		Headers: generated.GetUpload200ResponseHeaders{
+			ContentType:        download.ContentType,
 			ContentDisposition: disposition,
 			XAirplanObjectKey:  key,
 		},

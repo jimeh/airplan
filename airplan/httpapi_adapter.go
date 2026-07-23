@@ -121,8 +121,20 @@ func wireUploadResult(
 		CreatedAt: result.CreatedAt, MarkerVersion: result.MarkerVersion,
 		MarkerKey: result.MarkerKey, Format: result.Format, Slug: result.Slug,
 		RepositoryURL: result.RepositoryURL,
-		Warnings:      append([]string(nil), result.Warnings...), Files: wireFiles,
+		Warnings:      serverSafeWarnings(result.Warnings), Files: wireFiles,
 	}
+}
+
+func serverSafeWarnings(warnings []string) []string {
+	safe := append([]string(nil), warnings...)
+	const templateFailure = " (note: the template also failed to load:"
+	for index, warning := range safe {
+		if start := strings.Index(warning, templateFailure); start >= 0 {
+			safe[index] = warning[:start] +
+				" (note: the configured template also failed to load)"
+		}
+	}
+	return safe
 }
 
 // InspectUpload invokes marker validation for one target.

@@ -211,6 +211,18 @@ func rewriteManifest(
 	return os.WriteFile(path, []byte(body.String()), 0o600)
 }
 
+func TestServerSafeWarningsHideTemplatePath(t *testing.T) {
+	const privatePath = "/private/airplan/template.html"
+	warnings := serverSafeWarnings([]string{
+		"custom template ignored for HTML input — HTML input is used as-is " +
+			"(note: the template also failed to load: read " + privatePath + ")",
+	})
+	if len(warnings) != 1 || strings.Contains(warnings[0], privatePath) ||
+		!strings.Contains(warnings[0], "configured template") {
+		t.Fatalf("warnings = %v", warnings)
+	}
+}
+
 func manifestUploadRecord(
 	when time.Time, profile, bucket, prefix, title string,
 ) ManifestRecord {

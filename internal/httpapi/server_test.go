@@ -288,6 +288,31 @@ func TestTypedClientStreamsDocumentAndCleansTempFile(t *testing.T) {
 	assertDirEmpty(t, tempDir)
 }
 
+func TestTypedClientAllowsUnnamedStdinDocument(t *testing.T) {
+	operations := &stubOperations{}
+	operations.uploadDocument = func(
+		_ context.Context, request DocumentUpload,
+	) (UploadResult, error) {
+		if request.Metadata.Name != "" {
+			t.Fatalf("name = %q, want empty stdin name", request.Metadata.Name)
+		}
+		return UploadResult{
+			ID: "upload-id", Kind: UploadResultKind("document"),
+			URL:      "https://example.test/upload-id/plan.html",
+			Warnings: []string{}, Files: []FileResult{},
+		}, nil
+	}
+	handler := newTestHandler(t, operations, Options{})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client := newTestClient(t, server.URL)
+	if _, err := client.UploadDocument(
+		context.Background(), DocumentMetadata{}, strings.NewReader("# Plan\n"),
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDocumentClientLimitRejectsBeforeOperation(t *testing.T) {
 	tempDir := t.TempDir()
 	called := false
@@ -392,7 +417,8 @@ func TestTypedClientStreamsDownload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(body) != "download body" || download.Filename != "plan.html" {
+	if string(body) != "download body" || download.Filename != "plan.html" ||
+		download.ContentType != "text/html; charset=utf-8" {
 		t.Fatalf("unexpected download: %+v %q", download, body)
 	}
 }

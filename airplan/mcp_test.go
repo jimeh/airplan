@@ -2,6 +2,9 @@ package airplan
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -147,6 +150,165 @@ func TestMCPStreamableHTTPWithOfficialClient(t *testing.T) {
 	if result.IsError || len(result.Content) == 0 {
 		t.Fatalf("result = %+v", result)
 	}
+}
+
+func TestMCPPartialResultsRetainStructuredContent(t *testing.T) {
+	transport := &mcpTestTransport{
+		syncResult: &SyncManifestResult{Unchanged: 2},
+		syncErr:    errors.New("one marker failed"),
+		purgeResult: &PurgeResult{Items: []PurgeItemResult{
+			{UploadID: "aaaaaaaaaaaaaaaaaaaaaaaaaa", Error: "delete failed"},
+		}},
+		purgeErr: errors.New("one purge failed"),
+	}
+	client := &Client{cfg: &Config{}, remote: transport}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", true)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	for _, call := range []*mcp.CallToolParams{
+		{Name: "sync_manifest", Arguments: map[string]any{}},
+		{Name: "execute_purge", Arguments: map[string]any{
+			"upload_ids": []string{"aaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		}},
+	} {
+		result, err := session.CallTool(ctx, call)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !result.IsError || result.StructuredContent == nil {
+			t.Fatalf("%s result = %+v", call.Name, result)
+		}
+	}
+}
+
+func TestHostedMCPHidesServerPaths(t *testing.T) {
+	const privatePath = "/private/airplan/template.html"
+	for _, test := range []struct {
+		name      string
+		result    *Result
+		uploadErr error
+	}{
+		{
+			name:      "error",
+			uploadErr: errors.New("read template " + privatePath + ": denied"),
+		},
+		{
+			name: "warning",
+			result: &Result{
+				URL: "https://plans.example/upload", Title: "upload",
+				Warnings: []string{
+					"custom template ignored for HTML input — HTML input is used as-is " +
+						"(note: the template also failed to load: read " + privatePath + ")",
+				},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := &Client{cfg: &Config{}, remote: &mcpTestTransport{
+				uploadResult: test.result, uploadErr: test.uploadErr,
+			}}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			server := NewMCPServer(client, "test", false)
+			clientTransport, serverTransport := mcp.NewInMemoryTransports()
+			serverSession, err := server.Connect(ctx, serverTransport, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = serverSession.Close() }()
+			protocolClient := mcp.NewClient(&mcp.Implementation{
+				Name: "test", Version: "test",
+			}, nil)
+			session, err := protocolClient.Connect(ctx, clientTransport, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = session.Close() }()
+			result, err := session.CallTool(ctx, &mcp.CallToolParams{
+				Name: "upload_document", Arguments: map[string]any{
+					"content": "<html></html>", "format": "html",
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(fmt.Sprint(result), privatePath) {
+				t.Fatalf("server path leaked: %+v", result)
+			}
+		})
+	}
+}
+
+func TestMCPRequestBodyLimit(t *testing.T) {
+	reader := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := io.ReadAll(r.Body); err != nil {
+			http.Error(w, "failed to read body", http.StatusBadRequest)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	handler := limitMCPRequestBody(reader, 8)
+	for _, test := range []struct {
+		name    string
+		chunked bool
+	}{
+		{name: "fixed length"},
+		{name: "chunked", chunked: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(
+				http.MethodPost, "/mcp", strings.NewReader("123456789"),
+			)
+			if test.chunked {
+				request.ContentLength = -1
+			}
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusRequestEntityTooLarge {
+				t.Fatalf("status = %d, want 413", recorder.Code)
+			}
+		})
+	}
+}
+
+type mcpTestTransport struct {
+	operationTransport
+	uploadResult *Result
+	uploadErr    error
+	syncResult   *SyncManifestResult
+	syncErr      error
+	purgeResult  *PurgeResult
+	purgeErr     error
+}
+
+func (t *mcpTestTransport) Upload(context.Context, Input) (*Result, error) {
+	return t.uploadResult, t.uploadErr
+}
+
+func (t *mcpTestTransport) SyncManifest(
+	context.Context, SyncManifestOptions,
+) (*SyncManifestResult, error) {
+	return t.syncResult, t.syncErr
+}
+
+func (t *mcpTestTransport) Purge(
+	context.Context, PurgeRequest,
+) (*PurgeResult, error) {
+	return t.purgeResult, t.purgeErr
 }
 
 type bearerRoundTripper struct {

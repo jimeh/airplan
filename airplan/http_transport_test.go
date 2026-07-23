@@ -1,8 +1,10 @@
 package airplan
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -116,5 +118,80 @@ func TestPortableUploadLimit(t *testing.T) {
 			t.Errorf("portableUploadLimit(%d) = %d, want %d",
 				test.input, got, test.want)
 		}
+	}
+}
+
+func TestAirplanBackendPreflightsCollectionFiles(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if err := r.ParseMultipartForm(1 << 20); err != nil {
+				t.Fatal(err)
+			}
+			file, header, err := r.FormFile("files")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = file.Close() }()
+			if header.Filename != "shot.png" ||
+				header.Header.Get("Content-Type") != "image/png" {
+				t.Fatalf("file header = %+v", header)
+			}
+			var metadata map[string]any
+			if err := json.Unmarshal(
+				[]byte(r.FormValue("metadata")), &metadata,
+			); err != nil {
+				t.Fatal(err)
+			}
+			if metadata["title"] != "shot.png" {
+				t.Fatalf("metadata = %+v", metadata)
+			}
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(Result{
+				ID: "aaaaaaaaaaaaaaaaaaaaaaaaaa", Kind: "collection",
+				URL: "https://plans.example/collection", Key: "index.html",
+			})
+		},
+	))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL,
+		APIToken: "01234567890123456789012345678901", Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.UploadFiles(context.Background(), FilesInput{
+		Files: []FileInput{{
+			Name:   "screenshots/shot.png",
+			Reader: bytes.NewReader([]byte("png")), Size: 3,
+		}},
+	})
+	if err != nil || result.URL != "https://plans.example/collection" {
+		t.Fatalf("result = %+v, error = %v", result, err)
+	}
+}
+
+func TestAirplanBackendRejectsTruncatedCollectionFile(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.WriteHeader(http.StatusCreated)
+		},
+	))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL,
+		APIToken: "01234567890123456789012345678901", Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.UploadFiles(context.Background(), FilesInput{
+		Files: []FileInput{{
+			Name: "short.bin", Reader: bytes.NewReader([]byte("short")), Size: 10,
+		}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "truncated") {
+		t.Fatalf("error = %v, want truncated input", err)
 	}
 }

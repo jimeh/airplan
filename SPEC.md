@@ -1639,15 +1639,16 @@ POST   /api/v1/purge
 
 Document and collection uploads use bounded streaming
 `multipart/form-data`. The server applies the stricter of its hard limits and
-portable client-requested limits. Collection members are spooled to mode-0600
-temporary files so the existing seekable collection API can be used without
-whole-collection buffering; all temporary files are removed after success,
-failure, cancellation, or shutdown.
+portable client-requested limits. Collection members are spooled to temporary
+files, mode 0600 on platforms with POSIX permission bits, so the existing
+seekable collection API can be used without whole-collection buffering; all
+temporary files are removed after success, failure, cancellation, or shutdown.
 
 Inspect, get, and delete take `url_or_key` in a JSON request body. The server
 resolves it against its complete S3 configuration and permits only objects
 declared by exactly one valid Airplan ownership marker. Get streams its
-response. Capability URLs are not placed in query strings. Upload, list,
+response with the stored object's content type. Capability URLs are not placed
+in query strings. Upload, list,
 inspection, and purge-preview results expose the randomized directory as an
 opaque `upload_id`.
 
@@ -1695,10 +1696,13 @@ configuration, arbitrary S3 objects, or filesystem browsing.
 `sync_manifest` defaults to dry-run unless `apply: true` is explicit.
 `preview_purge` never deletes, and `execute_purge` accepts only explicit
 `upload_id` values. Tool results are structured and warnings remain inside the
-result rather than corrupting protocol framing.
+result rather than corrupting protocol framing. Partial sync or purge failures
+set the MCP error indicator while retaining the structured progress result.
 
 The Streamable HTTP endpoint uses the same bearer token as REST. This is a
 custom single-user mechanism, not MCP OAuth; clients unable to add an
 Authorization header are unsupported. A present `Origin` header must exactly
 match an allowed origin or receives 403. An absent Origin is accepted for
-non-browser agent clients, and the default allowlist is empty.
+non-browser agent clients, and the default allowlist is empty. Streamable HTTP
+POST bodies are limited to 61 MiB, enough for the maximum JSON-escaped default
+document input plus bounded protocol metadata; oversized bodies receive 413.

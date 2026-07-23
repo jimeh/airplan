@@ -337,9 +337,6 @@ func multipartFilename(part *multipart.Part) (string, error) {
 }
 
 func validateDocumentMetadata(metadata DocumentMetadata) error {
-	if metadata.Name == "" {
-		return invalidRequest("document metadata name is required")
-	}
 	if metadata.MaxSize < 0 {
 		return invalidRequest("document max_size must be positive")
 	}

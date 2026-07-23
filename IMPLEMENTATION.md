@@ -521,8 +521,9 @@ The REST adapter:
 - bounds total bodies, multipart parts, per-file bytes, and aggregate bytes;
 - streams document uploads through multipart readers and object downloads
   through response writers;
-- spools collection members to mode-0600 temporary files because the core
-  collection API needs exact sizes and seekable readers;
+- spools collection members to temporary files, mode 0600 where POSIX
+  permission bits exist, because the core collection API needs exact sizes and
+  seekable readers;
 - removes all spooled files on completion, failure, cancellation, or shutdown;
 - resolves request targets against server-side storage configuration so the
   HTTP client never reconstructs capability keys with incomplete knowledge;
@@ -565,14 +566,17 @@ Tool registration and handlers are shared. HTTP omits `upload_files` because
 server-local paths are not a portable file-transfer mechanism; stdio includes
 it because client and tool process share a filesystem. Tool result structs
 provide the generated JSON Schemas and keep warnings inside structured output.
-Sync defaults to dry-run, purge preview has no mutation path, and purge
-execution accepts only explicit upload IDs.
+Partial sync and purge errors set `IsError` without returning a Go handler error
+so the SDK retains the structured progress result. Sync defaults to dry-run,
+purge preview has no mutation path, and purge execution accepts only explicit
+upload IDs.
 
 Hosted MCP is wrapped by the REST bearer middleware. A dedicated Origin
 verifier rejects every present Origin outside the configured allowlist and
 allows absent Origin for non-browser clients. The default allowlist is empty.
-The endpoint uses current Streamable HTTP only; no legacy HTTP+SSE adapter or
-OAuth token-issuance implementation is installed.
+The endpoint bounds POST bodies before the SDK's stateless body inspection. It
+uses current Streamable HTTP only; no legacy HTTP+SSE adapter or OAuth
+token-issuance implementation is installed.
 
 ### Additional test layers
 

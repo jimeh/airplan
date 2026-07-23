@@ -153,6 +153,9 @@ paths:
         "200":
           description: A marker-declared page, source, member, or marker.
           headers:
+            Content-Type:
+              schema:
+                type: string
             Content-Disposition:
               schema:
                 type: string

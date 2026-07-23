@@ -57,25 +57,25 @@ func (t *httpTransport) Upload(
 func (t *httpTransport) UploadFiles(
 	ctx context.Context, in FilesInput,
 ) (*FilesResult, error) {
-	repository := in.RepositoryURL
-	if repository == "" && len(in.Files) > 0 {
-		var err error
-		repository, err = resolveRepository(
-			ctx, t.repository, in.Files[0].Name, "",
-		)
-		if err != nil {
-			return nil, err
-		}
+	repository := t.repository
+	if in.RepositoryURL != "" {
+		repository = in.RepositoryURL
 	}
-	files := make([]httpapi.CollectionFile, 0, len(in.Files))
-	for _, file := range in.Files {
+	prepared, title, repository, _, err := prepareCollection(
+		ctx, in, repository,
+	)
+	if err != nil {
+		return nil, err
+	}
+	files := make([]httpapi.CollectionFile, 0, len(prepared))
+	for _, file := range prepared {
 		files = append(files, httpapi.CollectionFile{
 			Name: file.Name, Reader: file.Reader, Size: file.Size,
 			ContentType: file.ContentType,
 		})
 	}
 	result, err := t.client.UploadCollection(ctx, httpapi.CollectionMetadata{
-		Title: in.Title, RepositoryURL: repository,
+		Title: title, RepositoryURL: repository,
 		MaxSize:      portableUploadLimit(in.MaxSize),
 		MaxTotalSize: portableUploadLimit(in.MaxTotalSize),
 	}, files)
