@@ -11,15 +11,15 @@ import (
 // DeleteResult describes a completed delete (SPEC.md §9).
 type DeleteResult struct {
 	// Keys are the object keys removed, in operation order. The marker is last.
-	Keys []string
+	Keys []string `json:"keys"`
 
 	// PageKey is the marker-declared page key and manifest tombstone key.
-	PageKey   string
-	MarkerKey string
-	Kind      UploadKind
+	PageKey   string     `json:"page_key"`
+	MarkerKey string     `json:"marker_key"`
+	Kind      UploadKind `json:"kind"`
 
 	// Warnings collects non-fatal manifest outcomes.
-	Warnings []string
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // ManifestProfileMismatchError reports that local history associates a delete
@@ -43,6 +43,12 @@ func (c *Client) DeleteUpload(
 	ctx context.Context, urlOrKey string,
 ) (*DeleteResult, error) {
 	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
+	if c.remote != nil {
+		return c.remote.DeleteUpload(ctx, urlOrKey)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
 		return nil, err
 	}
 	key, err := KeyFromURLOrKey(c.cfg, urlOrKey)

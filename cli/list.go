@@ -55,31 +55,64 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 	if opts.remote {
 		return runRemoteList(cmd, opts)
 	}
-	if cmd.Flags().Changed("config") {
-		return fmt.Errorf("--config requires --remote")
-	}
 
-	records, warnings, err := airplan.ReadManifest("")
+	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
+	if err != nil {
+		// Preserve the historical use of --profile as a local-manifest
+		// filter when it does not name a configured profile. An explicit
+		// --config remains authoritative and errors normally.
+		if !cmd.Flags().Changed("profile") ||
+			cmd.Flags().Changed("config") {
+			return err
+		}
+		cfg = &airplan.Config{
+			Backend: airplan.BackendS3, Profile: opts.profile,
+		}
+		if err := applyManifestSelection(cmd, cfg); err != nil {
+			return err
+		}
+	}
+	var profile *string
+	if cmd.Flags().Changed("profile") {
+		profile = &opts.profile
+	}
+	if cfg.EffectiveBackend() == airplan.BackendAirplan {
+		client, err := airplan.New(cmd.Context(), cfg)
+		if err != nil {
+			return err
+		}
+		listed, err := client.ListManifest(cmd.Context(),
+			airplan.ListManifestOptions{Scope: airplan.ManifestScopeService})
+		if err != nil {
+			return err
+		}
+		return outputManifestList(cmd, listed.Records, listed.Warnings, opts.json)
+	}
+	client, err := airplan.New(cmd.Context(), cfg)
 	if err != nil {
 		return err
 	}
+	listed, err := client.ListManifest(cmd.Context(),
+		airplan.ListManifestOptions{
+			Scope: airplan.ManifestScopeAll, Profile: profile,
+		})
+	if err != nil {
+		return err
+	}
+	return outputManifestList(
+		cmd, listed.Records, listed.Warnings, opts.json,
+	)
+}
 
+func outputManifestList(
+	cmd *cobra.Command, uploads []airplan.ManifestRecord,
+	warnings []string, jsonOutput bool,
+) error {
 	stderr := cmd.ErrOrStderr()
 	for _, warning := range warnings {
 		fmt.Fprintf(stderr, "airplan: warning: %s\n", warning)
 	}
-
-	uploads := airplan.ManifestUploads(records)
-	if cmd.Flags().Changed("profile") {
-		filtered := uploads[:0]
-		for _, upload := range uploads {
-			if upload.Profile == opts.profile {
-				filtered = append(filtered, upload)
-			}
-		}
-		uploads = filtered
-	}
-	if opts.json {
+	if jsonOutput {
 		if uploads == nil {
 			uploads = []airplan.ManifestRecord{}
 		}
@@ -101,7 +134,7 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 	if err != nil {
 		return err
 	}
-	if cfg.PublicBaseURL == "" {
+	if cfg.EffectiveBackend() == airplan.BackendS3 && cfg.PublicBaseURL == "" {
 		for _, upload := range uploads {
 			if upload.URL != "" {
 				fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n",

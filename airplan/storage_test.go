@@ -342,11 +342,49 @@ func TestNewClientMissingCredentials(t *testing.T) {
 		Endpoint: "http://127.0.0.1:1",
 		Bucket:   "plans",
 	}
-	_, err := New(context.Background(), cfg)
+	client, err := New(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("New() = %v; storage validation must be lazy", err)
+	}
+	err = client.StorageReady(context.Background())
 	if err == nil {
 		t.Fatal("expected missing-credentials error")
 	}
 	if !strings.Contains(err.Error(), "no usable credentials") {
 		t.Errorf("error = %v", err)
+	}
+}
+
+func TestStorageReadyIsSafeForConcurrentFirstUse(t *testing.T) {
+	cfg := &Config{
+		Endpoint:        "http://127.0.0.1:1",
+		Bucket:          "plans",
+		AccessKeyID:     "test-access-key-id",
+		SecretAccessKey: "test-secret-access-key",
+	}
+	client, err := New(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const callers = 32
+	errs := make(chan error, callers)
+	var wg sync.WaitGroup
+	for range callers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			errs <- client.StorageReady(context.Background())
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("StorageReady() = %v", err)
+		}
+	}
+	if client.st == nil {
+		t.Fatal("concurrent first use did not initialize storage")
 	}
 }

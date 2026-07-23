@@ -54,6 +54,9 @@ func TestConfigSchemaShape(t *testing.T) {
 	gotNames := keys(props)
 	wantNames := []string{
 		"access_key_id",
+		"api_token",
+		"api_url",
+		"backend",
 		"bucket",
 		"collection_template",
 		"default_profile",
@@ -74,6 +77,13 @@ func TestConfigSchemaShape(t *testing.T) {
 	if !slicesEqual(gotNames, wantNames) {
 		t.Fatalf("root properties = %v, want %v", gotNames, wantNames)
 	}
+	backend := objectAt(t, props, "backend")
+	if got := stringSliceAt(t, backend, "enum"); !slicesEqual(got, []string{"s3", "airplan"}) {
+		t.Fatalf("backend enum = %v, want [s3 airplan]", got)
+	}
+	if got := backend["default"]; got != "s3" {
+		t.Fatalf("backend default = %v, want s3", got)
+	}
 
 	profiles := objectAt(t, props, "profiles")
 	additional := objectAt(t, profiles, "additionalProperties")
@@ -86,6 +96,24 @@ func TestConfigSchemaShape(t *testing.T) {
 	if got := settings["additionalProperties"]; got != false {
 		t.Fatalf("Settings additionalProperties = %v, want false", got)
 	}
+}
+
+func stringSliceAt(t *testing.T, obj map[string]any, key string) []string {
+	t.Helper()
+
+	values, ok := obj[key].([]any)
+	if !ok {
+		t.Fatalf("%s is %T, want array", key, obj[key])
+	}
+	out := make([]string, len(values))
+	for i, value := range values {
+		text, ok := value.(string)
+		if !ok {
+			t.Fatalf("%s[%d] is %T, want string", key, i, value)
+		}
+		out[i] = text
+	}
+	return out
 }
 
 func configSchemaDoc(t *testing.T) map[string]any {

@@ -66,6 +66,7 @@ run = "go generate ./..."
 [tasks."generate:check"]
 description = "Check generated files are up to date"
 run = [
+	"go run ./internal/cmd/checkopenapi",
   "go run ./internal/cmd/genschema --check schema/airplan.schema.json",
   "go run ./internal/cmd/genmermaid --check internal/deps/mermaid.json airplan/mermaid_generated.go",
 ]

@@ -18,6 +18,12 @@ Airplan publishes capability URLs that anyone with the link can open. Uploads
 persist until deleted. Filenames are visible in direct URLs and collection
 pages.
 
+The CLI transparently uses whichever `s3` or `airplan` backend the user has
+configured. Run the same commands in either case. Never inspect, print, copy,
+or configure S3 credentials, Airplan API tokens, server settings, or manifest
+paths. If the harness already provides Airplan MCP tools, use their equivalent
+upload operation and return its URL; do not start another MCP or HTTP server.
+
 ## Documents
 
 For one requested plan, specification, report, or other document:
@@ -77,7 +83,7 @@ active content when opened. Upload only intended, trusted artifacts.
   fabricate, reuse, or partially report URLs from a failed collection.
 - If Airplan reports a configuration or setup error, tell the user it is not
   set up. Never inspect configuration files, credentials, or environment
-  variables, and never try to configure Airplan.
+  variables, and never try to configure Airplan or switch its backend.
 - For any other failure, report the error and stop.
 
 ## More help

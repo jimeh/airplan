@@ -33,6 +33,12 @@ func (c *Client) GetUploadTo(ctx context.Context, urlOrKey string,
 	if err := c.validate(ctx); err != nil {
 		return "", err
 	}
+	if c.remote != nil {
+		return c.remote.GetUploadTo(ctx, urlOrKey, opts, dst)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
+		return "", err
+	}
 	objectKey, resolved, err := c.resolveGetObject(ctx, urlOrKey, opts)
 	if err != nil {
 		return "", err
@@ -56,6 +62,12 @@ func (c *Client) GetUpload(
 	ctx context.Context, urlOrKey string, opts GetOptions,
 ) (*GetResult, error) {
 	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
+	if c.remote != nil {
+		return c.remote.GetUpload(ctx, urlOrKey, opts)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
 		return nil, err
 	}
 	objectKey, resolved, err := c.resolveGetObject(ctx, urlOrKey, opts)

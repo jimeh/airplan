@@ -400,10 +400,10 @@ func TestListLocalExplicitProfileFilter(t *testing.T) {
 	}
 }
 
-func TestListLocalRejectsConfig(t *testing.T) {
+func TestListLocalNamedMissingConfig(t *testing.T) {
 	setListState(t)
 	_, _, err := executeList(t, "--config", "config.toml")
-	if err == nil || err.Error() != "--config requires --remote" {
+	if err == nil || !strings.Contains(err.Error(), "does not exist") {
 		t.Fatalf("error = %v", err)
 	}
 }

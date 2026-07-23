@@ -21,38 +21,38 @@ const (
 
 // InspectedObject describes one marker-declared payload object.
 type InspectedObject struct {
-	Key           string
-	URL           string
-	Exists        bool
-	Bytes         int64
-	ExpectedBytes int64
-	ExpectedKnown bool
+	Key           string `json:"key"`
+	URL           string `json:"url"`
+	Exists        bool   `json:"exists"`
+	Bytes         int64  `json:"bytes"`
+	ExpectedBytes int64  `json:"expected_bytes,omitempty"`
+	ExpectedKnown bool   `json:"expected_known,omitempty"`
 }
 
 // UploadInspection is the result of targeted remote marker inspection.
 type UploadInspection struct {
-	State     UploadState
-	Dir       string
-	MarkerKey string
-	Objects   int
-	Bytes     int64
+	State     UploadState `json:"state"`
+	Dir       string      `json:"dir"`
+	MarkerKey string      `json:"marker_key"`
+	Objects   int         `json:"objects"`
+	Bytes     int64       `json:"bytes"`
 
-	CreatedAt time.Time
-	Format    string
-	Kind      UploadKind
-	Title     string
+	CreatedAt time.Time  `json:"created_at"`
+	Format    string     `json:"format,omitempty"`
+	Kind      UploadKind `json:"kind,omitempty"`
+	Title     string     `json:"title,omitempty"`
 	// Repo is the canonical repository URL declared by marker v2, or empty.
-	Repo string
+	Repo string `json:"repository_url,omitempty"`
 	// MarkerVersion is the validated ownership marker version.
-	MarkerVersion int
-	Page          *InspectedObject
-	Source        *InspectedObject
-	Files         []*InspectedObject
+	MarkerVersion int                `json:"marker_version"`
+	Page          *InspectedObject   `json:"page,omitempty"`
+	Source        *InspectedObject   `json:"source,omitempty"`
+	Files         []*InspectedObject `json:"files,omitempty"`
 	// Warnings contains non-fatal URL assembly caveats for callers to report.
-	Warnings []string
+	Warnings []string `json:"warnings,omitempty"`
 
 	// Error is set only for UploadInvalid and is stable for JSON output.
-	Error MarkerErrorCode
+	Error MarkerErrorCode `json:"error,omitempty"`
 }
 
 // InspectUpload fetches and validates one marker, lists its directory, and
@@ -62,6 +62,12 @@ func (c *Client) InspectUpload(
 	ctx context.Context, urlOrKey string,
 ) (*UploadInspection, error) {
 	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
+	if c.remote != nil {
+		return c.remote.InspectUpload(ctx, urlOrKey)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
 		return nil, err
 	}
 	key, err := KeyFromURLOrKey(c.cfg, urlOrKey)

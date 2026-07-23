@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.26.0**
+**Spec version: 0.27.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -13,10 +13,11 @@ first implementation release does not by itself force spec 1.0.
 
 `airplan` uploads AI/LLM agent documents and file collections to
 S3-compatible object storage under randomized, unguessable URL paths and
-prints the resulting public URLs. An agent can publish a plan as a readable
-page, or upload screenshots, recordings, and other artifacts as one collection
-with a generated overview page, then link the result from chat, an issue, or a
-pull request.
+prints the resulting public URLs. It can access storage directly or use a
+single-user self-hosted Airplan HTTP server that owns the S3 credentials.
+An agent can publish a plan as a readable page, or upload screenshots,
+recordings, and other artifacts as one collection with a generated overview
+page, then link the result from chat, an issue, or a pull request.
 
 This document specifies **behavior only**: what the tool does, its
 interfaces, and its on-the-wire and on-disk formats. It contains no
@@ -25,27 +26,29 @@ language and remain fully compatible — same CLI, same config files,
 same URLs, same page features, same manifest format. How _our_
 implementation is built lives in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 
-Non-goals: no server component, no accounts, no embedded manifest web UI or
-background sync daemon, no remotely persisted catalog or deletion journal, no
-recursive directory upload, and no media transcoding, thumbnail generation,
+Non-goals: no accounts, multi-user authorization, embedded manifest web UI,
+background sync daemon, remotely coordinated database, horizontal server
+replicas, recursive directory upload, media transcoding, thumbnail generation,
 or archive expansion. Airplan is not a public catalog or general pastebin.
 
 ---
 
 ## 1. Processing Model & Output Contract
 
-One process, one straight-line pipeline, no daemon:
+The selected backend changes how the same Airplan operation is invoked:
 
 ```
-input (file(s)|stdin)
+CLI or MCP request
+  → backend=s3: invoke the operation service in this process
+  → backend=airplan: invoke the same service through REST
   → select document or collection mode
   → preflight and render the primary HTML page
   → generate one random upload directory
   → PUT the kind-specific ownership marker
   → PUT source or collection files
   → PUT the primary HTML page last
-  → append one manifest entry
-  → print public URL(s) to stdout
+  → append one manifest entry where the operation service runs
+  → return and print public URL(s)
 ```
 
 Upload output contract (critical for agent use):
@@ -646,6 +649,7 @@ collection.
 | `--json`                  | off            | JSON object on stdout              |
 | `--profile P`             | config default | named profile from config file     |
 | `--config PATH`           | XDG default    | alternate config file              |
+| `--manifest PATH`         | state default  | local S3 operation manifest        |
 | `--open`                  | off            | open the primary page              |
 | `--version`               |                |                                    |
 
@@ -784,6 +788,9 @@ airplan purge [--remote] [--older-than 30d]
               [--all] [--dry-run] [--yes] [--concurrency N]
 airplan sync [--config PATH] [--profile NAME] [--concurrency N]
              [--no-prune] [--dry-run] [--json]
+airplan serve [--listen ADDR] [--allow-non-loopback] [--token-file PATH]
+              [--allowed-origin ORIGIN] [--temp-dir PATH]
+airplan mcp
 ```
 
 `config schema` prints the config file's JSON Schema (see §7).
@@ -825,15 +832,16 @@ directories.
 
 `ls` is an exact non-destructive alias for `list`.
 
-`list`/`purge` operate on the local upload manifest by default, or
-on a live bucket listing with `--remote`. `show` inspects one remote
+`list`/`purge` operate on the operation service's manifest by default, or
+on its live bucket listing with `--remote`. With an `airplan` backend those
+operations execute on the server. `show` inspects one remote
 marker directory. `get` fetches only objects declared by a valid remote
 ownership marker. `delete` takes an explicit URL or key, but it only
 operates on a directory carrying a valid airplan ownership marker; it
 therefore works on marker-managed uploads from any machine without
 becoming a general-purpose bucket deletion command. See §9.
-`sync` reconciles the selected remote marker inventory into the local
-manifest. It imports remotely present uploads and, by default, locally
+`sync` reconciles the selected remote marker inventory into the operation
+service's manifest. It imports remotely present uploads and, by default,
 tombstones uploads whose markers are confirmed absent. It never mutates
 remote storage.
 
@@ -853,6 +861,15 @@ flags can fully configure the tool. A path explicitly selected with `--config`
 or `AIRPLAN_CONFIG` must exist; a missing explicit path is an error rather than
 silently falling back to an empty configuration.
 
+The global manifest path resolves as `--manifest PATH` then
+`AIRPLAN_MANIFEST` then the platform `DefaultManifestPath()`. Relative paths
+are relative to the invocation working directory. The result applies to every
+local `s3` operation, `serve`, and stdio `mcp` when it selects `s3`. An
+explicit `--manifest` is rejected for the HTTP `airplan` backend because a
+client cannot choose a server filesystem path; `AIRPLAN_MANIFEST` is ignored
+for that backend. Local-only commands that do not construct a backend client
+reject an explicitly supplied `--manifest` as inapplicable.
+
 All connection/behavior keys may be set at the root level of the
 config file as well as inside profiles. Root-level keys are base
 values every profile inherits; a profile overrides only what it
@@ -860,6 +877,7 @@ sets. The simplest config needs no profiles at all:
 
 ```toml
 # ~/.config/airplan/config.toml — minimal single-bucket setup
+backend         = "s3"
 endpoint        = "https://<account-id>.r2.cloudflarestorage.com"
 bucket          = "plans"
 region          = "auto"
@@ -900,7 +918,20 @@ endpoint        = "https://s3.eu-west-2.amazonaws.com"
 region          = "eu-west-2"
 bucket          = "jimeh-plans"
 public_base_url = "https://jimeh-plans.s3.eu-west-2.amazonaws.com"
+
+[profiles.shared]
+backend         = "airplan"
+api_url         = "https://airplan.example.com"
+api_token       = "..."
 ```
+
+`backend` is `s3` when omitted. An `s3` profile uses the existing storage,
+rendering, and manifest settings. An `airplan` profile requires an absolute
+HTTP(S) `api_url` and `api_token`; HTTPS is required except for loopback hosts.
+It sends operations to that server and never loads ambient AWS credentials or
+writes a second client-side manifest. S3 settings inherited by an `airplan`
+profile, and API settings inherited by an `s3` profile, are inactive. Explicit
+inactive profile settings may produce a warning; inherited ones do not.
 
 ### Profile resolution
 
@@ -951,6 +982,9 @@ practice, agent-harness friendly):
 
 ```
 AIRPLAN_PROFILE
+AIRPLAN_BACKEND
+AIRPLAN_API_URL
+AIRPLAN_API_TOKEN
 AIRPLAN_ENDPOINT
 AIRPLAN_BUCKET
 AIRPLAN_REGION
@@ -965,9 +999,10 @@ AIRPLAN_MERMAID_URL
 AIRPLAN_REPO
 AIRPLAN_TIMEOUT
 AIRPLAN_CONFIG
+AIRPLAN_MANIFEST
 ```
 
-Credential fallback order: `AIRPLAN_*` env → profile file values →
+For `s3`, credential fallback order is `AIRPLAN_*` env → profile file values →
 standard AWS chain (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`,
 shared credentials file). The AWS chain fallback makes it work
 out-of-the-box in environments already configured for S3. If exactly
@@ -1040,9 +1075,11 @@ the URL is assembled as `<endpoint>/<bucket>/<key>` (path-style) and
 a warning is printed to stderr noting it may not be publicly
 reachable.
 
-Validation at startup: missing bucket/endpoint/creds produce a clear
-error naming the missing field, which profile was resolved (or that
-root-level values were used), and the three ways to set it.
+Validation before an operation reports missing fields for the selected backend
+and resolved profile. Local S3 services initialize storage lazily, so
+manifest-only listing and purge preview can work without storage credentials;
+every storage-dependent operation validates readiness before reading input or
+mutating state. `serve` validates storage before it starts listening.
 
 ### Resolved config inspection
 
@@ -1185,11 +1222,17 @@ object-scoped token covers `GetObject`, `DeleteObject`, and
 
 Every upload is recorded in
 `$XDG_STATE_HOME/airplan/manifest.jsonl` (platform-appropriate state
-directory on Windows) — append-only JSONL, one record per line.
+directory on Windows), or the path selected by the global manifest option —
+append-only JSONL, one record per line.
 Deletions and remote-absence reconciliation append tombstone records;
 the file is never rewritten in place. Uploads made on other machines
 can be imported explicitly with `sync`; the manifest remains a local
-projection rather than remote authority.
+projection rather than remote authority. A same-user local CLI and
+`airplan serve` share the default path. Consequently, `airplan list` on the
+server host sees uploads made through its API when both select the same S3
+profile and manifest path. Containers and services must mount that file on
+persistent storage and select it explicitly when their OS state directory
+differs.
 
 Record schema — exact field names are part of this spec, so two
 conforming implementations can share a manifest:
@@ -1272,11 +1315,13 @@ machine) and must be safe:
   the supported `marker_version` and `legacy` when the field is absent.
   Both appear in history without warning; legacy entries remain
   ineligible for delete reconciliation and purge.
-- Local `list` does not load configuration. With no explicit `--profile`, it
-  shows records from every recorded profile as before. An explicitly passed
-  `--profile NAME` filters both table and JSON output to that exact recorded
-  profile; `--profile=` selects records made with root-level settings.
-  `--config` is rejected unless `--remote` is also present.
+- With no resolvable configuration or backend selection, `list` assumes `s3`
+  and reads the resolved local manifest without requiring storage credentials.
+  Local S3 listing with no explicit profile shows every recorded profile; an
+  explicit `--profile NAME` filters that exact profile, and `--profile=`
+  selects root-level history. If configuration selects an `airplan` profile,
+  `list` calls the server's manifest endpoint. `--config` is therefore valid
+  for non-remote list because it can select the HTTP backend.
 - `airplan list --remote`: cheaply discovers marker directories made from any
   machine. It performs only paginated bucket LIST operations beneath the
   active profile's `key_prefix`; it does not GET markers, HEAD pages, or trust
@@ -1511,3 +1556,142 @@ machine) and must be safe:
 - The generated collection overview HTML-escapes authored metadata and builds
   relative URLs only from validated direct basenames. It never interpolates
   filenames, titles, content types, or repository data as raw HTML.
+
+---
+
+## 11. Backends, HTTP Server, REST API, and MCP
+
+### Backends and operation ownership
+
+Airplan has two product backends:
+
+- `s3` invokes the S3-backed operation service in-process. That process owns
+  rendering, storage access, and the selected local manifest.
+- `airplan` transports the same operation API over HTTP to `airplan serve`.
+  The server owns rendering, S3 credentials, and its selected manifest.
+
+Backend-sensitive CLI operations have identical intent under either backend:
+upload, `list`, `list --remote`, `show`, `get`, `delete`, purge preview and
+execution, and `sync`. `list` means the operation service's manifest;
+`list --remote` means a direct storage-marker listing. An HTTP client never
+appends local upload or tombstone records. Server REST and hosted MCP adapters
+invoke the server's operation service directly rather than calling loopback
+HTTP or duplicating business rules.
+
+The server's manifest listing is scoped to its resolved S3 profile, bucket,
+and key prefix even when its file also contains records for other local
+profiles. The ordinary local S3 `list` without a profile remains an
+all-profile view. `serve` requires an `s3` profile and rejects an `airplan`
+profile, preventing proxy chains and loops.
+
+### Server process
+
+`airplan serve` runs one single-user HTTP server. Its server-specific options
+are:
+
+- `--listen`, default `127.0.0.1:8080`.
+- `--allow-non-loopback`, the required acknowledgement for a non-loopback
+  listener.
+- `--token-file`, with `AIRPLAN_SERVER_TOKEN` as the alternative token source.
+- repeatable `--allowed-origin` values for hosted MCP Origin validation.
+- `--temp-dir` for bounded collection-upload spooling.
+
+Exactly one non-empty server-token source is required. A token should contain
+at least 32 random bytes; token files should be mode 0600. The token is read
+once at startup. The server defaults to loopback. Binding to a non-loopback
+address requires explicit acknowledgement, and TLS must terminate at a trusted
+reverse proxy. The built-in server does not manage certificates.
+
+`serve` validates its S3 readiness before listening, uses bounded HTTP header
+and idle timeouts, and shuts down gracefully on SIGINT or SIGTERM. It is a
+single-instance service: only one active server may own a manifest. Local CLI
+processes on the same host may share that file through its existing locked
+append protocol, but separate replicas with independent files are unsupported.
+
+### REST wire contract
+
+`api/openapi.yaml` is the authoritative OpenAPI 3.0.3 contract. The exact
+checked-in schema is embedded and returned by `GET /openapi.yaml`. Compatible
+changes remain under `/api/v1`; breaking changes require a new URL version.
+`GET /healthz` and `GET /openapi.yaml` are unauthenticated. The following
+endpoints require `Authorization: Bearer <token>`:
+
+```text
+GET    /api/v1/capabilities
+POST   /api/v1/uploads/documents
+POST   /api/v1/uploads/collections
+POST   /api/v1/uploads/inspect
+POST   /api/v1/uploads/get
+POST   /api/v1/uploads/delete
+GET    /api/v1/uploads
+GET    /api/v1/storage/uploads
+POST   /api/v1/sync
+POST   /api/v1/purge/preview
+POST   /api/v1/purge
+```
+
+Document and collection uploads use bounded streaming
+`multipart/form-data`. The server applies the stricter of its hard limits and
+portable client-requested limits. Collection members are spooled to mode-0600
+temporary files so the existing seekable collection API can be used without
+whole-collection buffering; all temporary files are removed after success,
+failure, cancellation, or shutdown.
+
+Inspect, get, and delete take `url_or_key` in a JSON request body. The server
+resolves it against its complete S3 configuration and permits only objects
+declared by exactly one valid Airplan ownership marker. Get streams its
+response. Capability URLs are not placed in query strings. Upload, list,
+inspection, and purge-preview results expose the randomized directory as an
+opaque `upload_id`.
+
+Purge is two-phase. `/purge/preview` applies the source and filters without
+deleting and returns explicit `upload_id` candidates. The CLI displays them
+and performs confirmation. `/purge` accepts only an explicit array of those
+IDs, re-resolves and revalidates every current marker, attempts targets
+sequentially, and reports every success or failure. It accepts no URL, key,
+filter, or implicit-all execution request.
+
+REST errors use RFC 9457 `application/problem+json` with stable `code` and
+`request_id` fields. Authentication is checked before request bodies are
+parsed. Missing, malformed, and incorrect bearer credentials receive the same
+generic 401 and `WWW-Authenticate: Bearer`. Tokens, capability URLs, request
+bodies, S3 response bodies, filesystem paths, and credentials must not appear
+in logs or error details. Upload POSTs are not retried automatically because a
+timeout after server commit is ambiguous without persistent idempotency state.
+
+### MCP servers
+
+`airplan mcp` is a stdio MCP server. It constructs the normal public client,
+so it works with either backend. MCP frames are its only stdout content;
+warnings and logs use stderr. `airplan serve` exposes the same tool
+implementation at `/mcp` using MCP Streamable HTTP. Deprecated HTTP+SSE is not
+supported.
+
+The minimal tool set is:
+
+| Tool              | Stdio | HTTP | Effect                             |
+| ----------------- | ----- | ---- | ---------------------------------- |
+| `upload_document` | yes   | yes  | Upload supplied text content       |
+| `upload_files`    | yes   | no   | Upload local paths as a collection |
+| `list_uploads`    | yes   | yes  | List manifest or storage records   |
+| `inspect_upload`  | yes   | yes  | Validate one marker-managed upload |
+| `delete_upload`   | yes   | yes  | Delete one explicit upload         |
+| `sync_manifest`   | yes   | yes  | Preview or apply reconciliation    |
+| `preview_purge`   | yes   | yes  | Return explicit purge candidates   |
+| `execute_purge`   | yes   | yes  | Delete reviewed upload IDs         |
+
+Hosted MCP omits file collection upload because MCP has no portable
+client-to-server file upload and server-local paths are unsafe. No transport
+exposes template dumping, configuration inspection, credentials, server
+configuration, arbitrary S3 objects, or filesystem browsing.
+
+`sync_manifest` defaults to dry-run unless `apply: true` is explicit.
+`preview_purge` never deletes, and `execute_purge` accepts only explicit
+`upload_id` values. Tool results are structured and warnings remain inside the
+result rather than corrupting protocol framing.
+
+The Streamable HTTP endpoint uses the same bearer token as REST. This is a
+custom single-user mechanism, not MCP OAuth; clients unable to add an
+Authorization header are unsupported. A present `Origin` header must exactly
+match an allowed origin or receives 403. An absent Origin is accepted for
+non-browser agent clients, and the default allowlist is empty.

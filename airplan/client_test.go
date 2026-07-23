@@ -55,9 +55,9 @@ func TestReadInput(t *testing.T) {
 }
 
 func TestUploadRejectsOversizedInput(t *testing.T) {
-	// Oversized input must fail before any key generation or storage
-	// access, so a Client without a live storage backend suffices.
-	c := &Client{cfg: &Config{Bucket: "b"}}
+	// Storage readiness happens before input consumption; inject a ready test
+	// storage so this test can focus on input-size validation.
+	c := &Client{cfg: &Config{Bucket: "b"}, st: &storage{}}
 
 	t.Run("default limit", func(t *testing.T) {
 		huge := io.LimitReader(zeroReader{}, DefaultMaxInputSize+1)
@@ -84,8 +84,8 @@ func TestUploadRejectsOversizedInput(t *testing.T) {
 	})
 }
 
-func TestUploadRejectsEmptyInputBeforeStorage(t *testing.T) {
-	c := &Client{cfg: &Config{Bucket: "b"}}
+func TestUploadRejectsEmptyInput(t *testing.T) {
+	c := &Client{cfg: &Config{Bucket: "b"}, st: &storage{}}
 	res, err := c.Upload(context.Background(), Input{
 		Reader: strings.NewReader(""),
 	})
@@ -94,8 +94,10 @@ func TestUploadRejectsEmptyInputBeforeStorage(t *testing.T) {
 	}
 }
 
-func TestUploadRejectsFrontMatterBeforeStorage(t *testing.T) {
-	c := &Client{cfg: &Config{Bucket: "b", Repository: "none"}}
+func TestUploadRejectsFrontMatter(t *testing.T) {
+	c := &Client{
+		cfg: &Config{Bucket: "b", Repository: "none"}, st: &storage{},
+	}
 	res, err := c.Upload(context.Background(), Input{
 		Reader: strings.NewReader("---\ntitle: [\n---\nbody\n"),
 		Format: "md",
@@ -225,7 +227,7 @@ func TestSourceExt(t *testing.T) {
 }
 
 func TestUploadRejectsBinaryInput(t *testing.T) {
-	c := &Client{cfg: &Config{Bucket: "b"}}
+	c := &Client{cfg: &Config{Bucket: "b"}, st: &storage{}}
 
 	binary := "valid UTF-8\x00with a NUL"
 	_, err := c.Upload(context.Background(), Input{

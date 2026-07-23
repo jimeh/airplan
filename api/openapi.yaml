@@ -1,0 +1,874 @@
+openapi: 3.0.3
+info:
+  title: Airplan API
+  version: 1.0.0
+  description: |
+    Single-user API for marker-managed Airplan uploads. Capability URLs and
+    object keys are sent in request bodies so they do not appear in access
+    logs. The server is intentionally single-instance in version 1.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+tags:
+  - name: system
+  - name: uploads
+  - name: manifest
+  - name: storage
+paths:
+  /healthz:
+    get:
+      operationId: health
+      tags: [system]
+      security: []
+      responses:
+        "200":
+          description: The process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        default:
+          $ref: "#/components/responses/Problem"
+  /openapi.yaml:
+    get:
+      operationId: getOpenAPI
+      tags: [system]
+      security: []
+      responses:
+        "200":
+          description: The exact OpenAPI source embedded in this binary.
+          content:
+            application/yaml:
+              schema:
+                type: string
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/capabilities:
+    get:
+      operationId: getCapabilities
+      tags: [system]
+      responses:
+        "200":
+          description: Safe server compatibility information.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Capabilities"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/uploads/documents:
+    post:
+      operationId: uploadDocument
+      tags: [uploads]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [metadata, document]
+              properties:
+                metadata:
+                  $ref: "#/components/schemas/DocumentMetadata"
+                document:
+                  type: string
+                  format: binary
+            encoding:
+              metadata:
+                contentType: application/json
+      responses:
+        "201":
+          description: The document was rendered and uploaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResult"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/uploads/collections:
+    post:
+      operationId: uploadCollection
+      tags: [uploads]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [metadata, files]
+              properties:
+                metadata:
+                  $ref: "#/components/schemas/CollectionMetadata"
+                files:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: string
+                    format: binary
+            encoding:
+              metadata:
+                contentType: application/json
+      responses:
+        "201":
+          description: The collection was rendered and uploaded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResult"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/uploads/inspect:
+    post:
+      operationId: inspectUpload
+      tags: [uploads]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TargetRequest"
+      responses:
+        "200":
+          description: Validated marker-managed upload state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadInspection"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/uploads/get:
+    post:
+      operationId: getUpload
+      tags: [uploads]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GetUploadRequest"
+      responses:
+        "200":
+          description: A marker-declared page, source, member, or marker.
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+            X-Airplan-Object-Key:
+              schema:
+                type: string
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/uploads/delete:
+    post:
+      operationId: deleteUpload
+      tags: [uploads]
+      description: |
+        Permanently deletes one marker-managed upload. Payloads are deleted
+        before the ownership marker and the manifest receives a tombstone.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TargetRequest"
+      responses:
+        "200":
+          description: The upload was deleted or reconciled as already absent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/uploads:
+    get:
+      operationId: listManifestUploads
+      tags: [manifest]
+      description: |
+        Reads the server manifest without contacting storage. Results are
+        scoped to the server profile, bucket, and key prefix.
+      responses:
+        "200":
+          description: Active and historical scoped manifest records.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManifestList"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/storage/uploads:
+    get:
+      operationId: listStorageUploads
+      tags: [storage]
+      description: Lists marker candidates from one direct storage snapshot.
+      responses:
+        "200":
+          description: LIST-derived upload candidates.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorageList"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/sync:
+    post:
+      operationId: syncManifest
+      tags: [manifest, storage]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SyncRequest"
+      responses:
+        "200":
+          description: Planned or applied reconciliation, including failures.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SyncResult"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/purge/preview:
+    post:
+      operationId: previewPurge
+      tags: [manifest, storage]
+      description: Plans candidates without deleting anything.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurgePreviewRequest"
+      responses:
+        "200":
+          description: Explicit upload IDs eligible for reviewed deletion.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurgePreview"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/purge:
+    post:
+      operationId: executePurge
+      tags: [manifest, storage]
+      description: |
+        Permanently deletes the explicit upload IDs after revalidating every
+        ownership marker. Later targets are attempted after an item failure.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurgeRequest"
+      responses:
+        "200":
+          description: Every per-upload success or failure.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurgeResult"
+        default:
+          $ref: "#/components/responses/Problem"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Static single-user server token.
+  responses:
+    Problem:
+      description: RFC 9457 problem details.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, code, request_id]
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+        code:
+          type: string
+          pattern: "^[a-z][a-z0-9_]*$"
+        request_id:
+          type: string
+    Capabilities:
+      type: object
+      additionalProperties: false
+      required:
+        - api_version
+        - server_version
+        - operations
+        - upload_formats
+        - limits
+        - marker_versions
+      properties:
+        api_version:
+          type: string
+          enum: [v1]
+        server_version:
+          type: string
+        operations:
+          type: array
+          items:
+            type: string
+        upload_formats:
+          type: array
+          items:
+            type: string
+            enum: [md, html, txt]
+        limits:
+          $ref: "#/components/schemas/UploadLimits"
+        marker_versions:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+    UploadLimits:
+      type: object
+      additionalProperties: false
+      required: [document_bytes, collection_file_bytes, collection_total_bytes]
+      properties:
+        document_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+        collection_file_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+        collection_total_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+    DocumentMetadata:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          type: string
+          maxLength: 255
+        format:
+          type: string
+          enum: [md, html, txt]
+        title:
+          type: string
+        slug:
+          type: string
+        lang:
+          type: string
+        repository_url:
+          type: string
+          format: uri
+        max_size:
+          type: integer
+          format: int64
+          minimum: 1
+    CollectionMetadata:
+      type: object
+      additionalProperties: false
+      properties:
+        title:
+          type: string
+        repository_url:
+          type: string
+          format: uri
+        max_size:
+          type: integer
+          format: int64
+          minimum: 1
+        max_total_size:
+          type: integer
+          format: int64
+          minimum: 1
+    TargetRequest:
+      type: object
+      additionalProperties: false
+      required: [url_or_key]
+      properties:
+        url_or_key:
+          type: string
+          minLength: 1
+    GetUploadRequest:
+      type: object
+      additionalProperties: false
+      required: [url_or_key]
+      properties:
+        url_or_key:
+          type: string
+          minLength: 1
+        source:
+          type: boolean
+          default: false
+    UploadResult:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - kind
+        - url
+        - key
+        - bucket
+        - bytes
+        - content_type
+        - created_at
+        - marker_version
+        - warnings
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum: [document, collection]
+        url:
+          type: string
+          format: uri
+        key:
+          type: string
+        source_url:
+          type: string
+          format: uri
+        source_key:
+          type: string
+        bucket:
+          type: string
+        bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        content_type:
+          type: string
+        title:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        marker_version:
+          type: integer
+          minimum: 1
+        repository_url:
+          type: string
+          format: uri
+        warnings:
+          type: array
+          items:
+            type: string
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileResult"
+    FileResult:
+      type: object
+      additionalProperties: false
+      required: [name, url, key, bytes, content_type]
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+          format: uri
+        key:
+          type: string
+        bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        content_type:
+          type: string
+    InspectedObject:
+      type: object
+      additionalProperties: false
+      required: [key, exists, bytes, expected_bytes, expected_known]
+      properties:
+        key:
+          type: string
+        url:
+          type: string
+          format: uri
+        exists:
+          type: boolean
+        bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        expected_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        expected_known:
+          type: boolean
+    UploadInspection:
+      type: object
+      additionalProperties: false
+      required:
+        - state
+        - id
+        - marker_key
+        - objects
+        - bytes
+        - files
+        - warnings
+      properties:
+        state:
+          type: string
+          enum: [complete, incomplete, invalid]
+        id:
+          type: string
+        marker_key:
+          type: string
+        objects:
+          type: integer
+          minimum: 0
+        bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        format:
+          type: string
+        kind:
+          type: string
+          enum: [document, collection]
+        title:
+          type: string
+        repository_url:
+          type: string
+          format: uri
+        marker_version:
+          type: integer
+          minimum: 0
+        page:
+          $ref: "#/components/schemas/InspectedObject"
+        source:
+          $ref: "#/components/schemas/InspectedObject"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/InspectedObject"
+        warnings:
+          type: array
+          items:
+            type: string
+        error:
+          type: string
+    DeleteResult:
+      type: object
+      additionalProperties: false
+      required: [id, keys, page_key, marker_key, kind, warnings]
+      properties:
+        id:
+          type: string
+        keys:
+          type: array
+          items:
+            type: string
+        page_key:
+          type: string
+        marker_key:
+          type: string
+        kind:
+          type: string
+          enum: [document, collection]
+        warnings:
+          type: array
+          items:
+            type: string
+    ManifestRecord:
+      type: object
+      additionalProperties: false
+      required: [type, time, key]
+      properties:
+        type:
+          type: string
+          enum: [upload, delete]
+        time:
+          type: string
+          format: date-time
+        key:
+          type: string
+        source_key:
+          type: string
+        marker_key:
+          type: string
+        url:
+          type: string
+          format: uri
+        bucket:
+          type: string
+        format:
+          type: string
+        kind:
+          type: string
+          enum: [document, collection]
+        slug:
+          type: string
+        title:
+          type: string
+        repository_url:
+          type: string
+          format: uri
+        bytes:
+          type: integer
+          format: int64
+        reason:
+          type: string
+        marker_version:
+          type: integer
+    ManifestList:
+      type: object
+      additionalProperties: false
+      required: [records, warnings]
+      properties:
+        records:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestRecord"
+        warnings:
+          type: array
+          items:
+            type: string
+    RemoteUpload:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - marker_key
+        - kind
+        - conflict
+        - keys
+        - objects
+        - bytes
+        - last_modified
+      properties:
+        id:
+          type: string
+        marker_key:
+          type: string
+        kind:
+          type: string
+          enum: [document, collection]
+        conflict:
+          type: boolean
+        slug:
+          type: string
+        key:
+          type: string
+        url:
+          type: string
+          format: uri
+        keys:
+          type: array
+          items:
+            type: string
+        objects:
+          type: integer
+          minimum: 0
+        bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        last_modified:
+          type: string
+          format: date-time
+    StorageList:
+      type: object
+      additionalProperties: false
+      required: [uploads, warnings]
+      properties:
+        uploads:
+          type: array
+          items:
+            $ref: "#/components/schemas/RemoteUpload"
+        warnings:
+          type: array
+          items:
+            type: string
+    SyncRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        prune:
+          type: boolean
+          default: false
+        dry_run:
+          type: boolean
+          default: false
+        concurrency:
+          type: integer
+          minimum: 1
+          maximum: 64
+    SyncFailure:
+      type: object
+      additionalProperties: false
+      required: [marker_key, operation, error]
+      properties:
+        marker_key:
+          type: string
+        operation:
+          type: string
+          enum: [fetch, confirm_absence]
+        error:
+          type: string
+    SyncResult:
+      type: object
+      additionalProperties: false
+      required:
+        - added_records
+        - tombstone_records
+        - unchanged
+        - incomplete
+        - invalid
+        - retained
+        - failures
+        - warnings
+        - complete
+      properties:
+        added_records:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestRecord"
+        tombstone_records:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestRecord"
+        unchanged:
+          type: integer
+          minimum: 0
+        incomplete:
+          type: integer
+          minimum: 0
+        invalid:
+          type: integer
+          minimum: 0
+        retained:
+          type: integer
+          minimum: 0
+        failures:
+          type: array
+          items:
+            $ref: "#/components/schemas/SyncFailure"
+        warnings:
+          type: array
+          items:
+            type: string
+        complete:
+          type: boolean
+    PurgePreviewRequest:
+      type: object
+      additionalProperties: false
+      required: [source]
+      properties:
+        source:
+          type: string
+          enum: [manifest, storage]
+        created_before:
+          type: string
+          format: date-time
+        slug:
+          type: string
+        all:
+          type: boolean
+          default: false
+        concurrency:
+          type: integer
+          minimum: 1
+          maximum: 64
+    PurgeCandidate:
+      type: object
+      additionalProperties: false
+      required: [upload_id, record, warnings]
+      properties:
+        upload_id:
+          type: string
+        record:
+          $ref: "#/components/schemas/ManifestRecord"
+        inspection:
+          $ref: "#/components/schemas/UploadInspection"
+        warnings:
+          type: array
+          items:
+            type: string
+    PurgePreview:
+      type: object
+      additionalProperties: false
+      required: [candidates, invalid, warnings]
+      properties:
+        candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurgeCandidate"
+        invalid:
+          type: integer
+          minimum: 0
+        warnings:
+          type: array
+          items:
+            type: string
+    PurgeRequest:
+      type: object
+      additionalProperties: false
+      required: [upload_ids]
+      properties:
+        upload_ids:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+    PurgeItemResult:
+      type: object
+      additionalProperties: false
+      required: [upload_id]
+      properties:
+        upload_id:
+          type: string
+        deleted:
+          $ref: "#/components/schemas/DeleteResult"
+        error:
+          type: string
+    PurgeResult:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurgeItemResult"

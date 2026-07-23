@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -76,9 +77,11 @@ var ErrUninitializedClient = errors.New(
 // Client uploads documents and file collections per the pipelines in
 // SPEC.md §1. Construct clients with New before use.
 type Client struct {
-	cfg      *Config
-	st       *storage
-	template *template.Template
+	cfg       *Config
+	st        *storage
+	template  *template.Template
+	remote    operationTransport
+	storageMu sync.Mutex
 
 	// templateErr is a deferred custom-template load failure: fatal
 	// for markdown/text uploads, a warning for HTML input.
@@ -103,10 +106,20 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 		}
 		resolved.Repository = canonical
 	}
-	if err := resolved.Validate(); err != nil {
+	cfg = &resolved
+	if cfg.EffectiveBackend() == BackendAirplan {
+		if err := cfg.Validate(); err != nil {
+			return nil, err
+		}
+		transport, err := newHTTPTransport(cfg)
+		if err != nil {
+			return nil, err
+		}
+		return &Client{cfg: cfg, remote: transport}, nil
+	}
+	if err := validatePartialS3Config(cfg); err != nil {
 		return nil, err
 	}
-	cfg = &resolved
 
 	// The template is loaded eagerly but its failure is deferred to
 	// Upload: templates don't apply to HTML input (SPEC.md §3), so a
@@ -118,17 +131,8 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 		tmpl, tmplErr = LoadTemplate(cfg.Template)
 	}
 
-	st, err := newStorage(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	if err := st.checkCredentials(ctx); err != nil {
-		return nil, err
-	}
-
 	return &Client{
 		cfg:         cfg,
-		st:          st,
 		template:    tmpl,
 		templateErr: tmplErr,
 	}, nil
@@ -162,37 +166,44 @@ type Input struct {
 	// Lang overrides the highlight language for text input
 	// (SPEC.md §3). "" derives it from the filename.
 	Lang string
+
+	// RepositoryURL is an already-resolved canonical repository URL. It is
+	// primarily used by transports so a server never inspects its own working
+	// directory for client repository context.
+	RepositoryURL string
 }
 
 // Result describes a completed upload. Bytes and ContentType describe
 // the uploaded page object — the one URL points at — not the markdown
 // source (SPEC.md §6).
 type Result struct {
-	URL           string
-	Key           string
-	SourceURL     string // "" for HTML input or under no-source
-	SourceKey     string // "" likewise
-	Bucket        string
-	Bytes         int64
-	ContentType   string
-	Title         string
-	CreatedAt     time.Time
-	MarkerVersion int
+	// ID is the opaque randomized upload directory component.
+	ID            string    `json:"id"`
+	URL           string    `json:"url"`
+	Key           string    `json:"key"`
+	SourceURL     string    `json:"source_url,omitempty"` // "" for HTML input or under no-source
+	SourceKey     string    `json:"source_key,omitempty"` // "" likewise
+	Bucket        string    `json:"bucket"`
+	Bytes         int64     `json:"bytes"`
+	ContentType   string    `json:"content_type"`
+	Title         string    `json:"title,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
+	MarkerVersion int       `json:"marker_version"`
 	// MarkerKey is the full ownership marker object key.
-	MarkerKey string
+	MarkerKey string `json:"marker_key"`
 	// Format is the detected input format stored in the marker.
-	Format string
+	Format string `json:"format,omitempty"`
 	// Kind is "document" or "collection" for modern uploads.
-	Kind string
+	Kind string `json:"kind"`
 	// Slug is set only for document uploads.
-	Slug string
+	Slug string `json:"slug,omitempty"`
 	// RepositoryURL is the resolved canonical repository context, or empty.
-	RepositoryURL string
+	RepositoryURL string `json:"repository_url,omitempty"`
 
 	// Warnings collects non-fatal issues (e.g. HTML input with no
 	// <head> tag, public URL assembled without public_base_url) for
 	// the caller to print to stderr.
-	Warnings []string
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // Upload runs the full pipeline for one document and returns the
@@ -203,12 +214,22 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 	if err := c.validate(ctx); err != nil {
 		return nil, err
 	}
+	if c.remote != nil {
+		return c.remote.Upload(ctx, in)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
+		return nil, err
+	}
+	repository := c.cfg.Repository
+	if in.RepositoryURL != "" {
+		repository = in.RepositoryURL
+	}
 	doc, err := renderInput(ctx, in, RenderInputOptions{
 		Indexable:        c.cfg.Indexable,
 		IncludeSource:    !c.cfg.NoSource,
 		NoExternalAssets: c.cfg.NoExternalAssets,
 		MermaidURL:       c.cfg.MermaidURL,
-		Repository:       c.cfg.Repository,
+		Repository:       repository,
 	}, c.template, c.templateErr)
 	if err != nil {
 		return nil, err
@@ -261,6 +282,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 	}
 
 	res := &Result{
+		ID:            dir,
 		Bucket:        c.cfg.Bucket,
 		Title:         doc.Title,
 		CreatedAt:     createdAt,
@@ -334,6 +356,50 @@ func (c *Client) validate(ctx context.Context) error {
 		return errors.New("airplan: nil context")
 	}
 	return nil
+}
+
+func validatePartialS3Config(cfg *Config) error {
+	probe := *cfg
+	if probe.Endpoint == "" {
+		probe.Endpoint = "http://127.0.0.1"
+	}
+	if probe.Bucket == "" {
+		probe.Bucket = "manifest-only"
+	}
+	return probe.validateS3()
+}
+
+func (c *Client) ensureStorage(ctx context.Context) error {
+	c.storageMu.Lock()
+	defer c.storageMu.Unlock()
+	if c.st != nil {
+		return nil
+	}
+	if err := c.cfg.Validate(); err != nil {
+		return err
+	}
+	storage, err := newStorage(ctx, c.cfg)
+	if err != nil {
+		return err
+	}
+	if err := storage.checkCredentials(ctx); err != nil {
+		return err
+	}
+	c.st = storage
+	return nil
+}
+
+// StorageReady validates and initializes the selected S3 storage. Long-lived
+// servers call it before listening; ordinary clients initialize lazily at the
+// start of the first storage-dependent operation.
+func (c *Client) StorageReady(ctx context.Context) error {
+	if err := c.validate(ctx); err != nil {
+		return err
+	}
+	if c.remote != nil {
+		return errors.New("airplan: storage readiness requires an s3 backend")
+	}
+	return c.ensureStorage(ctx)
 }
 
 // titleMetadata builds the x-amz-meta-title metadata map (SPEC.md §5),

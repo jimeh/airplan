@@ -2,11 +2,9 @@ package cli
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"fmt"
 	"io"
-	"path"
 	"strings"
 	"time"
 
@@ -84,13 +82,10 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 			return fmt.Errorf("--concurrency: %s",
 				strings.TrimPrefix(err.Error(), "airplan: "))
 		}
-	}
-
-	hasFilter := opts.all || opts.olderThan != "" || opts.slug != "" ||
-		(!opts.remote && opts.profile != "")
-	if !hasFilter {
-		return errors.New(
-			"purge requires at least one filter or explicit --all")
+		if !opts.all && opts.olderThan == "" && opts.slug == "" {
+			return errors.New(
+				"purge requires at least one filter or explicit --all")
+		}
 	}
 
 	var olderThan time.Duration
@@ -103,63 +98,61 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		}
 	}
 
-	if opts.remote {
-		return runRemotePurge(cmd, opts, olderThan)
-	}
-
-	// Config is loaded before candidate selection so records for
-	// other buckets can be excluded (SPEC.md §9) — but the timeout
-	// context is still created only after the confirmation prompt,
-	// so it can't expire while the user reads it.
 	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
 	if err != nil {
 		return err
 	}
+	profileOnly := !opts.remote &&
+		cfg.EffectiveBackend() == airplan.BackendS3 &&
+		cmd.Flags().Changed("profile") && opts.olderThan == "" &&
+		opts.slug == "" && !opts.all
+	hasFilter := opts.all || opts.olderThan != "" || opts.slug != "" ||
+		profileOnly
+	if !hasFilter {
+		return errors.New(
+			"purge requires at least one filter or explicit --all")
+	}
 
-	records, warnings, err := airplan.ReadManifest("")
+	client, err := airplan.New(cmd.Context(), cfg)
 	if err != nil {
 		return err
 	}
-	for _, w := range warnings {
-		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
+	source := airplan.UploadSourceManifest
+	if opts.remote {
+		source = airplan.UploadSourceStorage
 	}
-
-	candidates, err := purgeCandidates(
-		airplan.ActiveUploads(records), opts, cfg.Profile,
-		olderThan, time.Now())
+	planCtx := cmd.Context()
+	planCancel := func() {}
+	if opts.remote {
+		planCtx, planCancel = timeoutContext(planCtx, cfg)
+	}
+	defer planCancel()
+	var createdBefore time.Time
+	if olderThan > 0 {
+		createdBefore = time.Now().Add(-olderThan)
+	}
+	plan, err := client.PlanPurge(planCtx, airplan.PurgePlanOptions{
+		Source: source, CreatedBefore: createdBefore,
+		Slug: opts.slug, All: opts.all || profileOnly,
+		Concurrency: opts.concurrency,
+	})
 	if err != nil {
 		return err
 	}
-
-	// Only records for the connected bucket are purgeable
-	// (SPEC.md §9). With no bucket configured (e.g. a config-free
-	// --dry-run) there is nothing to scope against, so the filter is
-	// skipped — actual deletion would still fail config validation.
-	kept := candidates[:0]
-	otherBuckets := 0
-	otherPrefixes := 0
-	for _, rec := range candidates {
-		if cfg.Bucket != "" && rec.Bucket != cfg.Bucket {
-			otherBuckets++
-			continue
-		}
-		if cfg.Bucket != "" &&
-			!airplan.KeyMatchesPrefix(rec.Key, cfg.KeyPrefix) {
-			otherPrefixes++
-			continue
-		}
-		kept = append(kept, rec)
+	for _, warning := range plan.Warnings {
+		fmt.Fprintf(stderr, "airplan: warning: %s\n", warning)
 	}
-	candidates = kept
-	if otherBuckets > 0 {
+	if plan.Invalid > 0 {
 		fmt.Fprintf(stderr,
-			"airplan: note: skipped %d upload(s) recorded for other buckets\n",
-			otherBuckets)
+			"airplan: note: skipped %d invalid remote marker(s)\n",
+			plan.Invalid)
 	}
-	if otherPrefixes > 0 {
-		fmt.Fprintf(stderr,
-			"airplan: note: skipped %d upload(s) recorded for other key prefixes\n",
-			otherPrefixes)
+	candidates := make([]airplan.ManifestRecord, 0, len(plan.Candidates))
+	for _, candidate := range plan.Candidates {
+		candidates = append(candidates, candidate.Record)
+		for _, warning := range candidate.Warnings {
+			fmt.Fprintf(stderr, "airplan: warning: %s\n", warning)
+		}
 	}
 
 	if opts.dryRun {
@@ -186,225 +179,36 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 
 	ctx, cancel := timeoutContext(cmd.Context(), cfg)
 	defer cancel()
-
-	client, err := airplan.New(ctx, cfg)
-	if err != nil {
-		return err
+	ids := make([]string, 0, len(plan.Candidates))
+	for _, candidate := range plan.Candidates {
+		ids = append(ids, candidate.UploadID)
 	}
-
-	var purged, failed int
-	for _, rec := range candidates {
-		if _, err := client.DeleteUpload(ctx, rec.Key); err != nil {
-			failed++
-			fmt.Fprintf(stderr, "airplan: error: delete %s: %s\n",
-				purgeTarget(rec), err)
+	result, purgeErr := client.Purge(ctx, airplan.PurgeRequest{UploadIDs: ids})
+	if result == nil {
+		return purgeErr
+	}
+	purged := 0
+	failed := 0
+	for index, item := range result.Items {
+		if item.Error == "" {
+			purged++
 			continue
 		}
-		purged++
+		failed++
+		target := item.UploadID
+		if index < len(candidates) {
+			target = purgeTarget(candidates[index])
+		}
+		fmt.Fprintf(stderr, "airplan: error: delete %s: %s\n",
+			target, item.Error)
 	}
 
 	fmt.Fprintf(stderr, "purged %d uploads (%d failed)\n", purged, failed)
-	if failed > 0 {
-		return fmt.Errorf("airplan: purge failed: %d upload(s) failed", failed)
-	}
-	return nil
+	return purgeErr
 }
 
 type remotePurgeCandidate struct {
-	upload   airplan.RemoteUpload
-	record   airplan.ManifestRecord
 	warnings []string
-}
-
-func runRemotePurge(
-	cmd *cobra.Command,
-	opts *purgeOptions,
-	olderThan time.Duration,
-) error {
-	stderr := cmd.ErrOrStderr()
-
-	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
-	if err != nil {
-		return err
-	}
-
-	// The listing phase gets its own timeout budget; the delete phase
-	// gets a fresh one after the confirmation prompt, so user think
-	// time never eats into either (SPEC.md §6).
-	listCtx, cancelList := timeoutContext(cmd.Context(), cfg)
-	defer cancelList()
-
-	client, err := airplan.New(listCtx, cfg)
-	if err != nil {
-		return err
-	}
-
-	uploads, err := client.ListRemote(listCtx)
-	if err != nil {
-		return err
-	}
-	candidates, invalid, err := remotePurgeCandidates(
-		listCtx, uploads, cfg, client, opts, olderThan, time.Now(),
-		opts.concurrency)
-	if err != nil {
-		return err
-	}
-	if invalid > 0 {
-		fmt.Fprintf(stderr,
-			"airplan: note: skipped %d invalid remote marker(s)\n", invalid)
-	}
-	printRemotePurgeWarnings(stderr, candidates)
-
-	records := remotePurgeRecords(candidates)
-	if opts.dryRun {
-		printPurgeCandidates(stderr, records)
-		return nil
-	}
-
-	if len(candidates) == 0 {
-		fmt.Fprintln(stderr, "purged 0 uploads (0 failed)")
-		return nil
-	}
-
-	if !opts.yes {
-		printPurgeCandidates(stderr, records)
-		ok, err := confirmPurge(cmd, len(candidates))
-		if err != nil {
-			return err
-		}
-		if !ok {
-			fmt.Fprintln(stderr, "aborted")
-			return nil
-		}
-	}
-
-	ctx, cancel := timeoutContext(cmd.Context(), cfg)
-	defer cancel()
-
-	var purged, failed int
-	for _, cand := range candidates {
-		if _, err := client.DeleteUpload(ctx, cand.upload.MarkerKey); err != nil {
-			failed++
-			fmt.Fprintf(stderr, "airplan: error: delete %s: %s\n",
-				purgeTarget(cand.record), err)
-			continue
-		}
-		purged++
-	}
-
-	fmt.Fprintf(stderr, "purged %d uploads (%d failed)\n", purged, failed)
-	if failed > 0 {
-		return fmt.Errorf("airplan: purge failed: %d upload(s) failed", failed)
-	}
-	return nil
-}
-
-func purgeCandidates(
-	uploads []airplan.ManifestRecord,
-	opts *purgeOptions,
-	activeProfile string,
-	olderThan time.Duration,
-	now time.Time,
-) ([]airplan.ManifestRecord, error) {
-	// --all only satisfies the at-least-one-filter requirement; any
-	// filters given alongside it still apply (SPEC.md §9) — otherwise
-	// "purge --all --profile work" would delete everyone's uploads.
-	var out []airplan.ManifestRecord
-	cutoff := now.Add(-olderThan)
-	for _, rec := range uploads {
-		if rec.Profile != activeProfile {
-			continue
-		}
-		if opts.olderThan != "" && !rec.Time.Before(cutoff) {
-			continue
-		}
-		if opts.slug != "" {
-			if rec.Kind == string(airplan.UploadKindCollection) {
-				continue
-			}
-			ok, err := path.Match(opts.slug, uploadSlug(rec.Key))
-			if err != nil {
-				return nil, fmt.Errorf("--slug: %w", err)
-			}
-			if !ok {
-				continue
-			}
-		}
-		out = append(out, rec)
-	}
-	return out, nil
-}
-
-func remotePurgeCandidates(
-	ctx context.Context,
-	uploads []airplan.RemoteUpload,
-	cfg *airplan.Config,
-	client *airplan.Client,
-	opts *purgeOptions,
-	olderThan time.Duration,
-	now time.Time,
-	concurrency int,
-) ([]remotePurgeCandidate, int, error) {
-	if opts.slug != "" {
-		if _, err := path.Match(opts.slug, ""); err != nil {
-			return nil, 0, fmt.Errorf("--slug: %w", err)
-		}
-	}
-
-	inspections, err := client.InspectRemoteUploads(ctx, uploads, concurrency)
-	if err != nil {
-		return nil, 0, err
-	}
-	var out []remotePurgeCandidate
-	invalid := 0
-	cutoff := now.Add(-olderThan)
-	for _, result := range inspections {
-		if result.Err != nil {
-			return nil, invalid, result.Err
-		}
-		inspection := result.Inspection
-		if inspection.State == airplan.UploadInvalid {
-			invalid++
-			continue
-		}
-		if opts.olderThan != "" && !inspection.CreatedAt.Before(cutoff) {
-			continue
-		}
-		if opts.slug != "" {
-			if inspection.Kind == airplan.UploadKindCollection {
-				continue
-			}
-			ok, _ := path.Match(opts.slug, uploadSlug(inspection.Page.Key))
-			if !ok {
-				continue
-			}
-		}
-
-		pageBytes := int64(0)
-		if inspection.Page.Exists {
-			pageBytes = inspection.Page.Bytes
-		}
-		out = append(out, remotePurgeCandidate{
-			upload: result.Upload,
-			warnings: append([]string(nil),
-				inspection.Warnings...),
-			record: airplan.ManifestRecord{
-				Type:          "upload",
-				Time:          inspection.CreatedAt.UTC(),
-				Key:           inspection.Page.Key,
-				MarkerKey:     inspection.MarkerKey,
-				URL:           inspection.Page.URL,
-				Bucket:        cfg.Bucket,
-				Format:        inspection.Format,
-				Kind:          string(inspection.Kind),
-				Title:         inspection.Title,
-				Repo:          inspection.Repo,
-				Bytes:         pageBytes,
-				MarkerVersion: inspection.MarkerVersion,
-			},
-		})
-	}
-	return out, invalid, nil
 }
 
 func printRemotePurgeWarnings(
@@ -432,21 +236,6 @@ func printRemotePurgeWarnings(
 			}
 		}
 	}
-}
-
-func remotePurgeRecords(
-	candidates []remotePurgeCandidate,
-) []airplan.ManifestRecord {
-	records := make([]airplan.ManifestRecord, 0, len(candidates))
-	for _, cand := range candidates {
-		records = append(records, cand.record)
-	}
-	return records
-}
-
-func uploadSlug(key string) string {
-	base := path.Base(key)
-	return strings.TrimSuffix(base, path.Ext(base))
 }
 
 func printPurgeCandidates(w io.Writer, records []airplan.ManifestRecord) {

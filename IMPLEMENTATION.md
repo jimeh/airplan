@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.26.0.
+may contradict it. Targets spec version 0.27.0.
 
 ---
 
@@ -33,17 +33,19 @@ Considered alternatives:
 
 ## 2. Dependencies (deliberately few)
 
-| Dependency                  | Purpose                               |
-| --------------------------- | ------------------------------------- |
-| `yuin/goldmark` (+ GFM ext) | markdown → HTML body                  |
-| `alecthomas/chroma/v2`      | code block syntax highlighting        |
-| `aws/aws-sdk-go-v2` (s3)    | uploads (SigV4, retries, checksums)   |
-| `BurntSushi/toml`           | config file parsing                   |
-| `gopkg.in/yaml.v3`          | YAML frontmatter parsing              |
-| `spf13/cobra`               | CLI: subcommands, flags, completion   |
-| `invopop/jsonschema`        | config JSON Schema from Go structs    |
-| `gofrs/flock`               | cross-platform manifest file locking  |
-| `golang.org/x/net/html`     | HTML5 tokenization for noindex splice |
+| Dependency                    | Purpose                               |
+| ----------------------------- | ------------------------------------- |
+| `yuin/goldmark` (+ GFM ext)   | markdown → HTML body                  |
+| `alecthomas/chroma/v2`        | code block syntax highlighting        |
+| `aws/aws-sdk-go-v2` (s3)      | uploads (SigV4, retries, checksums)   |
+| `BurntSushi/toml`             | config file parsing                   |
+| `gopkg.in/yaml.v3`            | YAML frontmatter parsing              |
+| `spf13/cobra`                 | CLI: subcommands, flags, completion   |
+| `invopop/jsonschema`          | config JSON Schema from Go structs    |
+| `gofrs/flock`                 | cross-platform manifest file locking  |
+| `golang.org/x/net/html`       | HTML5 tokenization for noindex splice |
+| `oapi-codegen/v2`             | OpenAPI client/server code generation |
+| `modelcontextprotocol/go-sdk` | MCP stdio and Streamable HTTP         |
 
 Notes:
 
@@ -65,9 +67,9 @@ Notes:
 
 ## 3. Code Structure
 
-Two public surfaces: the CLI (contract defined by SPEC.md) and an
-importable Go package. No `internal/` directory — the core library
-is meant to be pulled into other projects and tooling. The `main`
+The public surfaces are the CLI, the importable Go package, the REST API, and
+MCP. The core library remains public; protocol adapters and generated wire
+types live under `internal/`. The `main`
 package sits at the repo root so
 `go install github.com/jimeh/airplan@latest` installs a binary named
 `airplan` with no `/cmd/...` suffix.
@@ -85,6 +87,10 @@ airplan/                core library (public Go API): config
                         manifest history, URL assembly; embeds assets
                         via go:embed; Mermaid is the sole conditional
                         runtime asset
+api/openapi.yaml        authoritative REST wire contract (embedded)
+api/oapi-codegen.yaml   deterministic generator configuration
+internal/httpapi/       generated REST models/client/server plus auth,
+                        problem mapping, request safety, and adapters
 skills/embed.go         go:embed bridge for the canonical agent skill
 schema/airplan.schema.json   generated config schema (committed)
 skills/airplan/SKILL.md      agent skill: using airplan from harnesses
@@ -455,3 +461,121 @@ deletion has succeeded.
   scoped token, fetched through the custom domain. Collection smoke coverage
   includes an image and short recording, external image embedding, video seek,
   copied absolute URLs, direct-member management, and whole-upload deletion.
+
+## 10. Operation Transports, REST, and MCP
+
+### Operation facade
+
+`Client` is a stable public facade over an internal operation transport.
+Product backend names describe where the same operation service runs:
+
+```text
+Client
+├── backend=s3      → local transport → operation service → S3 + manifest
+└── backend=airplan → HTTP transport  → REST adapter ──────┘
+```
+
+The operation boundary is upload, inspect, get, delete, manifest list, storage
+list, purge planning/execution, and sync—not S3 object primitives. The local
+transport calls the S3-backed service in memory. The HTTP transport wraps the
+generated OpenAPI client and maps wire results and problems back to public
+Airplan types. REST handlers and hosted MCP receive the same service directly;
+they do not make loopback HTTP requests or reimplement selection/deletion
+logic.
+
+Local service construction resolves profile identity and manifest state before
+it creates storage. Storage is initialized lazily at the start of each
+S3-dependent operation. This preserves config-free manifest list and manifest
+purge preview, and keeps credential failure before input consumption or state
+mutation. `serve` calls the explicit readiness check during startup so a
+long-running service fails before listening.
+
+The service owns its manifest. A local S3 client and `serve` use the same
+platform default or global override and coordinate appends with the existing
+cross-platform file lock. HTTP clients do not write a second local manifest.
+Service-scope list and purge operations filter the shared file by resolved
+profile, bucket, and key prefix; the direct local all-profile list remains a
+separate scope.
+
+### OpenAPI and REST adapter
+
+`api/openapi.yaml` is OpenAPI 3.0.3 and is embedded byte-for-byte for
+`GET /openapi.yaml`. `oapi-codegen` produces committed models, client methods,
+and strict server interfaces in `internal/httpapi/generated`. The generator is
+invoked by `go generate` and checked by the repository generated-file gate.
+Authentication and request validation are explicit layers because generated
+strict handlers do not enforce either policy by themselves.
+
+The REST adapter:
+
+- accepts one static bearer token, compares fixed-size digests in constant
+  time, and rejects authentication before body parsing;
+- maps typed failures to RFC 9457 problems with stable codes and request IDs;
+- bounds total bodies, multipart parts, per-file bytes, and aggregate bytes;
+- streams document uploads through multipart readers and object downloads
+  through response writers;
+- spools collection members to mode-0600 temporary files because the core
+  collection API needs exact sizes and seekable readers;
+- removes all spooled files on completion, failure, cancellation, or shutdown;
+- resolves request targets against server-side storage configuration so the
+  HTTP client never reconstructs capability keys with incomplete knowledge;
+- exposes manifest and storage listing as distinct generated operations; and
+- implements purge as a stateless preview followed by explicit upload-ID
+  execution with fresh ownership-marker validation.
+
+`airplan serve` constructs one operation service, readiness-checks storage,
+mounts REST and hosted MCP on one `net/http.Server`, and handles SIGINT/SIGTERM
+with bounded graceful shutdown. It sets header, idle, and header-size limits
+but no short whole-request write timeout that would truncate large transfers.
+The process is deliberately single-instance and relies on persistent
+file-backed manifest state.
+
+### HTTP transport
+
+The HTTP transport is selected only by `backend = "airplan"`. It never loads
+the AWS credential chain. Upload bodies are produced with `io.Pipe` and
+`multipart.Writer`, and get responses stream into the caller's writer. It adds
+the configured bearer token to every authenticated request, does not retry
+ambiguous upload POSTs, and converts problem codes into typed public failures.
+Partial sync and purge results survive error mapping so the CLI preserves its
+existing output and exit behavior.
+
+Global `--manifest` resolution happens before client construction. Local S3
+and server construction receive that path; the HTTP transport rejects an
+explicit flag and ignores `AIRPLAN_MANIFEST`. Client-supplied filesystem
+templates and other server-owned local policy overrides are likewise rejected
+before input is opened.
+
+### MCP adapters
+
+`github.com/modelcontextprotocol/go-sdk` provides both transports.
+`airplan mcp` uses `StdioTransport` and builds the normal client,
+so its selected backend may be local S3 or HTTP. Protocol frames are the only
+stdout output. The server uses the SDK Streamable HTTP handler at `/mcp` and
+passes the operation service directly.
+
+Tool registration and handlers are shared. HTTP omits `upload_files` because
+server-local paths are not a portable file-transfer mechanism; stdio includes
+it because client and tool process share a filesystem. Tool result structs
+provide the generated JSON Schemas and keep warnings inside structured output.
+Sync defaults to dry-run, purge preview has no mutation path, and purge
+execution accepts only explicit upload IDs.
+
+Hosted MCP is wrapped by the REST bearer middleware. A dedicated Origin
+verifier rejects every present Origin outside the configured allowlist and
+allows absent Origin for non-browser clients. The default allowlist is empty.
+The endpoint uses current Streamable HTTP only; no legacy HTTP+SSE adapter or
+OAuth token-issuance implementation is installed.
+
+### Additional test layers
+
+- Generated contract tests ensure checked-in Go output matches OpenAPI and
+  exercise each endpoint through the generated client.
+- Operation contract tests run the same lifecycle against local and HTTP
+  transports, including partial failures and cancellation.
+- Server tests cover auth parsing, token redaction, Origin policy, request
+  limits, multipart cleanup, request IDs, and scoped manifest visibility.
+- MCP tests connect with the official SDK over stdio and Streamable HTTP,
+  verify the transport-specific tool inventory, and keep stdio protocol-only.
+- MinIO integration starts a real server, proves direct/HTTP parity and shared
+  manifest persistence, restarts the server, and exercises sync and purge.

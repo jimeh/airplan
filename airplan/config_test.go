@@ -80,6 +80,182 @@ no_external_assets = true
 	assertEqual(t, cfg.NoExternalAssets, false)
 }
 
+func TestLoadConfigBackendDefaultsAndPrecedence(t *testing.T) {
+	t.Run("existing config defaults to s3", func(t *testing.T) {
+		path := writeConfig(t, `
+endpoint = "https://s3.example.com"
+bucket = "plans"
+`, 0o600)
+		cfg, err := LoadConfig(ConfigOptions{
+			Path: path, Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertEqual(t, cfg.Backend, BackendS3)
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("Validate() error = %v", err)
+		}
+	})
+
+	t.Run("profile environment and override precedence", func(t *testing.T) {
+		path := writeConfig(t, `
+backend = "s3"
+api_url = "https://root.example.com"
+api_token = "root-token"
+
+[profiles.remote]
+backend = "airplan"
+api_url = "https://profile.example.com"
+api_token = "profile-token"
+`, 0o600)
+		cfg, err := LoadConfig(ConfigOptions{
+			Path: path, Profile: "remote",
+			Getenv: envMap(map[string]string{
+				"AIRPLAN_API_URL":   "https://env.example.com",
+				"AIRPLAN_API_TOKEN": "env-token",
+			}),
+			Overrides: Settings{
+				Backend:  "airplan",
+				APIURL:   "https://override.example.com",
+				APIToken: "override-token",
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertEqual(t, cfg.Backend, BackendAirplan)
+		assertEqual(t, cfg.APIURL, "https://override.example.com")
+		assertEqual(t, cfg.APIToken, "override-token")
+	})
+}
+
+func TestValidateAirplanBackend(t *testing.T) {
+	t.Run("requires api settings", func(t *testing.T) {
+		cfg := &Config{Backend: BackendAirplan, Profile: "remote"}
+		err := cfg.Validate()
+		assertErrorContains(t, err, "api_url", "api_token",
+			"profile \"remote\" was resolved", "AIRPLAN_API_URL",
+			"AIRPLAN_API_TOKEN")
+		if strings.Contains(err.Error(), "--api-url") ||
+			strings.Contains(err.Error(), "--api-token") {
+			t.Fatalf("error advertises unsupported API flags: %v", err)
+		}
+	})
+
+	t.Run("accepts HTTPS and ignores inactive S3 settings", func(t *testing.T) {
+		cfg := &Config{
+			Backend: BackendAirplan, APIURL: "https://airplan.example.com/api",
+			APIToken: "token", Endpoint: "://invalid", AccessKeyID: "orphan",
+			KeyPrefix: "../invalid", MermaidURL: "http://invalid.example.com",
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Fatalf("Validate() error = %v", err)
+		}
+	})
+
+	for _, raw := range []string{
+		"http://localhost:8080",
+		"http://127.0.0.1:8080/api",
+		"http://[::1]:8080",
+	} {
+		t.Run("accepts loopback "+raw, func(t *testing.T) {
+			cfg := &Config{
+				Backend: BackendAirplan, APIURL: raw, APIToken: "token",
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+		})
+	}
+
+	t.Run("rejects plaintext remote URL", func(t *testing.T) {
+		cfg := &Config{
+			Backend: BackendAirplan,
+			APIURL:  "http://airplan.example.com", APIToken: "token",
+		}
+		assertErrorContains(t, cfg.Validate(), "HTTPS", "non-loopback")
+	})
+
+	t.Run("rejects invalid backend", func(t *testing.T) {
+		cfg := &Config{Backend: "direct"}
+		assertErrorContains(t, cfg.Validate(), "invalid backend", "direct",
+			"s3", "airplan")
+	})
+
+	t.Run("zero-value backend remains s3 for library callers", func(t *testing.T) {
+		cfg := &Config{Endpoint: "https://s3.example.com", Bucket: "plans"}
+		assertEqual(t, cfg.EffectiveBackend(), BackendS3)
+		if err := cfg.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestLoadConfigInactiveBackendWarnings(t *testing.T) {
+	t.Run("does not warn for inherited inactive S3 fields", func(t *testing.T) {
+		path := writeConfig(t, `
+endpoint = "https://s3.example.com"
+access_key_id = "root-access"
+secret_access_key = "root-secret"
+
+[profiles.remote]
+backend = "airplan"
+api_url = "https://airplan.example.com"
+api_token = "remote-token"
+`, 0o600)
+		cfg, err := LoadConfig(ConfigOptions{
+			Path: path, Profile: "remote", Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.Warnings) != 0 {
+			t.Fatalf("Warnings = %v, want none", cfg.Warnings)
+		}
+	})
+
+	t.Run("warns for explicitly inactive profile fields without values", func(t *testing.T) {
+		const token = "api-token-sentinel"
+		path := writeConfig(t, `
+[profiles.local]
+backend = "s3"
+endpoint = "https://s3.example.com"
+bucket = "plans"
+api_url = "https://unused.example.com"
+api_token = "`+token+`"
+`, 0o600)
+		cfg, err := LoadConfig(ConfigOptions{
+			Path: path, Profile: "local", Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		joined := strings.Join(cfg.Warnings, "\n")
+		for _, field := range []string{"api_url", "api_token"} {
+			assertContains(t, joined, field)
+		}
+		if strings.Contains(joined, token) {
+			t.Fatalf("warning leaked API token: %q", joined)
+		}
+	})
+
+	t.Run("warns for explicit environment field", func(t *testing.T) {
+		cfg, err := LoadConfig(ConfigOptions{
+			Path: missingPath(t),
+			Getenv: envMap(map[string]string{
+				"AIRPLAN_ENDPOINT":  "https://s3.example.com",
+				"AIRPLAN_BUCKET":    "plans",
+				"AIRPLAN_API_TOKEN": "unused-token",
+			}),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertContains(t, strings.Join(cfg.Warnings, "\n"), "api_token")
+	})
+}
+
 func TestLoadConfigRepositoryPrecedenceAndDefault(t *testing.T) {
 	cfg, err := LoadConfig(ConfigOptions{
 		Path: missingPath(t), Getenv: envMap(nil),
@@ -597,6 +773,29 @@ bucket = "root-bucket"
 		}
 		assertEqual(t, len(cfg.Warnings), 0)
 	})
+
+	t.Run("warns for API token without exposing it", func(t *testing.T) {
+		const token = "api-token-sentinel"
+		path := writeConfig(t, `
+backend = "airplan"
+api_url = "https://airplan.example.com"
+api_token = "`+token+`"
+`, 0o644)
+
+		cfg, err := LoadConfig(ConfigOptions{
+			Path: path, Getenv: envMap(nil),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.Warnings) != 1 {
+			t.Fatalf("Warnings = %v, want one", cfg.Warnings)
+		}
+		if !strings.Contains(cfg.Warnings[0], "credentials") ||
+			strings.Contains(cfg.Warnings[0], token) {
+			t.Fatalf("warning = %q", cfg.Warnings[0])
+		}
+	})
 }
 
 func TestValidateErrorContent(t *testing.T) {
@@ -820,6 +1019,38 @@ func TestDefaultConfigPath(t *testing.T) {
 			path,
 			filepath.Join(configDir, "airplan", "config.toml"),
 		)
+	})
+}
+
+func TestResolveManifestPathPrecedence(t *testing.T) {
+	t.Run("explicit path wins and remains relative", func(t *testing.T) {
+		got, err := ResolveManifestPath("relative/manifest.jsonl", envMap(
+			map[string]string{"AIRPLAN_MANIFEST": "/env/manifest.jsonl"},
+		))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertEqual(t, got, "relative/manifest.jsonl")
+	})
+
+	t.Run("environment path wins over default", func(t *testing.T) {
+		got, err := ResolveManifestPath("", envMap(map[string]string{
+			"AIRPLAN_MANIFEST": "/env/manifest.jsonl",
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertEqual(t, got, "/env/manifest.jsonl")
+	})
+
+	t.Run("falls back to platform default", func(t *testing.T) {
+		stateDir := t.TempDir()
+		t.Setenv("XDG_STATE_HOME", stateDir)
+		got, err := ResolveManifestPath("", envMap(nil))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertEqual(t, got, filepath.Join(stateDir, "airplan", "manifest.jsonl"))
 	})
 }
 
@@ -1079,6 +1310,74 @@ bucket = "same-bucket"
 	region := resolution.Fields["region"]
 	if region.Source == nil || region.Source.Kind != ConfigSourceBuiltin {
 		t.Fatalf("region source = %+v", region.Source)
+	}
+}
+
+func TestResolveConfigTracksBackendAndAPIFieldSources(t *testing.T) {
+	path := writeConfig(t, `
+backend = "s3"
+api_url = "https://root.example.com"
+
+[profiles.remote]
+backend = "airplan"
+api_url = "https://profile.example.com"
+api_token = "profile-token"
+`, 0o600)
+	resolution, err := ResolveConfig(ConfigOptions{
+		Path: path, Profile: "remote",
+		Getenv: envMap(map[string]string{
+			"AIRPLAN_API_URL": "https://env.example.com",
+		}),
+		Overrides: Settings{APIToken: "override-token"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	backend := resolution.Fields["backend"]
+	if backend.Source == nil ||
+		backend.Source.Name != "profiles.remote.backend" {
+		t.Fatalf("backend source = %+v", backend.Source)
+	}
+	if len(backend.Sources) != 3 ||
+		backend.Sources[0].Kind != ConfigSourceBuiltin ||
+		backend.Sources[1].Name != "root.backend" ||
+		backend.Sources[2].Name != "profiles.remote.backend" {
+		t.Fatalf("backend sources = %+v", backend.Sources)
+	}
+	if source := resolution.Fields["api_url"].Source; source == nil || source.Name != "AIRPLAN_API_URL" {
+		t.Fatalf("api_url source = %+v", source)
+	}
+	if source := resolution.Fields["api_token"].Source; source == nil ||
+		source.Name != "ConfigOptions.Overrides.api_token" {
+		t.Fatalf("api_token source = %+v", source)
+	}
+}
+
+func TestProfileResolutionAcceptsCompleteRootAirplanBackend(t *testing.T) {
+	path := writeConfig(t, `
+backend = "airplan"
+api_url = "https://airplan.example.com"
+api_token = "root-token"
+
+[profiles.home]
+backend = "s3"
+
+[profiles.work]
+backend = "s3"
+`, 0o600)
+	resolution, err := ResolveConfig(ConfigOptions{
+		Path: path, Getenv: envMap(nil),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolution.Profile.Name != "" ||
+		resolution.Profile.Source.Name != "complete root-level resolution" {
+		t.Fatalf("profile resolution = %+v", resolution.Profile)
+	}
+	if err := resolution.Config.Validate(); err != nil {
+		t.Fatal(err)
 	}
 }
 
