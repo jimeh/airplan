@@ -512,6 +512,13 @@ func apiOperationError(err error) error {
 			"Invalid upload", "The request does not describe a valid Airplan upload.",
 		)
 	}
+	if errors.Is(err, errInvalidTarget) {
+		return httpapi.NewProblemError(
+			http.StatusUnprocessableEntity, "invalid_target",
+			"Invalid upload target",
+			"The target is not a valid marker-managed Airplan upload.",
+		)
+	}
 	if _, ok := MarkerCode(err); ok {
 		return httpapi.NewProblemError(
 			http.StatusUnprocessableEntity, "invalid_upload",

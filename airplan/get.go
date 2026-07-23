@@ -22,6 +22,18 @@ type GetResult struct {
 	Body []byte
 }
 
+type uploadObjectMissingError struct {
+	key string
+}
+
+func (e *uploadObjectMissingError) Error() string {
+	return fmt.Sprintf("airplan: upload object %q is missing", e.key)
+}
+
+func (e *uploadObjectMissingError) Unwrap() error {
+	return errObjectNotFound
+}
+
 // GetUploadTo validates one declared target and streams it to dst. It is the
 // preferred API for potentially large collection members.
 func (c *Client) GetUploadTo(ctx context.Context, urlOrKey string,
@@ -49,7 +61,7 @@ func (c *Client) GetUploadTo(ctx context.Context, urlOrKey string,
 	}
 	if err = c.st.getTo(ctx, objectKey, dst); err != nil {
 		if errors.Is(err, errObjectNotFound) {
-			return "", fmt.Errorf("airplan: upload object %q is missing", objectKey)
+			return "", &uploadObjectMissingError{key: objectKey}
 		}
 		return "", err
 	}
@@ -81,9 +93,7 @@ func (c *Client) GetUpload(
 	body, err := c.st.getBytes(ctx, objectKey, 0)
 	if err != nil {
 		if errors.Is(err, errObjectNotFound) {
-			return nil, fmt.Errorf(
-				"airplan: upload object %q is missing", objectKey,
-			)
+			return nil, &uploadObjectMissingError{key: objectKey}
 		}
 		return nil, err
 	}
@@ -115,9 +125,7 @@ func (c *Client) openUpload(
 	body, contentType, err := c.st.open(ctx, objectKey)
 	if err != nil {
 		if errors.Is(err, errObjectNotFound) {
-			return "", nil, "", fmt.Errorf(
-				"airplan: upload object %q is missing", objectKey,
-			)
+			return "", nil, "", &uploadObjectMissingError{key: objectKey}
 		}
 		return "", nil, "", err
 	}

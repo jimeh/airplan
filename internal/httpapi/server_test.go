@@ -148,6 +148,42 @@ func TestCapabilitiesUseEffectiveServerLimits(t *testing.T) {
 	}
 }
 
+func TestValidatePurgePreviewHandlesOptionalCreatedBefore(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		request PurgePreviewRequest
+		wantErr bool
+	}{
+		{
+			name: "slug only",
+			request: PurgePreviewRequest{
+				Source: "manifest", Slug: "old-*",
+			},
+		},
+		{
+			name: "missing filter",
+			request: PurgePreviewRequest{
+				Source: "manifest",
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid slug",
+			request: PurgePreviewRequest{
+				Source: "manifest", All: true, Slug: "[",
+			},
+			wantErr: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := validatePurgePreview(test.request)
+			if (err != nil) != test.wantErr {
+				t.Fatalf("error = %v, wantErr %t", err, test.wantErr)
+			}
+		})
+	}
+}
+
 func TestBearerAuthRejectsBeforeReadingBody(t *testing.T) {
 	handler := newTestHandler(t, &stubOperations{}, Options{})
 	body := &recordingBody{Reader: strings.NewReader("secret body")}

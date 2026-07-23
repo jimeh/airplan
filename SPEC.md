@@ -1588,6 +1588,8 @@ Raw REST and hosted MCP requests that omit repository context disable
 repository discovery. Hosted requests reject `auto` and accept only `none` or
 a normalizable explicit repository URL, so the server never falls back to
 inspecting its own working directory or caller-named filesystem paths.
+Document names are optional for stdin-style REST clients and contain at most
+255 Unicode characters when present.
 
 The server's manifest listing is scoped to its resolved S3 profile, bucket,
 and key prefix even when its file also contains records for other local

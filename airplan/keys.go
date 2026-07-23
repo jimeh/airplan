@@ -1,10 +1,25 @@
 package airplan
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
 )
+
+var errInvalidTarget = errors.New("airplan: invalid upload target")
+
+type invalidTargetError struct {
+	err error
+}
+
+func (e *invalidTargetError) Error() string {
+	return e.err.Error()
+}
+
+func (e *invalidTargetError) Unwrap() error {
+	return errInvalidTarget
+}
 
 // isRandomDir reports whether a path segment looks like an airplan
 // random directory: 26 characters of lowercase RFC 4648 base32
@@ -26,6 +41,14 @@ func isRandomDir(seg string) bool {
 // directory itself. When a key_prefix is configured, the target must fall
 // under it. cfg may be nil for bare keys.
 func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
+	key, err := keyFromURLOrKey(cfg, s)
+	if err != nil {
+		return "", &invalidTargetError{err: err}
+	}
+	return key, nil
+}
+
+func keyFromURLOrKey(cfg *Config, s string) (string, error) {
 	key := s
 	if strings.Contains(s, "://") {
 		// Parsing up front means query strings and fragments — think

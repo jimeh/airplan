@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 
 	"github.com/getkin/kin-openapi/openapi3filter"
@@ -406,8 +407,15 @@ func validatePurgePreview(request PurgePreviewRequest) error {
 		(request.Concurrency < 1 || request.Concurrency > 64) {
 		return invalidRequest("concurrency must be between 1 and 64")
 	}
-	if !request.All && request.CreatedBefore.IsZero() && request.Slug == "" {
+	if !request.All &&
+		(request.CreatedBefore == nil || request.CreatedBefore.IsZero()) &&
+		request.Slug == "" {
 		return invalidRequest("purge preview requires a filter or all=true")
+	}
+	if request.Slug != "" {
+		if _, err := path.Match(request.Slug, ""); err != nil {
+			return invalidRequest("purge slug must be a valid glob pattern")
+		}
 	}
 	return nil
 }

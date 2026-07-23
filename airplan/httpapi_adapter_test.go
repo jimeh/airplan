@@ -273,6 +273,18 @@ func TestAPIOperationErrorDoesNotClassifyStorageText(t *testing.T) {
 	}
 }
 
+func TestAPIOperationErrorClassifiesInvalidTarget(t *testing.T) {
+	got := apiOperationError(&invalidTargetError{
+		err: errors.New("airplan: invalid target"),
+	})
+	var problem *httpapi.ProblemError
+	if !errors.As(got, &problem) ||
+		problem.Problem.Status != http.StatusUnprocessableEntity ||
+		problem.Problem.Code != "invalid_target" {
+		t.Fatalf("problem = %+v, error = %v", problem, got)
+	}
+}
+
 func manifestUploadRecord(
 	when time.Time, profile, bucket, prefix, title string,
 ) ManifestRecord {
