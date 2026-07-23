@@ -531,6 +531,38 @@ func TestDocumentClientLimitRejectsBeforeOperation(t *testing.T) {
 	assertDirEmpty(t, tempDir)
 }
 
+func TestCollectionClientRejectsInputBeyondDeclaredSize(t *testing.T) {
+	called := false
+	operations := &stubOperations{
+		uploadCollection: func(
+			context.Context,
+			CollectionUpload,
+		) (UploadResult, error) {
+			called = true
+			return UploadResult{}, nil
+		},
+	}
+	handler := newTestHandler(t, operations, Options{})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client := newTestClient(t, server.URL)
+
+	_, err := client.UploadCollection(
+		context.Background(),
+		CollectionMetadata{},
+		[]CollectionFile{{
+			Name: "plan.md", Size: 3,
+			Reader: strings.NewReader("four"),
+		}},
+	)
+	if err == nil || !strings.Contains(err.Error(), "exceeds its declared size") {
+		t.Fatalf("error = %v, want declared-size mismatch", err)
+	}
+	if called {
+		t.Fatal("operation called for collection with extra input bytes")
+	}
+}
+
 func TestCollectionRejectsDuplicateBasenamesAndCleansTempFiles(t *testing.T) {
 	tempDir := t.TempDir()
 	handler := newTestHandler(t, &stubOperations{}, Options{TempDir: tempDir})
@@ -641,17 +673,56 @@ func TestOriginGuard(t *testing.T) {
 }
 
 func TestUnknownJSONFieldsAreRejected(t *testing.T) {
+	const sentinel = "private-validation-detail-sentinel"
 	handler := newTestHandler(t, &stubOperations{}, Options{})
 	request := authorizedRequest(
 		http.MethodPost,
 		"/api/v1/uploads/inspect",
-		strings.NewReader(`{"url_or_key":"id","future":true}`),
+		strings.NewReader(
+			`{"url_or_key":"id","future":"`+sentinel+`"}`,
+		),
 	)
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", recorder.Code)
+	}
+	problem := decodeProblem(t, recorder)
+	if problem.Detail != safeProblemDetail("invalid_request") ||
+		strings.Contains(recorder.Body.String(), sentinel) {
+		t.Fatalf("unsafe validation problem: %+v", problem)
+	}
+}
+
+func TestProblemDetailsAreSanitizedAtResponseBoundary(t *testing.T) {
+	const sentinel = "private-problem-detail-sentinel"
+	err := NewProblemError(
+		http.StatusBadRequest, "invalid_request", "Invalid request", sentinel,
+	)
+	if !strings.Contains(err.Error(), sentinel) {
+		t.Fatalf("internal error lost diagnostic detail: %v", err)
+	}
+	problem := problemFromError(err)
+	if problem.Detail != safeProblemDetail("invalid_request") ||
+		strings.Contains(problem.Detail, sentinel) {
+		t.Fatalf("problem detail was not sanitized: %+v", problem)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	requestIDMiddleware(http.HandlerFunc(func(
+		w http.ResponseWriter, r *http.Request,
+	) {
+		writeProblem(w, r, Problem{
+			Status: http.StatusBadRequest,
+			Code:   "invalid_request",
+			Title:  "Invalid request",
+			Detail: sentinel,
+		})
+	})).ServeHTTP(recorder, request)
+	if strings.Contains(recorder.Body.String(), sentinel) {
+		t.Fatalf("direct problem response leaked detail: %s", recorder.Body)
 	}
 }
 

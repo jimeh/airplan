@@ -790,6 +790,7 @@ airplan sync [--config PATH] [--profile NAME] [--concurrency N]
              [--no-prune] [--dry-run] [--json]
 airplan serve [--listen ADDR] [--allow-non-loopback] [--token-file PATH]
               [--allowed-origin ORIGIN] [--temp-dir PATH]
+              [--log-level LEVEL]
 airplan mcp
 ```
 
@@ -1000,6 +1001,7 @@ AIRPLAN_REPO
 AIRPLAN_TIMEOUT
 AIRPLAN_CONFIG
 AIRPLAN_MANIFEST
+AIRPLAN_SERVER_LOG_LEVEL
 ```
 
 For `s3`, credential fallback order is `AIRPLAN_*` env → profile file values →
@@ -1688,14 +1690,16 @@ sequentially, and reports every success or failure. It accepts no URL, key,
 filter, or implicit-all execution request.
 
 REST errors use RFC 9457 `application/problem+json` with stable `code` and
-`request_id` fields. Authentication is checked before request bodies are
-parsed. Missing, malformed, and incorrect bearer credentials receive the same
-generic 401 and `WWW-Authenticate: Bearer`. Tokens, capability URLs, request
-bodies, S3 response bodies, filesystem paths, and credentials must not appear
-in logs, error details, warnings, or per-item failure text. Hosted structured
-results use stable generic messages where internal detail would otherwise be
-exposed. Upload POSTs are not retried automatically because a
-timeout after server commit is ambiguous without persistent idempotency state.
+`request_id` fields. Problem detail is selected from stable generic text by
+code; request-derived validator and parser details remain internal.
+Authentication is checked before request bodies are parsed. Missing, malformed,
+and incorrect bearer credentials receive the same generic 401 and
+`WWW-Authenticate: Bearer`. Tokens, capability URLs, request bodies, S3
+response bodies, filesystem paths, and credentials must not appear in logs,
+error details, warnings, or per-item failure text. Hosted structured results
+use stable generic messages where internal detail would otherwise be exposed.
+Upload POSTs are not retried automatically because a timeout after server
+commit is ambiguous without persistent idempotency state.
 
 ### MCP servers
 

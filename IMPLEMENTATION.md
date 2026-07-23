@@ -519,7 +519,8 @@ The REST adapter:
 
 - accepts one static bearer token, compares fixed-size digests in constant
   time, and rejects authentication before body parsing;
-- maps typed failures to RFC 9457 problems with stable codes and request IDs;
+- maps typed failures to RFC 9457 problems with stable codes, generic
+  code-selected detail, and request IDs;
 - replaces internal warning and per-item error detail with stable hosted
   messages before serialization;
 - bounds total bodies, multipart parts, per-file bytes, and aggregate bytes;

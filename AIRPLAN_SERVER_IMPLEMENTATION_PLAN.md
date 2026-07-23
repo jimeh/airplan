@@ -810,7 +810,8 @@ Both REST and `/mcp` use this middleware. Health and schema routes do not.
 - Use mode-0600 temp files in a controlled directory.
 - Disable directory traversal and symlink following.
 - Disable CORS by default.
-- Generate a request ID or accept only a syntactically constrained incoming ID.
+- Generate every request ID on the server and ignore incoming request-ID
+  values.
 - Log method, route template, status, duration, and request ID to stderr; omit
   query/body/auth values and capability URLs.
 - Propagate request cancellation through rendering, S3, manifest locks, and
@@ -986,8 +987,7 @@ or durable MCP session state.
 ## 11. Spec, documentation, and generated artifacts
 
 This changes observable behavior and therefore updates `SPEC.md` in the same
-PR. With the current 0.26.0 baseline, the expected spec version is 0.27.0;
-re-evaluate against the actual version immediately before implementation.
+PR. The implemented server logging contract targets spec version 0.28.0.
 
 Update:
 

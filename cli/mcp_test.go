@@ -80,7 +80,6 @@ func TestMCPStdioSubcommandWithOfficialClient(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = session.Close() }()
-			time.Sleep(250 * time.Millisecond)
 			result, err := session.CallTool(ctx, &mcp.CallToolParams{
 				Name: "list_uploads",
 				Arguments: map[string]any{

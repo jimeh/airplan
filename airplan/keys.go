@@ -18,7 +18,11 @@ func (e *invalidTargetError) Error() string {
 }
 
 func (e *invalidTargetError) Unwrap() error {
-	return errInvalidTarget
+	return e.err
+}
+
+func (e *invalidTargetError) Is(target error) bool {
+	return target == errInvalidTarget
 }
 
 func wrapInvalidTarget(err error) error {

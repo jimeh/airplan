@@ -172,6 +172,16 @@ func (c *Client) UploadCollection(
 					file.Name, err,
 				)
 			}
+			if _, err = io.CopyN(io.Discard, file.Reader, 1); err == nil {
+				return fmt.Errorf(
+					"airplan collection input %q exceeds its declared size",
+					file.Name,
+				)
+			} else if !errors.Is(err, io.EOF) {
+				return fmt.Errorf(
+					"check collection input %q size: %w", file.Name, err,
+				)
+			}
 		}
 		return nil
 	})
