@@ -61,11 +61,25 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 				t.Fatalf("tools = %d, want %d", len(tools.Tools), test.wantTools)
 			}
 			hasUploadFiles := false
+			uploadDocumentDescription := ""
 			for _, tool := range tools.Tools {
 				hasUploadFiles = hasUploadFiles || tool.Name == "upload_files"
+				if tool.Name == "upload_document" {
+					uploadDocumentDescription = tool.Description
+				}
 			}
 			if hasUploadFiles != test.localFiles {
 				t.Fatalf("upload_files present = %t", hasUploadFiles)
+			}
+			for _, feature := range []string{
+				"Mermaid fences", "GitHub alerts", "responsive columns",
+			} {
+				if !strings.Contains(uploadDocumentDescription, feature) {
+					t.Errorf(
+						"upload_document description %q does not mention %q",
+						uploadDocumentDescription, feature,
+					)
+				}
 			}
 			result, err := session.CallTool(ctx, &mcp.CallToolParams{
 				Name:      "list_uploads",

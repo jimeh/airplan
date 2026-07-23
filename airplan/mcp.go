@@ -102,8 +102,11 @@ func NewMCPServerWithOptions(
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "upload_document",
-		Description: "Render and persist a UTF-8 document in Airplan, then " +
-			"return its durable capability URL.",
+		Description: "Render and persist a UTF-8 Markdown, HTML, or text " +
+			"document, then return its durable capability URL. Markdown " +
+			"supports GFM, highlighted code, Mermaid fences, GitHub alerts, " +
+			"frontmatter, footnotes, and responsive columns; use them when " +
+			"they improve clarity.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest,
 		input mcpUploadDocumentInput,
 	) (*mcp.CallToolResult, Result, error) {

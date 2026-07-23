@@ -315,8 +315,10 @@ JSON Schema all fall out of one struct definition.
   evidence explicitly called for by authorized PR or issue work. It reviews
   captures for sensitive material, uploads related evidence in one JSON-mode
   collection, distinguishes `files[].url` from the overview `url`, and never
-  invents or reuses partial results. It still prohibits opportunistic uploads.
-  This file remains the single canonical source. `skills/embed.go`
+  invents or reuses partial results. It briefly identifies optional Markdown
+  rendering features without encouraging decorative overuse, and still
+  prohibits opportunistic uploads. This file remains the single canonical
+  source. `skills/embed.go`
   embeds it in the binary, the core package exposes the exact content
   through `AgentSkill`, and the thin `airplan skill` command writes it
   byte-for-byte without loading configuration or touching external

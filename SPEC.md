@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.28.0**
+**Spec version: 0.28.1**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -800,8 +800,9 @@ byte-for-byte, including its YAML frontmatter and trailing newline. It accepts
 no arguments or command-specific flags and emits nothing to stderr on success.
 It does not load configuration, inspect credentials, access storage or the
 network, or write state, so it works with only the installed binary and from
-any working directory. The same content is available through the public core
-library API.
+any working directory. The skill identifies optional Markdown rendering
+features and tells agents to use them only when they improve clarity. The same
+content is available through the public core library API.
 `template` prints a built-in template (see §3). With no argument or with
 `document`, it prints the document template. `template collection` prints the
 collection overview template.
@@ -1721,6 +1722,10 @@ The minimal tool set is:
 | `sync_manifest`   | yes   | yes  | Preview or apply reconciliation    |
 | `preview_purge`   | yes   | yes  | Return explicit purge candidates   |
 | `execute_purge`   | yes   | yes  | Delete reviewed upload IDs         |
+
+The `upload_document` tool description identifies GFM, highlighted code,
+Mermaid fences, GitHub-style alerts, frontmatter, footnotes, and responsive
+columns as optional Markdown affordances to use when they improve clarity.
 
 Hosted MCP omits file collection upload because MCP has no portable
 client-to-server file upload and server-local paths are unsafe. No transport
