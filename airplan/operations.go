@@ -86,8 +86,12 @@ func (c *Client) ListManifest(
 			if c.cfg.Bucket != "" && rec.Bucket != c.cfg.Bucket {
 				continue
 			}
+			markerKey := rec.MarkerKey
+			if markerKey == "" {
+				markerKey = markerKeyForManifestRecord(rec)
+			}
 			if c.cfg.KeyPrefix != "" &&
-				!KeyMatchesPrefix(rec.MarkerKey, c.cfg.KeyPrefix) {
+				!KeyMatchesPrefix(markerKey, c.cfg.KeyPrefix) {
 				continue
 			}
 		default:
@@ -193,7 +197,7 @@ func (c *Client) PlanPurge(
 			if markerKey == "" {
 				markerKey = markerKeyForManifestRecord(rec)
 			}
-			if c.cfg.Bucket != "" &&
+			if c.cfg.KeyPrefix != "" &&
 				!KeyMatchesPrefix(markerKey, c.cfg.KeyPrefix) {
 				otherPrefixes++
 				continue

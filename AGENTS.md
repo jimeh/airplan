@@ -78,6 +78,10 @@ coverage has no equivalent local task on non-Windows hosts.
   the config structs and golden-tested; refresh with
   `GOLDEN_UPDATE=1 go test ./airplan/ -run TestConfigSchema`. Unknown config
   keys are a hard error — parser and schema must not drift (SPEC §7).
+- **HTTP API contract**: `api/openapi.yaml` is authoritative. The generated
+  strict server and client are runtime boundaries, not documentation-only
+  artifacts. Keep multipart upload parsing streaming, and run
+  `mise run generate:check` after API changes.
 - **Manifest reads**: handle empty non-EOF reads as errors before continuing;
   reading a directory can otherwise spin without making progress.
 - **Ownership marker resolution**: targeted get/delete operations concurrently

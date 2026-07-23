@@ -50,6 +50,16 @@ func TestAirplanBackendStreamsDocumentMultipart(t *testing.T) {
 			if err := r.ParseMultipartForm(DefaultMaxInputSize + 1<<20); err != nil {
 				t.Fatal(err)
 			}
+			var metadata map[string]json.RawMessage
+			if err := json.Unmarshal(
+				[]byte(r.FormValue("metadata")), &metadata,
+			); err != nil {
+				t.Fatal(err)
+			}
+			if _, exists := metadata["max_size"]; exists {
+				t.Fatalf("metadata = %s, want no unlimited lower bound",
+					r.FormValue("metadata"))
+			}
 			file, _, err := r.FormFile("document")
 			if err != nil {
 				t.Fatal(err)
@@ -79,11 +89,28 @@ func TestAirplanBackendStreamsDocumentMultipart(t *testing.T) {
 	}
 	result, err := client.Upload(context.Background(), Input{
 		Reader: strings.NewReader("hello"), Name: "plan.md",
+		MaxSize: -1,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.URL != "https://plans.example/plan" {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestPortableUploadLimit(t *testing.T) {
+	for _, test := range []struct {
+		input int64
+		want  int64
+	}{
+		{input: -1, want: 0},
+		{input: 0, want: 0},
+		{input: 42, want: 42},
+	} {
+		if got := portableUploadLimit(test.input); got != test.want {
+			t.Errorf("portableUploadLimit(%d) = %d, want %d",
+				test.input, got, test.want)
+		}
 	}
 }

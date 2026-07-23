@@ -219,6 +219,46 @@ func TestRootJSONOutputShape(t *testing.T) {
 	})
 }
 
+func TestAirplanBackendRejectsServerOwnedFlagsBeforeInput(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		flags []string
+		want  string
+	}{
+		{
+			name:  "S3 endpoint",
+			flags: []string{"--endpoint", "https://s3.invalid"},
+			want:  "--endpoint is controlled by the Airplan server",
+		},
+		{
+			name:  "template path",
+			flags: []string{"--template", "local-template.html"},
+			want:  "--template is controlled by the Airplan server",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			isolateEnv(t)
+			config := filepath.Join(t.TempDir(), "config.toml")
+			body := `backend = "airplan"
+api_url = "http://127.0.0.1:1"
+api_token = "01234567890123456789012345678901"
+`
+			if err := os.WriteFile(config, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			args := append([]string{"--config", config}, test.flags...)
+			args = append(args, "-")
+			cmd := newRootCmd()
+			cmd.SetIn(strings.NewReader("# Plan\n"))
+			cmd.SetArgs(args)
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
 func TestRootUploadsFileCollectionWithOrderedOutput(t *testing.T) {
 	fake := newFakeS3(t)
 	dir := t.TempDir()

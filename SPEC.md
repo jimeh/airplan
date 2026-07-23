@@ -1578,6 +1578,13 @@ appends local upload or tombstone records. Server REST and hosted MCP adapters
 invoke the server's operation service directly rather than calling loopback
 HTTP or duplicating business rules.
 
+For an `airplan` backend, request attributes such as format, title, slug,
+language, repository URL, and lower size limits remain portable. Explicit S3
+connection overrides and server-owned rendering policy flags are rejected
+before input is opened. Inherited settings remain inactive as described in
+§7; a client cannot choose the server's endpoint, bucket, key prefix,
+templates, source policy, indexability, or Mermaid policy.
+
 The server's manifest listing is scoped to its resolved S3 profile, bucket,
 and key prefix even when its file also contains records for other local
 profiles. The ordinary local S3 `list` without a profile remains an

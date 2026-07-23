@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jimeh/airplan/internal/httpapi"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -97,4 +98,66 @@ func TestMCPHTTPOriginGuard(t *testing.T) {
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", recorder.Code)
 	}
+}
+
+func TestMCPStreamableHTTPWithOfficialClient(t *testing.T) {
+	client, err := New(context.Background(), &Config{
+		Backend: BackendS3, ManifestPath: t.TempDir() + "/manifest.jsonl",
+		Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mcpHandler, err := NewMCPHTTPHandler(client, "test", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const token = "01234567890123456789012345678901"
+	auth, err := httpapi.NewBearerAuth(token)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(auth.Wrap(mcpHandler))
+	t.Cleanup(server.Close)
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "airplan-test", Version: "test",
+	}, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	session, err := protocolClient.Connect(ctx, &mcp.StreamableClientTransport{
+		Endpoint: server.URL,
+		HTTPClient: &http.Client{Transport: bearerRoundTripper{
+			base: http.DefaultTransport, token: token,
+		}},
+		MaxRetries: -1, DisableStandaloneSSE: true,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_uploads",
+		Arguments: map[string]any{
+			"source": "manifest",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError || len(result.Content) == 0 {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+type bearerRoundTripper struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (r bearerRoundTripper) RoundTrip(
+	request *http.Request,
+) (*http.Response, error) {
+	clone := request.Clone(request.Context())
+	clone.Header.Set("Authorization", "Bearer "+r.token)
+	return r.base.RoundTrip(clone)
 }

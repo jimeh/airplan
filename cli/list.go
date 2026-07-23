@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -58,11 +59,11 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 
 	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
 	if err != nil {
-		// Preserve the historical use of --profile as a local-manifest
-		// filter when it does not name a configured profile. An explicit
-		// --config remains authoritative and errors normally.
-		if !cmd.Flags().Changed("profile") ||
-			cmd.Flags().Changed("config") {
+		// Preserve config-free local history when the default config cannot
+		// select one of several profiles, and preserve the historical use of
+		// --profile as a local-manifest filter. Explicit config/backend
+		// selectors remain authoritative and surface their errors.
+		if !allowsConfigFreeLocalList(cmd) {
 			return err
 		}
 		cfg = &airplan.Config{
@@ -75,6 +76,8 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 	var profile *string
 	if cmd.Flags().Changed("profile") {
 		profile = &opts.profile
+	} else if os.Getenv("AIRPLAN_PROFILE") != "" {
+		profile = &cfg.Profile
 	}
 	if cfg.EffectiveBackend() == airplan.BackendAirplan {
 		client, err := airplan.New(cmd.Context(), cfg)
@@ -102,6 +105,21 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 	return outputManifestList(
 		cmd, listed.Records, listed.Warnings, opts.json,
 	)
+}
+
+func allowsConfigFreeLocalList(cmd *cobra.Command) bool {
+	if cmd.Flags().Changed("config") {
+		return false
+	}
+	for _, name := range []string{
+		"AIRPLAN_CONFIG", "AIRPLAN_BACKEND", "AIRPLAN_API_URL",
+		"AIRPLAN_API_TOKEN", "AIRPLAN_PROFILE",
+	} {
+		if os.Getenv(name) != "" {
+			return false
+		}
+	}
+	return true
 }
 
 func outputManifestList(

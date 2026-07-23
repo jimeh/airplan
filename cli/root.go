@@ -230,12 +230,14 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	}
 	if cfg.EffectiveBackend() == airplan.BackendAirplan {
 		for _, name := range []string{
-			"template", "collection-template", "no-source", "indexable",
-			"no-external-assets", "mermaid-url",
+			"endpoint", "bucket", "region", "public-base-url", "key-prefix",
+			"template", "collection-template", "no-source",
+			"indexable", "no-external-assets", "mermaid-url",
 		} {
 			if cmd.Flags().Changed(name) {
 				return fmt.Errorf(
-					"--%s is controlled by the Airplan server and cannot be overridden by an airplan backend client",
+					"--%s is controlled by the Airplan server and cannot "+
+						"be overridden by an airplan backend client",
 					name,
 				)
 			}

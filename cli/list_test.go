@@ -408,6 +408,89 @@ func TestListLocalNamedMissingConfig(t *testing.T) {
 	}
 }
 
+func TestListLocalFallsBackWhenDefaultConfigIsAmbiguous(t *testing.T) {
+	isolateEnv(t)
+	manifest := filepath.Join(
+		os.Getenv("XDG_STATE_HOME"), "airplan", "manifest.jsonl",
+	)
+	writeManifest(t, manifest, strings.Join([]string{
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+			`"key":"work/plan.html","url":"https://example/work",` +
+			`"bucket":"work","profile":"work","title":"Work",` +
+			`"bytes":10,"format":"md","kind":"document",` +
+			`"marker_version":3}`,
+		`{"type":"upload","time":"2026-07-08T14:04:11Z",` +
+			`"key":"home/plan.html","url":"https://example/home",` +
+			`"bucket":"home","profile":"home","title":"Home",` +
+			`"bytes":10,"format":"md","kind":"document",` +
+			`"marker_version":3}`,
+	}, "\n")+"\n")
+	config := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "airplan", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(config), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config, []byte(`
+[profiles.work]
+endpoint = "https://work.invalid"
+bucket = "work"
+
+[profiles.home]
+endpoint = "https://home.invalid"
+bucket = "home"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeList(t)
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	for _, title := range []string{"Work", "Home"} {
+		if !strings.Contains(stdout, title) {
+			t.Fatalf("stdout missing %q: %s", title, stdout)
+		}
+	}
+}
+
+func TestListLocalEnvironmentProfileFiltersHistory(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("AIRPLAN_PROFILE", "work")
+	manifest := filepath.Join(
+		os.Getenv("XDG_STATE_HOME"), "airplan", "manifest.jsonl",
+	)
+	writeManifest(t, manifest, strings.Join([]string{
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+			`"key":"work/plan.html","url":"https://example/work",` +
+			`"bucket":"work","profile":"work","title":"Work",` +
+			`"bytes":10,"format":"md","kind":"document",` +
+			`"marker_version":3}`,
+		`{"type":"upload","time":"2026-07-08T14:04:11Z",` +
+			`"key":"home/plan.html","url":"https://example/home",` +
+			`"bucket":"home","profile":"home","title":"Home",` +
+			`"bytes":10,"format":"md","kind":"document",` +
+			`"marker_version":3}`,
+	}, "\n")+"\n")
+	config := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "airplan", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(config), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config, []byte(`
+[profiles.work]
+endpoint = "https://work.invalid"
+bucket = "work"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeList(t)
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	if !strings.Contains(stdout, "Work") || strings.Contains(stdout, "Home") {
+		t.Fatalf("stdout = %q, want only work history", stdout)
+	}
+}
+
 func TestFormatListBytes(t *testing.T) {
 	tests := map[int64]string{
 		0:                   "0 B",

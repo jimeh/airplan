@@ -44,7 +44,8 @@ func (t *httpTransport) Upload(
 	result, err := t.client.UploadDocument(ctx, httpapi.DocumentMetadata{
 		Name: in.Name, Format: httpapi.DocumentMetadataFormat(in.Format),
 		Title: in.Title, Slug: in.Slug,
-		Lang: in.Lang, RepositoryURL: repository, MaxSize: in.MaxSize,
+		Lang: in.Lang, RepositoryURL: repository,
+		MaxSize: portableUploadLimit(in.MaxSize),
 	}, in.Reader)
 	if err != nil {
 		return nil, transportError(err)
@@ -75,13 +76,21 @@ func (t *httpTransport) UploadFiles(
 	}
 	result, err := t.client.UploadCollection(ctx, httpapi.CollectionMetadata{
 		Title: in.Title, RepositoryURL: repository,
-		MaxSize: in.MaxSize, MaxTotalSize: in.MaxTotalSize,
+		MaxSize:      portableUploadLimit(in.MaxSize),
+		MaxTotalSize: portableUploadLimit(in.MaxTotalSize),
 	}, files)
 	if err != nil {
 		return nil, transportError(err)
 	}
 	core := coreUploadResult(result)
 	return &core, nil
+}
+
+func portableUploadLimit(limit int64) int64 {
+	if limit < 0 {
+		return 0
+	}
+	return limit
 }
 
 func coreUploadResult(result httpapi.UploadResult) FilesResult {

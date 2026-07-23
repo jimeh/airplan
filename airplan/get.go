@@ -90,6 +90,40 @@ func (c *Client) GetUpload(
 	return &GetResult{Key: objectKey, Body: body}, nil
 }
 
+func (c *Client) openUpload(
+	ctx context.Context, urlOrKey string, opts GetOptions,
+) (string, io.ReadCloser, string, error) {
+	if err := c.validate(ctx); err != nil {
+		return "", nil, "", err
+	}
+	if c.remote != nil {
+		return "", nil, "", errors.New(
+			"airplan: streaming object access requires an s3 backend",
+		)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
+		return "", nil, "", err
+	}
+	objectKey, resolved, err := c.resolveGetObject(ctx, urlOrKey, opts)
+	if err != nil {
+		return "", nil, "", err
+	}
+	if objectKey == resolved.Key {
+		return objectKey, io.NopCloser(strings.NewReader(string(resolved.Body))),
+			markerContentType, nil
+	}
+	body, contentType, err := c.st.open(ctx, objectKey)
+	if err != nil {
+		if errors.Is(err, errObjectNotFound) {
+			return "", nil, "", fmt.Errorf(
+				"airplan: upload object %q is missing", objectKey,
+			)
+		}
+		return "", nil, "", err
+	}
+	return objectKey, body, contentType, nil
+}
+
 func (c *Client) resolveGetObject(
 	ctx context.Context, urlOrKey string, opts GetOptions,
 ) (string, *resolvedMarker, error) {

@@ -1,10 +1,8 @@
 package airplan
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"io"
 	"mime"
 	"net/http"
 	"path"
@@ -180,9 +178,7 @@ func wireInspectedObject(object *InspectedObject) *httpapi.InspectedObject {
 	}
 }
 
-// GetUpload returns a marker-declared object. The public streaming API is used
-// by HTTP clients; the current local adapter buffers only long enough to hand
-// an io.ReadCloser to the response writer.
+// GetUpload returns a marker-declared object without buffering its body.
 func (o *HTTPOperations) GetUpload(
 	ctx context.Context, request httpapi.GetUploadRequest,
 ) (httpapi.Download, error) {
@@ -190,19 +186,23 @@ func (o *HTTPOperations) GetUpload(
 	if err != nil {
 		return httpapi.Download{}, err
 	}
-	result, err := client.GetUpload(ctx, request.URLOrKey, GetOptions{
-		Source: request.Source,
-	})
+	key, body, contentType, err := client.openUpload(
+		ctx, request.URLOrKey, GetOptions{
+			Source: request.Source,
+		},
+	)
 	if err != nil {
 		return httpapi.Download{}, apiOperationError(err)
 	}
-	contentType := mime.TypeByExtension(path.Ext(result.Key))
 	if contentType == "" {
-		contentType = "application/octet-stream"
+		contentType = mime.TypeByExtension(path.Ext(key))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
 	}
 	return httpapi.Download{
-		Body: io.NopCloser(bytes.NewReader(result.Body)), Key: result.Key,
-		Filename: path.Base(result.Key), ContentType: contentType,
+		Body: body, Key: key,
+		Filename: path.Base(key), ContentType: contentType,
 	}, nil
 }
 

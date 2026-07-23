@@ -218,21 +218,13 @@ func (r *exactSizeReadSeeker) Seek(offset int64, whence int) (int64, error) {
 func (s *storage) getBytes(
 	ctx context.Context, key string, limit int64,
 ) ([]byte, error) {
-	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
-		Bucket: aws.String(s.bucket),
-		Key:    aws.String(key),
-	})
+	stream, _, err := s.open(ctx, key)
 	if err != nil {
-		var noSuchKey *types.NoSuchKey
-		if errors.As(err, &noSuchKey) {
-			return nil, fmt.Errorf("airplan: get object %q: %w",
-				key, errObjectNotFound)
-		}
-		return nil, fmt.Errorf("airplan: get object %q: %w", key, err)
+		return nil, err
 	}
-	defer func() { _ = out.Body.Close() }()
+	defer func() { _ = stream.Close() }()
 
-	var reader io.Reader = out.Body
+	var reader io.Reader = stream
 	if limit > 0 {
 		reader = io.LimitReader(reader, limit+1)
 	}
@@ -244,21 +236,33 @@ func (s *storage) getBytes(
 }
 
 func (s *storage) getTo(ctx context.Context, key string, dst io.Writer) error {
+	body, _, err := s.open(ctx, key)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = body.Close() }()
+	if _, err := io.Copy(dst, body); err != nil {
+		return fmt.Errorf("airplan: read object %q: %w", key, err)
+	}
+	return nil
+}
+
+func (s *storage) open(
+	ctx context.Context, key string,
+) (io.ReadCloser, string, error) {
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket), Key: aws.String(key),
 	})
 	if err != nil {
 		var noSuchKey *types.NoSuchKey
 		if errors.As(err, &noSuchKey) {
-			return fmt.Errorf("airplan: get object %q: %w", key, errObjectNotFound)
+			return nil, "", fmt.Errorf(
+				"airplan: get object %q: %w", key, errObjectNotFound,
+			)
 		}
-		return fmt.Errorf("airplan: get object %q: %w", key, err)
+		return nil, "", fmt.Errorf("airplan: get object %q: %w", key, err)
 	}
-	defer func() { _ = out.Body.Close() }()
-	if _, err := io.Copy(dst, out.Body); err != nil {
-		return fmt.Errorf("airplan: read object %q: %w", key, err)
-	}
-	return nil
+	return out.Body, aws.ToString(out.ContentType), nil
 }
 
 // deleteMarker removes the ownership marker in a dedicated final request.
