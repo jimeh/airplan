@@ -1584,6 +1584,8 @@ connection overrides and server-owned rendering policy flags are rejected
 before input is opened. Inherited settings remain inactive as described in
 §7; a client cannot choose the server's endpoint, bucket, key prefix,
 templates, source policy, indexability, or Mermaid policy.
+Raw REST requests that omit repository context disable repository discovery;
+the server never falls back to inspecting its own working directory.
 
 The server's manifest listing is scoped to its resolved S3 profile, bucket,
 and key prefix even when its file also contains records for other local
@@ -1664,7 +1666,9 @@ REST errors use RFC 9457 `application/problem+json` with stable `code` and
 parsed. Missing, malformed, and incorrect bearer credentials receive the same
 generic 401 and `WWW-Authenticate: Bearer`. Tokens, capability URLs, request
 bodies, S3 response bodies, filesystem paths, and credentials must not appear
-in logs or error details. Upload POSTs are not retried automatically because a
+in logs, error details, warnings, or per-item failure text. Hosted structured
+results use stable generic messages where internal detail would otherwise be
+exposed. Upload POSTs are not retried automatically because a
 timeout after server commit is ambiguous without persistent idempotency state.
 
 ### MCP servers
@@ -1698,6 +1702,8 @@ configuration, arbitrary S3 objects, or filesystem browsing.
 `upload_id` values. Tool results are structured and warnings remain inside the
 result rather than corrupting protocol framing. Partial sync or purge failures
 set the MCP error indicator while retaining the structured progress result.
+The configured operation timeout applies independently to each MCP tool call;
+it does not limit the lifetime of a stdio MCP session.
 
 The Streamable HTTP endpoint uses the same bearer token as REST. This is a
 custom single-user mechanism, not MCP OAuth; clients unable to add an

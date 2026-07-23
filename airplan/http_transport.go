@@ -325,7 +325,7 @@ func (t *httpTransport) PlanPurge(
 		Concurrency: opts.Concurrency,
 	}
 	if !opts.CreatedBefore.IsZero() {
-		request.CreatedBefore = opts.CreatedBefore
+		request.CreatedBefore = &opts.CreatedBefore
 	}
 	result, err := t.client.PreviewPurge(ctx, request)
 	if err != nil {

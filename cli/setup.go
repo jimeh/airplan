@@ -115,9 +115,10 @@ func validatePersistentOptions(cmd *cobra.Command, _ []string) error {
 	if !explicit {
 		return nil
 	}
-	switch cmd.Name() {
-	case "airplan", "list", "show", "get", "delete", "purge", "sync",
-		"serve", "mcp":
+	switch cmd.CommandPath() {
+	case "airplan", "airplan list", "airplan show", "airplan get",
+		"airplan delete", "airplan purge", "airplan sync", "airplan serve",
+		"airplan mcp":
 		return nil
 	default:
 		return fmt.Errorf("--manifest does not apply to %s", cmd.CommandPath())

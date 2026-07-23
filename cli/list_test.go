@@ -491,6 +491,23 @@ bucket = "work"
 	}
 }
 
+func TestListLocalIgnoresMalformedInactiveS3Endpoint(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("AIRPLAN_ENDPOINT", "not-a-url")
+	manifest := filepath.Join(
+		os.Getenv("XDG_STATE_HOME"), "airplan", "manifest.jsonl",
+	)
+	writeManifest(t, manifest,
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",`+
+			`"key":"plan.html","url":"https://example/plan",`+
+			`"title":"Local","bucket":"plans","bytes":10,`+
+			`"marker_version":1}`+"\n")
+	stdout, stderr, err := executeList(t)
+	if err != nil || stderr != "" || !strings.Contains(stdout, "Local") {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+}
+
 func TestFormatListBytes(t *testing.T) {
 	tests := map[int64]string{
 		0:                   "0 B",

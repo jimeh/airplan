@@ -128,6 +128,26 @@ func TestOpenAPIIsPublicAndByteExact(t *testing.T) {
 	}
 }
 
+func TestCapabilitiesUseEffectiveServerLimits(t *testing.T) {
+	handler := newTestHandler(t, &stubOperations{}, Options{
+		MaxDocumentBytes:        101,
+		MaxCollectionFileBytes:  202,
+		MaxCollectionTotalBytes: 303,
+	})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client := newTestClient(t, server.URL)
+	capabilities, err := client.Capabilities(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capabilities.Limits.DocumentBytes != 101 ||
+		capabilities.Limits.CollectionFileBytes != 202 ||
+		capabilities.Limits.CollectionTotalBytes != 303 {
+		t.Fatalf("limits = %+v", capabilities.Limits)
+	}
+}
+
 func TestBearerAuthRejectsBeforeReadingBody(t *testing.T) {
 	handler := newTestHandler(t, &stubOperations{}, Options{})
 	body := &recordingBody{Reader: strings.NewReader("secret body")}
@@ -310,6 +330,17 @@ func TestTypedClientAllowsUnnamedStdinDocument(t *testing.T) {
 		context.Background(), DocumentMetadata{}, strings.NewReader("# Plan\n"),
 	); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDocumentMetadataNameLimit(t *testing.T) {
+	if err := validateDocumentMetadata(DocumentMetadata{
+		Name: strings.Repeat("a", 256),
+	}); err == nil {
+		t.Fatal("256-character document name was accepted")
+	}
+	if err := validateDocumentMetadata(DocumentMetadata{}); err != nil {
+		t.Fatalf("empty stdin document name was rejected: %v", err)
 	}
 }
 

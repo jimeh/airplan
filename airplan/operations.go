@@ -67,6 +67,9 @@ func (c *Client) ListManifest(
 			Scope: ManifestScopeService,
 		})
 	}
+	if opts.Scope == "" || opts.Scope == ManifestScopeAll {
+		return ListManifestHistory(c.cfg.ManifestPath, opts.Profile)
+	}
 	records, warnings, err := ReadManifest(c.cfg.ManifestPath)
 	if err != nil {
 		return nil, err
@@ -75,10 +78,6 @@ func (c *Client) ListManifest(
 	filtered := make([]ManifestRecord, 0, len(uploads))
 	for _, rec := range uploads {
 		switch opts.Scope {
-		case "", ManifestScopeAll:
-			if opts.Profile != nil && rec.Profile != *opts.Profile {
-				continue
-			}
 		case ManifestScopeService:
 			if rec.Profile != c.cfg.Profile {
 				continue
@@ -98,6 +97,26 @@ func (c *Client) ListManifest(
 			return nil, fmt.Errorf("airplan: invalid manifest scope %q", opts.Scope)
 		}
 		filtered = append(filtered, rec)
+	}
+	return &ManifestList{Records: filtered, Warnings: warnings}, nil
+}
+
+// ListManifestHistory reads active local manifest history without validating
+// inactive storage settings. Profile nil returns all recorded profiles.
+func ListManifestHistory(
+	path string, profile *string,
+) (*ManifestList, error) {
+	records, warnings, err := ReadManifest(path)
+	if err != nil {
+		return nil, err
+	}
+	uploads := ManifestUploads(records)
+	filtered := make([]ManifestRecord, 0, len(uploads))
+	for _, record := range uploads {
+		if profile != nil && record.Profile != *profile {
+			continue
+		}
+		filtered = append(filtered, record)
 	}
 	return &ManifestList{Records: filtered, Warnings: warnings}, nil
 }

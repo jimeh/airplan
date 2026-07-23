@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 )
 
 const maxMetadataBytes = int64(64 << 10)
@@ -337,6 +338,9 @@ func multipartFilename(part *multipart.Part) (string, error) {
 }
 
 func validateDocumentMetadata(metadata DocumentMetadata) error {
+	if utf8.RuneCountInString(metadata.Name) > 255 {
+		return invalidRequest("document metadata name is too long")
+	}
 	if metadata.MaxSize < 0 {
 		return invalidRequest("document max_size must be positive")
 	}

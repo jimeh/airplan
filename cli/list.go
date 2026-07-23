@@ -80,25 +80,20 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 		profile = &cfg.Profile
 	}
 	if cfg.EffectiveBackend() == airplan.BackendAirplan {
-		client, err := airplan.New(cmd.Context(), cfg)
+		ctx, cancel := timeoutContext(cmd.Context(), cfg)
+		defer cancel()
+		client, err := airplan.New(ctx, cfg)
 		if err != nil {
 			return err
 		}
-		listed, err := client.ListManifest(cmd.Context(),
+		listed, err := client.ListManifest(ctx,
 			airplan.ListManifestOptions{Scope: airplan.ManifestScopeService})
 		if err != nil {
 			return err
 		}
 		return outputManifestList(cmd, listed.Records, listed.Warnings, opts.json)
 	}
-	client, err := airplan.New(cmd.Context(), cfg)
-	if err != nil {
-		return err
-	}
-	listed, err := client.ListManifest(cmd.Context(),
-		airplan.ListManifestOptions{
-			Scope: airplan.ManifestScopeAll, Profile: profile,
-		})
+	listed, err := airplan.ListManifestHistory(cfg.ManifestPath, profile)
 	if err != nil {
 		return err
 	}
@@ -109,6 +104,9 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 
 func allowsConfigFreeLocalList(cmd *cobra.Command) bool {
 	if cmd.Flags().Changed("config") {
+		return false
+	}
+	if _, explicit := selectedManifestPath(cmd); explicit {
 		return false
 	}
 	for _, name := range []string{

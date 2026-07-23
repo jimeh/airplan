@@ -285,6 +285,35 @@ func TestMCPRequestBodyLimit(t *testing.T) {
 	}
 }
 
+func TestMCPHostedDocumentLimitAndPerCallTimeout(t *testing.T) {
+	for _, test := range []struct {
+		requested int64
+		hosted    bool
+		want      int64
+	}{
+		{requested: -1, hosted: true, want: DefaultMaxInputSize},
+		{requested: DefaultMaxInputSize + 1, hosted: true, want: DefaultMaxInputSize},
+		{requested: 1024, hosted: true, want: 1024},
+		{requested: -1, hosted: false, want: -1},
+	} {
+		if got := mcpDocumentLimit(test.requested, test.hosted); got != test.want {
+			t.Errorf("mcpDocumentLimit(%d, %t) = %d, want %d",
+				test.requested, test.hosted, got, test.want)
+		}
+	}
+
+	base := context.Background()
+	client := &Client{cfg: &Config{Timeout: time.Second}}
+	ctx, cancel := mcpOperationContext(base, client)
+	defer cancel()
+	if _, ok := base.Deadline(); ok {
+		t.Fatal("base session context unexpectedly has a deadline")
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		t.Fatal("tool operation context has no configured deadline")
+	}
+}
+
 type mcpTestTransport struct {
 	operationTransport
 	uploadResult *Result

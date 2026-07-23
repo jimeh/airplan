@@ -41,6 +41,16 @@ func TestGlobalManifestRejectsLocalOnlyCommand(t *testing.T) {
 	}
 }
 
+func TestGlobalManifestRejectsNestedConfigShow(t *testing.T) {
+	isolateEnv(t)
+	_, _, err := executeCommand(
+		t, "", "", "--manifest", "custom.jsonl", "config", "show",
+	)
+	if err == nil || !strings.Contains(err.Error(), "does not apply") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestGlobalManifestRejectedByAirplanBackend(t *testing.T) {
 	isolateEnv(t)
 	config := filepath.Join(t.TempDir(), "config.toml")
@@ -52,6 +62,27 @@ func TestGlobalManifestRejectedByAirplanBackend(t *testing.T) {
 	}
 	_, _, err := executeCommand(t, "", "",
 		"--manifest", "custom.jsonl", "list", "--config", config)
+	if err == nil || !strings.Contains(err.Error(),
+		"cannot be used with the airplan backend") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestGlobalManifestRejectedByDefaultAirplanBackend(t *testing.T) {
+	isolateEnv(t)
+	config := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "airplan", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(config), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data := "backend = \"airplan\"\n" +
+		"api_url = \"https://airplan.example\"\n" +
+		"api_token = \"01234567890123456789012345678901\"\n"
+	if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := executeCommand(
+		t, "", "", "--manifest", "custom.jsonl", "list",
+	)
 	if err == nil || !strings.Contains(err.Error(),
 		"cannot be used with the airplan backend") {
 		t.Fatalf("error = %v", err)

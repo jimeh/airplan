@@ -193,14 +193,15 @@ func newMCPCmd() *cobra.Command {
 		Short: "Serve Airplan tools over MCP stdio",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			client, _, ctx, cancel, err := setupClient(
-				cmd, opts.config, opts.profile,
-			)
+			cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
 			if err != nil {
 				return err
 			}
-			defer cancel()
-			return airplan.RunMCPStdio(ctx, client, buildVersion())
+			client, err := airplan.New(cmd.Context(), cfg)
+			if err != nil {
+				return err
+			}
+			return airplan.RunMCPStdio(cmd.Context(), client, buildVersion())
 		},
 	}
 	cmd.Flags().StringVar(&opts.config, "config", "",

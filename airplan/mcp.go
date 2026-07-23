@@ -84,6 +84,8 @@ func NewMCPServer(
 	}, func(ctx context.Context, _ *mcp.CallToolRequest,
 		input mcpUploadDocumentInput,
 	) (*mcp.CallToolResult, Result, error) {
+		ctx, cancel := mcpOperationContext(ctx, client)
+		defer cancel()
 		repository := input.RepositoryURL
 		if !localFiles && repository == "" {
 			repository = "none"
@@ -92,7 +94,7 @@ func NewMCPServer(
 			Reader: strings.NewReader(input.Content), Name: input.Name,
 			Format: input.Format, Title: input.Title, Slug: input.Slug,
 			Lang: input.Lang, RepositoryURL: repository,
-			MaxSize: input.MaxSize,
+			MaxSize: mcpDocumentLimit(input.MaxSize, !localFiles),
 		})
 		if err != nil {
 			return nil, Result{}, mcpOperationError(err, !localFiles)
@@ -111,6 +113,8 @@ func NewMCPServer(
 		}, func(ctx context.Context, _ *mcp.CallToolRequest,
 			input mcpUploadFilesInput,
 		) (*mcp.CallToolResult, FilesResult, error) {
+			ctx, cancel := mcpOperationContext(ctx, client)
+			defer cancel()
 			files := make([]FileInput, 0, len(input.Paths))
 			opened := make([]*os.File, 0, len(input.Paths))
 			defer func() {
@@ -158,6 +162,8 @@ func NewMCPServer(
 	}, func(ctx context.Context, _ *mcp.CallToolRequest,
 		input mcpListInput,
 	) (*mcp.CallToolResult, mcpListOutput, error) {
+		ctx, cancel := mcpOperationContext(ctx, client)
+		defer cancel()
 		source := input.Source
 		if source == "" {
 			source = string(UploadSourceManifest)
@@ -170,6 +176,9 @@ func NewMCPServer(
 			})
 			if err != nil {
 				return nil, output, mcpOperationError(err, !localFiles)
+			}
+			if !localFiles {
+				listed.Warnings = serverSafeWarnings(listed.Warnings)
 			}
 			output.Manifest = listed
 		case UploadSourceStorage:
@@ -195,9 +204,14 @@ func NewMCPServer(
 	}, func(ctx context.Context, _ *mcp.CallToolRequest,
 		input mcpTargetInput,
 	) (*mcp.CallToolResult, UploadInspection, error) {
+		ctx, cancel := mcpOperationContext(ctx, client)
+		defer cancel()
 		result, err := client.InspectUpload(ctx, input.URLOrKey)
 		if err != nil {
 			return nil, UploadInspection{}, mcpOperationError(err, !localFiles)
+		}
+		if !localFiles {
+			result.Warnings = serverSafeWarnings(result.Warnings)
 		}
 		return nil, *result, nil
 	})
@@ -209,9 +223,14 @@ func NewMCPServer(
 	}, func(ctx context.Context, _ *mcp.CallToolRequest,
 		input mcpTargetInput,
 	) (*mcp.CallToolResult, DeleteResult, error) {
+		ctx, cancel := mcpOperationContext(ctx, client)
+		defer cancel()
 		result, err := client.DeleteUpload(ctx, input.URLOrKey)
 		if err != nil {
 			return nil, DeleteResult{}, mcpOperationError(err, !localFiles)
+		}
+		if !localFiles {
+			result.Warnings = serverSafeWarnings(result.Warnings)
 		}
 		return nil, *result, nil
 	})
@@ -223,12 +242,22 @@ func NewMCPServer(
 	}, func(ctx context.Context, _ *mcp.CallToolRequest,
 		input mcpSyncInput,
 	) (*mcp.CallToolResult, SyncManifestResult, error) {
+		ctx, cancel := mcpOperationContext(ctx, client)
+		defer cancel()
 		result, err := client.SyncManifest(ctx, SyncManifestOptions{
 			DryRun: !input.Apply, Prune: input.Prune,
 			Concurrency: input.Concurrency,
 		})
 		if result == nil {
 			return nil, SyncManifestResult{}, mcpOperationError(err, !localFiles)
+		}
+		if !localFiles {
+			result.Warnings = serverSafeWarnings(result.Warnings)
+			for index := range result.Failures {
+				result.Failures[index].Error = serverSafeItemError(
+					result.Failures[index].Error,
+				)
+			}
 		}
 		return partialToolResult(mcpOperationError(err, !localFiles)), *result, nil
 	})
@@ -240,6 +269,8 @@ func NewMCPServer(
 	}, func(ctx context.Context, _ *mcp.CallToolRequest,
 		input mcpPurgePreviewInput,
 	) (*mcp.CallToolResult, PurgePlan, error) {
+		ctx, cancel := mcpOperationContext(ctx, client)
+		defer cancel()
 		source := UploadSource(input.Source)
 		if source == "" {
 			source = UploadSourceManifest
@@ -256,6 +287,14 @@ func NewMCPServer(
 		if err != nil {
 			return nil, PurgePlan{}, mcpOperationError(err, !localFiles)
 		}
+		if !localFiles {
+			result.Warnings = serverSafeWarnings(result.Warnings)
+			for index := range result.Candidates {
+				result.Candidates[index].Warnings = serverSafeWarnings(
+					result.Candidates[index].Warnings,
+				)
+			}
+		}
 		return nil, *result, nil
 	})
 
@@ -266,9 +305,23 @@ func NewMCPServer(
 	}, func(ctx context.Context, _ *mcp.CallToolRequest,
 		input mcpPurgeExecuteInput,
 	) (*mcp.CallToolResult, PurgeResult, error) {
+		ctx, cancel := mcpOperationContext(ctx, client)
+		defer cancel()
 		result, err := client.Purge(ctx, PurgeRequest(input))
 		if result == nil {
 			return nil, PurgeResult{}, mcpOperationError(err, !localFiles)
+		}
+		if !localFiles {
+			for index := range result.Items {
+				result.Items[index].Error = serverSafeItemError(
+					result.Items[index].Error,
+				)
+				if result.Items[index].Deleted != nil {
+					result.Items[index].Deleted.Warnings = serverSafeWarnings(
+						result.Items[index].Deleted.Warnings,
+					)
+				}
+			}
 		}
 		return partialToolResult(mcpOperationError(err, !localFiles)), *result, nil
 	})
@@ -313,6 +366,25 @@ func mcpOperationError(err error, hosted bool) error {
 	default:
 		return errors.New("airplan: the server could not complete the operation")
 	}
+}
+
+func mcpDocumentLimit(requested int64, hosted bool) int64 {
+	if !hosted {
+		return requested
+	}
+	if requested > 0 && requested < DefaultMaxInputSize {
+		return requested
+	}
+	return DefaultMaxInputSize
+}
+
+func mcpOperationContext(
+	ctx context.Context, client *Client,
+) (context.Context, context.CancelFunc) {
+	if client != nil && client.cfg != nil && client.cfg.Timeout > 0 {
+		return context.WithTimeout(ctx, client.cfg.Timeout)
+	}
+	return ctx, func() {}
 }
 
 // RunMCPStdio serves MCP frames over stdin/stdout until context cancellation.

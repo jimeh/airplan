@@ -74,6 +74,9 @@ func newPurgeCmd() *cobra.Command {
 
 func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	stderr := cmd.ErrOrStderr()
+	if cmd.Flags().Changed("profile") && strings.TrimSpace(opts.profile) == "" {
+		return errors.New("--profile requires a non-empty profile name")
+	}
 	if cmd.Flags().Changed("concurrency") && !opts.remote {
 		return errors.New("--concurrency requires --remote")
 	}
@@ -118,7 +121,7 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		return err
 	}
 	source := airplan.UploadSourceManifest
-	if opts.remote {
+	if opts.remote || cfg.EffectiveBackend() == airplan.BackendAirplan {
 		source = airplan.UploadSourceStorage
 	}
 	planCtx := cmd.Context()
@@ -148,12 +151,14 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 			plan.Invalid)
 	}
 	candidates := make([]airplan.ManifestRecord, 0, len(plan.Candidates))
+	warningCandidates := make([]remotePurgeCandidate, 0, len(plan.Candidates))
 	for _, candidate := range plan.Candidates {
 		candidates = append(candidates, candidate.Record)
-		for _, warning := range candidate.Warnings {
-			fmt.Fprintf(stderr, "airplan: warning: %s\n", warning)
-		}
+		warningCandidates = append(warningCandidates, remotePurgeCandidate{
+			warnings: candidate.Warnings,
+		})
 	}
+	printRemotePurgeWarnings(stderr, warningCandidates)
 
 	if opts.dryRun {
 		printPurgeCandidates(stderr, candidates)

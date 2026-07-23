@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/jimeh/airplan/internal/httpapi"
 )
@@ -62,11 +63,12 @@ func (o *HTTPOperations) UploadDocument(
 	if err != nil {
 		return httpapi.UploadResult{}, err
 	}
+	repositoryURL := serverRepositoryURL(upload.Metadata.RepositoryURL)
 	result, err := client.Upload(ctx, Input{
 		Reader: upload.Document, Name: upload.Metadata.Name,
 		Format: string(upload.Metadata.Format), Title: upload.Metadata.Title,
 		Slug: upload.Metadata.Slug, Lang: upload.Metadata.Lang,
-		RepositoryURL: upload.Metadata.RepositoryURL,
+		RepositoryURL: repositoryURL,
 		MaxSize:       upload.Metadata.MaxSize,
 	})
 	if err != nil {
@@ -90,9 +92,10 @@ func (o *HTTPOperations) UploadCollection(
 			Size: file.Size, Reader: file.Reader,
 		})
 	}
+	repositoryURL := serverRepositoryURL(upload.Metadata.RepositoryURL)
 	result, err := client.UploadFiles(ctx, FilesInput{
 		Files: files, Title: upload.Metadata.Title,
-		RepositoryURL: upload.Metadata.RepositoryURL,
+		RepositoryURL: repositoryURL,
 		MaxSize:       upload.Metadata.MaxSize,
 		MaxTotalSize:  upload.Metadata.MaxTotalSize,
 	})
@@ -125,16 +128,39 @@ func wireUploadResult(
 	}
 }
 
+func serverRepositoryURL(repositoryURL string) string {
+	if repositoryURL == "" {
+		return "none"
+	}
+	return repositoryURL
+}
+
 func serverSafeWarnings(warnings []string) []string {
-	safe := append([]string(nil), warnings...)
+	safe := make([]string, len(warnings))
 	const templateFailure = " (note: the template also failed to load:"
-	for index, warning := range safe {
+	for index, warning := range warnings {
 		if start := strings.Index(warning, templateFailure); start >= 0 {
 			safe[index] = warning[:start] +
 				" (note: the configured template also failed to load)"
+			continue
 		}
+		safe[index] = "The server completed with a non-fatal warning."
 	}
 	return safe
+}
+
+func serverSafeItemError(message string) string {
+	if message == "" {
+		return ""
+	}
+	return "The server could not complete this item."
+}
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return append([]string(nil), values...)
 }
 
 // InspectUpload invokes marker validation for one target.
@@ -160,7 +186,7 @@ func wireInspection(result *UploadInspection) httpapi.UploadInspection {
 		Bytes: result.Bytes, CreatedAt: &createdAt, Format: result.Format,
 		Kind: httpapi.UploadInspectionKind(result.Kind), Title: result.Title,
 		RepositoryURL: result.Repo, MarkerVersion: result.MarkerVersion,
-		Warnings: append([]string(nil), result.Warnings...),
+		Warnings: serverSafeWarnings(result.Warnings),
 		Error:    string(result.Error),
 	}
 	if result.CreatedAt.IsZero() {
@@ -235,12 +261,19 @@ func (o *HTTPOperations) DeleteUpload(
 }
 
 func wireDeleteResult(result *DeleteResult) httpapi.DeleteResult {
+	kind := result.Kind
+	if kind == "" {
+		kind = UploadKindDocument
+		if path.Base(result.MarkerKey) == CollectionMarkerFilename {
+			kind = UploadKindCollection
+		}
+	}
 	return httpapi.DeleteResult{
 		ID:   uploadIDFromMarkerKey(result.MarkerKey),
-		Keys: append([]string(nil), result.Keys...), PageKey: result.PageKey,
+		Keys: nonNilStrings(result.Keys), PageKey: result.PageKey,
 		MarkerKey: result.MarkerKey,
-		Kind:      httpapi.DeleteResultKind(result.Kind),
-		Warnings:  append([]string(nil), result.Warnings...),
+		Kind:      httpapi.DeleteResultKind(kind),
+		Warnings:  serverSafeWarnings(result.Warnings),
 	}
 }
 
@@ -263,7 +296,7 @@ func (o *HTTPOperations) ListManifestUploads(
 		records = append(records, wireManifestRecord(record))
 	}
 	return httpapi.ManifestList{
-		Records: records, Warnings: append([]string(nil), result.Warnings...),
+		Records: records, Warnings: serverSafeWarnings(result.Warnings),
 	}, nil
 }
 
@@ -309,12 +342,12 @@ func (o *HTTPOperations) ListStorageUploads(
 			ID: upload.Dir, MarkerKey: upload.MarkerKey,
 			Kind: httpapi.RemoteUploadKind(upload.Kind), Conflict: upload.Conflict,
 			Slug: upload.Slug, Key: upload.Key, URL: upload.URL,
-			Keys:    append([]string(nil), upload.Keys...),
+			Keys:    nonNilStrings(upload.Keys),
 			Objects: upload.Objects, Bytes: upload.Bytes,
 			LastModified: upload.LastModified,
 		})
 	}
-	return httpapi.StorageList{Uploads: uploads}, nil
+	return httpapi.StorageList{Uploads: uploads, Warnings: []string{}}, nil
 }
 
 // SyncManifest invokes the shared reconciliation operation.
@@ -335,8 +368,11 @@ func (o *HTTPOperations) SyncManifest(
 	wire := httpapi.SyncResult{
 		Unchanged: result.Unchanged, Incomplete: result.Incomplete,
 		Invalid: result.Invalid, Retained: result.Retained,
-		Warnings: append([]string(nil), result.Warnings...),
-		Complete: len(result.Failures) == 0,
+		Warnings:         serverSafeWarnings(result.Warnings),
+		Complete:         len(result.Failures) == 0,
+		AddedRecords:     []httpapi.ManifestRecord{},
+		TombstoneRecords: []httpapi.ManifestRecord{},
+		Failures:         []httpapi.SyncFailure{},
 	}
 	for _, record := range result.Added {
 		wire.AddedRecords = append(
@@ -352,7 +388,7 @@ func (o *HTTPOperations) SyncManifest(
 		wire.Failures = append(wire.Failures, httpapi.SyncFailure{
 			MarkerKey: failure.MarkerKey,
 			Operation: httpapi.SyncFailureOperation(failure.Operation),
-			Error:     failure.Error,
+			Error:     serverSafeItemError(failure.Error),
 		})
 	}
 	// Per-item sync failures are a successful partial result on the wire.
@@ -370,9 +406,13 @@ func (o *HTTPOperations) PreviewPurge(
 	if err != nil {
 		return httpapi.PurgePreview{}, err
 	}
+	var createdBefore time.Time
+	if request.CreatedBefore != nil {
+		createdBefore = *request.CreatedBefore
+	}
 	result, err := client.PlanPurge(ctx, PurgePlanOptions{
 		Source:        UploadSource(request.Source),
-		CreatedBefore: request.CreatedBefore,
+		CreatedBefore: createdBefore,
 		Slug:          request.Slug, All: request.All,
 		Concurrency: request.Concurrency,
 	})
@@ -380,14 +420,15 @@ func (o *HTTPOperations) PreviewPurge(
 		return httpapi.PurgePreview{}, apiOperationError(err)
 	}
 	wire := httpapi.PurgePreview{
-		Invalid:  result.Invalid,
-		Warnings: append([]string(nil), result.Warnings...),
+		Invalid:    result.Invalid,
+		Warnings:   serverSafeWarnings(result.Warnings),
+		Candidates: []httpapi.PurgeCandidate{},
 	}
 	for _, candidate := range result.Candidates {
 		item := httpapi.PurgeCandidate{
 			UploadID: candidate.UploadID,
 			Record:   wireManifestRecord(candidate.Record),
-			Warnings: append([]string(nil), candidate.Warnings...),
+			Warnings: serverSafeWarnings(candidate.Warnings),
 		}
 		if candidate.Inspection != nil {
 			inspection := wireInspection(candidate.Inspection)
@@ -412,10 +453,10 @@ func (o *HTTPOperations) ExecutePurge(
 	if result == nil {
 		return httpapi.PurgeResult{}, apiOperationError(purgeErr)
 	}
-	wire := httpapi.PurgeResult{}
+	wire := httpapi.PurgeResult{Items: []httpapi.PurgeItemResult{}}
 	for _, item := range result.Items {
 		wireItem := httpapi.PurgeItemResult{
-			UploadID: item.UploadID, Error: item.Error,
+			UploadID: item.UploadID, Error: serverSafeItemError(item.Error),
 		}
 		if item.Deleted != nil {
 			deleted := wireDeleteResult(item.Deleted)
@@ -445,16 +486,20 @@ func apiOperationError(err error) error {
 		)
 	}
 	if errors.Is(err, ErrBinaryInput) || errors.Is(err, ErrInvalidUTF8) ||
-		errors.Is(err, ErrEmptyInput) ||
-		strings.Contains(err.Error(), "invalid") ||
-		strings.Contains(err.Error(), "requires") {
+		errors.Is(err, ErrEmptyInput) {
 		return httpapi.NewProblemError(
 			http.StatusUnprocessableEntity, "invalid_upload",
 			"Invalid upload", "The request does not describe a valid Airplan upload.",
 		)
 	}
-	if strings.Contains(err.Error(), "missing") ||
-		strings.Contains(err.Error(), "not found") {
+	if _, ok := MarkerCode(err); ok {
+		return httpapi.NewProblemError(
+			http.StatusUnprocessableEntity, "invalid_upload",
+			"Invalid upload", "The ownership marker is invalid.",
+		)
+	}
+	if errors.Is(err, errObjectNotFound) ||
+		errors.Is(err, errOwnershipMarkerMissing) {
 		return httpapi.NewProblemError(
 			http.StatusNotFound, "upload_not_found", "Upload not found",
 			"The marker-managed upload could not be found.",

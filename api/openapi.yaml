@@ -814,6 +814,7 @@ components:
         created_before:
           type: string
           format: date-time
+          x-go-type-skip-optional-pointer: false
         slug:
           type: string
         all:

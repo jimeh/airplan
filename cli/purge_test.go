@@ -76,6 +76,16 @@ func TestPurgeCommandFilters(t *testing.T) {
 	}
 }
 
+func TestPurgeRejectsExplicitEmptyProfile(t *testing.T) {
+	isolateEnv(t)
+	_, _, err := executeCommand(
+		t, "", "", "purge", "--profile=", "--dry-run",
+	)
+	if err == nil || !strings.Contains(err.Error(), "non-empty profile") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestPurgeScopesManifestToResolvedProfile(t *testing.T) {
 	now := time.Now().UTC()
 	records := []airplan.ManifestRecord{

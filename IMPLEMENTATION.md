@@ -518,6 +518,8 @@ The REST adapter:
 - accepts one static bearer token, compares fixed-size digests in constant
   time, and rejects authentication before body parsing;
 - maps typed failures to RFC 9457 problems with stable codes and request IDs;
+- replaces internal warning and per-item error detail with stable hosted
+  messages before serialization;
 - bounds total bodies, multipart parts, per-file bytes, and aggregate bytes;
 - streams document uploads through multipart readers and object downloads
   through response writers;
@@ -569,7 +571,8 @@ provide the generated JSON Schemas and keep warnings inside structured output.
 Partial sync and purge errors set `IsError` without returning a Go handler error
 so the SDK retains the structured progress result. Sync defaults to dry-run,
 purge preview has no mutation path, and purge execution accepts only explicit
-upload IDs.
+upload IDs. Each handler derives a fresh configured-timeout context from the
+long-lived MCP session context.
 
 Hosted MCP is wrapped by the REST bearer middleware. A dedicated Origin
 verifier rejects every present Origin outside the configured allowlist and

@@ -40,11 +40,12 @@ func TestMCPStdioSubcommandWithOfficialClient(t *testing.T) {
 		name   string
 		config string
 	}{
-		{name: "s3", config: "backend = \"s3\"\n"},
+		{name: "s3", config: "backend = \"s3\"\ntimeout = \"100ms\"\n"},
 		{
 			name: "airplan",
 			config: fmt.Sprintf(
-				"backend = \"airplan\"\napi_url = %q\napi_token = %q\n",
+				"backend = \"airplan\"\napi_url = %q\napi_token = %q\n"+
+					"timeout = \"100ms\"\n",
 				server.URL, token,
 			),
 		},
@@ -79,6 +80,7 @@ func TestMCPStdioSubcommandWithOfficialClient(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = session.Close() }()
+			time.Sleep(250 * time.Millisecond)
 			result, err := session.CallTool(ctx, &mcp.CallToolParams{
 				Name: "list_uploads",
 				Arguments: map[string]any{

@@ -3,6 +3,7 @@ package airplan
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -220,6 +221,38 @@ func TestServerSafeWarningsHideTemplatePath(t *testing.T) {
 	if len(warnings) != 1 || strings.Contains(warnings[0], privatePath) ||
 		!strings.Contains(warnings[0], "configured template") {
 		t.Fatalf("warnings = %v", warnings)
+	}
+}
+
+func TestHostedAdapterSafetyAndRequiredArrays(t *testing.T) {
+	if got := serverRepositoryURL(""); got != "none" {
+		t.Fatalf("server repository = %q, want none", got)
+	}
+	warnings := serverSafeWarnings([]string{
+		"manifest not recorded: /private/manifest.jsonl: denied",
+	})
+	if len(warnings) != 1 || strings.Contains(warnings[0], "/private") {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	if got := serverSafeItemError("delete /private/object: denied"); strings.Contains(got, "/private") || got == "" {
+		t.Fatalf("item error = %q", got)
+	}
+
+	upload := wireUploadResult(&Result{}, nil)
+	deleted := wireDeleteResult(&DeleteResult{})
+	if upload.Warnings == nil || upload.Files == nil ||
+		deleted.Keys == nil || deleted.Warnings == nil {
+		t.Fatalf("required arrays are nil: upload=%+v delete=%+v", upload, deleted)
+	}
+	if string(deleted.Kind) != string(UploadKindDocument) {
+		t.Fatalf("legacy delete kind = %q", deleted.Kind)
+	}
+}
+
+func TestAPIOperationErrorDoesNotClassifyStorageText(t *testing.T) {
+	storageErr := errors.New("bucket not found: InvalidAccessKeyId")
+	if got := apiOperationError(storageErr); !errors.Is(got, storageErr) {
+		t.Fatalf("error = %v, want original internal error", got)
 	}
 }
 

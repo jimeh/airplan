@@ -205,6 +205,11 @@ func (s *Server) GetCapabilities(
 	if err != nil {
 		return nil, err
 	}
+	result.Limits = generated.UploadLimits{
+		DocumentBytes:        s.options.MaxDocumentBytes,
+		CollectionFileBytes:  s.options.MaxCollectionFileBytes,
+		CollectionTotalBytes: s.options.MaxCollectionTotalBytes,
+	}
 	return generated.GetCapabilities200JSONResponse(result), nil
 }
 
