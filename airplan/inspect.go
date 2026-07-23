@@ -275,7 +275,7 @@ func validateInspectionTarget(key, dirPrefix string) error {
 	}
 	rel := strings.TrimPrefix(key, dirPrefix)
 	if rel == key || rel == "" || strings.Contains(rel, "/") {
-		return fmt.Errorf(
+		return invalidTargetf(
 			"airplan: show target %q must be the random directory or a direct child",
 			key,
 		)

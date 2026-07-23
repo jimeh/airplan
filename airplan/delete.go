@@ -125,7 +125,7 @@ func validateDeleteTarget(
 		allowed = allowed || key == dirPrefix+object.Name
 	}
 	if !allowed {
-		return fmt.Errorf(
+		return invalidTargetf(
 			"airplan: delete target %q is not the directory, marker, or declared payload",
 			key,
 		)

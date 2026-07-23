@@ -178,14 +178,16 @@ func resolveGetTarget(
 			return pageKey, nil
 		}
 		if sourceKey == "" {
-			return "", errors.New("airplan: upload declares no source object")
+			return "", invalidTargetf(
+				"airplan: upload declares no source object",
+			)
 		}
 		return sourceKey, nil
 	}
 	if key == markerKey || key == pageKey ||
 		(sourceKey != "" && key == sourceKey) {
 		if opts.Source {
-			return "", errors.New(
+			return "", invalidTargetf(
 				"airplan: --source cannot be used with an explicit child target",
 			)
 		}
@@ -194,12 +196,14 @@ func resolveGetTarget(
 	for _, object := range marker.Objects {
 		if object.Role == MarkerRoleFile && key == dirPrefix+object.Name {
 			if opts.Source {
-				return "", errors.New("airplan: --source cannot be used with an explicit child target")
+				return "", invalidTargetf(
+					"airplan: --source cannot be used with an explicit child target",
+				)
 			}
 			return key, nil
 		}
 	}
-	return "", fmt.Errorf(
+	return "", invalidTargetf(
 		"airplan: get target %q is not the directory, marker, or declared payload",
 		key,
 	)

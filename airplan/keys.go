@@ -21,6 +21,17 @@ func (e *invalidTargetError) Unwrap() error {
 	return errInvalidTarget
 }
 
+func wrapInvalidTarget(err error) error {
+	if err == nil || errors.Is(err, errInvalidTarget) {
+		return err
+	}
+	return &invalidTargetError{err: err}
+}
+
+func invalidTargetf(format string, args ...any) error {
+	return wrapInvalidTarget(fmt.Errorf(format, args...))
+}
+
 // isRandomDir reports whether a path segment looks like an airplan
 // random directory: 26 characters of lowercase RFC 4648 base32
 // (SPEC.md §8).
@@ -43,7 +54,7 @@ func isRandomDir(seg string) bool {
 func KeyFromURLOrKey(cfg *Config, s string) (string, error) {
 	key, err := keyFromURLOrKey(cfg, s)
 	if err != nil {
-		return "", &invalidTargetError{err: err}
+		return "", wrapInvalidTarget(err)
 	}
 	return key, nil
 }
