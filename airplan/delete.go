@@ -36,6 +36,18 @@ func (e *ManifestProfileMismatchError) Error() string {
 	)
 }
 
+type missingMarkerRecordError struct {
+	message string
+}
+
+func (e *missingMarkerRecordError) Error() string {
+	return e.message
+}
+
+func (e *missingMarkerRecordError) Unwrap() error {
+	return errOwnershipMarkerMissing
+}
+
 // DeleteUpload validates the upload's ownership marker, removes every
 // non-marker object, removes the marker separately, and appends a manifest
 // tombstone (SPEC.md §9).
@@ -241,7 +253,7 @@ func (c *Client) ensureGoneRecord(
 				!strings.Contains(rel, "/")
 		}
 		if !allowed {
-			return ManifestRecord{}, fmt.Errorf(
+			return ManifestRecord{}, invalidTargetf(
 				"target %q is not the directory, marker, or recorded payload",
 				target,
 			)
@@ -251,7 +263,9 @@ func (c *Client) ensureGoneRecord(
 	if len(warnings) > 0 {
 		return ManifestRecord{}, fmt.Errorf("local manifest is incomplete: %s", warnings[0])
 	}
-	return ManifestRecord{}, errors.New("no matching active marker-versioned manifest record")
+	return ManifestRecord{}, &missingMarkerRecordError{
+		message: "no matching active marker-versioned manifest record",
+	}
 }
 
 func profileLabel(profile string) string {

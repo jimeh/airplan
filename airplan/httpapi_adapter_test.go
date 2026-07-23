@@ -365,6 +365,96 @@ func TestHostedEndpointsRejectSemanticInvalidTargets(t *testing.T) {
 	}
 }
 
+func TestHostedDeleteClassifiesMissingMarkerReconciliation(t *testing.T) {
+	const dir = "aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	storageServer := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/xml")
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w,
+				`<Error><Code>NoSuchKey</Code><Message>missing</Message></Error>`)
+		},
+	))
+	t.Cleanup(storageServer.Close)
+	const token = "01234567890123456789012345678901"
+	for _, test := range []struct {
+		name       string
+		target     string
+		withRecord bool
+		wantStatus int
+		wantCode   string
+	}{
+		{
+			name: "no active record", target: dir,
+			wantStatus: http.StatusNotFound, wantCode: "upload_not_found",
+		},
+		{
+			name: "unrecorded payload", target: dir + "/other.html",
+			withRecord: true, wantStatus: http.StatusUnprocessableEntity,
+			wantCode: "invalid_target",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manifestPath := t.TempDir() + "/manifest.jsonl"
+			if test.withRecord {
+				err := appendManifestRecord(context.Background(), manifestPath,
+					ManifestRecord{
+						Type: "upload", Time: time.Now().UTC(),
+						Key:    dir + "/plan.html",
+						URL:    "https://plans.example/" + dir + "/plan.html",
+						Bucket: "plans", Bytes: 1,
+						Kind:          string(UploadKindDocument),
+						MarkerVersion: MarkerVersion,
+					},
+				)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			client := &Client{
+				cfg: &Config{
+					Backend: BackendS3, Endpoint: storageServer.URL,
+					Bucket: "plans", Repository: "none",
+					ManifestPath: manifestPath,
+				},
+				st: newTestStorage(t, storageServer.URL),
+			}
+			handler, err := httpapi.NewHandler(
+				&HTTPOperations{Client: client},
+				httpapi.Options{Token: token},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := json.Marshal(map[string]string{
+				"url_or_key": test.target,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(
+				http.MethodPost, "/api/v1/uploads/delete",
+				strings.NewReader(string(body)),
+			)
+			request.Header.Set("Authorization", "Bearer "+token)
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != test.wantStatus {
+				t.Fatalf("status = %d, body = %s",
+					recorder.Code, recorder.Body.String())
+			}
+			var problem httpapi.Problem
+			if err := json.NewDecoder(recorder.Body).Decode(&problem); err != nil {
+				t.Fatal(err)
+			}
+			if problem.Code != test.wantCode {
+				t.Fatalf("problem = %+v", problem)
+			}
+		})
+	}
+}
+
 func manifestUploadRecord(
 	when time.Time, profile, bucket, prefix, title string,
 ) ManifestRecord {
