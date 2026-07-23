@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/jimeh/airplan/airplan"
 	"github.com/jimeh/airplan/internal/httpapi"
+	"github.com/jimeh/airplan/internal/serverlog"
 	"github.com/spf13/cobra"
 )
 
@@ -24,6 +26,7 @@ type serveOptions struct {
 	tokenFile        string
 	allowedOrigins   []string
 	tempDir          string
+	logLevel         string
 	allowNonLoopback bool
 }
 
@@ -50,12 +53,19 @@ func newServeCmd() *cobra.Command {
 		"allowed browser Origin for Streamable HTTP MCP (repeatable)")
 	flags.StringVar(&opts.tempDir, "temp-dir", "",
 		"directory for bounded collection upload spooling")
+	flags.StringVar(&opts.logLevel, "log-level", "",
+		"server log level: error, warn, info, debug, or trace (default: info)")
 	flags.BoolVar(&opts.allowNonLoopback, "allow-non-loopback", false,
 		"acknowledge non-loopback serving requires trusted reverse-proxy TLS")
 	return cmd
 }
 
 func runServe(cmd *cobra.Command, opts *serveOptions) error {
+	level, err := serveLogLevel(cmd, opts.logLevel)
+	if err != nil {
+		return err
+	}
+	logger := serverlog.New(cmd.ErrOrStderr(), level)
 	if !isLoopbackListen(opts.listen) && !opts.allowNonLoopback {
 		return errors.New(
 			"non-loopback --listen requires --allow-non-loopback; " +
@@ -85,7 +95,7 @@ func runServe(cmd *cobra.Command, opts *serveOptions) error {
 		Client: client, ServerVersion: buildVersion(),
 	}
 	rest, err := httpapi.NewHandler(operations, httpapi.Options{
-		Token: token, TempDir: opts.tempDir,
+		Token: token, TempDir: opts.tempDir, Logger: logger,
 		MaxDocumentBytes:        DefaultServerDocumentBytes(),
 		MaxCollectionFileBytes:  airplan.DefaultMaxCollectionFileSize,
 		MaxCollectionTotalBytes: airplan.DefaultMaxCollectionTotalSize,
@@ -94,8 +104,11 @@ func runServe(cmd *cobra.Command, opts *serveOptions) error {
 	if err != nil {
 		return fmt.Errorf("airplan: construct HTTP API: %w", err)
 	}
-	mcpHandler, err := airplan.NewMCPHTTPHandler(
-		client, buildVersion(), opts.allowedOrigins,
+	mcpHandler, err := airplan.NewMCPHTTPHandlerWithOptions(
+		client, buildVersion(), airplan.MCPHTTPOptions{
+			AllowedOrigins: opts.allowedOrigins,
+			Logger:         logger,
+		},
 	)
 	if err != nil {
 		return err
@@ -104,10 +117,7 @@ func runServe(cmd *cobra.Command, opts *serveOptions) error {
 	if err != nil {
 		return fmt.Errorf("airplan: construct MCP authentication: %w", err)
 	}
-	mux := http.NewServeMux()
-	mux.Handle("/mcp", auth.Wrap(mcpHandler))
-	mux.Handle("/mcp/", auth.Wrap(mcpHandler))
-	mux.Handle("/", rest)
+	handler := newServeHandler(rest, mcpHandler, auth, logger)
 
 	listener, err := net.Listen("tcp", opts.listen)
 	if err != nil {
@@ -115,7 +125,7 @@ func runServe(cmd *cobra.Command, opts *serveOptions) error {
 	}
 	defer func() { _ = listener.Close() }()
 	server := &http.Server{
-		Handler: mux, ReadHeaderTimeout: 10 * time.Second,
+		Handler: handler, ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 20,
 	}
 	ctx, stop := signal.NotifyContext(
@@ -141,6 +151,53 @@ func runServe(cmd *cobra.Command, opts *serveOptions) error {
 		return fmt.Errorf("airplan: HTTP server shutdown: %w", err)
 	}
 	return nil
+}
+
+func serveLogLevel(cmd *cobra.Command, flagValue string) (slog.Level, error) {
+	value := flagValue
+	if !cmd.Flags().Changed("log-level") {
+		value = os.Getenv("AIRPLAN_SERVER_LOG_LEVEL")
+	}
+	return serverlog.ParseLevel(value)
+}
+
+func newServeHandler(
+	rest, mcpHandler http.Handler,
+	auth *httpapi.BearerAuth,
+	logger *slog.Logger,
+) http.Handler {
+	mux := http.NewServeMux()
+	mcpRoute := auth.WrapWithLogger(mcpHandler, logger, "mcp")
+	mux.Handle("/mcp", serverlog.HTTPMiddleware(
+		logger, "mcp", func(*http.Request) string { return "/mcp" }, mcpRoute,
+	))
+	mux.Handle("/mcp/", serverlog.HTTPMiddleware(
+		logger, "mcp", func(*http.Request) string { return "/mcp" }, mcpRoute,
+	))
+	mux.Handle("/", serverlog.HTTPMiddleware(
+		logger, "rest", safeRESTLogPath, rest,
+	))
+	return mux
+}
+
+func safeRESTLogPath(request *http.Request) string {
+	switch request.URL.Path {
+	case "/healthz", "/openapi.yaml",
+		"/api/v1/capabilities",
+		"/api/v1/uploads",
+		"/api/v1/storage/uploads",
+		"/api/v1/uploads/documents",
+		"/api/v1/uploads/collections",
+		"/api/v1/uploads/get",
+		"/api/v1/uploads/inspect",
+		"/api/v1/uploads/delete",
+		"/api/v1/sync",
+		"/api/v1/purge/preview",
+		"/api/v1/purge":
+		return request.URL.Path
+	default:
+		return "unmatched"
+	}
 }
 
 // DefaultServerDocumentBytes keeps CLI server construction explicit while the

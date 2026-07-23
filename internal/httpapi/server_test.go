@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -23,10 +24,14 @@ type stubOperations struct {
 	uploadDocument   func(context.Context, DocumentUpload) (UploadResult, error)
 	uploadCollection func(context.Context, CollectionUpload) (UploadResult, error)
 	getUpload        func(context.Context, GetUploadRequest) (Download, error)
+	capabilities     func(context.Context) (Capabilities, error)
 	capabilitiesErr  error
 }
 
-func (s *stubOperations) Capabilities(context.Context) (Capabilities, error) {
+func (s *stubOperations) Capabilities(ctx context.Context) (Capabilities, error) {
+	if s.capabilities != nil {
+		return s.capabilities(ctx)
+	}
 	return Capabilities{
 		APIVersion:     "v1",
 		ServerVersion:  "test",
@@ -208,6 +213,120 @@ func TestBearerAuthRejectsBeforeReadingBody(t *testing.T) {
 	problem := decodeProblem(t, recorder)
 	if problem.Code != "unauthorized" || problem.RequestID == "" {
 		t.Fatalf("unexpected problem: %+v", problem)
+	}
+}
+
+func TestRESTBearerAuthAcceptsValidCredentials(t *testing.T) {
+	called := false
+	operations := &stubOperations{
+		capabilities: func(context.Context) (Capabilities, error) {
+			called = true
+			return Capabilities{
+				APIVersion:     "v1",
+				ServerVersion:  "test",
+				Operations:     []string{},
+				UploadFormats:  []CapabilitiesUploadFormats{},
+				Limits:         UploadLimits{},
+				MarkerVersions: []int{},
+			}, nil
+		},
+	}
+	handler := newTestHandler(t, operations, Options{})
+	request := authorizedRequest(
+		http.MethodGet, "/api/v1/capabilities", nil,
+	)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", recorder.Code, recorder.Body)
+	}
+	if !called {
+		t.Fatal("valid bearer token did not reach REST operation")
+	}
+}
+
+func TestBearerAuthLogsSafeRejectionReasons(t *testing.T) {
+	const (
+		bodySentinel   = "private-upload-body-sentinel"
+		pathSentinel   = "private-path-sentinel"
+		headerSentinel = "private-header-sentinel"
+	)
+	tests := []struct {
+		name   string
+		values []string
+		reason authFailureReason
+	}{
+		{name: "missing", reason: authMissing},
+		{
+			name: "duplicate",
+			values: []string{
+				"Bearer " + testToken,
+				"Bearer " + headerSentinel,
+			},
+			reason: authDuplicate,
+		},
+		{
+			name:   "wrong scheme",
+			values: []string{"Basic " + headerSentinel},
+			reason: authWrongScheme,
+		},
+		{
+			name:   "malformed",
+			values: []string{"Bearer  " + headerSentinel},
+			reason: authMalformed,
+		},
+		{
+			name:   "mismatch",
+			values: []string{"Bearer " + headerSentinel},
+			reason: authTokenMismatch,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{
+				Level: slog.LevelDebug,
+			}))
+			handler := newTestHandler(t, &stubOperations{}, Options{
+				Logger: logger,
+			})
+			body := &recordingBody{Reader: strings.NewReader(bodySentinel)}
+			request := httptest.NewRequest(
+				http.MethodPost,
+				"/api/v1/uploads/documents?source="+pathSentinel,
+				body,
+			)
+			request.Body = body
+			for _, value := range test.values {
+				request.Header.Add("Authorization", value)
+			}
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want 401", recorder.Code)
+			}
+			if body.reads != 0 {
+				t.Fatalf("unauthorized body read %d times", body.reads)
+			}
+			output := logs.String()
+			if !strings.Contains(output, "reason="+string(test.reason)) {
+				t.Fatalf("logs do not contain reason %q: %s", test.reason, output)
+			}
+			for _, sentinel := range []string{
+				testToken, headerSentinel, bodySentinel, pathSentinel,
+				"Authorization",
+			} {
+				if strings.Contains(output, sentinel) {
+					t.Fatalf("logs contain sensitive sentinel %q: %s",
+						sentinel, output)
+				}
+			}
+			problem := decodeProblem(t, recorder)
+			if problem.Code != "unauthorized" ||
+				strings.Contains(recorder.Body.String(), headerSentinel) {
+				t.Fatalf("unexpected problem: %+v", problem)
+			}
+		})
 	}
 }
 

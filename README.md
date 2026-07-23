@@ -208,6 +208,23 @@ storage before listening and exposes:
 - unauthenticated liveness at `/healthz`; and
 - the authoritative OpenAPI 3.0.3 schema at `/openapi.yaml`.
 
+The default `info` log level keeps stderr quiet apart from the listening line
+and server failures. Use `--log-level debug` to diagnose request completion,
+safe authentication rejection reasons, Origin/body-limit failures, and MCP
+tool outcomes. `--log-level trace` additionally shows sanitized request, MCP
+method, and SDK lifecycle events:
+
+```sh
+airplan --profile storage serve \
+  --token-file /run/secrets/airplan-token \
+  --log-level debug
+```
+
+`AIRPLAN_SERVER_LOG_LEVEL` is the environment fallback; an explicit flag wins.
+Logs never include Authorization values, request or MCP bodies, tool arguments
+or results, uploaded content, capability URLs, storage identity, credentials,
+or filesystem paths.
+
 Configure a client profile with only the server URL and bearer token:
 
 ```toml
@@ -566,6 +583,7 @@ the shared credentials file.
 | `AIRPLAN_BACKEND`             | Select `s3` or `airplan`                      |
 | `AIRPLAN_API_URL`             | Set an Airplan server base URL                |
 | `AIRPLAN_API_TOKEN`           | Set its bearer token                          |
+| `AIRPLAN_SERVER_LOG_LEVEL`    | Set `serve` logging from `error` to `trace`   |
 | `AIRPLAN_MANIFEST`            | Select a local S3/service manifest            |
 | `AIRPLAN_ENDPOINT`            | Set the S3-compatible API endpoint            |
 | `AIRPLAN_BUCKET`              | Set the destination bucket                    |

@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.27.0.
+may contradict it. Targets spec version 0.28.0.
 
 ---
 
@@ -541,6 +541,22 @@ with bounded graceful shutdown. It sets header, idle, and header-size limits
 but no short whole-request write timeout that would truncate large transfers.
 The process is deliberately single-instance and relies on persistent
 file-backed manifest state.
+
+Serve-only observability uses `log/slog` with one text logger on stderr.
+Request-ID and completion middleware wraps both transports; route names are
+allowlisted before logging so an unmatched URL cannot disclose a capability
+key. Bearer validation returns a closed set of safe rejection reasons after
+fixed-size digest comparison. REST and MCP use the same validator and generic
+wire response.
+
+The MCP SDK receives a logger through both `ServerOptions` and
+`StreamableHTTPOptions`, but an adapter discards SDK messages and attributes
+that could contain protocol data and emits only fixed lifecycle categories.
+Receiving middleware records allowlisted protocol methods and registered tool
+names without inspecting arguments or results. Hosted errors retain their
+underlying Go cause in a private wrapper for classification while exposing
+only the existing sanitized text to the SDK and client. The stdio constructor
+does not install this serve logger, preserving stdout protocol purity.
 
 ### HTTP transport
 

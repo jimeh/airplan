@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jimeh/airplan/internal/serverlog"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -65,17 +67,38 @@ type mcpPurgeExecuteInput struct {
 	UploadIDs []string `json:"upload_ids" jsonschema:"Exact upload_id values returned by preview_purge."`
 }
 
+// MCPServerOptions configures an MCP server without changing its tool surface.
+type MCPServerOptions struct {
+	LocalFiles bool
+	Logger     *slog.Logger
+}
+
 // NewMCPServer builds the shared MCP tool server. LocalFiles controls whether
 // upload_files is registered; hosted HTTP MCP never accepts server-local paths.
 func NewMCPServer(
 	client *Client, version string, localFiles bool,
 ) *mcp.Server {
+	return NewMCPServerWithOptions(client, version, MCPServerOptions{
+		LocalFiles: localFiles,
+	})
+}
+
+// NewMCPServerWithOptions builds the shared MCP server with optional
+// observability. Logging is disabled when Logger is nil.
+func NewMCPServerWithOptions(
+	client *Client, version string, options MCPServerOptions,
+) *mcp.Server {
+	localFiles := options.LocalFiles
 	if version == "" {
 		version = "dev"
 	}
+	sdkLogger := serverlog.SafeMCPLogger(options.Logger)
 	server := mcp.NewServer(&mcp.Implementation{
 		Name: "airplan", Version: version,
-	}, nil)
+	}, &mcp.ServerOptions{Logger: sdkLogger})
+	if options.Logger != nil {
+		server.AddReceivingMiddleware(mcpLoggingMiddleware(options.Logger))
+	}
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "upload_document",
@@ -103,7 +126,9 @@ func NewMCPServer(
 			MaxSize: mcpDocumentLimit(input.MaxSize, !localFiles),
 		})
 		if err != nil {
-			return nil, Result{}, mcpOperationError(err, !localFiles)
+			return nil, Result{}, mcpOperationError(
+				ctx, err, !localFiles, options.Logger,
+			)
 		}
 		if !localFiles {
 			result.Warnings = serverSafeWarnings(result.Warnings)
@@ -155,7 +180,9 @@ func NewMCPServer(
 				MaxSize: input.MaxSize, MaxTotalSize: input.MaxTotalSize,
 			})
 			if err != nil {
-				return nil, FilesResult{}, mcpOperationError(err, false)
+				return nil, FilesResult{}, mcpOperationError(
+					ctx, err, false, options.Logger,
+				)
 			}
 			return uploadToolContent(&result.Result), *result, nil
 		})
@@ -181,7 +208,9 @@ func NewMCPServer(
 				Scope: ManifestScopeService,
 			})
 			if err != nil {
-				return nil, output, mcpOperationError(err, !localFiles)
+				return nil, output, mcpOperationError(
+					ctx, err, !localFiles, options.Logger,
+				)
 			}
 			if !localFiles {
 				listed.Warnings = serverSafeWarnings(listed.Warnings)
@@ -190,7 +219,9 @@ func NewMCPServer(
 		case UploadSourceStorage:
 			uploads, err := client.ListRemote(ctx)
 			if err != nil {
-				return nil, output, mcpOperationError(err, !localFiles)
+				return nil, output, mcpOperationError(
+					ctx, err, !localFiles, options.Logger,
+				)
 			}
 			if uploads == nil {
 				uploads = []RemoteUpload{}
@@ -214,7 +245,9 @@ func NewMCPServer(
 		defer cancel()
 		result, err := client.InspectUpload(ctx, input.URLOrKey)
 		if err != nil {
-			return nil, UploadInspection{}, mcpOperationError(err, !localFiles)
+			return nil, UploadInspection{}, mcpOperationError(
+				ctx, err, !localFiles, options.Logger,
+			)
 		}
 		if !localFiles {
 			result.Warnings = serverSafeWarnings(result.Warnings)
@@ -233,7 +266,9 @@ func NewMCPServer(
 		defer cancel()
 		result, err := client.DeleteUpload(ctx, input.URLOrKey)
 		if err != nil {
-			return nil, DeleteResult{}, mcpOperationError(err, !localFiles)
+			return nil, DeleteResult{}, mcpOperationError(
+				ctx, err, !localFiles, options.Logger,
+			)
 		}
 		if !localFiles {
 			result.Warnings = serverSafeWarnings(result.Warnings)
@@ -255,7 +290,9 @@ func NewMCPServer(
 			Concurrency: input.Concurrency,
 		})
 		if result == nil {
-			return nil, SyncManifestResult{}, mcpOperationError(err, !localFiles)
+			return nil, SyncManifestResult{}, mcpOperationError(
+				ctx, err, !localFiles, options.Logger,
+			)
 		}
 		if !localFiles {
 			result.Warnings = serverSafeWarnings(result.Warnings)
@@ -265,7 +302,9 @@ func NewMCPServer(
 				)
 			}
 		}
-		return partialToolResult(mcpOperationError(err, !localFiles)), *result, nil
+		return partialToolResult(
+			mcpOperationError(ctx, err, !localFiles, options.Logger),
+		), *result, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -291,7 +330,9 @@ func NewMCPServer(
 			Concurrency: input.Concurrency,
 		})
 		if err != nil {
-			return nil, PurgePlan{}, mcpOperationError(err, !localFiles)
+			return nil, PurgePlan{}, mcpOperationError(
+				ctx, err, !localFiles, options.Logger,
+			)
 		}
 		if !localFiles {
 			result.Warnings = serverSafeWarnings(result.Warnings)
@@ -315,7 +356,9 @@ func NewMCPServer(
 		defer cancel()
 		result, err := client.Purge(ctx, PurgeRequest(input))
 		if result == nil {
-			return nil, PurgeResult{}, mcpOperationError(err, !localFiles)
+			return nil, PurgeResult{}, mcpOperationError(
+				ctx, err, !localFiles, options.Logger,
+			)
 		}
 		if !localFiles {
 			for index := range result.Items {
@@ -329,7 +372,9 @@ func NewMCPServer(
 				}
 			}
 		}
-		return partialToolResult(mcpOperationError(err, !localFiles)), *result, nil
+		return partialToolResult(
+			mcpOperationError(ctx, err, !localFiles, options.Logger),
+		), *result, nil
 	})
 
 	return server
@@ -356,22 +401,119 @@ func partialToolResult(err error) *mcp.CallToolResult {
 	}
 }
 
-func mcpOperationError(err error, hosted bool) error {
+func mcpLoggingMiddleware(logger *slog.Logger) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(
+			ctx context.Context, method string, request mcp.Request,
+		) (mcp.Result, error) {
+			requestID := serverlog.RequestID(ctx)
+			logger.Log(ctx, serverlog.LevelTrace, "mcp method started",
+				"method", safeMCPMethod(method),
+				"request_id", requestID,
+			)
+			started := time.Now()
+			result, err := next(ctx, method, request)
+			duration := time.Since(started)
+			outcome := "success"
+			if err != nil {
+				outcome = "error"
+			} else if toolResult, ok := result.(*mcp.CallToolResult); ok &&
+				toolResult.IsError {
+				outcome = "error"
+			}
+			logger.Log(ctx, serverlog.LevelTrace, "mcp method completed",
+				"method", safeMCPMethod(method),
+				"outcome", outcome,
+				"duration", duration,
+				"request_id", requestID,
+			)
+			if method == "tools/call" {
+				logger.DebugContext(ctx, "mcp tool completed",
+					"tool", safeMCPToolName(request),
+					"outcome", outcome,
+					"duration", duration,
+					"request_id", requestID,
+				)
+			}
+			return result, err
+		}
+	}
+}
+
+func safeMCPMethod(method string) string {
+	switch method {
+	case "initialize", "notifications/initialized", "ping", "tools/list",
+		"tools/call":
+		return method
+	default:
+		return "unknown"
+	}
+}
+
+func safeMCPToolName(request mcp.Request) string {
+	call, ok := request.(*mcp.CallToolRequest)
+	if !ok || call.Params == nil {
+		return "unknown"
+	}
+	switch call.Params.Name {
+	case "upload_document", "upload_files", "list_uploads", "inspect_upload",
+		"delete_upload", "sync_manifest", "preview_purge", "execute_purge":
+		return call.Params.Name
+	default:
+		return "unknown"
+	}
+}
+
+func mcpErrorClass(err error) string {
+	switch {
+	case err == nil:
+		return "none"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, ErrInputTooLarge):
+		return "input_too_large"
+	case errors.Is(err, ErrBinaryInput), errors.Is(err, ErrInvalidUTF8),
+		errors.Is(err, ErrEmptyInput):
+		return "invalid_input"
+	default:
+		return "operation"
+	}
+}
+
+type hostedMCPError struct {
+	public string
+	cause  error
+}
+
+func (e *hostedMCPError) Error() string { return e.public }
+func (e *hostedMCPError) Unwrap() error { return e.cause }
+
+func mcpOperationError(
+	ctx context.Context, err error, hosted bool, logger *slog.Logger,
+) error {
 	if err == nil || !hosted {
 		return err
 	}
+	if logger != nil {
+		logger.DebugContext(ctx, "mcp operation failed",
+			"error_class", mcpErrorClass(err),
+			"request_id", serverlog.RequestID(ctx),
+		)
+	}
+	public := "airplan: the server could not complete the operation"
 	switch {
 	case errors.Is(err, context.Canceled),
 		errors.Is(err, context.DeadlineExceeded):
-		return errors.New("airplan: the server operation timed out")
+		public = "airplan: the server operation timed out"
 	case errors.Is(err, ErrInputTooLarge):
-		return errors.New("airplan: the upload exceeds the effective size limit")
+		public = "airplan: the upload exceeds the effective size limit"
 	case errors.Is(err, ErrBinaryInput), errors.Is(err, ErrInvalidUTF8),
 		errors.Is(err, ErrEmptyInput):
-		return errors.New("airplan: the request is not a valid document upload")
-	default:
-		return errors.New("airplan: the server could not complete the operation")
+		public = "airplan: the request is not a valid document upload"
 	}
+	return &hostedMCPError{public: public, cause: err}
 }
 
 func mcpDocumentLimit(requested int64, hosted bool) int64 {
@@ -403,8 +545,24 @@ func RunMCPStdio(ctx context.Context, client *Client, version string) error {
 func NewMCPHTTPHandler(
 	client *Client, version string, allowedOrigins []string,
 ) (http.Handler, error) {
-	allowed := make(map[string]struct{}, len(allowedOrigins))
-	for _, origin := range allowedOrigins {
+	return NewMCPHTTPHandlerWithOptions(client, version, MCPHTTPOptions{
+		AllowedOrigins: allowedOrigins,
+	})
+}
+
+// MCPHTTPOptions configures the hosted Streamable HTTP MCP transport.
+type MCPHTTPOptions struct {
+	AllowedOrigins []string
+	Logger         *slog.Logger
+}
+
+// NewMCPHTTPHandlerWithOptions returns the current stateless Streamable HTTP
+// MCP transport with optional serve-only logging.
+func NewMCPHTTPHandlerWithOptions(
+	client *Client, version string, options MCPHTTPOptions,
+) (http.Handler, error) {
+	allowed := make(map[string]struct{}, len(options.AllowedOrigins))
+	for _, origin := range options.AllowedOrigins {
 		u, err := url.Parse(origin)
 		if err != nil || u.Scheme == "" || u.Host == "" ||
 			u.User != nil || u.Path != "" || u.RawQuery != "" ||
@@ -415,37 +573,54 @@ func NewMCPHTTPHandler(
 		}
 		allowed[origin] = struct{}{}
 	}
-	server := NewMCPServer(client, version, false)
+	server := NewMCPServerWithOptions(client, version, MCPServerOptions{
+		Logger: options.Logger,
+	})
 	handler := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },
-		&mcp.StreamableHTTPOptions{Stateless: true},
+		&mcp.StreamableHTTPOptions{
+			Stateless: true,
+			Logger:    serverlog.SafeMCPLogger(options.Logger),
+		},
 	)
 	originHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origins := r.Header.Values("Origin")
 		if len(origins) > 1 {
+			logMCPRejection(r, options.Logger, "origin_duplicate")
 			http.Error(w, "forbidden origin", http.StatusForbidden)
 			return
 		}
 		if len(origins) == 1 {
 			if _, ok := allowed[origins[0]]; !ok {
+				logMCPRejection(r, options.Logger, "origin_not_allowed")
 				http.Error(w, "forbidden origin", http.StatusForbidden)
 				return
 			}
 		}
 		handler.ServeHTTP(w, r)
 	})
-	return limitMCPRequestBody(originHandler, mcpHTTPMaxRequestBytes), nil
+	limited := limitMCPRequestBodyWithLogger(
+		originHandler, mcpHTTPMaxRequestBytes, options.Logger,
+	)
+	return serverlog.RequestIDMiddleware(limited), nil
 }
 
 const mcpHTTPMaxRequestBytes = 6*DefaultMaxInputSize + (1 << 20)
 
 func limitMCPRequestBody(next http.Handler, limit int64) http.Handler {
+	return limitMCPRequestBodyWithLogger(next, limit, nil)
+}
+
+func limitMCPRequestBodyWithLogger(
+	next http.Handler, limit int64, logger *slog.Logger,
+) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			next.ServeHTTP(w, r)
 			return
 		}
 		if r.ContentLength > limit {
+			logMCPRejection(r, logger, "body_limit")
 			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 			return
 		}
@@ -453,10 +628,25 @@ func limitMCPRequestBody(next http.Handler, limit int64) http.Handler {
 			body: r.Body, remaining: limit, limit: limit,
 		}
 		r.Body = body
-		next.ServeHTTP(&mcpLimitResponseWriter{
+		writer := &mcpLimitResponseWriter{
 			ResponseWriter: w, body: body,
-		}, r)
+		}
+		next.ServeHTTP(writer, r)
+		if body.exceeded {
+			logMCPRejection(r, logger, "body_limit")
+		}
 	})
+}
+
+func logMCPRejection(r *http.Request, logger *slog.Logger, reason string) {
+	if logger == nil {
+		return
+	}
+	logger.DebugContext(r.Context(), "request rejected",
+		"transport", "mcp",
+		"reason", reason,
+		"request_id", serverlog.RequestID(r.Context()),
+	)
 }
 
 type mcpLimitedBody struct {

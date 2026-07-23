@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.27.0**
+**Spec version: 0.28.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -1608,12 +1608,31 @@ are:
 - `--token-file`, with `AIRPLAN_SERVER_TOKEN` as the alternative token source.
 - repeatable `--allowed-origin` values for hosted MCP Origin validation.
 - `--temp-dir` for bounded collection-upload spooling.
+- `--log-level`, with `AIRPLAN_SERVER_LOG_LEVEL` as its fallback. An explicit
+  flag wins. Accepted values are `error`, `warn`, `info`, `debug`, and `trace`;
+  the default is `info`.
 
 Exactly one non-empty server-token source is required. A token should contain
 at least 32 random bytes; token files should be mode 0600. The token is read
 once at startup. The server defaults to loopback. Binding to a non-loopback
 address requires explicit acknowledgement, and TLS must terminate at a trusted
 reverse proxy. The built-in server does not manage certificates.
+
+Server logs are line-oriented text on stderr only. At `info`, the process
+prints its existing listening line and otherwise remains quiet except for
+server failures. `debug` adds completed REST and MCP requests with transport,
+method, safe route path, status, duration, and request ID; bearer rejection
+reasons; Origin and body-limit rejections; and MCP tool name, outcome, duration,
+and safe failure class. `trace` additionally adds request starts, MCP protocol
+method lifecycle, and sanitized SDK lifecycle events. Trace is more verbose
+than debug and is rendered as `TRACE`.
+
+Authentication rejection reasons may distinguish missing, duplicate,
+wrong-scheme, malformed-shape, and mismatched credentials in local debug logs,
+while every client still receives the same generic authentication response.
+No level logs raw HTTP or MCP bodies, Authorization values, tool arguments or
+results, upload content, capability URLs or keys, S3 response bodies,
+endpoints, buckets, credentials, token metadata, or filesystem paths.
 
 `serve` validates its S3 readiness before listening, uses bounded HTTP header
 and idle timeouts, and shuts down gracefully on SIGINT or SIGTERM. It is a

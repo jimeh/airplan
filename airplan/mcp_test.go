@@ -1,10 +1,12 @@
 package airplan
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jimeh/airplan/internal/httpapi"
+	"github.com/jimeh/airplan/internal/serverlog"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -79,6 +82,7 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 }
 
 func TestMCPHTTPOriginGuard(t *testing.T) {
+	const originSentinel = "https://private-origin-sentinel.example"
 	client, err := New(context.Background(), &Config{
 		Backend: BackendS3, ManifestPath: t.TempDir() + "/manifest.jsonl",
 		Repository: "none",
@@ -86,8 +90,12 @@ func TestMCPHTTPOriginGuard(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler, err := NewMCPHTTPHandler(
-		client, "test", []string{"https://agent.example"},
+	var logs bytes.Buffer
+	handler, err := NewMCPHTTPHandlerWithOptions(
+		client, "test", MCPHTTPOptions{
+			AllowedOrigins: []string{"https://agent.example"},
+			Logger:         serverlog.New(&logs, slog.LevelDebug),
+		},
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -95,11 +103,17 @@ func TestMCPHTTPOriginGuard(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
 	))
-	request.Header.Set("Origin", "https://evil.example")
+	request.Header.Set("Origin", originSentinel)
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", recorder.Code)
+	}
+	if !strings.Contains(logs.String(), "reason=origin_not_allowed") {
+		t.Fatalf("origin rejection was not logged: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), originSentinel) {
+		t.Fatalf("origin value leaked: %s", logs.String())
 	}
 }
 
@@ -253,6 +267,83 @@ func TestHostedMCPHidesServerPaths(t *testing.T) {
 	}
 }
 
+func TestHostedMCPLogsSafeToolOutcome(t *testing.T) {
+	const (
+		contentSentinel  = "private-upload-content-sentinel"
+		urlSentinel      = "private-url-sentinel.example"
+		pathSentinel     = "private/path/sentinel.md"
+		errorSentinel    = "private-s3-response-sentinel"
+		endpointSentinel = "https://private-s3-endpoint.example"
+		bucketSentinel   = "private-bucket-sentinel"
+		fsSentinel       = "/private/server/path/sentinel"
+	)
+	client := &Client{cfg: &Config{}, remote: &mcpTestTransport{
+		uploadErr: fmt.Errorf(
+			"%s %s %s %s: %w",
+			errorSentinel,
+			endpointSentinel,
+			bucketSentinel,
+			fsSentinel,
+			ErrInputTooLarge,
+		),
+	}}
+	var logs bytes.Buffer
+	logger := serverlog.New(&logs, serverlog.LevelTrace)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServerWithOptions(client, "test", MCPServerOptions{
+		Logger: logger,
+	})
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "upload_document",
+		Arguments: map[string]any{
+			"content":        contentSentinel,
+			"name":           pathSentinel,
+			"repository_url": "https://" + urlSentinel + "/owner/repo",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatalf("result = %+v, want tool error", result)
+	}
+	output := logs.String()
+	for _, want := range []string{
+		"mcp tool completed",
+		"tool=upload_document",
+		"outcome=error",
+		"error_class=input_too_large",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("logs do not contain %q: %s", want, output)
+		}
+	}
+	for _, sentinel := range []string{
+		contentSentinel, urlSentinel, pathSentinel, errorSentinel,
+		endpointSentinel, bucketSentinel, fsSentinel,
+	} {
+		if strings.Contains(output, sentinel) {
+			t.Fatalf("logs contain sensitive sentinel %q: %s",
+				sentinel, output)
+		}
+	}
+}
+
 func TestMCPRequestBodyLimit(t *testing.T) {
 	reader := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, err := io.ReadAll(r.Body); err != nil {
@@ -282,6 +373,33 @@ func TestMCPRequestBodyLimit(t *testing.T) {
 				t.Fatalf("status = %d, want 413", recorder.Code)
 			}
 		})
+	}
+}
+
+func TestMCPRequestBodyLimitLogsWithoutBody(t *testing.T) {
+	const bodySentinel = "private-body-sentinel"
+	var logs bytes.Buffer
+	logger := serverlog.New(&logs, slog.LevelDebug)
+	handler := serverlog.RequestIDMiddleware(limitMCPRequestBodyWithLogger(
+		http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Fatal("oversized request reached downstream handler")
+		}),
+		8,
+		logger,
+	))
+	request := httptest.NewRequest(
+		http.MethodPost, "/mcp", strings.NewReader(bodySentinel),
+	)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413", recorder.Code)
+	}
+	if !strings.Contains(logs.String(), "reason=body_limit") {
+		t.Fatalf("body limit rejection was not logged: %s", logs.String())
+	}
+	if strings.Contains(logs.String(), bodySentinel) {
+		t.Fatalf("request body leaked: %s", logs.String())
 	}
 }
 

@@ -50,6 +50,16 @@ metadata, or raw configuration. Request logs and RFC 9457 errors must omit
 Authorization values, request bodies, capability URLs, S3 response bodies,
 credentials, and internal filesystem paths.
 
+`serve` defaults to quiet `info` logging. Debug logs may identify why bearer
+authentication failed using only the fixed categories `missing`, `duplicate`,
+`wrong_scheme`, `malformed`, and `token_mismatch`; the HTTP response remains
+generic. Trace logs add sanitized protocol lifecycle metadata, never raw HTTP
+or MCP frames. No log level records Authorization values, token length or
+other token metadata, request bodies, tool arguments/results, upload content,
+capability URLs or keys, S3 endpoints/buckets/response bodies, credentials, or
+filesystem paths. Treat debug and trace output as operational data despite
+these exclusions.
+
 ## Capability URLs and uploaded content
 
 Airplan's published links are unguessable capability URLs, not authenticated

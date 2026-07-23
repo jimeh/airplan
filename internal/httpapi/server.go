@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -31,6 +32,7 @@ const (
 // defaults; callers cannot disable a server hard limit.
 type Options struct {
 	Token                   string
+	Logger                  *slog.Logger
 	TempDir                 string
 	OpenAPI                 []byte
 	MaxRequestBodyBytes     int64
@@ -168,7 +170,7 @@ func (s *Server) Handler() (http.Handler, error) {
 		})
 		if len(r.URL.Path) >= len("/api/v1/") &&
 			r.URL.Path[:len("/api/v1/")] == "/api/v1/" {
-			s.auth.Wrap(next).ServeHTTP(w, r)
+			s.auth.WrapWithLogger(next, s.options.Logger, "rest").ServeHTTP(w, r)
 			return
 		}
 		next.ServeHTTP(w, r)
