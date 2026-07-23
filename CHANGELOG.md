@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/jimeh/airplan/compare/v0.4.1...v0.5.0) (2026-07-23)
+
+
+### Features
+
+* add self-hosted API and MCP transports ([#63](https://github.com/jimeh/airplan/issues/63)) ([7e8025d](https://github.com/jimeh/airplan/commit/7e8025da3c4b57dfa11e745f6978c6e28ae9c630))
+
 ## [0.4.1](https://github.com/jimeh/airplan/compare/v0.4.0...v0.4.1) (2026-07-22)
 
 
