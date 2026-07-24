@@ -1,0 +1,32 @@
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:f7f8f729987ad0fdf6b05eeeae94b26e6a0f613bdf46feea7fc40f7bd72953e6
+
+ARG TARGETPLATFORM
+ARG RELEASE_REVISION
+ARG RELEASE_VERSION
+
+COPY --chmod=0555 $TARGETPLATFORM/airplan /usr/local/bin/airplan
+COPY --chown=0:0 --chmod=0444 state/.keep /etc/airplan/.keep
+COPY --chown=65532:65532 --chmod=0700 state/ /var/lib/airplan/
+
+ENV XDG_CONFIG_HOME=/etc \
+    AIRPLAN_MANIFEST=/var/lib/airplan/manifest.jsonl \
+    AIRPLAN_SERVER_HOST=0.0.0.0 \
+    AIRPLAN_SERVER_PORT=8080 \
+    AIRPLAN_SERVER_ALLOW_NON_LOOPBACK=true
+
+LABEL org.opencontainers.image.title="airplan" \
+      org.opencontainers.image.description="Self-hosted Airplan REST API and MCP server" \
+      org.opencontainers.image.url="https://github.com/jimeh/airplan" \
+      org.opencontainers.image.source="https://github.com/jimeh/airplan" \
+      org.opencontainers.image.documentation="https://github.com/jimeh/airplan" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.revision="${RELEASE_REVISION}" \
+      org.opencontainers.image.version="${RELEASE_VERSION}"
+
+VOLUME ["/var/lib/airplan"]
+EXPOSE 8080
+STOPSIGNAL SIGTERM
+
+USER 65532:65532
+ENTRYPOINT ["/usr/local/bin/airplan"]
+CMD ["serve"]

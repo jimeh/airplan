@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.28.1**
+**Spec version: 0.29.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -1002,6 +1002,13 @@ AIRPLAN_REPO
 AIRPLAN_TIMEOUT
 AIRPLAN_CONFIG
 AIRPLAN_MANIFEST
+AIRPLAN_SERVER_HOST
+AIRPLAN_SERVER_PORT
+AIRPLAN_SERVER_ALLOW_NON_LOOPBACK
+AIRPLAN_SERVER_TOKEN
+AIRPLAN_SERVER_TOKEN_FILE
+AIRPLAN_SERVER_ALLOWED_ORIGINS
+AIRPLAN_SERVER_TEMP_DIR
 AIRPLAN_SERVER_LOG_LEVEL
 ```
 
@@ -1602,24 +1609,41 @@ profile, preventing proxy chains and loops.
 
 ### Server process
 
-`airplan serve` runs one single-user HTTP server. Its server-specific options
-are:
+`airplan serve` runs one single-user HTTP server. An explicitly supplied flag
+wins over its server-specific environment fallback. Its options are:
 
-- `--listen`, default `127.0.0.1:8080`.
-- `--allow-non-loopback`, the required acknowledgement for a non-loopback
-  listener.
-- `--token-file`, with `AIRPLAN_SERVER_TOKEN` as the alternative token source.
-- repeatable `--allowed-origin` values for hosted MCP Origin validation.
-- `--temp-dir` for bounded collection-upload spooling.
-- `--log-level`, with `AIRPLAN_SERVER_LOG_LEVEL` as its fallback. An explicit
-  flag wins. Accepted values are `error`, `warn`, `info`, `debug`, and `trace`;
-  the default is `info`.
+- `--listen`, which wins over both `AIRPLAN_SERVER_HOST` and
+  `AIRPLAN_SERVER_PORT`. Without it, host and port resolve independently and
+  default to `127.0.0.1` and `8080`.
+- `--allow-non-loopback`, with
+  `AIRPLAN_SERVER_ALLOW_NON_LOOPBACK` as its fallback and `false` as the
+  default. An explicit `--allow-non-loopback=false` wins over the environment.
+- `--token-file`, with `AIRPLAN_SERVER_TOKEN_FILE` as its fallback and
+  `AIRPLAN_SERVER_TOKEN` as the alternative token-value source.
+- repeatable `--allowed-origin` values, with comma-separated
+  `AIRPLAN_SERVER_ALLOWED_ORIGINS` as the fallback.
+- `--temp-dir`, with `AIRPLAN_SERVER_TEMP_DIR` as the fallback.
+- `--log-level`, with `AIRPLAN_SERVER_LOG_LEVEL` as its fallback. Accepted
+  values are `error`, `warn`, `info`, `debug`, and `trace`; the default is
+  `info`.
+
+Environment-derived host and port are combined without losing IPv6 address
+syntax. `AIRPLAN_SERVER_HOST` must be non-empty when set.
+`AIRPLAN_SERVER_PORT` accepts decimal digits only and must be from 0 through
+65535; zero requests an ephemeral listener. Server boolean environment values
+accept exactly `true` or `false`. The allowed-origins environment value is
+split on commas, surrounding whitespace is trimmed, and empty entries are
+rejected. Explicit origin flags replace rather than append to the environment
+list. Invalid server environment values fail before storage initialization or
+listener creation.
 
 Exactly one non-empty server-token source is required. A token should contain
-at least 32 random bytes; token files should be mode 0600. The token is read
-once at startup. The server defaults to loopback. Binding to a non-loopback
-address requires explicit acknowledgement, and TLS must terminate at a trusted
-reverse proxy. The built-in server does not manage certificates.
+at least 32 random bytes; token files should be mode 0600. An explicit
+`--token-file` replaces `AIRPLAN_SERVER_TOKEN_FILE`; the resolved file source
+and `AIRPLAN_SERVER_TOKEN` conflict rather than silently choosing one. The
+token is read once at startup. The server defaults to loopback. Binding to a
+non-loopback address requires explicit acknowledgement, and TLS must terminate
+at a trusted reverse proxy. The built-in server does not manage certificates.
 
 Server logs are line-oriented text on stderr only. At `info`, the process
 prints its existing listening line and otherwise remains quiet except for
@@ -1645,6 +1669,51 @@ and idle timeouts, and shuts down gracefully on SIGINT or SIGTERM. It is a
 single-instance service: only one active server may own a manifest. Local CLI
 processes on the same host may share that file through its existing locked
 append protocol, but separate replicas with independent files are unsupported.
+
+### Official container image
+
+The official server image is `ghcr.io/jimeh/airplan`. Each release is one OCI
+image index with runnable `linux/amd64` and `linux/arm64` images. It publishes
+only the release version without GitHub's leading `v` (for example `0.5.1`)
+and `latest`. It does not publish `v`-prefixed, commit-SHA, major, or
+major/minor tags. An exact version never intentionally changes to another
+digest. `latest` identifies the repository's latest GitHub release and is
+mutable; immutable deployments use the image-index digest. Published indexes
+carry an SBOM and GitHub build-provenance attestation.
+
+The image runs as numeric UID/GID `65532:65532`. Its entrypoint is `airplan`
+and its exact default command is `serve`, with no shell interpolation or
+baked listen address. It supplies these image-level environment defaults:
+
+```text
+XDG_CONFIG_HOME=/etc
+AIRPLAN_MANIFEST=/var/lib/airplan/manifest.jsonl
+AIRPLAN_SERVER_HOST=0.0.0.0
+AIRPLAN_SERVER_PORT=8080
+AIRPLAN_SERVER_ALLOW_NON_LOOPBACK=true
+```
+
+Consequently, `/etc/airplan/config.toml` is the optional default config file
+inside the image. It is not forced through `AIRPLAN_CONFIG`: an environment-
+only storage configuration works when no file is mounted. A file mounted at
+the default path is discovered automatically, and `AIRPLAN_PROFILE` may select
+one of its profiles. An explicitly set `AIRPLAN_CONFIG` retains the normal
+requirement that its path exist.
+
+`/var/lib/airplan` is the declared persistent volume and is writable by the
+runtime user. One active server owns each mounted manifest volume. Operators
+must retain and back up that volume when upload history matters; an anonymous
+volume does not by itself provide a durable lifecycle association. A bind-
+mounted state directory and mode-0600 config or token files must be readable
+or writable as appropriate by UID/GID `65532:65532`. Configuration, bearer
+tokens, and storage credentials remain external to the image.
+
+The image exposes port 8080 as metadata but does not publish it.
+`AIRPLAN_SERVER_PORT` changes the listener only; port mapping, reverse-proxy
+target, and external `/healthz` probe must use the same port. The image has no
+built-in healthcheck or TLS termination. It uses the same unauthenticated
+`/healthz`, external TLS, static-token, trusted-content, and single-instance
+boundaries as native `airplan serve`.
 
 ### REST wire contract
 

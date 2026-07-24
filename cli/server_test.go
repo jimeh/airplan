@@ -73,6 +73,229 @@ func TestServeLogLevelPrecedence(t *testing.T) {
 	}
 }
 
+func TestResolveServeOptionsDefaults(t *testing.T) {
+	unsetServerEnvironment(t)
+	opts := &serveOptions{}
+	command := newServeCmdWithOptions(opts)
+	if err := resolveServeOptions(command, opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.listen != "127.0.0.1:8080" {
+		t.Fatalf("listen = %q", opts.listen)
+	}
+	if opts.allowNonLoopback {
+		t.Fatal("non-loopback acknowledgement enabled by default")
+	}
+	if opts.tokenFile != "" || len(opts.allowedOrigins) != 0 ||
+		opts.tempDir != "" {
+		t.Fatalf("unexpected defaults: %+v", opts)
+	}
+}
+
+func TestResolveServeOptionsEnvironment(t *testing.T) {
+	unsetServerEnvironment(t)
+	t.Setenv("AIRPLAN_SERVER_HOST", "2001:db8::1")
+	t.Setenv("AIRPLAN_SERVER_PORT", "9090")
+	t.Setenv("AIRPLAN_SERVER_ALLOW_NON_LOOPBACK", "true")
+	t.Setenv("AIRPLAN_SERVER_TOKEN_FILE", "/run/secrets/airplan-token")
+	t.Setenv(
+		"AIRPLAN_SERVER_ALLOWED_ORIGINS",
+		"https://one.example, https://two.example",
+	)
+	t.Setenv("AIRPLAN_SERVER_TEMP_DIR", "/var/tmp/airplan")
+
+	opts := &serveOptions{}
+	command := newServeCmdWithOptions(opts)
+	if err := resolveServeOptions(command, opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.listen != "[2001:db8::1]:9090" {
+		t.Fatalf("listen = %q", opts.listen)
+	}
+	if !opts.allowNonLoopback {
+		t.Fatal("non-loopback acknowledgement was not enabled")
+	}
+	if opts.tokenFile != "/run/secrets/airplan-token" {
+		t.Fatalf("token file = %q", opts.tokenFile)
+	}
+	wantOrigins := []string{
+		"https://one.example", "https://two.example",
+	}
+	if strings.Join(opts.allowedOrigins, "\n") !=
+		strings.Join(wantOrigins, "\n") {
+		t.Fatalf("origins = %#v", opts.allowedOrigins)
+	}
+	if opts.tempDir != "/var/tmp/airplan" {
+		t.Fatalf("temp directory = %q", opts.tempDir)
+	}
+}
+
+func TestResolveServeOptionsFlagPrecedence(t *testing.T) {
+	unsetServerEnvironment(t)
+	t.Setenv("AIRPLAN_SERVER_HOST", "0.0.0.0")
+	t.Setenv("AIRPLAN_SERVER_PORT", "9090")
+	t.Setenv("AIRPLAN_SERVER_ALLOW_NON_LOOPBACK", "true")
+	t.Setenv("AIRPLAN_SERVER_TOKEN_FILE", "/environment/token")
+	t.Setenv(
+		"AIRPLAN_SERVER_ALLOWED_ORIGINS",
+		"https://environment.example",
+	)
+	t.Setenv("AIRPLAN_SERVER_TEMP_DIR", "/environment/tmp")
+
+	opts := &serveOptions{}
+	command := newServeCmdWithOptions(opts)
+	for name, value := range map[string]string{
+		"listen":             "localhost:7070",
+		"allow-non-loopback": "false",
+		"token-file":         "/flag/token",
+		"allowed-origin":     "https://flag.example",
+		"temp-dir":           "/flag/tmp",
+	} {
+		if err := command.Flags().Set(name, value); err != nil {
+			t.Fatalf("set %s: %v", name, err)
+		}
+	}
+	if err := resolveServeOptions(command, opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.listen != "localhost:7070" || opts.allowNonLoopback ||
+		opts.tokenFile != "/flag/token" ||
+		opts.tempDir != "/flag/tmp" {
+		t.Fatalf("resolved options = %+v", opts)
+	}
+	if len(opts.allowedOrigins) != 1 ||
+		opts.allowedOrigins[0] != "https://flag.example" {
+		t.Fatalf("origins = %#v", opts.allowedOrigins)
+	}
+}
+
+func TestResolveServeOptionsHostAssembly(t *testing.T) {
+	for _, test := range []struct {
+		host string
+		want string
+	}{
+		{host: "127.0.0.1", want: "127.0.0.1:8080"},
+		{host: "localhost", want: "localhost:8080"},
+		{host: "::1", want: "[::1]:8080"},
+	} {
+		t.Run(test.host, func(t *testing.T) {
+			unsetServerEnvironment(t)
+			t.Setenv("AIRPLAN_SERVER_HOST", test.host)
+			opts := &serveOptions{}
+			command := newServeCmdWithOptions(opts)
+			if err := resolveServeOptions(command, opts); err != nil {
+				t.Fatal(err)
+			}
+			if opts.listen != test.want {
+				t.Fatalf("listen = %q, want %q", opts.listen, test.want)
+			}
+		})
+	}
+}
+
+func TestResolveServeOptionsRejectsInvalidEnvironment(t *testing.T) {
+	tests := []struct {
+		name, environment, value string
+	}{
+		{name: "empty host", environment: "AIRPLAN_SERVER_HOST"},
+		{name: "empty port", environment: "AIRPLAN_SERVER_PORT"},
+		{
+			name: "negative port", environment: "AIRPLAN_SERVER_PORT",
+			value: "-1",
+		},
+		{
+			name: "above maximum port", environment: "AIRPLAN_SERVER_PORT",
+			value: "65536",
+		},
+		{
+			name: "non-numeric port", environment: "AIRPLAN_SERVER_PORT",
+			value: "http",
+		},
+		{
+			name: "whitespace port", environment: "AIRPLAN_SERVER_PORT",
+			value: " 8080",
+		},
+		{
+			name:        "invalid boolean",
+			environment: "AIRPLAN_SERVER_ALLOW_NON_LOOPBACK",
+			value:       "1",
+		},
+		{
+			name:        "empty origins",
+			environment: "AIRPLAN_SERVER_ALLOWED_ORIGINS",
+		},
+		{
+			name:        "empty origin entry",
+			environment: "AIRPLAN_SERVER_ALLOWED_ORIGINS",
+			value:       "https://one.example,,https://two.example",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			unsetServerEnvironment(t)
+			t.Setenv(test.environment, test.value)
+			opts := &serveOptions{}
+			command := newServeCmdWithOptions(opts)
+			if err := resolveServeOptions(command, opts); err == nil {
+				t.Fatal("resolution succeeded")
+			}
+		})
+	}
+
+	unsetServerEnvironment(t)
+	t.Setenv("AIRPLAN_SERVER_PORT", "0")
+	opts := &serveOptions{}
+	command := newServeCmdWithOptions(opts)
+	if err := resolveServeOptions(command, opts); err != nil {
+		t.Fatal(err)
+	}
+	if opts.listen != "127.0.0.1:0" {
+		t.Fatalf("port-zero listen = %q", opts.listen)
+	}
+}
+
+func TestResolveServeOptionsTokenSourceConflict(t *testing.T) {
+	unsetServerEnvironment(t)
+	const token = "01234567890123456789012345678901"
+	t.Setenv("AIRPLAN_SERVER_TOKEN_FILE", "/run/secrets/token")
+	t.Setenv("AIRPLAN_SERVER_TOKEN", token)
+	opts := &serveOptions{}
+	command := newServeCmdWithOptions(opts)
+	if err := resolveServeOptions(command, opts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadServerToken(
+		opts.tokenFile, os.Getenv("AIRPLAN_SERVER_TOKEN"),
+	); err == nil {
+		t.Fatal("token source conflict was accepted")
+	}
+}
+
+func unsetServerEnvironment(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{
+		"AIRPLAN_SERVER_HOST",
+		"AIRPLAN_SERVER_PORT",
+		"AIRPLAN_SERVER_ALLOW_NON_LOOPBACK",
+		"AIRPLAN_SERVER_TOKEN",
+		"AIRPLAN_SERVER_TOKEN_FILE",
+		"AIRPLAN_SERVER_ALLOWED_ORIGINS",
+		"AIRPLAN_SERVER_TEMP_DIR",
+	} {
+		value, exists := os.LookupEnv(name)
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() {
+			if exists {
+				_ = os.Setenv(name, value)
+			} else {
+				_ = os.Unsetenv(name)
+			}
+		})
+	}
+}
+
 func TestServeListenLineFollowsInfoThreshold(t *testing.T) {
 	const want = "airplan: serving on http://127.0.0.1:8080\n"
 	for _, test := range []struct {

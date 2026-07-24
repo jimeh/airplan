@@ -95,6 +95,15 @@ Apple-notarized binaries. Because a raw executable cannot carry a stapled
 notarization ticket, its first Gatekeeper assessment may require internet
 access. Binaries built locally with `go install` are not project-signed.
 
+The official server container is available for `linux/amd64` and
+`linux/arm64`:
+
+```sh
+docker pull ghcr.io/jimeh/airplan:latest
+```
+
+Use an exact unprefixed version or digest for reproducible deployments.
+
 ### Install the agent skill
 
 This repository includes an [airplan agent skill](skills/airplan/SKILL.md) for
@@ -140,6 +149,10 @@ shasum --ignore-missing --algorithm 256 --check checksums.txt
 gh release verify v0.5.0 --repo jimeh/airplan
 
 gh attestation verify airplan_0.5.0_darwin_arm64.tar.gz \
+  --repo jimeh/airplan
+
+docker pull ghcr.io/jimeh/airplan:0.5.0
+gh attestation verify oci://ghcr.io/jimeh/airplan:0.5.0 \
   --repo jimeh/airplan
 ```
 
@@ -260,6 +273,123 @@ different state directory; mount a persistent directory and pass the same
 explicit `--manifest` path when shared local history is desired. The server
 API scopes manifest results to its configured profile, bucket, and key prefix
 and does not expose unrelated records from a shared local file.
+
+#### Run the server container
+
+The container defaults to `airplan serve`, listens on `0.0.0.0:8080`, runs as
+UID/GID `65532:65532`, and stores its manifest at
+`/var/lib/airplan/manifest.jsonl`. Always give that directory a named volume:
+
+```sh
+docker volume create airplan-data
+
+docker run --detach --name airplan \
+  --publish 127.0.0.1:8080:8080 \
+  --env-file ./airplan.env \
+  --mount type=volume,source=airplan-data,target=/var/lib/airplan \
+  --mount type=bind,source="$PWD/airplan-token",\
+target=/run/secrets/airplan-token,readonly \
+  --env AIRPLAN_SERVER_TOKEN_FILE=/run/secrets/airplan-token \
+  ghcr.io/jimeh/airplan:<version>
+```
+
+`airplan.env` may contain the environment-only storage configuration:
+
+```dotenv
+AIRPLAN_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+AIRPLAN_BUCKET=plans
+AIRPLAN_REGION=auto
+AIRPLAN_ACCESS_KEY_ID=...
+AIRPLAN_SECRET_ACCESS_KEY=...
+AIRPLAN_PUBLIC_BASE_URL=https://plans.example.com
+AIRPLAN_REPO=none
+```
+
+Protect both files from other users. The mode-0600 token file must be owned by
+UID/GID `65532:65532` so the container process can read it. Prefer a runtime
+secret manager over a plaintext environment file in production.
+
+For file-based configuration, omit the storage variables and mount the file at
+the optional default path:
+
+```sh
+docker run --detach --name airplan \
+  --publish 127.0.0.1:8080:8080 \
+  --mount type=volume,source=airplan-data,target=/var/lib/airplan \
+  --mount type=bind,source="$PWD/config.toml",\
+target=/etc/airplan/config.toml,readonly \
+  --mount type=bind,source="$PWD/airplan-token",\
+target=/run/secrets/airplan-token,readonly \
+  --env AIRPLAN_PROFILE=storage \
+  --env AIRPLAN_SERVER_TOKEN_FILE=/run/secrets/airplan-token \
+  ghcr.io/jimeh/airplan:<version>
+```
+
+The mounted config is discovered without setting `AIRPLAN_CONFIG`; setting
+that variable explicitly still requires the selected file to exist. A minimal
+Compose deployment is:
+
+```yaml
+services:
+  airplan:
+    image: ghcr.io/jimeh/airplan:<version>
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      AIRPLAN_PROFILE: storage
+      AIRPLAN_SERVER_TOKEN_FILE: /run/secrets/airplan-token
+    volumes:
+      - airplan-data:/var/lib/airplan
+      - ./config.toml:/etc/airplan/config.toml:ro
+      - ./airplan-token:/run/secrets/airplan-token:ro
+
+volumes:
+  airplan-data:
+```
+
+Run one container against the volume. Back it up if upload history matters.
+`airplan sync` can reconstruct currently discoverable remote uploads after
+manifest loss, but may not recover all historical or local metadata; the image
+does not sync automatically at startup. Anonymous volumes can become orphaned
+when a container is replaced. For state bind mounts, make the host directory
+writable by UID/GID `65532:65532`; mode-0600 config and token bind mounts must
+be owned by the same IDs.
+
+The image declares `EXPOSE 8080`, which is metadata rather than port
+publication. If `AIRPLAN_SERVER_PORT` changes, update the Docker port mapping,
+reverse-proxy target, and external `/healthz` probe. The image contains no
+shell, probe utility, credentials, config, or token, and has no in-image
+healthcheck. Terminate TLS at a trusted reverse proxy.
+
+`latest` is mutable. Exact release tags are protected by the publication
+workflow, while a digest is the registry-level immutable reference:
+
+```sh
+docker pull ghcr.io/jimeh/airplan@sha256:<image-index-digest>
+gh attestation verify \
+  oci://ghcr.io/jimeh/airplan@sha256:<image-index-digest> \
+  --repo jimeh/airplan
+```
+
+Container server precedence is explicit flag, then environment, then the
+native default:
+
+| Concern                | Flag                   | Environment fallback                         |
+| ---------------------- | ---------------------- | -------------------------------------------- |
+| Listen address         | `--listen`             | `AIRPLAN_SERVER_HOST`, `AIRPLAN_SERVER_PORT` |
+| Non-loopback consent   | `--allow-non-loopback` | `AIRPLAN_SERVER_ALLOW_NON_LOOPBACK`          |
+| Token file             | `--token-file`         | `AIRPLAN_SERVER_TOKEN_FILE`                  |
+| Hosted MCP origins     | `--allowed-origin`     | `AIRPLAN_SERVER_ALLOWED_ORIGINS`             |
+| Upload spool directory | `--temp-dir`           | `AIRPLAN_SERVER_TEMP_DIR`                    |
+| Log level              | `--log-level`          | `AIRPLAN_SERVER_LOG_LEVEL`                   |
+
+`AIRPLAN_SERVER_TOKEN` remains the alternative token-value source. Do not set
+it together with a resolved token file. The image sets host `0.0.0.0`, port
+`8080`, and non-loopback consent `true`; native executions retain the safe
+`127.0.0.1:8080` and `false` defaults. The origins environment value is a
+comma-separated list. Server ports are decimal values from 0 through 65535,
+and server booleans accept exactly `true` or `false`.
 
 ### Cloudflare R2 setup
 
@@ -577,28 +707,35 @@ access and secret keys must be set as a pair. If neither is set through
 credential chain, including `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and
 the shared credentials file.
 
-| Variable                      | Purpose                                       |
-| ----------------------------- | --------------------------------------------- |
-| `AIRPLAN_CONFIG`              | Select an alternate config file               |
-| `AIRPLAN_PROFILE`             | Select a named `[profiles.*]` profile         |
-| `AIRPLAN_BACKEND`             | Select `s3` or `airplan`                      |
-| `AIRPLAN_API_URL`             | Set an Airplan server base URL                |
-| `AIRPLAN_API_TOKEN`           | Set its bearer token                          |
-| `AIRPLAN_SERVER_LOG_LEVEL`    | Set `serve` logging from `error` to `trace`   |
-| `AIRPLAN_MANIFEST`            | Select a local S3/service manifest            |
-| `AIRPLAN_ENDPOINT`            | Set the S3-compatible API endpoint            |
-| `AIRPLAN_BUCKET`              | Set the destination bucket                    |
-| `AIRPLAN_REGION`              | Set the S3 signing region                     |
-| `AIRPLAN_ACCESS_KEY_ID`       | Set the explicit access key ID                |
-| `AIRPLAN_SECRET_ACCESS_KEY`   | Set the matching secret access key            |
-| `AIRPLAN_PUBLIC_BASE_URL`     | Set the base URL used for public links        |
-| `AIRPLAN_KEY_PREFIX`          | Prefix and scope uploaded object keys         |
-| `AIRPLAN_TEMPLATE`            | Select a custom HTML page template            |
-| `AIRPLAN_COLLECTION_TEMPLATE` | Select a collection overview template         |
-| `AIRPLAN_NO_EXTERNAL_ASSETS`  | Disable airplan-managed external loads        |
-| `AIRPLAN_MERMAID_URL`         | Set an alternate HTTPS Mermaid module URL     |
-| `AIRPLAN_REPO`                | Set `auto`, `none`, or a repository URL       |
-| `AIRPLAN_TIMEOUT`             | Set a duration such as `30s`; `0` disables it |
+| Variable                            | Purpose                                       |
+| ----------------------------------- | --------------------------------------------- |
+| `AIRPLAN_CONFIG`                    | Select an alternate config file               |
+| `AIRPLAN_PROFILE`                   | Select a named `[profiles.*]` profile         |
+| `AIRPLAN_BACKEND`                   | Select `s3` or `airplan`                      |
+| `AIRPLAN_API_URL`                   | Set an Airplan server base URL                |
+| `AIRPLAN_API_TOKEN`                 | Set its bearer token                          |
+| `AIRPLAN_SERVER_HOST`               | Set the `serve` bind host                     |
+| `AIRPLAN_SERVER_PORT`               | Set the decimal `serve` port                  |
+| `AIRPLAN_SERVER_ALLOW_NON_LOOPBACK` | Acknowledge non-loopback serving              |
+| `AIRPLAN_SERVER_TOKEN`              | Provide the static server token               |
+| `AIRPLAN_SERVER_TOKEN_FILE`         | Read the static token from a file             |
+| `AIRPLAN_SERVER_ALLOWED_ORIGINS`    | Set comma-separated hosted MCP origins        |
+| `AIRPLAN_SERVER_TEMP_DIR`           | Set the upload spool directory                |
+| `AIRPLAN_SERVER_LOG_LEVEL`          | Set `serve` logging from `error` to `trace`   |
+| `AIRPLAN_MANIFEST`                  | Select a local S3/service manifest            |
+| `AIRPLAN_ENDPOINT`                  | Set the S3-compatible API endpoint            |
+| `AIRPLAN_BUCKET`                    | Set the destination bucket                    |
+| `AIRPLAN_REGION`                    | Set the S3 signing region                     |
+| `AIRPLAN_ACCESS_KEY_ID`             | Set the explicit access key ID                |
+| `AIRPLAN_SECRET_ACCESS_KEY`         | Set the matching secret access key            |
+| `AIRPLAN_PUBLIC_BASE_URL`           | Set the base URL used for public links        |
+| `AIRPLAN_KEY_PREFIX`                | Prefix and scope uploaded object keys         |
+| `AIRPLAN_TEMPLATE`                  | Select a custom HTML page template            |
+| `AIRPLAN_COLLECTION_TEMPLATE`       | Select a collection overview template         |
+| `AIRPLAN_NO_EXTERNAL_ASSETS`        | Disable airplan-managed external loads        |
+| `AIRPLAN_MERMAID_URL`               | Set an alternate HTTPS Mermaid module URL     |
+| `AIRPLAN_REPO`                      | Set `auto`, `none`, or a repository URL       |
+| `AIRPLAN_TIMEOUT`                   | Set a duration such as `30s`; `0` disables it |
 
 `no_source` and `indexable` do not have environment variables. Configure them
 in TOML or override them with `--no-source` and `--indexable`.
@@ -752,6 +889,10 @@ mise run check              # lint, generated files, format, and unit tests
 mise run check:spec-sync    # check contract changes update spec versions
 mise run test:coverage      # statement summary + coverage.html report
 mise run test-integration   # MinIO round trip; requires Docker
+mise run container:context  # prepare image inputs from snapshot binaries
+mise run container:build    # build and load the native image; requires Docker
+mise run container:check    # validate amd64 + arm64 images; requires Docker
+mise run test:container-integration # container server smoke; requires Docker
 mise run test:browser       # Chromium page smoke tests; installs browser
 mise run audit:deps         # audit Go modules and npm dependencies
 mise run release:snapshot   # build release artifacts without publishing
@@ -778,6 +919,13 @@ Local policy findings fail the task.
 
 See [AGENTS.md](AGENTS.md) for the repository map and contribution constraints.
 Releases are managed by release-please and GoReleaser from conventional commits.
+
+The first container release creates a private GHCR package. For that one-time
+bootstrap, confirm the package is linked to this repository, change its
+visibility to public in GitHub package settings, and then verify anonymous
+exact-tag and digest pulls. Also verify the GitHub attestation, run the image
+on real amd64 and arm64 hosts, inspect the package metadata, and repeat the
+documented commands from a clean machine.
 
 ## License
 

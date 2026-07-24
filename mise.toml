@@ -55,6 +55,11 @@ run = [
   "npx playwright test",
 ]
 
+[tasks."test:container-integration"]
+description = "Run the MinIO-backed Airplan server image smoke test"
+depends = ["container:build"]
+run = "scripts/container/integration.sh"
+
 [tasks."audit:deps"]
 description = "Verify and scan Go and npm dependencies"
 run = ["go mod verify", "govulncheck ./...", "npm audit --audit-level=high"]
@@ -144,9 +149,33 @@ run = [
   "goreleaser release --snapshot --clean --skip=publish",
 ]
 
+[tasks."container:context"]
+description = "Build snapshot binaries and prepare the container context"
+run = [
+  "goreleaser build --snapshot --clean",
+  "go run ./internal/cmd/preparecontainer",
+]
+
+[tasks."container:build"]
+description = "Build and load the native Airplan server image"
+depends = ["container:context"]
+run = "scripts/container/build.sh"
+
+[tasks."container:check"]
+description = "Build both image platforms and check the native image"
+depends = ["container:context"]
+run = "scripts/container/check.sh"
+
 [tasks.verify]
 description = "Broad local validation before handoff"
-depends = ["check", "audit:deps", "test-integration", "release:snapshot"]
+run = [
+  "mise run check",
+  "mise run audit:deps",
+  "mise run test-integration",
+  "mise run release:snapshot",
+  "mise run container:check",
+  "mise run test:container-integration",
+]
 
 [tasks.setup]
 description = "Install tools and git hooks"
