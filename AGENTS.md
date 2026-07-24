@@ -184,10 +184,15 @@ coverage has no equivalent local task on non-Windows hosts.
   leaf `COPY --chmod` mode to newly created parent directories. Copy the
   placeholder directory with mode `0555`, and keep non-root default-config
   discovery covered by the image checks.
-- **Container release tags fail closed**: exact unprefixed versions must never
-  be replaced with a different digest. Publish and verify by digest only after
-  the GitHub release is immutable, then assign the exact version and a
-  still-current `latest`.
+- **Container release tags fail closed within the workflow**: serialize all
+  workflow-owned GHCR mutations with one package-scoped `queue: max` group,
+  reject observed exact-tag conflicts, and publish/verify by digest before
+  assigning the exact version and a still-current `latest`. GHCR does not
+  enforce tag immutability against external writers; consumers needing that
+  guarantee must pin the index digest.
+- **Actionlint currently lags `queue: max`**: keep the narrow `mise.toml`
+  ignore for its unsupported concurrency key until actionlint recognizes the
+  current GitHub syntax. Do not suppress other concurrency errors.
 - **MinIO is immutable-pinned** in `airplan/integration_test.go`:
   update the release tag and multi-platform digest together, inspect
   the image labels, then run `mise run test-integration`.

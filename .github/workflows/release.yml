@@ -428,6 +428,9 @@ jobs:
     needs:
       - build-release
       - publish
+    concurrency:
+      group: ghcr-airplan-${{ github.repository }}
+      queue: max
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -493,13 +496,8 @@ jobs:
           echo "PUBLICATION_PHASE=inspect-existing-tag" >>"$GITHUB_ENV"
           if inspection="$(docker buildx imagetools inspect \
             "$IMAGE_NAME:$VERSION" 2>inspect-error)"; then
-            digest="$(sed -n \
-              's/^Digest:[[:space:]]*\\(sha256:[0-9a-f]\\{64\\}\\)$/\\1/p' \
-              <<<"$inspection")"
-            if [[ -z "$digest" ]]; then
-              echo "existing tag has no valid top-level digest" >&2
-              exit 1
-            fi
+            digest="$(scripts/container/release.sh \
+              extract-digest <<<"$inspection")"
             echo "exists=true" >>"$GITHUB_OUTPUT"
             echo "digest=$digest" >>"$GITHUB_OUTPUT"
           elif grep -Eqi 'manifest unknown|name unknown|not found' \
@@ -557,7 +555,9 @@ jobs:
             >>"$GITHUB_ENV"
           gh attestation verify \
             "oci://$IMAGE_NAME@$DIGEST" \
-            --repo "$GITHUB_REPOSITORY"
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow \
+            "${GITHUB_REPOSITORY}/.github/workflows/release.yml"
       - name: Verify image index and native runtime
         env:
           DIGEST: ${{ steps.subject.outputs.digest }}
@@ -605,6 +605,13 @@ jobs:
                     )]
                 | length >= 1
               ' >/dev/null
+          done
+
+          for architecture in amd64 arm64; do
+            scripts/container/release.sh verify-binary \
+              "$reference" \
+              "$architecture" \
+              "dist/container/linux/$architecture/airplan"
           done
 
           docker pull "$reference"
@@ -668,7 +675,9 @@ jobs:
           echo "PUBLICATION_PHASE=verify-attestation" >>"$GITHUB_ENV"
           gh attestation verify \
             "oci://$IMAGE_NAME@$DIGEST" \
-            --repo "$GITHUB_REPOSITORY"
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow \
+            "${GITHUB_REPOSITORY}/.github/workflows/release.yml"
       - name: Assign and verify release tags
         env:
           DIGEST: ${{ steps.subject.outputs.digest }}
@@ -679,15 +688,13 @@ jobs:
           echo "PUBLICATION_PHASE=tag-image" >>"$GITHUB_ENV"
           resolve_digest() {
             docker buildx imagetools inspect "$1" |
-              sed -n \
-                's/^Digest:[[:space:]]*\\(sha256:[0-9a-f]\\{64\\}\\)$/\\1/p'
+              scripts/container/release.sh extract-digest
           }
           if [[ "$EXISTING" != "true" ]]; then
             if inspection="$(docker buildx imagetools inspect \
               "$IMAGE_NAME:$VERSION" 2>inspect-error)"; then
-              current="$(sed -n \
-                's/^Digest:[[:space:]]*\\(sha256:[0-9a-f]\\{64\\}\\)$/\\1/p' \
-                <<<"$inspection")"
+              current="$(scripts/container/release.sh \
+                extract-digest <<<"$inspection")"
               if [[ "$current" != "$DIGEST" ]]; then
                 echo "exact-version tag appeared with a conflicting digest" \
                   >&2

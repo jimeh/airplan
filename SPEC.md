@@ -1679,7 +1679,11 @@ and `latest`. It does not publish `v`-prefixed, commit-SHA, major, or
 major/minor tags. An exact version never intentionally changes to another
 digest. `latest` identifies the repository's latest GitHub release and is
 mutable; immutable deployments use the image-index digest. Published indexes
-carry an SBOM and GitHub build-provenance attestation.
+carry an SBOM and GitHub build-provenance attestation from this repository's
+release workflow. Publication serializes the workflow's own GHCR mutations and
+rejects an observed exact-tag conflict. The registry does not enforce tag
+immutability against external writers; the image-index digest is the immutable
+deployment boundary.
 
 The image runs as numeric UID/GID `65532:65532`. Its entrypoint is `airplan`
 and its exact default command is `serve`, with no shell interpolation or

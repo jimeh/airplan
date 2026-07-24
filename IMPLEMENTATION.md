@@ -416,20 +416,27 @@ config path. The manifest is explicitly placed under the owned, declared
 Container publication is a separate job downstream of immutable GitHub
 release verification. It restores the prevalidated context and pushes the
 amd64/arm64 index canonically by digest without a user-facing tag. It verifies
-the runnable platform set, SBOM attachment, OCI labels, version, numeric
-non-root runtime, shell-free configuration, writable temp and state paths,
+the runnable platform set, exact child-image binary bytes against the preserved
+GoReleaser context, SBOM attachment, OCI labels, version, numeric non-root
+runtime, shell-free configuration, writable temp and state paths,
 environment-only and file-based server startup, MinIO upload, graceful
 shutdown, and manifest persistence. GitHub provides the one authoritative
-provenance attestation because Buildx provenance is disabled; Buildx still
+provenance attestation because Buildx provenance is disabled; verification
+requires this repository's release workflow as its signer. Buildx still
 generates the image SBOM.
 
 Only after verification does the workflow assign the unprefixed exact version
 tag and, after querying the latest GitHub release at the mutation boundary,
 possibly `latest`. An existing exact tag is trusted only after its provenance,
 release identity, platforms, and runtime all validate; a conflicting digest is
-never overwritten. Failures after GitHub release publication create one
-deduplicated issue and are independently rerunnable. The first package
-publication requires the accepted one-time manual change to public visibility.
+never overwritten by the workflow. A constant package-scoped job concurrency
+group with `queue: max` serializes workflow-owned GHCR mutations across release
+versions without replacing queued publications. GHCR does not enforce
+immutable tags against external writers, so digest references remain the
+immutable deployment boundary. Failures after GitHub release publication
+create one deduplicated issue and are independently rerunnable. The first
+package publication requires the accepted one-time manual change to public
+visibility.
 
 The signed executable remains inside the existing `.tar.gz`; Quill submits
 the executable to Apple without changing the distribution format. Raw Mach-O

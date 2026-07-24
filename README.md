@@ -153,7 +153,8 @@ gh attestation verify airplan_0.5.0_darwin_arm64.tar.gz \
 
 docker pull ghcr.io/jimeh/airplan:0.5.0
 gh attestation verify oci://ghcr.io/jimeh/airplan:0.5.0 \
-  --repo jimeh/airplan
+  --repo jimeh/airplan \
+  --signer-workflow jimeh/airplan/.github/workflows/release.yml
 ```
 
 <!-- x-release-please-end -->
@@ -362,14 +363,17 @@ reverse-proxy target, and external `/healthz` probe. The image contains no
 shell, probe utility, credentials, config, or token, and has no in-image
 healthcheck. Terminate TLS at a trusted reverse proxy.
 
-`latest` is mutable. Exact release tags are protected by the publication
-workflow, while a digest is the registry-level immutable reference:
+`latest` is mutable. The publication workflow serializes its own GHCR
+mutations and refuses an exact release tag whose observed digest conflicts.
+GHCR does not enforce tag immutability against external writers, so a digest is
+the registry-level immutable reference:
 
 ```sh
 docker pull ghcr.io/jimeh/airplan@sha256:<image-index-digest>
 gh attestation verify \
   oci://ghcr.io/jimeh/airplan@sha256:<image-index-digest> \
-  --repo jimeh/airplan
+  --repo jimeh/airplan \
+  --signer-workflow jimeh/airplan/.github/workflows/release.yml
 ```
 
 Container server precedence is explicit flag, then environment, then the

@@ -99,7 +99,8 @@ run = "golangci-lint run"
 [tasks."lint:workflows"]
 description = "Validate GitHub Actions: syntax, security, SHA pins"
 run = [
-  "actionlint",
+  "scripts/container/release_test.sh",
+  "actionlint -ignore 'unexpected key \"queue\" for \"concurrency\" section'",
   "zizmor --offline .github/workflows",
   "pinact run --check",
 ]
