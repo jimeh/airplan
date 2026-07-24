@@ -185,7 +185,13 @@ curl --fail --silent --show-error \
   --output "$temporary/uploads.json" \
   -H "Authorization: Bearer $token" \
   "http://127.0.0.1:$port/api/v1/uploads"
-jq -e '.uploads | length == 1' "$temporary/uploads.json" >/dev/null
+jq -e '
+  (.warnings | length == 0) and
+  (.records | length == 1) and
+  (.records[0].type == "upload") and
+  (.records[0].kind == "document") and
+  (.records[0].key | type == "string" and length > 0)
+' "$temporary/uploads.json" >/dev/null
 
 phase="file-server-shutdown"
 stop_server_gracefully
