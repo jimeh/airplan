@@ -391,8 +391,16 @@ Assign `latest` only after the exact-version tag re-resolves to the verified
 digest. A failed attempt before exact-version tagging may leave an untagged
 manifest in GHCR, but it cannot expose a partial or conflicting release tag.
 
-The release concurrency group serializes normal publication. The explicit
-checks also protect manual retries and unexpected pre-existing tags.
+The per-tag release concurrency group serializes whole attempts for one
+release. A second, package-scoped `publish-container` concurrency group with
+`queue: max` serializes all workflow-owned GHCR mutations across versions
+without dropping pending publications. The explicit checks also protect manual
+retries and unexpected pre-existing tags.
+
+These protections govern workflow-owned mutations. GHCR does not provide
+registry-enforced tag immutability or a documented conditional tag
+compare-and-swap operation, so external writers retain a tag race. Consumers
+requiring immutability must pin the image-index digest.
 
 ## 4. Build-context preparation
 
@@ -533,7 +541,8 @@ Steps:
 5. Derive the unprefixed container version from the validated release tag.
 6. Inspect the exact-version tag.
 7. Reuse its digest only if it already passes release identity, platform,
-   runtime, and attestation checks; fail closed if it conflicts.
+   exact release-binary, runtime, and signer-constrained attestation checks;
+   fail closed if it conflicts.
 8. If it does not exist, build and push the index canonically by digest without
    assigning a tag.
 9. Generate and push the GitHub provenance attestation for the index digest.
@@ -596,9 +605,10 @@ A failed-job rerun must be safe at every boundary:
 - Re-running an old release never changes `latest`.
 - Attestation generation and verification are repeatable for the same digest.
 
-Keep the current `release-${{ inputs.tag }}` concurrency group. Do not add a
-second concurrency scheme that could let two attempts for one tag run
-simultaneously.
+Keep the current `release-${{ inputs.tag }}` concurrency group for complete
+attempts. Also give `publish-container` a constant repository/package-scoped
+concurrency group with `queue: max`. This serializes all workflow-owned GHCR
+mutations across release versions without dropping pending jobs.
 
 ### 5.5 Durable post-publication failure signal
 
@@ -652,7 +662,21 @@ Reject:
 - duplicate runnable descriptors for one platform; or
 - a malformed or empty top-level digest.
 
-### 6.2 Verify the native image
+### 6.2 Verify the exact release binaries
+
+For each `linux/amd64` and `linux/arm64` child image:
+
+1. create, but do not run, a container with
+   `docker create --platform linux/<architecture>`;
+2. copy `/usr/local/bin/airplan` out with `docker cp`; and
+3. compare it byte-for-byte with
+   `dist/container/linux/<architecture>/airplan`.
+
+Perform this check before accepting either a newly built digest or an existing
+exact-version tag. Container creation and file extraction do not require QEMU.
+Always remove temporary containers and copied files on success or failure.
+
+### 6.3 Verify the native image
 
 On the `linux/amd64` release runner, pull by digest and verify:
 
@@ -673,7 +697,7 @@ On the `linux/amd64` release runner, pull by digest and verify:
 Pulling by top-level digest lets Docker select the native `amd64` child while
 keeping every check tied to the exact verified index.
 
-### 6.3 Verify server operation
+### 6.4 Verify server operation
 
 Run a release smoke test with:
 
@@ -706,7 +730,7 @@ Verify:
 Do not print the token or S3 credentials. Use a test-only public base URL and
 delete the throwaway containers, network, and volume after the test.
 
-### 6.4 Verify provenance
+### 6.5 Verify provenance
 
 Generate the attestation with:
 
@@ -722,8 +746,12 @@ Then verify:
 ```text
 gh attestation verify \
   oci://ghcr.io/jimeh/airplan@sha256:<digest> \
-  --repo jimeh/airplan
+  --repo jimeh/airplan \
+  --signer-workflow jimeh/airplan/.github/workflows/release.yml
 ```
+
+Apply the signer-workflow constraint before reusing an existing exact-version
+tag and again after creating the release attestation.
 
 Documentation should show digest-based verification and pulling, while still
 presenting the exact unprefixed container version tag as the convenient
@@ -1188,7 +1216,10 @@ the same downstream-publication model.
 
 Mitigation: push new builds without a tag, reuse an existing exact-version
 digest only after complete validation, and refuse to overwrite exact tags that
-resolve elsewhere.
+resolve elsewhere. Serialize workflow-owned package mutations across versions.
+GHCR does not enforce tag immutability or document an atomic create-only tag
+operation, so an external writer remains outside this guarantee; digest pinning
+is the immutable consumer boundary.
 
 ### The base image moves or changes between retries
 
