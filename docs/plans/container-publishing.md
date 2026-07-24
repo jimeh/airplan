@@ -1059,7 +1059,8 @@ docker buildx imagetools inspect ghcr.io/jimeh/airplan@sha256:<digest>
 docker pull ghcr.io/jimeh/airplan:<version>
 docker pull ghcr.io/jimeh/airplan@sha256:<digest>
 gh attestation verify oci://ghcr.io/jimeh/airplan@sha256:<digest> \
-  --repo jimeh/airplan
+  --repo jimeh/airplan \
+  --signer-workflow jimeh/airplan/.github/workflows/release.yml
 ```
 
 Also test:
