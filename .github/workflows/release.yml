@@ -590,7 +590,7 @@ jobs:
               )
             | .digest
           ' index.json)
-          if [[ "${#sbom_manifests[@]}" -lt 2 ]]; then
+          if [[ "${#sbom_manifests[@]}" -ne 2 ]]; then
             echo "image index is missing platform SBOM manifests" >&2
             exit 1
           fi
@@ -659,15 +659,18 @@ jobs:
           AIRPLAN_CONTAINER_IMAGE="$reference" \
             scripts/container/integration.sh
       - name: Begin provenance attestation
+        if: steps.existing.outputs.exists != 'true'
         run: |
           echo "PUBLICATION_PHASE=attest-image" >>"$GITHUB_ENV"
       - name: Attest image provenance
+        if: steps.existing.outputs.exists != 'true'
         uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
         with:
           subject-name: ghcr.io/jimeh/airplan
           subject-digest: ${{ steps.subject.outputs.digest }}
           push-to-registry: true
       - name: Verify image provenance
+        if: steps.existing.outputs.exists != 'true'
         env:
           DIGEST: ${{ steps.subject.outputs.digest }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

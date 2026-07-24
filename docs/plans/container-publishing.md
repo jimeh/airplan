@@ -545,7 +545,9 @@ Steps:
    fail closed if it conflicts.
 8. If it does not exist, build and push the index canonically by digest without
    assigning a tag.
-9. Generate and push the GitHub provenance attestation for the index digest.
+9. For a newly built digest, generate and push the GitHub provenance
+   attestation. Reuse an existing digest only after verifying its current
+   attestation; do not create a duplicate.
 10. Verify platforms, configuration, labels, version, server startup, and
     attestation.
 11. Assign the exact-version tag to the verified digest and re-resolve it.
@@ -597,13 +599,15 @@ A failed-job rerun must be safe at every boundary:
   assigning a tag.
 - A retry may create a new untagged digest if the earlier attempt stopped before
   version tagging; it verifies the new digest normally.
-- If the exact-version tag exists and fully validates, reuse its digest.
+- If the exact-version tag exists and fully validates, reuse its digest without
+  creating a duplicate attestation.
 - If the exact-version tag has the wrong revision, version, platforms, runtime
   configuration, or attestation, fail without overwriting it.
 - `latest` may move only to the verified digest of the current latest GitHub
   release.
 - Re-running an old release never changes `latest`.
-- Attestation generation and verification are repeatable for the same digest.
+- Attestation verification is repeatable for the same digest. Generate a new
+  attestation only for a newly built digest.
 
 Keep the current `release-${{ inputs.tag }}` concurrency group for complete
 attempts. Also give `publish-container` a constant repository/package-scoped
@@ -732,7 +736,7 @@ delete the throwaway containers, network, and volume after the test.
 
 ### 6.5 Verify provenance
 
-Generate the attestation with:
+For a newly built digest, generate the attestation with:
 
 ```yaml
 with:
@@ -751,7 +755,7 @@ gh attestation verify \
 ```
 
 Apply the signer-workflow constraint before reusing an existing exact-version
-tag and again after creating the release attestation.
+tag. For a newly built digest, apply it after creating the release attestation.
 
 Documentation should show digest-based verification and pulling, while still
 presenting the exact unprefixed container version tag as the convenient

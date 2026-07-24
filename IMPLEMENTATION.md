@@ -423,7 +423,8 @@ environment-only and file-based server startup, MinIO upload, graceful
 shutdown, and manifest persistence. GitHub provides the one authoritative
 provenance attestation because Buildx provenance is disabled; verification
 requires this repository's release workflow as its signer. Buildx still
-generates the image SBOM.
+generates the image SBOM. A retry that reuses an existing exact-version digest
+verifies its attestation but does not generate a duplicate.
 
 Only after verification does the workflow assign the unprefixed exact version
 tag and, after querying the latest GitHub release at the mutation boundary,
