@@ -187,6 +187,9 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Container MinIO setup is stateless**: `mc` aliases do not survive separate
   `docker run --rm` calls. Pass `MC_HOST_local` to each invocation and retry
   idempotent bucket creation as the readiness check.
+- **Container integration diagnostics must stay secret-safe**: keep phase and
+  line/status reporting around suppressed Docker and HTTP checks. Do not enable
+  shell tracing because credentials are passed in command arguments.
 - **Container release tags fail closed within the workflow**: serialize all
   workflow-owned GHCR mutations with one package-scoped `queue: max` group,
   reject observed exact-tag conflicts, and publish/verify by digest before

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -euo pipefail
+set -Eeuo pipefail
 
 readonly image="${AIRPLAN_CONTAINER_IMAGE:-airplan:container-test}"
 readonly minio_image="minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
@@ -17,6 +17,7 @@ readonly mc_host_local="http://$root_user:$root_password@$minio:9000"
 readonly token="01234567890123456789012345678901"
 temporary="$(mktemp -d)"
 readonly temporary
+phase="infrastructure-setup"
 
 cleanup() {
   docker rm -f "$server" "$minio" >/dev/null 2>&1 || true
@@ -24,7 +25,19 @@ cleanup() {
   docker volume rm "$state" >/dev/null 2>&1 || true
   rm -rf "$temporary"
 }
+
+# Invoked by the ERR trap below.
+# shellcheck disable=SC2329
+report_error() {
+  local status="$?"
+  local line="$1"
+  printf 'container integration failed: phase=%s line=%s status=%s\n' \
+    "$phase" "$line" "$status" >&2
+  return "$status"
+}
+
 trap cleanup EXIT
+trap 'report_error "$LINENO"' ERR
 
 docker network create "$network" >/dev/null
 docker volume create "$state" >/dev/null
@@ -33,6 +46,7 @@ docker run -d --name "$minio" --network "$network" \
   -e "MINIO_ROOT_PASSWORD=$root_password" \
   "$minio_image" server /data >/dev/null
 
+phase="bucket-setup"
 bucket_ready=false
 for _ in {1..30}; do
   if docker run --rm --network "$network" \
@@ -52,6 +66,7 @@ if [[ "$bucket_ready" != "true" ]]; then
   exit 1
 fi
 
+phase="fixture-setup"
 printf '%s\n' "$token" >"$temporary/token"
 chmod 0600 "$temporary/token"
 cat >"$temporary/config.toml" <<EOF
@@ -66,6 +81,8 @@ EOF
 chmod 0600 "$temporary/config.toml"
 printf '# Container integration\n\nPersistent state.\n' \
   >"$temporary/document.md"
+
+phase="fixture-ownership"
 docker run --rm --user 0 \
   --mount "type=bind,source=$temporary,target=/setup" \
   --entrypoint /usr/bin/chown \
@@ -132,29 +149,48 @@ stop_server_gracefully() {
   docker rm "$server" >/dev/null
 }
 
+phase="environment-server-start"
 start_environment_server
+
+phase="environment-server-readiness"
 port="$(wait_for_server 18081)"
-curl --fail --silent \
+
+phase="environment-server-capabilities"
+curl --fail --silent --show-error \
+  --output "$temporary/capabilities.json" \
   -H "Authorization: Bearer $token" \
-  "http://127.0.0.1:$port/api/v1/capabilities" |
-  jq -e '.api_version == "v1"' >/dev/null
-curl --fail --silent \
+  "http://127.0.0.1:$port/api/v1/capabilities"
+jq -e '.api_version == "v1"' "$temporary/capabilities.json" >/dev/null
+
+phase="environment-server-upload"
+curl --fail --silent --show-error \
+  --output "$temporary/upload.json" \
   -H "Authorization: Bearer $token" \
   -F 'metadata={"name":"document.md","format":"md"};type=application/json' \
   -F "document=@$temporary/document.md;type=text/markdown" \
-  "http://127.0.0.1:$port/api/v1/uploads/documents" |
-  jq -e '.kind == "document"' >/dev/null
+  "http://127.0.0.1:$port/api/v1/uploads/documents"
+jq -e '.kind == "document"' "$temporary/upload.json" >/dev/null
 
+phase="environment-server-shutdown"
 stop_server_gracefully
 
+phase="file-server-start"
 start_file_server
+
+phase="file-server-readiness"
 port="$(wait_for_server 8080)"
-curl --fail --silent \
+
+phase="file-server-list"
+curl --fail --silent --show-error \
+  --output "$temporary/uploads.json" \
   -H "Authorization: Bearer $token" \
-  "http://127.0.0.1:$port/api/v1/uploads" |
-  jq -e '.uploads | length == 1' >/dev/null
+  "http://127.0.0.1:$port/api/v1/uploads"
+jq -e '.uploads | length == 1' "$temporary/uploads.json" >/dev/null
+
+phase="file-server-shutdown"
 stop_server_gracefully
 
+phase="non-loopback-check"
 if docker run --rm \
   -e AIRPLAN_SERVER_HOST=0.0.0.0 \
   -e AIRPLAN_SERVER_ALLOW_NON_LOOPBACK=false \
