@@ -16,26 +16,30 @@ this implementation is built and must not contradict the spec.
 
 ## Task surface (mise)
 
-| Task                               | Purpose                                                    |
-| ---------------------------------- | ---------------------------------------------------------- |
-| `mise run treeboot`                | bootstrap a linked worktree from the root checkout         |
-| `mise run setup`                   | install tools + git hooks (run once)                       |
-| `mise run check`                   | fast handoff gate: lint + generated files + format + tests |
-| `mise run check:go`                | Go-only gate: lint + generated files + format + tests      |
-| `mise run check:go-version`        | check `.go-version` matches `go.mod`                       |
-| `mise run check:spec-sync`         | check contract changes update spec versions                |
-| `mise run test`                    | unit tests (no Docker needed)                              |
-| `mise run test:coverage`           | unit tests + text and HTML statement coverage reports      |
-| `mise run test-integration`        | MinIO round-trip via testcontainers (needs Docker)         |
-| `mise run test:browser`            | Chromium page smoke tests (installs browser on demand)     |
-| `mise run audit:deps`              | verify modules + scan Go and npm dependencies              |
-| `mise run lint`                    | all lints: `lint:go`, `lint:workflows`                     |
-| `mise run format` / `format:check` | write / check formatting (`:go`, `:markdown`)              |
-| `mise run generate`                | refresh committed generated files                          |
-| `mise run generate:check`          | fail if generated files are stale                          |
-| `mise run release:snapshot`        | build release artifacts without publishing                 |
-| `mise run verify`                  | broad local check + integration + release snapshot         |
-| `mise run build`                   | binary at `bin/airplan` (skipped when unchanged)           |
+| Task                                  | Purpose                                                    |
+| ------------------------------------- | ---------------------------------------------------------- |
+| `mise run treeboot`                   | bootstrap a linked worktree from the root checkout         |
+| `mise run setup`                      | install tools + git hooks (run once)                       |
+| `mise run check`                      | fast handoff gate: lint + generated files + format + tests |
+| `mise run check:go`                   | Go-only gate: lint + generated files + format + tests      |
+| `mise run check:go-version`           | check `.go-version` matches `go.mod`                       |
+| `mise run check:spec-sync`            | check contract changes update spec versions                |
+| `mise run test`                       | unit tests (no Docker needed)                              |
+| `mise run test:coverage`              | unit tests + text and HTML statement coverage reports      |
+| `mise run test-integration`           | MinIO round-trip via testcontainers (needs Docker)         |
+| `mise run container:context`          | snapshot binaries + normalized image context               |
+| `mise run container:build`            | build and load native image (needs Docker)                 |
+| `mise run container:check`            | validate amd64 + arm64 images (needs Docker)               |
+| `mise run test:container-integration` | MinIO image lifecycle (needs Docker)                       |
+| `mise run test:browser`               | Chromium page smoke tests (installs browser on demand)     |
+| `mise run audit:deps`                 | verify modules + scan Go and npm dependencies              |
+| `mise run lint`                       | all lints: `lint:go`, `lint:workflows`                     |
+| `mise run format` / `format:check`    | write / check formatting (`:go`, `:markdown`)              |
+| `mise run generate`                   | refresh committed generated files                          |
+| `mise run generate:check`             | fail if generated files are stale                          |
+| `mise run release:snapshot`           | build release artifacts without publishing                 |
+| `mise run verify`                     | broad local check + integration + release snapshot         |
+| `mise run build`                      | binary at `bin/airplan` (skipped when unchanged)           |
 
 Run `mise run check` before handing off; `verify` for broad or risky
 changes. Lefthook pre-commit hooks lint/format-check staged files.
@@ -161,11 +165,40 @@ coverage has no equivalent local task on non-Windows hosts.
   packaging, and publish only after native Intel and Apple Silicon checks.
   Snapshots stay secretless. Raw executables cannot carry stapled notarization
   tickets, so first Gatekeeper assessment may require internet access.
-- **Cask publication is the final release step**: GoReleaser OSS generates the
+- **Cask publication is a downstream release step**: GoReleaser OSS generates the
   Cask without uploading it. Preserve it for seven days as a same-run immutable
   artifact. A separate downstream job atomically updates the tap only after
   native checks and immutable release publication pass. A failed update must
   leave the prior Cask working; re-run failed jobs to retry only that job.
+- **Container binaries are GoReleaser artifacts**: never compile Go in the
+  Dockerfile. Keep its context normalized through `artifacts.json`, with no
+  target-platform `RUN` instruction and no QEMU setup.
+- **Container runtime stays shell-free**: its exact `CMD` is `serve`, with
+  host, port, and non-loopback defaults resolved by the executable rather than
+  a baked listen argument or entrypoint interpolation.
+- **Container config and state are distinct**:
+  `/etc/airplan/config.toml` is optional default input, never a forced
+  `AIRPLAN_CONFIG`; `/var/lib/airplan` is the owned persistent volume and only
+  one active server may use each manifest.
+- **Container config directories need traversal bits**: BuildKit can apply a
+  leaf `COPY --chmod` mode to newly created parent directories. Copy the
+  placeholder directory with mode `0555`, and keep non-root default-config
+  discovery covered by the image checks.
+- **Container MinIO setup is stateless**: `mc` aliases do not survive separate
+  `docker run --rm` calls. Pass `MC_HOST_local` to each invocation and retry
+  idempotent bucket creation as the readiness check.
+- **Container integration diagnostics must stay secret-safe**: keep phase and
+  line/status reporting around suppressed Docker and HTTP checks. Do not enable
+  shell tracing because credentials are passed in command arguments.
+- **Container release tags fail closed within the workflow**: serialize all
+  workflow-owned GHCR mutations with one package-scoped `queue: max` group,
+  reject observed exact-tag conflicts, and publish/verify by digest before
+  assigning the exact version and a still-current `latest`. GHCR does not
+  enforce tag immutability against external writers; consumers needing that
+  guarantee must pin the index digest.
+- **Actionlint currently lags `queue: max`**: keep the narrow `mise.toml`
+  ignore for its unsupported concurrency key until actionlint recognizes the
+  current GitHub syntax. Do not suppress other concurrency errors.
 - **MinIO is immutable-pinned** in `airplan/integration_test.go`:
   update the release tag and multi-platform digest together, inspect
   the image labels, then run `mise run test-integration`.
