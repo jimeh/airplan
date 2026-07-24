@@ -184,6 +184,9 @@ coverage has no equivalent local task on non-Windows hosts.
   leaf `COPY --chmod` mode to newly created parent directories. Copy the
   placeholder directory with mode `0555`, and keep non-root default-config
   discovery covered by the image checks.
+- **Container MinIO setup is stateless**: `mc` aliases do not survive separate
+  `docker run --rm` calls. Pass `MC_HOST_local` to each invocation and retry
+  idempotent bucket creation as the readiness check.
 - **Container release tags fail closed within the workflow**: serialize all
   workflow-owned GHCR mutations with one package-scoped `queue: max` group,
   reject observed exact-tag conflicts, and publish/verify by digest before

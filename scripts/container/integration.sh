@@ -13,6 +13,7 @@ readonly server="${suite}-server"
 readonly root_user="airplan-test"
 readonly root_password="airplan-container-test-password"
 readonly bucket="airplan-container-test"
+readonly mc_host_local="http://$root_user:$root_password@$minio:9000"
 readonly token="01234567890123456789012345678901"
 temporary="$(mktemp -d)"
 readonly temporary
@@ -32,19 +33,24 @@ docker run -d --name "$minio" --network "$network" \
   -e "MINIO_ROOT_PASSWORD=$root_password" \
   "$minio_image" server /data >/dev/null
 
+bucket_ready=false
 for _ in {1..30}; do
-  if docker run --rm --network "$network" "$mc_image" \
-    alias set local "http://$minio:9000" \
-    "$root_user" "$root_password" >/dev/null 2>&1; then
+  if docker run --rm --network "$network" \
+    -e "MC_HOST_local=$mc_host_local" \
+    "$mc_image" \
+    mb --ignore-existing "local/$bucket" \
+    >/dev/null 2>"$temporary/mc-error"; then
+    bucket_ready=true
     break
   fi
   sleep 1
 done
-docker run --rm --network "$network" "$mc_image" \
-  alias set local "http://$minio:9000" \
-  "$root_user" "$root_password" >/dev/null
-docker run --rm --network "$network" "$mc_image" \
-  mb "local/$bucket" >/dev/null
+if [[ "$bucket_ready" != "true" ]]; then
+  echo "MinIO bucket creation failed after 30 attempts" >&2
+  cat "$temporary/mc-error" >&2
+  docker logs "$minio" >&2
+  exit 1
+fi
 
 printf '%s\n' "$token" >"$temporary/token"
 chmod 0600 "$temporary/token"
