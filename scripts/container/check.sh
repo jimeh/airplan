@@ -5,6 +5,12 @@ set -euo pipefail
 image="${AIRPLAN_CONTAINER_IMAGE:-airplan:container-test}"
 version="$(jq -r '.version' dist/metadata.json)"
 revision="$(git rev-parse HEAD)"
+config_file="$(mktemp)"
+
+cleanup() {
+  rm -f "$config_file"
+}
+trap cleanup EXIT
 
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
@@ -40,6 +46,19 @@ if [[ "$version_output" != "airplan version $version" ]]; then
   echo "unexpected image version output: $version_output" >&2
   exit 1
 fi
+
+docker run --rm "$image" config profiles --json |
+  jq -e 'length == 0' >/dev/null
+
+printf '[profiles.container-check]\nregion = "auto"\n' >"$config_file"
+chmod 0444 "$config_file"
+docker run --rm \
+  --mount "type=bind,source=$config_file,target=/etc/airplan/config.toml,readonly" \
+  "$image" config profiles --json |
+  jq -e '
+    length == 1
+    and .[0].name == "container-check"
+  ' >/dev/null
 
 printf '# Writable temporary directory\n' |
   docker run --rm -i "$image" \

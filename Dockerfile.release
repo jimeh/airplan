@@ -5,7 +5,7 @@ ARG RELEASE_REVISION
 ARG RELEASE_VERSION
 
 COPY --chmod=0555 $TARGETPLATFORM/airplan /usr/local/bin/airplan
-COPY --chown=0:0 --chmod=0444 state/.keep /etc/airplan/.keep
+COPY --chown=0:0 --chmod=0555 state/ /etc/airplan/
 COPY --chown=65532:65532 --chmod=0700 state/ /var/lib/airplan/
 
 ENV XDG_CONFIG_HOME=/etc \

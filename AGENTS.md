@@ -180,6 +180,10 @@ coverage has no equivalent local task on non-Windows hosts.
   `/etc/airplan/config.toml` is optional default input, never a forced
   `AIRPLAN_CONFIG`; `/var/lib/airplan` is the owned persistent volume and only
   one active server may use each manifest.
+- **Container config directories need traversal bits**: BuildKit can apply a
+  leaf `COPY --chmod` mode to newly created parent directories. Copy the
+  placeholder directory with mode `0555`, and keep non-root default-config
+  discovery covered by the image checks.
 - **Container release tags fail closed**: exact unprefixed versions must never
   be replaced with a different digest. Publish and verify by digest only after
   the GitHub release is immutable, then assign the exact version and a

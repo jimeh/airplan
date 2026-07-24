@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"testing"
 )
@@ -63,7 +64,7 @@ func TestPrepareContainerContext(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode().Perm() != 0o555 {
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o555 {
 			t.Fatalf("%s mode = %o", path, info.Mode().Perm())
 		}
 	}
@@ -71,7 +72,7 @@ func TestPrepareContainerContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o700 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o700 {
 		t.Fatalf("state mode = %o", info.Mode().Perm())
 	}
 }
