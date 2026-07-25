@@ -425,8 +425,12 @@ func listColumns() []listColumnSpec {
 			name: "objects", header: "OBJECTS",
 			local: columnDefault, remote: columnDefault,
 			localValue: func(rec airplan.ManifestRecord) string {
-				// Local manifests do not record object counts yet.
-				return "-"
+				// Declared counts are absent on records that predate
+				// them (SPEC.md §9); render "-" without warning.
+				if rec.Objects <= 0 {
+					return "-"
+				}
+				return strconv.Itoa(rec.Objects)
 			},
 			remoteValue: func(upload airplan.RemoteUpload) string {
 				return strconv.Itoa(upload.Objects)
@@ -436,9 +440,12 @@ func listColumns() []listColumnSpec {
 			name: "size", header: "SIZE",
 			local: columnDefault, remote: columnDefault,
 			localValue: func(rec airplan.ManifestRecord) string {
-				// Local manifests do not record total upload bytes yet;
-				// the page-size column carries the recorded page bytes.
-				return "-"
+				// The whole-upload declared size; page bytes stay on the
+				// page-size column (SPEC.md §9).
+				if rec.TotalBytes <= 0 {
+					return "-"
+				}
+				return formatListBytes(rec.TotalBytes)
 			},
 			remoteValue: func(upload airplan.RemoteUpload) string {
 				return formatListBytes(upload.Bytes)

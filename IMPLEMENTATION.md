@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.29.0.
+may contradict it. Targets spec version 0.30.0.
 
 ---
 
@@ -265,7 +265,10 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   marker is removed in a separate final `DeleteObject`. Invalid and markerless
   directories are outside airplan's remote management authority.
 - `--older-than` durations: small custom parser for `d`/`w` units —
-  Go's stdlib `time.ParseDuration` has no days.
+  Go's stdlib `time.ParseDuration` has no days. List and purge time
+  boundaries layer `ParseTimeFilter` on top: a leading four-digit year
+  selects an ordered `time.ParseInLocation` layout list in the local
+  zone, and everything else falls through to the duration parser.
 - Manifest appends: `O_APPEND` open, whole line in one `Write` call,
   wrapped in context-aware `gofrs/flock` acquisition (flock on Unix,
   LockFileEx on Windows) per spec §9's concurrency and timeout rules.

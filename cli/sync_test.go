@@ -55,6 +55,10 @@ func TestSyncCommandJSONAndConcurrencyValidation(t *testing.T) {
 		result.Added != 1 || len(result.AddedRecords) != 1 {
 		t.Fatalf("stdout = %q, result = %+v, error = %v", stdout, result, err)
 	}
+	if result.Enriched != 0 || result.EnrichedRecords == nil ||
+		!strings.Contains(stdout, `"enriched_records":[]`) {
+		t.Fatalf("stdout = %q, want empty enriched_records array", stdout)
+	}
 	manifest := filepath.Join(t.TempDir(), "missing.jsonl")
 	if records, _, err := airplan.ReadManifest(manifest); err != nil || records != nil {
 		t.Fatalf("dry run manifest = %+v, %v", records, err)

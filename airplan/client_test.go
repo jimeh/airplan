@@ -330,6 +330,18 @@ func TestUploadTextInput(t *testing.T) {
 		!records[0].Time.Equal(marker.CreatedAt) {
 		t.Fatalf("manifest record = %+v, marker = %+v", records[0], marker)
 	}
+	// Declared inventory: the marker body plus its declared objects,
+	// asserted against the marker's own object list (SPEC.md §9).
+	wantTotal := int64(len(puts[0].body))
+	for _, object := range marker.Objects {
+		wantTotal += object.Bytes
+	}
+	if records[0].Objects != len(marker.Objects)+1 ||
+		records[0].TotalBytes != wantTotal {
+		t.Fatalf("declared totals = (%d, %d), want (%d, %d)",
+			records[0].Objects, records[0].TotalBytes,
+			len(marker.Objects)+1, wantTotal)
+	}
 	if got := puts[1].header.Get("Content-Type"); got !=
 		"text/plain; charset=utf-8" {
 		t.Errorf("source Content-Type = %q", got)
@@ -355,6 +367,62 @@ func TestUploadTextInput(t *testing.T) {
 	}
 	if _, err := os.Stat(manifest); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("default manifest was touched: %v", err)
+	}
+}
+
+// TestUploadRecordsDeclaredTotalsWithoutSource covers the sourceless
+// document shape: HTML input declares only the marker and its page.
+func TestUploadRecordsDeclaredTotalsWithoutSource(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	var (
+		mu   sync.Mutex
+		puts []capturedRequest
+	)
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			body, _ := io.ReadAll(r.Body)
+			mu.Lock()
+			cr := captureRequest(r)
+			cr.body = body
+			puts = append(puts, cr)
+			mu.Unlock()
+			w.WriteHeader(http.StatusOK)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	cfg := &Config{
+		Endpoint: server.URL, Bucket: "plans", AccessKeyID: "test",
+		SecretAccessKey: "test",
+		PublicBaseURL:   "https://plans.example.com",
+		ManifestPath:    filepath.Join(t.TempDir(), "manifest.jsonl"),
+		Repository:      "none",
+	}
+	client, err := New(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("<html><head></head><body></body></html>"),
+		Name:   "plan.html",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(puts) != 2 {
+		t.Fatalf("got %d puts, want 2 (marker, page)", len(puts))
+	}
+	records, warnings, err := ReadManifest(cfg.ManifestPath)
+	if err != nil || len(warnings) != 0 || len(records) != 1 {
+		t.Fatalf("manifest records = %+v, warnings = %v, error = %v",
+			records, warnings, err)
+	}
+	wantTotal := int64(len(puts[0].body) + len(puts[1].body))
+	if records[0].Objects != 2 || records[0].TotalBytes != wantTotal {
+		t.Fatalf("declared totals = (%d, %d), want (2, %d)",
+			records[0].Objects, records[0].TotalBytes, wantTotal)
 	}
 }
 

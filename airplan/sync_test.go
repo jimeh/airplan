@@ -294,6 +294,282 @@ func TestSyncManifestConcurrencyLimit(t *testing.T) {
 	}
 }
 
+func declaredDocumentMarker(dir string, when time.Time) UploadMarker {
+	return UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: when, Kind: UploadKindDocument, Slug: "new",
+		Format: "md", Objects: []MarkerObject{
+			{
+				Name: "new.html", Role: MarkerRolePage, Bytes: 10,
+				ContentType: pageContentType,
+			},
+			{
+				Name: "new.md", Role: MarkerRoleSource, Bytes: 8,
+				ContentType: sourceContentType,
+			},
+		}, Title: "New plan",
+	}
+}
+
+func addDeclaredDocumentUpload(
+	t *testing.T, fake *syncStorage, dir string, when time.Time,
+) UploadMarker {
+	t.Helper()
+	marker := declaredDocumentMarker(dir, when)
+	fake.addUpload(t, marker, []byte("0123456789"))
+	fake.addObject(dir+"/new.md", []byte("12345678"), when)
+	return marker
+}
+
+func declaredMarkerTotals(t *testing.T, marker UploadMarker) (int, int64) {
+	t.Helper()
+	body, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := int64(len(body))
+	for _, object := range marker.Objects {
+		total += object.Bytes
+	}
+	return len(marker.Objects) + 1, total
+}
+
+func TestSyncImportRecordsDeclaredTotals(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	docDir := strings.Repeat("d", 26)
+	docMarker := addDeclaredDocumentUpload(t, fake, docDir, when)
+	colDir := strings.Repeat("e", 26)
+	colMarker := UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: colDir,
+		CreatedAt: when.Add(time.Minute), Kind: UploadKindCollection,
+		Objects: []MarkerObject{
+			{
+				Name: "index.html", Role: MarkerRolePage, Bytes: 4,
+				ContentType: pageContentType,
+			},
+			{
+				Name: "shot.png", Role: MarkerRoleFile, Bytes: 6,
+				ContentType: "image/png",
+			},
+		}, Title: "Shots",
+	}
+	fake.addUpload(t, colMarker, []byte("page"))
+	fake.addObject(colDir+"/shot.png", []byte("123456"), when)
+
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := newSyncClient(t, fake.server.URL, manifest)
+	result, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil || len(result.Added) != 2 {
+		t.Fatalf("sync = %+v, %v", result, err)
+	}
+
+	wantDocObjects, wantDocTotal := declaredMarkerTotals(t, docMarker)
+	wantColObjects, wantColTotal := declaredMarkerTotals(t, colMarker)
+	doc, col := result.Added[0], result.Added[1]
+	if doc.Kind != string(UploadKindDocument) {
+		doc, col = col, doc
+	}
+	if doc.Objects != wantDocObjects || doc.TotalBytes != wantDocTotal {
+		t.Fatalf("document totals = (%d, %d), want (%d, %d)",
+			doc.Objects, doc.TotalBytes, wantDocObjects, wantDocTotal)
+	}
+	if col.Objects != wantColObjects || col.TotalBytes != wantColTotal {
+		t.Fatalf("collection totals = (%d, %d), want (%d, %d)",
+			col.Objects, col.TotalBytes, wantColObjects, wantColTotal)
+	}
+}
+
+func backfillManifestLine(dir string, when time.Time) string {
+	return `{"type":"upload","time":"` + when.UTC().Format(time.RFC3339) +
+		`","key":"` + dir + `/new.html",` +
+		`"source_key":"` + dir + `/new.md",` +
+		`"marker_key":"` + dir + `/.airplan.json",` +
+		`"url":"https://plans.example.com/` + dir + `/new.html",` +
+		`"bucket":"plans","profile":"work","format":"md",` +
+		`"kind":"document","title":"New plan","bytes":10,` +
+		`"marker_version":3}` + "\n"
+}
+
+func TestSyncBackfillsDeclaredTotals(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("f", 26)
+	marker := addDeclaredDocumentUpload(t, fake, dir, when)
+
+	// The active local record predates objects/total_bytes.
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	if err := os.WriteFile(manifest,
+		[]byte(backfillManifestLine(dir, when)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := newSyncClient(t, fake.server.URL, manifest)
+
+	dryRun, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true, DryRun: true})
+	if err != nil || len(dryRun.Enriched) != 1 || len(dryRun.Added) != 0 {
+		t.Fatalf("dry run = %+v, %v", dryRun, err)
+	}
+	records, _, err := ReadManifest(manifest)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("dry run wrote manifest: %+v, %v", records, err)
+	}
+
+	result, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Added) != 0 || len(result.Enriched) != 1 ||
+		result.Unchanged != 1 {
+		t.Fatalf("sync = %+v", result)
+	}
+	wantObjects, wantTotal := declaredMarkerTotals(t, marker)
+	enriched := result.Enriched[0]
+	if enriched.Objects != wantObjects || enriched.TotalBytes != wantTotal {
+		t.Fatalf("enriched totals = (%d, %d), want (%d, %d)",
+			enriched.Objects, enriched.TotalBytes, wantObjects, wantTotal)
+	}
+	if !enriched.Time.Equal(when) || enriched.Title != "New plan" ||
+		enriched.MarkerKey != dir+"/.airplan.json" {
+		t.Fatalf("enriched record = %+v, want original identity", enriched)
+	}
+
+	// Backfill values match a fresh import of the same content.
+	freshManifest := filepath.Join(t.TempDir(), "fresh.jsonl")
+	fresh := newSyncClient(t, fake.server.URL, freshManifest)
+	imported, err := fresh.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil || len(imported.Added) != 1 {
+		t.Fatalf("fresh import = %+v, %v", imported, err)
+	}
+	if imported.Added[0].Objects != enriched.Objects ||
+		imported.Added[0].TotalBytes != enriched.TotalBytes {
+		t.Fatalf("import totals = (%d, %d), enriched = (%d, %d)",
+			imported.Added[0].Objects, imported.Added[0].TotalBytes,
+			enriched.Objects, enriched.TotalBytes)
+	}
+
+	// Reduction collapses the enriched append onto the original record.
+	records, _, err = ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uploads := ManifestUploads(records)
+	if len(records) != 2 || len(uploads) != 1 ||
+		uploads[0].Objects != wantObjects {
+		t.Fatalf("records = %+v, uploads = %+v", records, uploads)
+	}
+
+	// Idempotence: a second sync appends nothing.
+	second, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil || len(second.Enriched) != 0 || len(second.Added) != 0 ||
+		second.Unchanged != 1 {
+		t.Fatalf("second sync = %+v, %v", second, err)
+	}
+	after, _, err := ReadManifest(manifest)
+	if err != nil || len(after) != 2 {
+		t.Fatalf("second sync appended records: %+v, %v", after, err)
+	}
+}
+
+func TestSyncBackfillLeavesNonCompleteMarkersUntouched(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+
+	t.Run("incomplete", func(t *testing.T) {
+		fake := newSyncStorage(t)
+		dir := strings.Repeat("g", 26)
+		marker := declaredDocumentMarker(dir, when)
+		// Stored page is shorter than the declared page bytes.
+		fake.addMarker(t, marker)
+		fake.addObject(dir+"/new.html", []byte("short"), when)
+		fake.addObject(dir+"/new.md", []byte("12345678"), when)
+
+		manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+		if err := os.WriteFile(manifest,
+			[]byte(backfillManifestLine(dir, when)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		client := newSyncClient(t, fake.server.URL, manifest)
+		result, err := client.SyncManifest(context.Background(),
+			SyncManifestOptions{Prune: true})
+		if err != nil || len(result.Enriched) != 0 {
+			t.Fatalf("sync = %+v, %v", result, err)
+		}
+		records, _, err := ReadManifest(manifest)
+		if err != nil || len(records) != 1 || records[0].Objects != 0 {
+			t.Fatalf("records = %+v, %v", records, err)
+		}
+	})
+
+	t.Run("invalid", func(t *testing.T) {
+		fake := newSyncStorage(t)
+		dir := strings.Repeat("h", 26)
+		fake.addObject(dir+"/"+MarkerFilename, []byte("{not json"), when)
+		fake.addObject(dir+"/new.html", []byte("0123456789"), when)
+
+		manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+		if err := os.WriteFile(manifest,
+			[]byte(backfillManifestLine(dir, when)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		client := newSyncClient(t, fake.server.URL, manifest)
+		result, err := client.SyncManifest(context.Background(),
+			SyncManifestOptions{Prune: true})
+		if err != nil || len(result.Enriched) != 0 {
+			t.Fatalf("sync = %+v, %v", result, err)
+		}
+		records, _, err := ReadManifest(manifest)
+		if err != nil || len(records) != 1 || records[0].Objects != 0 {
+			t.Fatalf("records = %+v, %v", records, err)
+		}
+	})
+}
+
+func TestSyncCommitNeverResurrectsTombstonedIdentity(t *testing.T) {
+	dir := strings.Repeat("i", 26)
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	tombstone := `{"type":"delete","time":"2026-07-22T09:00:00Z",` +
+		`"key":"` + dir + `/new.html",` +
+		`"marker_key":"` + dir + `/.airplan.json",` +
+		`"bucket":"plans","profile":"work","reason":"deleted"}` + "\n"
+	contents := backfillManifestLine(dir, when) + tombstone
+	if err := os.WriteFile(manifest, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client := newSyncClient(t, "http://127.0.0.1:0", manifest)
+	enriched := ManifestRecord{
+		Type: "upload", Time: when, Key: dir + "/new.html",
+		MarkerKey: dir + "/.airplan.json",
+		URL:       "https://plans.example.com/" + dir + "/new.html",
+		Bucket:    "plans", Profile: "work", Kind: "document",
+		Bytes: 10, Objects: 3, TotalBytes: 300, MarkerVersion: 3,
+	}
+	// Simulate an enrichment planned before a concurrent tombstone: the
+	// commit path must never resurrect the now-inactive identity.
+	result := &SyncManifestResult{Enriched: []ManifestRecord{enriched}}
+	if err := client.commitSyncManifest(
+		context.Background(), manifest, 2, result,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Enriched) != 0 {
+		t.Fatalf("enriched = %+v, want none", result.Enriched)
+	}
+	after, err := os.ReadFile(manifest)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("manifest changed: %q -> %q, %v", before, after, err)
+	}
+}
+
 type syncStorage struct {
 	server      *httptest.Server
 	mu          sync.Mutex

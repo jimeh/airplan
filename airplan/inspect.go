@@ -150,22 +150,33 @@ func sumObjectBytes(objects []objectInfo) int64 {
 func (c *Client) inspectListedUpload(
 	ctx context.Context, upload RemoteUpload,
 ) (*UploadInspection, error) {
+	inspection, _, err := c.inspectListedUploadBody(ctx, upload)
+	return inspection, err
+}
+
+// inspectListedUploadBody inspects a listed upload and also returns the
+// fetched marker body so callers can record its declared size
+// (SPEC.md §9). The body is nil for dual-marker conflicts.
+func (c *Client) inspectListedUploadBody(
+	ctx context.Context, upload RemoteUpload,
+) (*UploadInspection, []byte, error) {
 	if upload.Conflict {
 		return &UploadInspection{
 			State: UploadInvalid, Dir: upload.Dir,
 			MarkerKey: upload.MarkerKey, Objects: upload.Objects,
 			Bytes: upload.Bytes, Error: MarkerErrorConflictingMarkers,
-		}, nil
+		}, nil, nil
 	}
 	markerBody, err := c.st.getBytes(ctx, upload.MarkerKey, MaxMarkerSize)
 	if err != nil {
 		if errors.Is(err, errObjectNotFound) {
-			return nil, fmt.Errorf("airplan: ownership marker %q is missing",
-				upload.MarkerKey)
+			return nil, nil, fmt.Errorf(
+				"airplan: ownership marker %q is missing", upload.MarkerKey)
 		}
-		return nil, err
+		return nil, nil, err
 	}
-	return c.inspectUploadSnapshot(ctx, upload, markerBody)
+	inspection, err := c.inspectUploadSnapshot(ctx, upload, markerBody)
+	return inspection, markerBody, err
 }
 
 func (c *Client) inspectUploadSnapshot(

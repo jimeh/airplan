@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.29.0**
+**Spec version: 0.30.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -1257,13 +1257,14 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
- "bytes":18432,"marker_version":3}
+ "bytes":18432,"objects":3,"total_bytes":25600,"marker_version":3}
 {"type":"upload","time":"2026-07-21T12:03:00Z",
  "key":"gaj4.../index.html",
  "marker_key":"gaj4.../.airplan-collection.json",
  "url":"https://plans.example.com/gaj4.../index.html",
  "bucket":"plans","profile":"work","kind":"collection",
- "title":"login.png and 1 more","bytes":9216,"marker_version":3}
+ "title":"login.png and 1 more","bytes":9216,
+ "objects":4,"total_bytes":198656,"marker_version":3}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
@@ -1280,6 +1281,17 @@ conforming implementations can share a manifest:
   root-level settings. `marker_key` is the exact kind-specific ownership key.
   `repo` preserves canonical repository metadata. The full collection
   inventory remains only in the remote marker.
+- `objects` and `total_bytes` are optional declared-inventory counts:
+  `objects` counts the ownership marker plus every marker-declared
+  object, and `total_bytes` sums the marker's serialized body and the
+  declared objects' bytes. They are **marker-declared, never
+  storage-observed** — unrecognized extras and interrupted-upload
+  remnants are excluded — so the same upload records the same counts
+  whether it arrived by upload or by `sync`. Writers record them for
+  every new upload; `sync` records them on import and backfills active
+  records missing both. Records that predate the fields simply omit
+  them, and readers present unknown counts as `-` with no warning.
+  `bytes` keeps its meaning: the primary page object only.
 - Current writers always include `marker_version: 3`; its absence identifies
   legacy pre-marker history. Readers infer `kind: document` and derive its
   slug from the page key for valid older records that omit those fields.
@@ -1340,7 +1352,12 @@ machine) and must be safe:
   `objects`, `size`, and `url`; default remote columns are `date`,
   `kind`, `objects`, `size`, `slug`, and `url`. A value a row cannot
   provide renders `-`; local rows render `-` for `objects` and `size`
-  when the manifest record carries no recorded counts.
+  when the manifest record carries no recorded counts. Local
+  `objects`/`size` are marker-declared manifest counts while remote
+  `objects`/`size` are storage-observed; the two can legitimately
+  differ because remote counting includes unrecognized extras and
+  interrupted-upload remnants. That divergence is diagnostic signal,
+  and `show` is where it is reconciled.
 - Three automatic columns join the default set only when they carry
   information: `profile` when the results span more than one recorded
   profile (root-level history renders `<root>`), `state`
@@ -1572,9 +1589,21 @@ machine) and must be safe:
   marker validates and every declared object is present at its declared size.
   Imported v3 records retain kind, exact marker identity, primary page,
   document slug/format/source where applicable, title, and repository, but do
-  not duplicate collection inventories. Imported profile,
+  not duplicate collection inventories. Imported records carry declared
+  `objects`/`total_bytes`. Imported profile,
   bucket, and public URL values come from the receiving machine's resolved
   connection, never the marker.
+  Sync also backfills declared counts: every active, scoped,
+  marker-managed local record missing both `objects` and `total_bytes`
+  has its listed marker fetched and inspected, and only a `complete`
+  upload appends an enriched copy of the record — original time and
+  identity with the declared counts added — which latest-wins
+  reduction collapses in place. A non-complete or invalid inspection
+  leaves the record untouched rather than guessing. Backfill converges
+  in one pass and then costs nothing, never resurrects a tombstoned
+  identity, shares the `--concurrency` budget, and follows the same
+  lock/reread/recheck commit path; `--dry-run` plans enrichment
+  without writing.
   By default, active scoped local records absent from LIST are considered for
   pruning, but airplan performs a targeted marker GET before appending a
   `remote_missing` tombstone. Only a definite not-found response confirms
@@ -1589,8 +1618,10 @@ machine) and must be safe:
   records. Per-item failures do not discard successfully validated progress.
   Human output and warnings use stderr while stdout remains empty. `--json`
   emits exactly one object on stdout with deterministic `added_records`,
-  `tombstone_records`, and `failures` arrays plus `unchanged`, `incomplete`,
-  `invalid`, and `retained` counters. A partial failure exits nonzero after
+  `enriched_records`, `tombstone_records`, and `failures` arrays plus
+  `unchanged`, `incomplete`, `invalid`, and `retained` counters;
+  enrichment is counted separately and never reported as added. A
+  partial failure exits nonzero after
   writing the result. Sync provides eventual active-inventory convergence;
   it neither uploads deletion history nor makes historical JSONL files
   identical across machines.
@@ -1864,6 +1895,11 @@ The minimal tool set is:
 The `upload_document` tool description identifies GFM, highlighted code,
 Mermaid fences, GitHub-style alerts, frontmatter, footnotes, and responsive
 columns as optional Markdown affordances to use when they improve clarity.
+
+`list_uploads` accepts the list selection filters from §9 —
+`newer_than`, `older_than`, `limit`, `kind`, and `slug` — with the
+same time-boundary forms and semantics as the CLI flags, applied to
+either source.
 
 Hosted MCP omits file collection upload because MCP has no portable
 client-to-server file upload and server-local paths are unsafe. No transport

@@ -51,6 +51,13 @@ type ManifestRecord struct {
 	// Repo is the canonical repository URL when known.
 	Repo  string `json:"repo,omitempty"`
 	Bytes int64  `json:"bytes,omitempty"`
+	// Objects counts the ownership marker plus every marker-declared
+	// object when known (SPEC.md §9). Zero means unrecorded.
+	Objects int `json:"objects,omitempty"`
+	// TotalBytes sums the marker body and every marker-declared
+	// object's bytes when known (SPEC.md §9). Zero means unrecorded;
+	// Bytes keeps describing the primary page only.
+	TotalBytes int64 `json:"total_bytes,omitempty"`
 	// Reason is "deleted" or "remote_missing" for modern tombstones.
 	Reason string `json:"reason,omitempty"`
 
@@ -279,6 +286,12 @@ func validateManifestRecord(rec ManifestRecord) error {
 		if rec.Bytes <= 0 {
 			return errors.New("bytes must be positive")
 		}
+		if rec.Objects < 0 {
+			return errors.New("objects must not be negative")
+		}
+		if rec.TotalBytes < 0 {
+			return errors.New("total_bytes must not be negative")
+		}
 		if rec.MarkerKey != "" {
 			expected := markerKeyForManifestRecord(rec)
 			if expected == "" || rec.MarkerKey != expected {
@@ -346,7 +359,11 @@ func readManifestLine(r *bufio.Reader, max int) ([]byte, bool, error) {
 // recordUpload appends an upload record for res, best-effort: manifest
 // failures degrade to a warning on the result, never a failed upload
 // (SPEC.md §9 — the manifest is convenience, not a source of truth).
-func (c *Client) recordUpload(ctx context.Context, res *Result) {
+// objects and totalBytes carry the marker-declared inventory counts
+// (SPEC.md §9): marker plus declared objects, never observed storage.
+func (c *Client) recordUpload(
+	ctx context.Context, res *Result, objects int, totalBytes int64,
+) {
 	if c.cfg.DisableManifest {
 		return
 	}
@@ -377,6 +394,8 @@ func (c *Client) recordUpload(ctx context.Context, res *Result) {
 		Title:         res.Title,
 		Repo:          res.RepositoryURL,
 		Bytes:         res.Bytes,
+		Objects:       objects,
+		TotalBytes:    totalBytes,
 		MarkerVersion: res.MarkerVersion,
 	}
 	if err := appendManifestRecord(ctx, path, rec); err != nil {

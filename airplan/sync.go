@@ -36,6 +36,10 @@ type SyncFailure struct {
 type SyncManifestResult struct {
 	// Added contains upload records planned or appended by this run.
 	Added []ManifestRecord `json:"added_records"`
+	// Enriched contains active upload records re-appended with declared
+	// objects/total_bytes counts (SPEC.md §9). They are not new uploads
+	// and are counted separately from Added.
+	Enriched []ManifestRecord `json:"enriched_records"`
 	// Tombstoned contains delete records planned or appended by this run.
 	Tombstoned []ManifestRecord `json:"tombstone_records"`
 	// Unchanged counts remote markers already active in the local manifest.
@@ -111,9 +115,21 @@ func (c *Client) SyncManifest(
 	jobs := make([]syncJob, 0, len(remote)+len(active))
 	for index := range remote {
 		upload := remote[index]
-		if _, ok := active[upload.MarkerKey]; !ok {
+		record, ok := active[upload.MarkerKey]
+		if !ok {
 			jobs = append(jobs, syncJob{
 				markerKey: upload.MarkerKey, upload: &upload,
+			})
+			continue
+		}
+		// Backfill declared objects/total_bytes for active records that
+		// predate those fields (SPEC.md §9). Only records missing both
+		// fields qualify, so one pass converges and later syncs cost
+		// nothing.
+		if record.Objects == 0 && record.TotalBytes == 0 {
+			jobs = append(jobs, syncJob{
+				markerKey: upload.MarkerKey, upload: &upload,
+				local: &record, enrich: true,
 			})
 		}
 	}
@@ -146,9 +162,14 @@ func (c *Client) SyncManifest(
 			defer wg.Done()
 			for index := range jobCh {
 				job := jobs[index]
-				if job.upload != nil {
+				switch {
+				case job.enrich:
+					jobResults[index] = c.syncEnrich(
+						ctx, *job.upload, *job.local,
+					)
+				case job.upload != nil:
 					jobResults[index] = c.syncImport(ctx, *job.upload)
-				} else {
+				default:
 					jobResults[index] = c.syncPrune(ctx, *job.local)
 				}
 			}
@@ -180,6 +201,9 @@ func (c *Client) SyncManifest(
 		if item.upload != nil {
 			result.Added = append(result.Added, *item.upload)
 		}
+		if item.enriched != nil {
+			result.Enriched = append(result.Enriched, *item.enriched)
+		}
 		if item.tombstone != nil {
 			result.Tombstoned = append(result.Tombstoned, *item.tombstone)
 		}
@@ -194,7 +218,8 @@ func (c *Client) SyncManifest(
 		}
 	}
 
-	if !opts.DryRun && (len(result.Added) > 0 || len(result.Tombstoned) > 0) {
+	if !opts.DryRun && (len(result.Added) > 0 ||
+		len(result.Enriched) > 0 || len(result.Tombstoned) > 0) {
 		initialLen := len(records)
 		if err := c.commitSyncManifest(
 			ctx, manifestPath, initialLen, result,
@@ -211,7 +236,7 @@ func (c *Client) SyncManifest(
 
 func syncFailureForContext(job syncJob, err error) *SyncFailure {
 	operation := "fetch"
-	if job.local != nil {
+	if job.local != nil && !job.enrich {
 		operation = "confirm_absence"
 	}
 	return &SyncFailure{
@@ -236,7 +261,7 @@ func scopedActiveUploads(
 func (c *Client) syncImport(
 	ctx context.Context, upload RemoteUpload,
 ) syncJobResult {
-	inspection, err := c.inspectListedUpload(ctx, upload)
+	inspection, markerBody, err := c.inspectListedUploadBody(ctx, upload)
 	if err != nil {
 		return syncJobResult{failure: &SyncFailure{
 			MarkerKey: upload.MarkerKey, Operation: "fetch", Error: err.Error(),
@@ -257,6 +282,9 @@ func (c *Client) syncImport(
 		Title: inspection.Title, Repo: inspection.Repo,
 		Bytes: inspection.Page.Bytes, MarkerVersion: inspection.MarkerVersion,
 	}
+	record.Objects, record.TotalBytes = declaredInspectionTotals(
+		inspection, len(markerBody),
+	)
 	if inspection.Kind == UploadKindDocument {
 		record.Slug, _ = pageSlug(path.Base(inspection.Page.Key))
 	}
@@ -268,6 +296,53 @@ func (c *Client) syncImport(
 		result.warning = inspection.Warnings[0]
 	}
 	return result
+}
+
+// declaredInspectionTotals derives the marker-declared inventory from a
+// complete inspection: the marker plus its page, optional source, and
+// files (SPEC.md §9). Sync only records complete uploads, so declared
+// and observed sizes agree here; interrupted remnants and unrecognized
+// extras are deliberately excluded, keeping the values identical to a
+// fresh upload of the same content.
+func declaredInspectionTotals(
+	inspection *UploadInspection, markerBytes int,
+) (int, int64) {
+	objects := 2 // the marker and its page
+	total := int64(markerBytes) + inspection.Page.Bytes
+	if inspection.Source != nil {
+		objects++
+		total += inspection.Source.Bytes
+	}
+	for _, file := range inspection.Files {
+		objects++
+		total += file.Bytes
+	}
+	return objects, total
+}
+
+// syncEnrich re-appends one active record with declared inventory
+// counts (SPEC.md §9). The enriched record carries the original time
+// and identity, so latest-wins reduction collapses it in place. A
+// non-complete inspection leaves the record untouched rather than
+// guessing.
+func (c *Client) syncEnrich(
+	ctx context.Context, upload RemoteUpload, record ManifestRecord,
+) syncJobResult {
+	inspection, markerBody, err := c.inspectListedUploadBody(ctx, upload)
+	if err != nil {
+		return syncJobResult{failure: &SyncFailure{
+			MarkerKey: upload.MarkerKey, Operation: "fetch",
+			Error: err.Error(),
+		}}
+	}
+	if inspection.State != UploadComplete {
+		return syncJobResult{}
+	}
+	enriched := record
+	enriched.Objects, enriched.TotalBytes = declaredInspectionTotals(
+		inspection, len(markerBody),
+	)
+	return syncJobResult{enriched: &enriched}
 }
 
 func (c *Client) syncPrune(
@@ -323,6 +398,26 @@ func (c *Client) commitSyncManifest(
 			appendedUploads = append(appendedUploads, rec)
 			active[markerKey] = rec
 		}
+		appendedEnriched := make([]ManifestRecord, 0, len(result.Enriched))
+		for _, rec := range result.Enriched {
+			// Re-check under the lock: a concurrently tombstoned
+			// identity is never resurrected, and a concurrently
+			// enriched or replaced record is not enriched twice.
+			existing, exists := active[manifestMarkerKey(rec)]
+			if !exists {
+				continue
+			}
+			if existing.Objects != 0 || existing.TotalBytes != 0 {
+				continue
+			}
+			// A concurrent re-upload of the same identity supersedes the
+			// stale inspection; leave it for the next sync pass.
+			if !existing.Time.Equal(rec.Time) || existing.Key != rec.Key {
+				continue
+			}
+			appendedEnriched = append(appendedEnriched, rec)
+			active[manifestMarkerKey(rec)] = rec
+		}
 		appendedTombstones := make([]ManifestRecord, 0,
 			len(result.Tombstoned))
 		for _, rec := range result.Tombstoned {
@@ -336,11 +431,13 @@ func (c *Client) commitSyncManifest(
 			delete(active, manifestMarkerKey(rec))
 		}
 		all := append(append([]ManifestRecord(nil), appendedUploads...),
-			appendedTombstones...)
+			appendedEnriched...)
+		all = append(all, appendedTombstones...)
 		if err := appendManifestRecordsUnlocked(path, all); err != nil {
 			return err
 		}
 		result.Added = appendedUploads
+		result.Enriched = appendedEnriched
 		result.Tombstoned = appendedTombstones
 		return nil
 	})
@@ -400,6 +497,7 @@ func hasConcurrentDelete(
 
 type syncJobResult struct {
 	upload    *ManifestRecord
+	enriched  *ManifestRecord
 	tombstone *ManifestRecord
 	failure   *SyncFailure
 	warning   string
@@ -411,4 +509,7 @@ type syncJob struct {
 	markerKey string
 	upload    *RemoteUpload
 	local     *ManifestRecord
+	// enrich marks a declared-inventory backfill job: upload and local
+	// are both set, and only objects/total_bytes may change.
+	enrich bool
 }

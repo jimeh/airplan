@@ -79,6 +79,23 @@ func TestUploadFilesStreamsOneCollection(t *testing.T) {
 	if len(puts[3].body) != 0 {
 		t.Fatalf("zero-byte member body = %q", puts[3].body)
 	}
+	records, warnings, err := ReadManifest(
+		c.cfg.ManifestPath,
+	)
+	if err != nil || len(warnings) != 0 || len(records) != 1 {
+		t.Fatalf("manifest records = %+v, warnings = %v, error = %v",
+			records, warnings, err)
+	}
+	wantTotal := int64(len(puts[0].body))
+	for _, object := range marker.Objects {
+		wantTotal += object.Bytes
+	}
+	if records[0].Objects != len(marker.Objects)+1 ||
+		records[0].TotalBytes != wantTotal {
+		t.Fatalf("declared totals = (%d, %d), want (%d, %d)",
+			records[0].Objects, records[0].TotalBytes,
+			len(marker.Objects)+1, wantTotal)
+	}
 }
 
 func TestRenderCollectionGolden(t *testing.T) {

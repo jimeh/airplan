@@ -3,12 +3,14 @@ package airplan
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -92,6 +94,118 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 				t.Fatalf("result = %+v", result)
 			}
 		})
+	}
+}
+
+func TestMCPListUploadsAppliesFilters(t *testing.T) {
+	dirA := strings.Repeat("a", 26)
+	dirB := strings.Repeat("b", 26)
+	manifest := t.TempDir() + "/manifest.jsonl"
+	records := `{"type":"upload","time":"2026-07-08T14:00:00Z",` +
+		`"key":"` + dirA + `/plan.html",` +
+		`"marker_key":"` + dirA + `/.airplan.json",` +
+		`"url":"https://plans.example.com/` + dirA + `/plan.html",` +
+		`"bucket":"plans","kind":"document","bytes":10,` +
+		`"marker_version":3}` + "\n" +
+		`{"type":"upload","time":"2026-07-08T16:00:00Z",` +
+		`"key":"` + dirB + `/index.html",` +
+		`"marker_key":"` + dirB + `/.airplan-collection.json",` +
+		`"url":"https://plans.example.com/` + dirB + `/index.html",` +
+		`"bucket":"plans","kind":"collection","bytes":20,` +
+		`"marker_version":3}` + "\n"
+	if err := os.WriteFile(manifest, []byte(records), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client, err := New(context.Background(), &Config{
+		Backend: BackendS3, ManifestPath: manifest, Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", true)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	call := func(args map[string]any) ([]ManifestRecord, error) {
+		t.Helper()
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "list_uploads", Arguments: args,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if result.IsError {
+			text := ""
+			if len(result.Content) > 0 {
+				if content, ok := result.Content[0].(*mcp.TextContent); ok {
+					text = content.Text
+				}
+			}
+			return nil, errors.New(text)
+		}
+		content, ok := result.Content[0].(*mcp.TextContent)
+		if !ok {
+			t.Fatalf("content = %+v", result.Content)
+		}
+		var output struct {
+			Manifest struct {
+				Records []ManifestRecord `json:"records"`
+			} `json:"manifest"`
+		}
+		if err := json.Unmarshal([]byte(content.Text), &output); err != nil {
+			t.Fatalf("unmarshal %q: %v", content.Text, err)
+		}
+		return output.Manifest.Records, nil
+	}
+
+	all, err := call(map[string]any{"source": "manifest"})
+	if err != nil || len(all) != 2 {
+		t.Fatalf("unfiltered = %+v, %v", all, err)
+	}
+	documents, err := call(map[string]any{
+		"source": "manifest", "kind": "document",
+	})
+	if err != nil || len(documents) != 1 ||
+		documents[0].Kind != "document" {
+		t.Fatalf("kind filter = %+v, %v", documents, err)
+	}
+	newer, err := call(map[string]any{
+		"source": "manifest", "newer_than": "2026-07-08T15:00:00Z",
+	})
+	if err != nil || len(newer) != 1 || newer[0].Kind != "collection" {
+		t.Fatalf("newer_than filter = %+v, %v", newer, err)
+	}
+	limited, err := call(map[string]any{
+		"source": "manifest", "limit": 1,
+	})
+	if err != nil || len(limited) != 1 || limited[0].Kind != "collection" {
+		t.Fatalf("limit filter = %+v, %v", limited, err)
+	}
+	if _, err := call(map[string]any{
+		"source": "manifest", "kind": "bogus",
+	}); err == nil || !strings.Contains(err.Error(), "invalid kind") {
+		t.Fatalf("invalid kind error = %v", err)
+	}
+	if _, err := call(map[string]any{
+		"source": "manifest", "newer_than": "03/04/2026",
+	}); err == nil ||
+		!strings.Contains(err.Error(), "ambiguous day/month order") {
+		t.Fatalf("ambiguous date error = %v", err)
 	}
 }
 

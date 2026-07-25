@@ -31,6 +31,54 @@ func TestDefaultManifestPathHonorsXDGStateHome(t *testing.T) {
 	}
 }
 
+// TestManifestRecordJSONDeclaredTotals pins the exact wire form of the
+// declared-inventory fields (SPEC.md §9): the record schema is a
+// cross-implementation contract, and absent counts must stay absent.
+func TestManifestRecordJSONDeclaredTotals(t *testing.T) {
+	dir := strings.Repeat("a", 26)
+	rec := ManifestRecord{
+		Type: "upload",
+		Time: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC),
+		Key:  dir + "/plan.html", MarkerKey: dir + "/.airplan.json",
+		URL:    "https://plans.example.com/" + dir + "/plan.html",
+		Bucket: "plans", Kind: "document", Slug: "plan",
+		Bytes: 18432, Objects: 3, TotalBytes: 25600, MarkerVersion: 3,
+	}
+	data, err := json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"type":"upload","time":"2026-07-21T12:00:00Z",` +
+		`"key":"` + dir + `/plan.html",` +
+		`"marker_key":"` + dir + `/.airplan.json",` +
+		`"url":"https://plans.example.com/` + dir + `/plan.html",` +
+		`"bucket":"plans","kind":"document","slug":"plan",` +
+		`"bytes":18432,"objects":3,"total_bytes":25600,` +
+		`"marker_version":3}`
+	if string(data) != want {
+		t.Fatalf("json = %s, want %s", data, want)
+	}
+
+	rec.Objects = 0
+	rec.TotalBytes = 0
+	data, err = json.Marshal(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "objects") ||
+		strings.Contains(string(data), "total_bytes") {
+		t.Fatalf("absent counts must be omitted: %s", data)
+	}
+
+	var parsed ManifestRecord
+	if err := json.Unmarshal([]byte(want), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Objects != 3 || parsed.TotalBytes != 25600 {
+		t.Fatalf("parsed = %+v", parsed)
+	}
+}
+
 func TestReadManifestMissingFile(t *testing.T) {
 	got, warnings, err := readManifest(filepath.Join(t.TempDir(), "missing"))
 	if err != nil {

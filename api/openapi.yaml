@@ -659,6 +659,13 @@ components:
         bytes:
           type: integer
           format: int64
+        objects:
+          type: integer
+          minimum: 0
+        total_bytes:
+          type: integer
+          format: int64
+          minimum: 0
         reason:
           type: string
         marker_version:
@@ -773,6 +780,10 @@ components:
         - complete
       properties:
         added_records:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestRecord"
+        enriched_records:
           type: array
           items:
             $ref: "#/components/schemas/ManifestRecord"

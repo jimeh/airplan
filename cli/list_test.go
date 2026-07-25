@@ -586,6 +586,42 @@ func assertRelativeOrder(t *testing.T, stdout string, wants ...string) {
 	}
 }
 
+func TestListTableShowsDeclaredCounts(t *testing.T) {
+	path := setListState(t)
+	rich := `{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+		`"key":"` + deleteDirA + `/plan.html",` +
+		`"marker_key":"` + deleteDirA + `/.airplan.json",` +
+		`"url":"https://plans.example.com/` + deleteDirA + `/plan.html",` +
+		`"bucket":"plans","kind":"document","title":"Rich",` +
+		`"bytes":18432,"objects":3,"total_bytes":25600,` +
+		`"marker_version":3}`
+	legacy := `{"type":"upload","time":"2026-07-08T15:03:11Z",` +
+		`"key":"legacy/plan.html",` +
+		`"url":"https://plans.example.com/legacy/plan.html",` +
+		`"bucket":"plans","title":"Old","bytes":42}`
+	writeManifest(t, path, rich+"\n"+legacy+"\n")
+
+	stdout, stderr, err := executeList(t,
+		"--columns", "title,objects,size")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v",
+			stdout, stderr, err)
+	}
+	lines := strings.Split(strings.TrimSuffix(stdout, "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("lines = %v", lines)
+	}
+	if got := strings.Fields(lines[1]); len(got) != 4 || got[0] != "Rich" ||
+		got[1] != "3" || got[2] != "25" || got[3] != "KiB" {
+		t.Fatalf("declared row = %v\nstdout:\n%s", got, stdout)
+	}
+	// Records that predate the fields render "-" with no warning.
+	if got := strings.Fields(lines[2]); len(got) != 3 || got[0] != "Old" ||
+		got[1] != "-" || got[2] != "-" {
+		t.Fatalf("legacy row = %v\nstdout:\n%s", got, stdout)
+	}
+}
+
 func TestListFiltersSelectIdenticallyForTableAndJSON(t *testing.T) {
 	listDirC := strings.Repeat("c", 26)
 	listDirD := strings.Repeat("d", 26)

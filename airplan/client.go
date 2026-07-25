@@ -343,9 +343,26 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		}
 	}
 
-	c.recordUpload(ctx, res)
+	objects, totalBytes := declaredUploadTotals(
+		marker.Objects, len(markerBody),
+	)
+	c.recordUpload(ctx, res, objects, totalBytes)
 
 	return res, nil
+}
+
+// declaredUploadTotals counts an upload's marker-declared inventory
+// (SPEC.md §9): the ownership marker plus every declared object, with
+// the marker's serialized body length standing in for its size. Local
+// manifest counts are declared, never observed storage.
+func declaredUploadTotals(
+	objects []MarkerObject, markerBytes int,
+) (int, int64) {
+	total := int64(markerBytes)
+	for _, object := range objects {
+		total += object.Bytes
+	}
+	return len(objects) + 1, total
 }
 
 func (c *Client) validate(ctx context.Context) error {
