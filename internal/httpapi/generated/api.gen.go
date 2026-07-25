@@ -137,8 +137,10 @@ func (e ManifestRecordKind) Valid() bool {
 
 // Defines values for ManifestRecordType.
 const (
-	Delete ManifestRecordType = "delete"
-	Upload ManifestRecordType = "upload"
+	Delete    ManifestRecordType = "delete"
+	Protect   ManifestRecordType = "protect"
+	Unprotect ManifestRecordType = "unprotect"
+	Upload    ManifestRecordType = "upload"
 )
 
 // Valid indicates whether the value is a known member of the ManifestRecordType enum.
@@ -146,7 +148,29 @@ func (e ManifestRecordType) Valid() bool {
 	switch e {
 	case Delete:
 		return true
+	case Protect:
+		return true
+	case Unprotect:
+		return true
 	case Upload:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProtectionResultKind.
+const (
+	ProtectionResultKindCollection ProtectionResultKind = "collection"
+	ProtectionResultKindDocument   ProtectionResultKind = "document"
+)
+
+// Valid indicates whether the value is a known member of the ProtectionResultKind enum.
+func (e ProtectionResultKind) Valid() bool {
+	switch e {
+	case ProtectionResultKindCollection:
+		return true
+	case ProtectionResultKindDocument:
 		return true
 	default:
 		return false
@@ -288,6 +312,12 @@ type CollectionMetadata struct {
 	Title         string `json:"title,omitempty"`
 }
 
+// DeleteRequest defines model for DeleteRequest.
+type DeleteRequest struct {
+	Force    bool   `json:"force,omitempty"`
+	URLOrKey string `json:"url_or_key"`
+}
+
 // DeleteResult defines model for DeleteResult.
 type DeleteResult struct {
 	ID        string           `json:"id"`
@@ -364,6 +394,9 @@ type ManifestRecord struct {
 	MarkerKey     string             `json:"marker_key,omitempty"`
 	MarkerVersion int                `json:"marker_version,omitempty"`
 	Objects       int                `json:"objects,omitempty"`
+	ProtectReason string             `json:"protect_reason,omitempty"`
+	Protected     bool               `json:"protected,omitempty"`
+	ProtectedAt   *time.Time         `json:"protected_at,omitempty"`
 	Reason        string             `json:"reason,omitempty"`
 	RepositoryURL string             `json:"repository_url,omitempty"`
 	Slug          string             `json:"slug,omitempty"`
@@ -392,6 +425,28 @@ type Problem struct {
 	Type      string `json:"type"`
 }
 
+// ProtectRequest defines model for ProtectRequest.
+type ProtectRequest struct {
+	Reason   string `json:"reason,omitempty"`
+	URLOrKey string `json:"url_or_key"`
+}
+
+// ProtectionResult defines model for ProtectionResult.
+type ProtectionResult struct {
+	ID          string               `json:"id"`
+	Kind        ProtectionResultKind `json:"kind"`
+	MarkerKey   string               `json:"marker_key"`
+	PageKey     string               `json:"page_key"`
+	Protected   bool                 `json:"protected"`
+	ProtectedAt *time.Time           `json:"protected_at,omitempty"`
+	Reason      string               `json:"reason,omitempty"`
+	SentinelKey string               `json:"sentinel_key"`
+	Warnings    []string             `json:"warnings"`
+}
+
+// ProtectionResultKind defines model for ProtectionResult.Kind.
+type ProtectionResultKind string
+
 // PurgeCandidate defines model for PurgeCandidate.
 type PurgeCandidate struct {
 	Inspection *UploadInspection `json:"inspection,omitempty"`
@@ -402,15 +457,17 @@ type PurgeCandidate struct {
 
 // PurgeItemResult defines model for PurgeItemResult.
 type PurgeItemResult struct {
-	Deleted  *DeleteResult `json:"deleted,omitempty"`
-	Error    string        `json:"error,omitempty"`
-	UploadID string        `json:"upload_id"`
+	Deleted   *DeleteResult `json:"deleted,omitempty"`
+	Error     string        `json:"error,omitempty"`
+	Protected bool          `json:"protected,omitempty"`
+	UploadID  string        `json:"upload_id"`
 }
 
 // PurgePreview defines model for PurgePreview.
 type PurgePreview struct {
 	Candidates []PurgeCandidate `json:"candidates"`
 	Invalid    int              `json:"invalid"`
+	Protected  []PurgeCandidate `json:"protected"`
 	Warnings   []string         `json:"warnings"`
 }
 
@@ -447,6 +504,7 @@ type RemoteUpload struct {
 	LastModified time.Time        `json:"last_modified"`
 	MarkerKey    string           `json:"marker_key"`
 	Objects      int              `json:"objects"`
+	Protected    bool             `json:"protected"`
 	Slug         string           `json:"slug,omitempty"`
 	URL          string           `json:"url,omitempty"`
 }
@@ -479,17 +537,18 @@ type SyncRequest struct {
 
 // SyncResult defines model for SyncResult.
 type SyncResult struct {
-	AddedRecords     []ManifestRecord `json:"added_records"`
-	Complete         bool             `json:"complete"`
-	Deferred         int              `json:"deferred"`
-	EnrichedRecords  []ManifestRecord `json:"enriched_records"`
-	Failures         []SyncFailure    `json:"failures"`
-	Incomplete       int              `json:"incomplete"`
-	Invalid          int              `json:"invalid"`
-	Retained         int              `json:"retained"`
-	TombstoneRecords []ManifestRecord `json:"tombstone_records"`
-	Unchanged        int              `json:"unchanged"`
-	Warnings         []string         `json:"warnings"`
+	AddedRecords      []ManifestRecord `json:"added_records"`
+	Complete          bool             `json:"complete"`
+	Deferred          int              `json:"deferred"`
+	EnrichedRecords   []ManifestRecord `json:"enriched_records"`
+	Failures          []SyncFailure    `json:"failures"`
+	Incomplete        int              `json:"incomplete"`
+	Invalid           int              `json:"invalid"`
+	ProtectionRecords []ManifestRecord `json:"protection_records"`
+	Retained          int              `json:"retained"`
+	TombstoneRecords  []ManifestRecord `json:"tombstone_records"`
+	Unchanged         int              `json:"unchanged"`
+	Warnings          []string         `json:"warnings"`
 }
 
 // TargetRequest defines model for TargetRequest.
@@ -510,6 +569,9 @@ type UploadInspection struct {
 	MarkerVersion int                   `json:"marker_version,omitempty"`
 	Objects       int                   `json:"objects"`
 	Page          *InspectedObject      `json:"page,omitempty"`
+	ProtectReason string                `json:"protect_reason,omitempty"`
+	Protected     bool                  `json:"protected,omitempty"`
+	ProtectedAt   *time.Time            `json:"protected_at,omitempty"`
 	RepositoryURL string                `json:"repository_url,omitempty"`
 	Source        *InspectedObject      `json:"source,omitempty"`
 	State         UploadInspectionState `json:"state"`
@@ -580,7 +642,7 @@ type SyncManifestJSONRequestBody = SyncRequest
 type UploadCollectionMultipartRequestBody UploadCollectionMultipartBody
 
 // DeleteUploadJSONRequestBody defines body for DeleteUpload for application/json ContentType.
-type DeleteUploadJSONRequestBody = TargetRequest
+type DeleteUploadJSONRequestBody = DeleteRequest
 
 // UploadDocumentMultipartRequestBody defines body for UploadDocument for multipart/form-data ContentType.
 type UploadDocumentMultipartRequestBody UploadDocumentMultipartBody
@@ -590,6 +652,12 @@ type GetUploadJSONRequestBody = GetUploadRequest
 
 // InspectUploadJSONRequestBody defines body for InspectUpload for application/json ContentType.
 type InspectUploadJSONRequestBody = TargetRequest
+
+// ProtectUploadJSONRequestBody defines body for ProtectUpload for application/json ContentType.
+type ProtectUploadJSONRequestBody = ProtectRequest
+
+// UnprotectUploadJSONRequestBody defines body for UnprotectUpload for application/json ContentType.
+type UnprotectUploadJSONRequestBody = TargetRequest
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -722,6 +790,7 @@ type ClientInterface interface {
 	//
 	// Permanently deletes one marker-managed upload. Payloads are deleted
 	// before the ownership marker and the manifest receives a tombstone.
+	// A purge-protected upload is refused unless force is true.
 	DeleteUploadWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteUpload performs a POST /api/v1/uploads/delete (the `DeleteUpload` operationId) request.
@@ -729,6 +798,7 @@ type ClientInterface interface {
 	//
 	// Permanently deletes one marker-managed upload. Payloads are deleted
 	// before the ownership marker and the manifest receives a tombstone.
+	// A purge-protected upload is refused unless force is true.
 	DeleteUpload(ctx context.Context, body DeleteUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// UploadDocumentWithBody performs a POST /api/v1/uploads/documents (the `UploadDocument` operationId) request,
@@ -750,6 +820,38 @@ type ClientInterface interface {
 	// InspectUpload performs a POST /api/v1/uploads/inspect (the `InspectUpload` operationId) request.
 	// Takes a body of the `application/json` content type.
 	InspectUpload(ctx context.Context, body InspectUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ProtectUploadWithBody performs a POST /api/v1/uploads/protect (the `ProtectUpload` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Marks one marker-managed upload as purge-protected by writing its
+	// protection sentinel object. Protecting an already protected upload
+	// succeeds and rewrites the sentinel.
+	ProtectUploadWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ProtectUpload performs a POST /api/v1/uploads/protect (the `ProtectUpload` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Marks one marker-managed upload as purge-protected by writing its
+	// protection sentinel object. Protecting an already protected upload
+	// succeeds and rewrites the sentinel.
+	ProtectUpload(ctx context.Context, body ProtectUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UnprotectUploadWithBody performs a POST /api/v1/uploads/unprotect (the `UnprotectUpload` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Removes purge protection from one marker-managed upload by deleting
+	// its protection sentinel object. Unprotecting an unprotected upload
+	// succeeds.
+	UnprotectUploadWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UnprotectUpload performs a POST /api/v1/uploads/unprotect (the `UnprotectUpload` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Removes purge protection from one marker-managed upload by deleting
+	// its protection sentinel object. Unprotecting an unprotected upload
+	// succeeds.
+	UnprotectUpload(ctx context.Context, body UnprotectUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// Health performs a GET /healthz (the `Health` operationId) request.
 	Health(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -915,6 +1017,7 @@ func (c *Client) UploadCollectionWithBody(ctx context.Context, contentType strin
 //
 // Permanently deletes one marker-managed upload. Payloads are deleted
 // before the ownership marker and the manifest receives a tombstone.
+// A purge-protected upload is refused unless force is true.
 func (c *Client) DeleteUploadWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteUploadRequestWithBody(c.Server, contentType, body)
 	if err != nil {
@@ -932,6 +1035,7 @@ func (c *Client) DeleteUploadWithBody(ctx context.Context, contentType string, b
 //
 // Permanently deletes one marker-managed upload. Payloads are deleted
 // before the ownership marker and the manifest receives a tombstone.
+// A purge-protected upload is refused unless force is true.
 func (c *Client) DeleteUpload(ctx context.Context, body DeleteUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteUploadRequest(c.Server, body)
 	if err != nil {
@@ -1004,6 +1108,78 @@ func (c *Client) InspectUploadWithBody(ctx context.Context, contentType string, 
 // Takes a body of the `application/json` content type.
 func (c *Client) InspectUpload(ctx context.Context, body InspectUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewInspectUploadRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ProtectUploadWithBody performs a POST /api/v1/uploads/protect (the `ProtectUpload` operationId) request,
+// with any type of body and a specified content type.
+//
+// Marks one marker-managed upload as purge-protected by writing its
+// protection sentinel object. Protecting an already protected upload
+// succeeds and rewrites the sentinel.
+func (c *Client) ProtectUploadWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewProtectUploadRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ProtectUpload performs a POST /api/v1/uploads/protect (the `ProtectUpload` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Marks one marker-managed upload as purge-protected by writing its
+// protection sentinel object. Protecting an already protected upload
+// succeeds and rewrites the sentinel.
+func (c *Client) ProtectUpload(ctx context.Context, body ProtectUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewProtectUploadRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UnprotectUploadWithBody performs a POST /api/v1/uploads/unprotect (the `UnprotectUpload` operationId) request,
+// with any type of body and a specified content type.
+//
+// Removes purge protection from one marker-managed upload by deleting
+// its protection sentinel object. Unprotecting an unprotected upload
+// succeeds.
+func (c *Client) UnprotectUploadWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUnprotectUploadRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UnprotectUpload performs a POST /api/v1/uploads/unprotect (the `UnprotectUpload` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Removes purge protection from one marker-managed upload by deleting
+// its protection sentinel object. Unprotecting an unprotected upload
+// succeeds.
+func (c *Client) UnprotectUpload(ctx context.Context, body UnprotectUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUnprotectUploadRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1419,6 +1595,86 @@ func NewInspectUploadRequestWithBody(server string, contentType string, body io.
 	return req, nil
 }
 
+// NewProtectUploadRequest calls the generic ProtectUpload builder with application/json body
+func NewProtectUploadRequest(server string, body ProtectUploadJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewProtectUploadRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewProtectUploadRequestWithBody constructs an http.Request for the ProtectUpload method, with any body, and a specified content type
+func NewProtectUploadRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/uploads/protect")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewUnprotectUploadRequest calls the generic UnprotectUpload builder with application/json body
+func NewUnprotectUploadRequest(server string, body UnprotectUploadJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUnprotectUploadRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewUnprotectUploadRequestWithBody constructs an http.Request for the UnprotectUpload method, with any body, and a specified content type
+func NewUnprotectUploadRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/uploads/unprotect")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewHealthRequest constructs an http.Request for the Health method
 func NewHealthRequest(server string) (*http.Request, error) {
 	var err error
@@ -1588,6 +1844,7 @@ type ClientWithResponsesInterface interface {
 	//
 	// Permanently deletes one marker-managed upload. Payloads are deleted
 	// before the ownership marker and the manifest receives a tombstone.
+	// A purge-protected upload is refused unless force is true.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	DeleteUploadWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DeleteUploadResponse, error)
@@ -1597,6 +1854,7 @@ type ClientWithResponsesInterface interface {
 	//
 	// Permanently deletes one marker-managed upload. Payloads are deleted
 	// before the ownership marker and the manifest receives a tombstone.
+	// A purge-protected upload is refused unless force is true.
 	DeleteUploadWithResponse(ctx context.Context, body DeleteUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*DeleteUploadResponse, error)
 
 	// UploadDocumentWithBodyWithResponse performs a POST /api/v1/uploads/documents (the `UploadDocument` operationId) request,
@@ -1624,6 +1882,42 @@ type ClientWithResponsesInterface interface {
 	// InspectUploadWithResponse performs a POST /api/v1/uploads/inspect (the `InspectUpload` operationId) request.
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	InspectUploadWithResponse(ctx context.Context, body InspectUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*InspectUploadResponse, error)
+
+	// ProtectUploadWithBodyWithResponse performs a POST /api/v1/uploads/protect (the `ProtectUpload` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Marks one marker-managed upload as purge-protected by writing its
+	// protection sentinel object. Protecting an already protected upload
+	// succeeds and rewrites the sentinel.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ProtectUploadWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ProtectUploadResponse, error)
+
+	// ProtectUploadWithResponse performs a POST /api/v1/uploads/protect (the `ProtectUpload` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Marks one marker-managed upload as purge-protected by writing its
+	// protection sentinel object. Protecting an already protected upload
+	// succeeds and rewrites the sentinel.
+	ProtectUploadWithResponse(ctx context.Context, body ProtectUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*ProtectUploadResponse, error)
+
+	// UnprotectUploadWithBodyWithResponse performs a POST /api/v1/uploads/unprotect (the `UnprotectUpload` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Removes purge protection from one marker-managed upload by deleting
+	// its protection sentinel object. Unprotecting an unprotected upload
+	// succeeds.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	UnprotectUploadWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UnprotectUploadResponse, error)
+
+	// UnprotectUploadWithResponse performs a POST /api/v1/uploads/unprotect (the `UnprotectUpload` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Removes purge protection from one marker-managed upload by deleting
+	// its protection sentinel object. Unprotecting an unprotected upload
+	// succeeds.
+	UnprotectUploadWithResponse(ctx context.Context, body UnprotectUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*UnprotectUploadResponse, error)
 
 	// HealthWithResponse performs a GET /healthz (the `Health` operationId) request.
 	//
@@ -2166,6 +2460,102 @@ func (r InspectUploadResponse) ContentType() string {
 	return ""
 }
 
+type ProtectUploadResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ProtectionResult
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ProtectUploadResponse) GetJSON200() *ProtectionResult {
+	return r.JSON200
+}
+
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ProtectUploadResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ProtectUploadResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ProtectUploadResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ProtectUploadResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ProtectUploadResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UnprotectUploadResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ProtectionResult
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UnprotectUploadResponse) GetJSON200() *ProtectionResult {
+	return r.JSON200
+}
+
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r UnprotectUploadResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UnprotectUploadResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UnprotectUploadResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UnprotectUploadResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UnprotectUploadResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type HealthResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2393,6 +2783,7 @@ func (c *ClientWithResponses) UploadCollectionWithBodyWithResponse(ctx context.C
 //
 // Permanently deletes one marker-managed upload. Payloads are deleted
 // before the ownership marker and the manifest receives a tombstone.
+// A purge-protected upload is refused unless force is true.
 //
 // Returns a wrapper object for the known response body format(s).
 func (c *ClientWithResponses) DeleteUploadWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DeleteUploadResponse, error) {
@@ -2408,6 +2799,7 @@ func (c *ClientWithResponses) DeleteUploadWithBodyWithResponse(ctx context.Conte
 //
 // Permanently deletes one marker-managed upload. Payloads are deleted
 // before the ownership marker and the manifest receives a tombstone.
+// A purge-protected upload is refused unless force is true.
 func (c *ClientWithResponses) DeleteUploadWithResponse(ctx context.Context, body DeleteUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*DeleteUploadResponse, error) {
 	rsp, err := c.DeleteUpload(ctx, body, reqEditors...)
 	if err != nil {
@@ -2470,6 +2862,66 @@ func (c *ClientWithResponses) InspectUploadWithResponse(ctx context.Context, bod
 		return nil, err
 	}
 	return ParseInspectUploadResponse(rsp)
+}
+
+// ProtectUploadWithBodyWithResponse performs a POST /api/v1/uploads/protect (the `ProtectUpload` operationId) request,
+// with any type of body and a specified content type.
+//
+// Marks one marker-managed upload as purge-protected by writing its
+// protection sentinel object. Protecting an already protected upload
+// succeeds and rewrites the sentinel.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ProtectUploadWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ProtectUploadResponse, error) {
+	rsp, err := c.ProtectUploadWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseProtectUploadResponse(rsp)
+}
+
+// ProtectUploadWithResponse performs a POST /api/v1/uploads/protect (the `ProtectUpload` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Marks one marker-managed upload as purge-protected by writing its
+// protection sentinel object. Protecting an already protected upload
+// succeeds and rewrites the sentinel.
+func (c *ClientWithResponses) ProtectUploadWithResponse(ctx context.Context, body ProtectUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*ProtectUploadResponse, error) {
+	rsp, err := c.ProtectUpload(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseProtectUploadResponse(rsp)
+}
+
+// UnprotectUploadWithBodyWithResponse performs a POST /api/v1/uploads/unprotect (the `UnprotectUpload` operationId) request,
+// with any type of body and a specified content type.
+//
+// Removes purge protection from one marker-managed upload by deleting
+// its protection sentinel object. Unprotecting an unprotected upload
+// succeeds.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) UnprotectUploadWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UnprotectUploadResponse, error) {
+	rsp, err := c.UnprotectUploadWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUnprotectUploadResponse(rsp)
+}
+
+// UnprotectUploadWithResponse performs a POST /api/v1/uploads/unprotect (the `UnprotectUpload` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Removes purge protection from one marker-managed upload by deleting
+// its protection sentinel object. Unprotecting an unprotected upload
+// succeeds.
+func (c *ClientWithResponses) UnprotectUploadWithResponse(ctx context.Context, body UnprotectUploadJSONRequestBody, reqEditors ...RequestEditorFn) (*UnprotectUploadResponse, error) {
+	rsp, err := c.UnprotectUpload(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUnprotectUploadResponse(rsp)
 }
 
 // HealthWithResponse performs a GET /healthz (the `Health` operationId) request.
@@ -2877,6 +3329,72 @@ func ParseInspectUploadResponse(rsp *http.Response) (*InspectUploadResponse, err
 	return response, nil
 }
 
+// ParseProtectUploadResponse parses an HTTP response from a ProtectUploadWithResponse call
+func ParseProtectUploadResponse(rsp *http.Response) (*ProtectUploadResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ProtectUploadResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ProtectionResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationProblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUnprotectUploadResponse parses an HTTP response from a UnprotectUploadWithResponse call
+func ParseUnprotectUploadResponse(rsp *http.Response) (*UnprotectUploadResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UnprotectUploadResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ProtectionResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationProblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseHealthResponse parses an HTTP response from a HealthWithResponse call
 func ParseHealthResponse(rsp *http.Response) (*HealthResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -2978,6 +3496,12 @@ type ServerInterface interface {
 
 	// (POST /api/v1/uploads/inspect)
 	InspectUpload(w http.ResponseWriter, r *http.Request)
+
+	// (POST /api/v1/uploads/protect)
+	ProtectUpload(w http.ResponseWriter, r *http.Request)
+
+	// (POST /api/v1/uploads/unprotect)
+	UnprotectUpload(w http.ResponseWriter, r *http.Request)
 
 	// (GET /healthz)
 	Health(w http.ResponseWriter, r *http.Request)
@@ -3149,6 +3673,34 @@ func (siw *ServerInterfaceWrapper) InspectUpload(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
+// ProtectUpload operation middleware
+func (siw *ServerInterfaceWrapper) ProtectUpload(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ProtectUpload(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UnprotectUpload operation middleware
+func (siw *ServerInterfaceWrapper) UnprotectUpload(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UnprotectUpload(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // Health operation middleware
 func (siw *ServerInterfaceWrapper) Health(w http.ResponseWriter, r *http.Request) {
 
@@ -3305,6 +3857,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/inspect", wrapper.InspectUpload)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/get", wrapper.GetUpload)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/delete", wrapper.DeleteUpload)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/protect", wrapper.ProtectUpload)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/unprotect", wrapper.UnprotectUpload)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/uploads", wrapper.ListManifestUploads)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/storage/uploads", wrapper.ListStorageUploads)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/sync", wrapper.SyncManifest)
@@ -3758,6 +4312,84 @@ func (response InspectUploaddefaultApplicationProblemPlusJSONResponse) VisitInsp
 	return err
 }
 
+type ProtectUploadRequestObject struct {
+	Body *ProtectUploadJSONRequestBody
+}
+
+type ProtectUploadResponseObject interface {
+	VisitProtectUploadResponse(w http.ResponseWriter) error
+}
+
+type ProtectUpload200JSONResponse ProtectionResult
+
+func (response ProtectUpload200JSONResponse) VisitProtectUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ProtectUploaddefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ProtectUploaddefaultApplicationProblemPlusJSONResponse) VisitProtectUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnprotectUploadRequestObject struct {
+	Body *UnprotectUploadJSONRequestBody
+}
+
+type UnprotectUploadResponseObject interface {
+	VisitUnprotectUploadResponse(w http.ResponseWriter) error
+}
+
+type UnprotectUpload200JSONResponse ProtectionResult
+
+func (response UnprotectUpload200JSONResponse) VisitUnprotectUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UnprotectUploaddefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UnprotectUploaddefaultApplicationProblemPlusJSONResponse) VisitUnprotectUploadResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type HealthRequestObject struct {
 }
 
@@ -3875,6 +4507,12 @@ type StrictServerInterface interface {
 
 	// (POST /api/v1/uploads/inspect)
 	InspectUpload(ctx context.Context, request InspectUploadRequestObject) (InspectUploadResponseObject, error)
+
+	// (POST /api/v1/uploads/protect)
+	ProtectUpload(ctx context.Context, request ProtectUploadRequestObject) (ProtectUploadResponseObject, error)
+
+	// (POST /api/v1/uploads/unprotect)
+	UnprotectUpload(ctx context.Context, request UnprotectUploadRequestObject) (UnprotectUploadResponseObject, error)
 
 	// (GET /healthz)
 	Health(ctx context.Context, request HealthRequestObject) (HealthResponseObject, error)
@@ -4242,6 +4880,68 @@ func (sh *strictHandler) InspectUpload(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ProtectUpload operation middleware
+func (sh *strictHandler) ProtectUpload(w http.ResponseWriter, r *http.Request) {
+	var request ProtectUploadRequestObject
+
+	var body ProtectUploadJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ProtectUpload(ctx, request.(ProtectUploadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ProtectUpload")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ProtectUploadResponseObject); ok {
+		if err := validResponse.VisitProtectUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UnprotectUpload operation middleware
+func (sh *strictHandler) UnprotectUpload(w http.ResponseWriter, r *http.Request) {
+	var request UnprotectUploadRequestObject
+
+	var body UnprotectUploadJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UnprotectUpload(ctx, request.(UnprotectUploadRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UnprotectUpload")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UnprotectUploadResponseObject); ok {
+		if err := validResponse.VisitUnprotectUploadResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // Health operation middleware
 func (sh *strictHandler) Health(w http.ResponseWriter, r *http.Request) {
 	var request HealthRequestObject
@@ -4295,55 +4995,60 @@ func (sh *strictHandler) GetOpenAPI(w http.ResponseWriter, r *http.Request) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"3Fxbc9u4Ff4rGHSfWkqyd5PtxG9psrv11Jn12EmnM7GrgYkjCWsSYADQNpPRf+/gwpsESiQtOW1fMjIv",
-	"B+fynSvAfMOxSDPBgWuFz75hCSoTXIH941KKuwRS8zMWXAPX5ifJsoTFRDPBZ5l74i9/KMHNPRWvICXm",
-	"1w8SFvgM/2lW05+5u2pW0l2v1xGmoGLJMkMOn+GrX9+hN69e/xV5yoiCJixRU2ye9QQM/XckI3csYZo5",
-	"XgmlzNAgyaUUGUh3fUESBRHOGpeMAGz+AFIxxzPwPMVnn/HDKb6NsC4ywGdYacn4Eq8jnLCUOd3sEulT",
-	"lghCL9yz6winRN6DLJexrzMNqf2RMs5Ss+ZptRzjGpYgzZv+CpGSFOZvw7lVdpvIFp+b7ymQDzUHwVdy",
-	"y/R8IWRKdJt8qZSU4givdJrgCOsnHdRQe+V1hCV8yZkEagg0lb3FVEu6LX4q3W+rs2ZD3P0BsTZsvBNJ",
-	"ArGh9QE0oUSTgbhIydNcsa9gfjsenGV+fmU42Gk086oWmiRjCUjIhGJayGKey6RFIJcMh7TOdAIBs64D",
-	"qnkPCWi4ApUneqBSGA1C5x6KgXi8Z5w2kUVFnKcmpEQ4riwXxJc3/j0UwYUysoTOm49EcsaXg3jdQDAz",
-	"LmDlbazV4soL11gthM/3XuCR6CzxMMw3E8KXQZGfAXZOUvD+cgF8qVf47MfXrwOLDwe1SvIwu0PQ/itL",
-	"xmH9rtBtXW8r5CSkEJ8c5+5O2FuC10tNbkfmPurawKkl5l51K0ZeoA0GQ9j8DbTLYFfwJQc1VHFK5DK2",
-	"klBYEKt4/5xf6U6IBAj3os1F5c0p4yWGTvcJ2HgzJMPfgSSGzjDONdF5K+OJ+4AjbXDi3wpxcc5VBrEG",
-	"+ru79DIIhCemdDO2NRQOT46h+XjinsA9F488vEgXwscA2WHXi1SDeEOOLb5C1vhAOFuA0hdsMKYlxELS",
-	"duLYVQGWS13Z90IZ8AC5qGRqT6rZ4GUgBvP4HnSQt24EbaOmzle9w+HRSoR2+dh4pMGv016PAl0CUR0F",
-	"9QETngupnRJplrZTNyUaJvbqgFoxwq5o7REZdvQqtcFcAY9NU2cKzqCpxkQEe9cL7eATQn2jXR0A91hQ",
-	"K0NGtAZpetB/fyaTr7fmn5PJm/ntn38IqdT1pUGdMq404TFsijmRsAAJ5k6wWLKZd95RcNeJKiVPziSv",
-	"37xpGOjVSTB47zC9N944SxiqFVeR02JLiKCFcrmEd4RTZuA6tBNxmdU78P5m/Lx+PsJPk6WYGH4m6p5l",
-	"E5G5RSeZMLqSfkkrbBkyhwV737t2WO8Aob9eoGJyTxaw2j7XkI4qhp0L79VEq7UcoGeQUshdU4mgJjt1",
-	"0in/pYQHBo9Dg0KJ0f75fwPbgfzP+ANJnFi7C64DoKUhQL1wH7x4fY3rA0iS9GsCYsHjXJpYWLRC2s+v",
-	"9qWcWAKxRSAshOybAgfgck9CbvXfPgjYOCgkWUKPzsFR6VT/OL1XfrA1aOxurqyiz92jpxtoinDO2Zcc",
-	"/G0tc+h0PbVLmDEDp5L7/l7XiHF7hzmWaIjjK0iFBpc6Xm5usEhYrMMtVffk7btP5BKi9DwVlC2YyxD9",
-	"ytA9VXqoAg/qrdNHx9SWNi6GhnmVdarpX8lg3ZO2FRGC1bWLDCMaUOdh/V2hBeDjtJ8lS3sSyXXB418J",
-	"S3I5tMbrrgr2YafcR2gCegE6XnlLMpnOyZ2y1ffeKN2CQ026rFq6ZB4XvMfnQiqLucx5v5SbyZz3GtGt",
-	"O6UbEc0JpUDnh5+lmJdsixkMndQ0WhJ6lFrAJYtXR2Fx4TygP8mm2wTLx6bQu8XqXWpK08byPprSIr1T",
-	"WnA4gqpyHq8IX8LL1MZtTAYwEBK2yWQDYC2zNCvtSrENIDS4byA4FE0+ErkEPbIYPNaAfautfqEqyVf8",
-	"bph42Gq/O98sWDLAdTen/qFw0D0P7ar0Xm4cutsCvQuzzPRAA1U1aDYzeLxaNW1HYklpP8gqjdQKBoHI",
-	"cDtoPHuAaOc4jAJ17nY560C/p7prHXUZWuqUsJ2bpUbPnRt0njfALl1qJIENVW9Qizrk7eS/W9vjtrPH",
-	"bOQ8c6f7mMF6WEhunAI4TDT+/ptWhz5CNHbzyd9+5kGlnu36Ac/wuL6+dUDCuUjHSYkWnLcMshFNd8RM",
-	"exovziXTxbVBp3dPIBLk29ydWWgfg7zWRLMYKcaXCUxyBRK5o3NIi3vgU+zPQtq+x9KpFbfSOnNHKxlf",
-	"iADtBtG3l+doISRykkxSwskSKHrLZJYQjny/P0XVacsCfbq6UIhwesOdeOgeCoWIBKSAa8Q48ptA6E5Q",
-	"BgopgfQKCkQF4kIjkmVApHmOxDEodcMTsVRT9HEFpYxMIWbNYANBUpR6KDfWzMveCuh0esOrDakzXHL+",
-	"9vIcR7jyHXw6PZme+EEBJxnDZ/in6cn0J3umS6+sQWYkY7OH01m8cbR06YJoNQc4p/gM/wa6dQQ1ah+d",
-	"/fHkZMex2WHHZVvrBM7MXpNFpTrzOtHM28oAwPgWE3zq+2Li80howUqCxgndCGtiXO8zVoXSkOJbc61U",
-	"VZZLV/FlwvUpbc4uQabE0E4K5PaTlMECgiejC6Y9wND5e4XIQoNEEmyZRDTjSwQPIIsbLh45SLVimYfp",
-	"FF0Q86y2TZLDHtEa0kwD9XQIRyZUIN97OZC0LfjLE8S5BjtBrrcu/yZocTDLtUb663ZQskP1I6KmOYEP",
-	"gOYXo1uUgZx4G6jcuiMSslLasyET2iHZgs8sq7foOmCUEK5QvaWFHpleiVw7TBmkEF7oFePL6ZaV/X7W",
-	"0a28sW/2PYxdbnWGrB1wOEjYkt0lYBOAexWoV+kh4sU+4/uLs8ac20faNu8XTGnlXb8JgoUUKRIcEGXS",
-	"5CFPDylOMrUSehsLhpKfx3+qJtlHs0lz8h8wycX59ccJBckegJZmqaU7QLgO6rzgcdPP2vq5Lnj8obba",
-	"MXylOSZ/YR9pzLAD5jAxhgM14c8uARRJiAWPWcLsahFiPE5yasJNOdE7vpPsc44rINTlVF8AlASrGGl0",
-	"R2IbJf0KU+TUYDPnDVexyIAiLZpkMilMuxUhVyFHpuIzlR7KJCzYUyifGqCX6HkB92od7QwY9G2s2QNY",
-	"vlfMSM5ikiAvbKUlP949oCFD5pvVnaDqdj+ntPozlp0umOaJZhmRemZKvEn5QQHwWBiI2kcaHxr4Nz/6",
-	"JmlT6/XHVUO/Stjqyatu7o5xIgs86OCBudngemdVvP25z9Y2XnmjnB0EWrMeIej0YJhtDXMCmDU9UA0V",
-	"9EgUksApSFPX8jJNAH0+XMu4EkSrP705qKw3iXiji3TkpuiSFJauLdT9sbIb7g7w2JizWeBbWc2NppsC",
-	"ewCFCKq2ZkIxyJ1G+1QeQz1GBmtvzbxwDmudtusAkK8lDHi8spEt8FwyM0hSiCQSCC2Q3RHXx4aTn4jt",
-	"DX3v69HZf33gq8Z8PUNez6i29ZHYjphWsfC/ENZKZr9bUPPlUxh/1fdPRwoaW99XPTtuiFiDnigtgaRt",
-	"PvaiMVArlaGbQpwQY5iMLCFCbtAboRTSO5ARqiaFprdaAaEg3cfYjsfJe6bsDJpt6mZ737l85aPfSdj1",
-	"7L8mfqw3cRt0k3+4wXT3O+ujQsmfRO+Gk99Q/P/NQ1tHAQKg+qcb5NlqO1AXILsxeWinX9mPAL92jm39",
-	"R4JHVI1foSMMZlLYKRszOZg9PEP+ckcBn32+7RjS+ln3tCBpsmuQ/XsG3A3MB2ilJLrDCUMKgCcSa+RX",
-	"9AEGmfBCKVDEONIrppALXcdTTvuR9l7M59v1bfk/FSh71+5T4Rle17S++W93S5rrqLpSArJxqWoOG9fK",
-	"dn99u/5PAAAA//8=",
+	"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",
+	"VE8cIBuPqmJY45krb27uNv8JAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

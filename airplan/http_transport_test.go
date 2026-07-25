@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -128,6 +129,51 @@ func TestAirplanBackendValidatesManifestInventoryEncoding(t *testing.T) {
 					listed.Records, test.wantObjects, test.wantBytes)
 			}
 		})
+	}
+}
+
+func TestAirplanBackendMapsProtectedProblemToTypedError(t *testing.T) {
+	const token = "01234567890123456789012345678901"
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v1/uploads/delete" {
+				t.Fatalf("path = %q", r.URL.Path)
+			}
+			var request struct {
+				URLOrKey string `json:"url_or_key"`
+				Force    bool   `json:"force"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
+			if request.Force {
+				t.Fatal("force sent without --force")
+			}
+			w.Header().Set("Content-Type", "application/problem+json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"type":       "https://airplan.dev/problems/upload-protected",
+				"title":      "Upload protected",
+				"status":     http.StatusConflict,
+				"code":       "upload_protected",
+				"request_id": "test",
+			})
+		},
+	))
+	defer server.Close()
+
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL, APIToken: token,
+		Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.DeleteUpload(context.Background(), "dir/plan.html")
+	var protectedErr *UploadProtectedError
+	if !errors.As(err, &protectedErr) ||
+		protectedErr.Target != "dir/plan.html" {
+		t.Fatalf("error = %v, want UploadProtectedError", err)
 	}
 }
 

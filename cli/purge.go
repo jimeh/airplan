@@ -173,6 +173,13 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		})
 	}
 	printRemotePurgeWarnings(stderr, warningCandidates)
+	// Protected uploads are excluded from the candidate list up front so
+	// dry-run and confirmation both reflect what purge will actually touch
+	// (SPEC.md §9). Skips are notes, never failures.
+	protected := len(plan.Protected)
+	for _, item := range plan.Protected {
+		printProtectedSkip(stderr, item.Record)
+	}
 
 	if opts.dryRun {
 		printPurgeCandidates(stderr, candidates)
@@ -180,7 +187,8 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	}
 
 	if len(candidates) == 0 {
-		fmt.Fprintln(stderr, "purged 0 uploads (0 failed)")
+		fmt.Fprintf(stderr, "purged 0 uploads (%d protected, 0 failed)\n",
+			protected)
 		return nil
 	}
 
@@ -209,6 +217,15 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	purged := 0
 	failed := 0
 	for index, item := range result.Items {
+		if item.Protected {
+			// A delete-time skip catches protection set after planning; it
+			// is not a failure and does not change the exit status.
+			protected++
+			if index < len(candidates) {
+				printProtectedSkip(stderr, candidates[index])
+			}
+			continue
+		}
 		if item.Error == "" {
 			purged++
 			continue
@@ -222,8 +239,14 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 			target, item.Error)
 	}
 
-	fmt.Fprintf(stderr, "purged %d uploads (%d failed)\n", purged, failed)
+	fmt.Fprintf(stderr, "purged %d uploads (%d protected, %d failed)\n",
+		purged, protected, failed)
 	return purgeErr
+}
+
+func printProtectedSkip(w io.Writer, rec airplan.ManifestRecord) {
+	fmt.Fprintf(w, "airplan: note: skipping protected upload %s\n",
+		purgeTarget(rec))
 }
 
 type remotePurgeCandidate struct {

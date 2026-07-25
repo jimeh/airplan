@@ -81,6 +81,27 @@ func TestUploadFilesStreamsOneCollection(t *testing.T) {
 	}
 }
 
+func TestCollectionRejectsReservedMemberNames(t *testing.T) {
+	for _, name := range []string{
+		MarkerFilename, CollectionMarkerFilename, ProtectedFilename,
+		"index.html",
+	} {
+		t.Run(name, func(t *testing.T) {
+			body := []byte("payload")
+			_, _, err := RenderCollection(context.Background(), FilesInput{
+				Files: []FileInput{{
+					Name: name, Reader: bytes.NewReader(body),
+					Size: int64(len(body)),
+				}},
+			}, CollectionRenderOptions{Repository: "none"})
+			if err == nil || !strings.Contains(err.Error(),
+				"invalid collection filename") {
+				t.Fatalf("error = %v, want reserved-name rejection", err)
+			}
+		})
+	}
+}
+
 func TestRenderCollectionGolden(t *testing.T) {
 	t.Run("release_verification_evidence", func(t *testing.T) {
 		paths := []string{

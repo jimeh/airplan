@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.31.0**
+**Spec version: 0.32.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -591,6 +591,31 @@ already is the original file.
   their original wire rules validate. Version 1 omits `page_bytes` and `repo`;
   version 2 requires positive `page_bytes` and may include `repo`.
 
+- Purge protection (§9) is declared by a sentinel object at the exact key
+  `[key_prefix/]<dir>/.airplan-protected.json`. **Presence of the sentinel at
+  that key is the entire protection contract**: an empty, malformed,
+  oversized, or wrong-content-type body still means protected, so a partial
+  write can never silently unprotect an upload. airplan writes the sentinel
+  as UTF-8 JSON with `Content-Type: application/json` and
+  `Cache-Control: no-store`:
+
+  ```json
+  {
+    "schema": "airplan-protection",
+    "version": 1,
+    "created_at": "2026-07-25T12:00:00Z",
+    "reason": "README demo link"
+  }
+  ```
+
+  The body is advisory context only. `reason` is optional and at most 256
+  Unicode characters; readers drop longer or invalid reasons while the upload
+  stays protected. `.airplan-protected.json` is a reserved basename alongside
+  both marker basenames: collection member filenames and marker-declared
+  object names must not use it, or a member could forge protection for its
+  own upload. The sentinel is an ordinary extra object — it counts toward
+  listed object and byte totals and never affects upload completeness.
+
 - Every payload uses `Cache-Control: no-store`. Primary pages use
   `Content-Type: text/html; charset=utf-8`; collection members use their
   declared content types. Airplan does not force browser-viewable media to
@@ -789,7 +814,9 @@ airplan list|ls [--remote] [--json] [--columns SET] [--wide] [--reverse]
                 [-p NAME|--profile NAME|--profile=] [-A|--all-profiles]
 airplan show [--json] <url|key>
 airplan get [--output PATH] [--source] <url|key>
-airplan delete <url|key>
+airplan delete [--force] <url|key>
+airplan protect [--reason TEXT] <url|key>
+airplan unprotect <url|key>
 airplan purge [--remote] [--older-than 30d|2026-01-01]
               [--all] [--dry-run] [--yes] [--concurrency N]
 airplan sync [--config PATH] [--profile NAME] [--concurrency N]
@@ -1272,6 +1299,12 @@ conforming implementations can share a manifest:
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
+{"type":"protect","time":"2026-07-25T12:00:00Z",
+ "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
+ "bucket":"plans","profile":"work","protect_reason":"README demo link"}
+{"type":"unprotect","time":"2026-07-26T09:00:00Z",
+ "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
+ "bucket":"plans","profile":"work"}
 ```
 
 (Shown wrapped for readability; on disk each record is one line.)
@@ -1299,10 +1332,27 @@ conforming implementations can share a manifest:
 - New `delete` tombstones include `marker_key`, `bucket`, the receiving
   `profile`, and reason `deleted` or `remote_missing`. Their identity is
   `(bucket, marker_key)`. Legacy key-only tombstones remain valid.
+- `protect` and `unprotect` records project remote purge-protection state
+  (§9 protect/unprotect and purge) onto the same `(bucket, marker_key)`
+  identity. Both require `key`, `marker_key`, and `bucket` — protection
+  applies only to marker-managed identities, so pre-marker legacy history can
+  never appear protected. `protect_reason` is an optional advisory note of at
+  most 256 Unicode characters, present on `protect` records only; it is a
+  distinct field because `reason` is already a delete-tombstone enum.
 - Manifest history reduces chronologically. The latest event for an upload
   identity wins, duplicate uploads collapse to their latest record, and a
   later upload reactivates an earlier tombstone. A legacy key-only tombstone
   hides matching preceding uploads but not a later upload event.
+- Protection reduces alongside uploads: the latest `protect`/`unprotect`
+  event wins, a `delete` clears the identity's protection, and an `upload`
+  event does **not** clear it — a sync re-import of a still protected
+  directory must not silently drop protection. Protection state with no
+  active upload is simply not surfaced. Reduced upload records carry derived
+  `protected`, `protected_at`, and `protect_reason` fields — surfaced by
+  `list --json` and the REST manifest listing — but writers never persist
+  the derived `protected`/`protected_at` fields on any record. The local
+  projection exists so `purge --dry-run` is accurate offline; the remote
+  sentinel (§5) remains authoritative.
 - Forward compatibility: readers ignore unknown fields and skip
   records with an unknown `type`. The record itself needs no schema
   version; `marker_version` describes the remote upload format.
@@ -1454,8 +1504,12 @@ machine) and must be safe:
 - `list --remote --json` prints an array with one object per row. Its stable
   fields are `time`, `dir`, `marker_key`, `objects`, `bytes`, and `kind` when
   one marker kind is implied. `conflict` is true for dual-marker directories;
+  `protected` is true when the listing contains the directory's
+  purge-protection sentinel (§5) — unlike `kind` it is authoritative, because
+  sentinel presence is the whole contract;
   `slug`, `key`, and `url` appear only when inferred. These entries describe
-  marker-key presence and occupancy, not validated uploads.
+  marker-key presence and occupancy, not validated uploads. Protection is
+  JSON-only in both listings: neither human table gains a column.
   A malformed, oversized, or unsupported marker remains visible here
   because ordinary remote listing never reads it.
 - `airplan show <url|key>` performs targeted inspection of one remote marker
@@ -1473,7 +1527,13 @@ machine) and must be safe:
   `marker_key`, `objects`, and `bytes`. Valid states additionally
   contain `time`, `kind`, `marker_version`, `page`, `title` when non-empty,
   and `repo` when present; documents also expose `format` and optional
-  `source`, while collections expose an ordered `files` array. Declared object
+  `source`, while collections expose an ordered `files` array. Valid states
+  also expose purge protection: `protected` is true when the directory
+  listing contains the sentinel (§5), with advisory `protected_at` and
+  `protect_reason` from a best-effort sentinel body read — an unreadable or
+  malformed body leaves the upload protected with the listing timestamp and
+  no reason. The human detail block reports the same state as a `PROTECTED`
+  row, `no` or `yes (reason: ...)`. Declared object
   entries contain `key`, `url`, `exists`, `expected_bytes`, and `bytes`, with
   `bytes` omitted when missing. An invalid result
   additionally contains `error`, a stable coarse code:
@@ -1515,14 +1575,40 @@ machine) and must be safe:
   exact bucket path segment — a missing or different bucket is an
   error. Bucket-only URL parsing is allowed only when neither
   connection URL is configured.
+- Before any deletion, `delete` checks the directory listing it already
+  performs for the purge-protection sentinel (§5). If the sentinel is
+  present, the delete fails with an actionable error naming `unprotect` and
+  `--force`; the error includes the advisory reason when the sentinel body
+  can be read. This delete-time guard is authoritative and catches
+  protection set on another machine that local history has not seen. If
+  protection cannot be determined — the listing fails with anything other
+  than success — the delete fails without touching objects; only `--force`
+  deletes a protected upload.
 - A valid marker authorizes deletion of every object under its own
   random directory, including incomplete-upload remnants and
-  unrecognized extra siblings. Deletion removes every non-marker
-  object first. Only after all payload deletions succeed is the marker
+  unrecognized extra siblings. Deletion removes every non-marker,
+  non-sentinel object first. A forced delete then removes the protection
+  sentinel in its own request, so protection outlives every payload and an
+  interrupted forced delete leaves a still-marked, still-protected remnant.
+  Only after those deletions succeed is the marker
   deleted in a separate final operation. Any payload or marker failure
   leaves the local upload untombstoned so retry can resume while the
   marker still establishes ownership. A successful marker deletion is
   followed by the append-only local tombstone.
+- `airplan protect [--reason TEXT] <url|key>` marks one marker-managed
+  upload as purge-protected by writing its sentinel (§5);
+  `airplan unprotect <url|key>` removes it. Both accept the same targets as
+  `delete`, resolve and validate the ownership marker first through the same
+  fail-closed dual probe — so they need no LIST permission and cannot litter
+  sentinels across unmanaged prefixes — and are idempotent: protecting an
+  already protected upload succeeds and rewrites the sentinel, as does
+  unprotecting an unprotected one. A missing, conflicting, or invalid marker
+  fails without writing; pre-marker legacy uploads therefore cannot be
+  protected. `--reason` is bounded to 256 Unicode characters and rejected
+  beyond that. Each success appends the matching `protect`/`unprotect`
+  manifest record best-effort and prints a one-line stderr summary
+  (`protected upload (key ...)` / `unprotected upload (key ...)`); stdout
+  stays empty.
 - Before `show`, `get`, or `delete` resolves its connection, it consults local
   history for exactly one matching active, marker-managed manifest record.
   When neither
@@ -1589,6 +1675,17 @@ machine) and must be safe:
   Every selected deletion still requires the marker, except for the
   local-only ensure-gone reconciliation above. Suitable for cron
   (`purge --older-than 30d --yes`).
+- Purge never deletes a purge-protected upload and offers no force
+  override — bulk-overridable protection is not protection; only the
+  targeted `delete --force` can remove one. Matching protected uploads are
+  excluded from the candidate list up front (from the manifest projection
+  locally, from the LIST snapshot with `--remote`) and each prints a stderr
+  note, `airplan: note: skipping protected upload <url>`; `--dry-run`
+  prints the same notes and excludes them from the preview. Protection set
+  after planning is still caught by the delete-time sentinel guard and is
+  reported the same way. Protected skips are never failures: the summary
+  becomes `purged N uploads (P protected, F failed)` and skips do not
+  change the exit status.
 - `purge --remote` starts from the same marker-key candidates as
   `list --remote`, but fetches and validates markers because it is a
   destructive operation. It may select both `complete` and
@@ -1650,15 +1747,29 @@ machine) and must be safe:
   records. Per-item failures do not discard successfully validated progress.
   Human output and warnings use stderr while stdout remains empty. `--json`
   emits exactly one object on stdout with deterministic `added_records`,
-  `enriched_records`, `tombstone_records`, and `failures` arrays plus
-  `unchanged`, `deferred`, `incomplete`, `invalid`, and `retained` counters.
+  `enriched_records`, `tombstone_records`, `protection_records`, and `failures`
+  arrays plus `unchanged`, `deferred`, `incomplete`, `invalid`, and `retained`
+  counters.
   Enriched records complete uploads already in history, so they are never
   counted as additions. `unchanged` counts scoped records already complete
   locally; a record selected for enrichment is reported by its outcome,
-  enriched or deferred, and never also as unchanged. A partial failure exits nonzero after
+  enriched or deferred, and never also as unchanged. A partial failure exits
+  nonzero after
   writing the result. Sync provides eventual active-inventory convergence;
   it neither uploads deletion history nor makes historical JSONL files
   identical across machines.
+- Sync also reconciles purge protection from the same LIST snapshot, at no
+  extra request cost, for every scoped active record present in the
+  snapshot — not just newly imported ones. Remote protected with local
+  unprotected appends a `protect` record; remote unprotected with local
+  protected appends an `unprotect` record. Newly imported protected uploads
+  carry the sentinel's advisory time and reason when its body is readable;
+  already-active records reconcile on presence alone with the sync time and
+  no reason. Markers absent from the snapshot are left to prune's
+  confirm-absence rules. The locked reread before appending also rechecks
+  protection: records are appended only for identities still active whose
+  local projection still disagrees. The human summary reports
+  `updated protection on N` alongside synced and tombstoned counts.
 - The local manifest still matters: it remembers titles and profile
   context, and works offline. Remote listing is the cheap storage view;
   `show`, `get`, `delete`, and `purge --remote` read marker state when they
@@ -1673,6 +1784,12 @@ machine) and must be safe:
   in the bucket until deleted. `airplan purge --older-than 30d`
   (manual or cron) is the cleanup story; document both caveats
   prominently.
+- Purge protection is enforced by conforming clients, not by storage.
+  airplan builds older than this contract ignore it entirely: they do not
+  know to look for the sentinel and will purge or delete straight through
+  it. This is a documented limitation — any stronger guarantee requires
+  server-side enforcement, which the S3 credential model deliberately does
+  not assume. Native storage tooling is likewise unaffected by protection.
 - Bucket policy: object-read via public domain only; no
   `ListBucket` on any public principal. R2 custom-domain setup gets
   this right by default — documentation covers verification steps.
@@ -1864,6 +1981,8 @@ POST   /api/v1/uploads/collections
 POST   /api/v1/uploads/inspect
 POST   /api/v1/uploads/get
 POST   /api/v1/uploads/delete
+POST   /api/v1/uploads/protect
+POST   /api/v1/uploads/unprotect
 GET    /api/v1/uploads
 GET    /api/v1/storage/uploads
 POST   /api/v1/sync
@@ -1878,7 +1997,8 @@ files, mode 0600 on platforms with POSIX permission bits, so the existing
 seekable collection API can be used without whole-collection buffering; all
 temporary files are removed after success, failure, cancellation, or shutdown.
 
-Inspect, get, and delete take `url_or_key` in a JSON request body. The server
+Inspect, get, delete, protect, and unprotect take `url_or_key` in a JSON
+request body. The server
 resolves it against its complete S3 configuration and permits only objects
 declared by exactly one valid Airplan ownership marker. Get streams its
 response with the stored object's content type. Capability URLs are not placed
@@ -1890,6 +2010,17 @@ marker key. Clients reject a manifest response whose `objects` and
 `total_bytes` fields are not absent together or positive together rather than
 rendering a non-conforming inventory pair. The MCP `list_uploads` tool uses the
 same order.
+
+Delete accepts an optional `force` boolean; without it, deleting a
+purge-protected upload fails with problem code `upload_protected` (409).
+Protect accepts an optional advisory `reason` of at most 256 characters and
+returns the resulting protection state; unprotect returns the cleared state.
+Inspection, manifest, and storage listings expose `protected` (with advisory
+`protected_at` and `protect_reason` where known), purge previews report
+protected exclusions in a separate `protected` array, purge items report a
+delete-time skip as `protected: true` rather than a failure, and sync results
+include `protection_records`. The capabilities operation list includes
+`protect_upload` and `unprotect_upload` so clients can detect the feature.
 
 Purge is two-phase. `/purge/preview` applies the source and filters without
 deleting and returns explicit `upload_id` candidates. The CLI displays them
@@ -1928,16 +2059,18 @@ safe enumeration error.
 
 The minimal tool set is:
 
-| Tool              | Stdio | HTTP | Effect                             |
-| ----------------- | ----- | ---- | ---------------------------------- |
-| `upload_document` | yes   | yes  | Upload supplied text content       |
-| `upload_files`    | yes   | no   | Upload local paths as a collection |
-| `list_uploads`    | yes   | yes  | List manifest or storage records   |
-| `inspect_upload`  | yes   | yes  | Validate one marker-managed upload |
-| `delete_upload`   | yes   | yes  | Delete one explicit upload         |
-| `sync_manifest`   | yes   | yes  | Preview or apply reconciliation    |
-| `preview_purge`   | yes   | yes  | Return explicit purge candidates   |
-| `execute_purge`   | yes   | yes  | Delete reviewed upload IDs         |
+| Tool               | Stdio | HTTP | Effect                             |
+| ------------------ | ----- | ---- | ---------------------------------- |
+| `upload_document`  | yes   | yes  | Upload supplied text content       |
+| `upload_files`     | yes   | no   | Upload local paths as a collection |
+| `list_uploads`     | yes   | yes  | List manifest or storage records   |
+| `inspect_upload`   | yes   | yes  | Validate one marker-managed upload |
+| `delete_upload`    | yes   | yes  | Delete one explicit upload         |
+| `protect_upload`   | yes   | yes  | Mark one upload purge-protected    |
+| `unprotect_upload` | yes   | yes  | Remove purge protection            |
+| `sync_manifest`    | yes   | yes  | Preview or apply reconciliation    |
+| `preview_purge`    | yes   | yes  | Return explicit purge candidates   |
+| `execute_purge`    | yes   | yes  | Delete reviewed upload IDs         |
 
 The `upload_document` tool description identifies GFM, highlighted code,
 Mermaid fences, GitHub-style alerts, frontmatter, footnotes, and responsive
@@ -1950,7 +2083,9 @@ configuration, arbitrary S3 objects, or filesystem browsing.
 
 `sync_manifest` defaults to dry-run unless `apply: true` is explicit.
 `preview_purge` never deletes, and `execute_purge` accepts only explicit
-`upload_id` values. Tool results are structured and warnings remain inside the
+`upload_id` values. `delete_upload` accepts an optional `force` boolean and
+otherwise refuses purge-protected uploads; `protect_upload` accepts an
+optional `reason`. Tool results are structured and warnings remain inside the
 result rather than corrupting protocol framing. Partial sync or purge failures
 set the MCP error indicator while retaining the structured progress result.
 The configured operation timeout applies independently to each MCP tool call;

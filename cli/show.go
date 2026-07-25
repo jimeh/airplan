@@ -72,21 +72,24 @@ type showJSONObject struct {
 }
 
 type showJSONRecord struct {
-	State     airplan.UploadState     `json:"state"`
-	Dir       string                  `json:"dir"`
-	MarkerKey string                  `json:"marker_key"`
-	Objects   int                     `json:"objects"`
-	Bytes     int64                   `json:"bytes"`
-	Time      *time.Time              `json:"time,omitempty"`
-	Format    string                  `json:"format,omitempty"`
-	Kind      airplan.UploadKind      `json:"kind,omitempty"`
-	Version   int                     `json:"marker_version,omitempty"`
-	Title     string                  `json:"title,omitempty"`
-	Repo      string                  `json:"repo,omitempty"`
-	Page      *showJSONObject         `json:"page,omitempty"`
-	Source    *showJSONObject         `json:"source,omitempty"`
-	Files     []*showJSONObject       `json:"files,omitempty"`
-	Error     airplan.MarkerErrorCode `json:"error,omitempty"`
+	State         airplan.UploadState     `json:"state"`
+	Dir           string                  `json:"dir"`
+	MarkerKey     string                  `json:"marker_key"`
+	Objects       int                     `json:"objects"`
+	Bytes         int64                   `json:"bytes"`
+	Time          *time.Time              `json:"time,omitempty"`
+	Format        string                  `json:"format,omitempty"`
+	Kind          airplan.UploadKind      `json:"kind,omitempty"`
+	Version       int                     `json:"marker_version,omitempty"`
+	Title         string                  `json:"title,omitempty"`
+	Repo          string                  `json:"repo,omitempty"`
+	Protected     bool                    `json:"protected,omitempty"`
+	ProtectedAt   *time.Time              `json:"protected_at,omitempty"`
+	ProtectReason string                  `json:"protect_reason,omitempty"`
+	Page          *showJSONObject         `json:"page,omitempty"`
+	Source        *showJSONObject         `json:"source,omitempty"`
+	Files         []*showJSONObject       `json:"files,omitempty"`
+	Error         airplan.MarkerErrorCode `json:"error,omitempty"`
 }
 
 func showJSONFromInspection(in *airplan.UploadInspection) showJSONRecord {
@@ -102,6 +105,12 @@ func showJSONFromInspection(in *airplan.UploadInspection) showJSONRecord {
 		out.Version = in.MarkerVersion
 		out.Title = in.Title
 		out.Repo = in.Repo
+		out.Protected = in.Protected
+		if !in.ProtectedAt.IsZero() {
+			protectedAt := in.ProtectedAt
+			out.ProtectedAt = &protectedAt
+		}
+		out.ProtectReason = in.ProtectReason
 		out.Page = showJSONFromObject(in.Page)
 		out.Source = showJSONFromObject(in.Source)
 		for _, file := range in.Files {
@@ -182,6 +191,16 @@ func printInspection(w io.Writer, in *airplan.UploadInspection) error {
 		repo = "-"
 	}
 	if err := write("REPOSITORY", repo); err != nil {
+		return err
+	}
+	protected := "no"
+	if in.Protected {
+		protected = "yes"
+		if in.ProtectReason != "" {
+			protected = "yes (reason: " + in.ProtectReason + ")"
+		}
+	}
+	if err := write("PROTECTED", protected); err != nil {
 		return err
 	}
 	if err := printInspectedObject(tw, "PAGE", in.Page); err != nil {

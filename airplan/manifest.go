@@ -25,7 +25,7 @@ import (
 // implementations can share a manifest. Readers ignore unknown fields
 // and skip records with an unknown Type.
 type ManifestRecord struct {
-	// Type is "upload" or "delete".
+	// Type is "upload", "delete", "protect", or "unprotect".
 	Type string `json:"type"`
 
 	// Time is the record time, RFC 3339 in UTC.
@@ -65,6 +65,18 @@ type ManifestRecord struct {
 	// MarkerVersion is the remote ownership-marker version written for an
 	// upload. Delete records omit it.
 	MarkerVersion int `json:"marker_version,omitempty"`
+
+	// ProtectReason is the advisory purge-protection reason: written on
+	// protect records and projected onto reduced upload records. It is a
+	// distinct field because Reason is already a delete-tombstone enum.
+	ProtectReason string `json:"protect_reason,omitempty"`
+
+	// Protected and ProtectedAt are reduction-derived projections of the
+	// local protection state (SPEC.md §9). Writers never emit them: every
+	// writer builds fresh records, and ManifestUploads recomputes both on
+	// reduced upload records.
+	Protected   bool      `json:"protected,omitempty"`
+	ProtectedAt time.Time `json:"protected_at,omitzero"`
 }
 
 // DefaultManifestPath returns the platform default manifest location
@@ -227,7 +239,8 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 				} else {
 					records = append(records, rec)
 				}
-			} else if rec.Type == "delete" {
+			} else if rec.Type == "delete" || rec.Type == "protect" ||
+				rec.Type == "unprotect" {
 				normalizeManifestRecord(&rec)
 				if err := validateManifestRecord(rec); err != nil {
 					warnings = append(warnings, fmt.Sprintf(
@@ -360,6 +373,22 @@ func validateManifestRecord(rec ManifestRecord) error {
 		if rec.Reason != "" && rec.Reason != "deleted" &&
 			rec.Reason != "remote_missing" {
 			return fmt.Errorf("unsupported delete reason %q", rec.Reason)
+		}
+	case "protect", "unprotect":
+		// Protection applies to marker-managed identities only, so both
+		// record types require the full (bucket, marker_key) identity.
+		if rec.MarkerKey == "" || rec.Bucket == "" {
+			return errors.New("marker_key and bucket are required")
+		}
+		expected := markerKeyForManifestRecord(rec)
+		if expected == "" || rec.MarkerKey != expected {
+			return errors.New("marker_key must match the page directory")
+		}
+		if rec.Type == "unprotect" && rec.ProtectReason != "" {
+			return errors.New("unprotect records must not declare protect_reason")
+		}
+		if err := validateProtectReason(rec.ProtectReason); err != nil {
+			return err
 		}
 	default:
 		return fmt.Errorf("unsupported type %q", rec.Type)
@@ -516,27 +545,48 @@ func ReadManifest(path string) ([]ManifestRecord, []string, error) {
 
 // ManifestUploads reduces manifest history chronologically so the latest
 // upload or delete event wins for each identity. It includes legacy uploads
-// recorded before ownership markers were introduced.
+// recorded before ownership markers were introduced. Reduced upload records
+// carry the derived Protected, ProtectedAt, and ProtectReason projection of
+// the latest protect/unprotect event for their identity (SPEC.md §9).
 func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 	type activeRecord struct {
 		record ManifestRecord
 		order  int
 	}
+	type protectionState struct {
+		at     time.Time
+		reason string
+	}
 	active := make(map[string]activeRecord)
+	protection := make(map[string]protectionState)
 	for index, rec := range records {
 		switch rec.Type {
 		case "upload":
+			// Derived fields are recomputed below; stale values on a read
+			// line never survive reduction.
+			rec.Protected = false
+			rec.ProtectedAt = time.Time{}
+			rec.ProtectReason = ""
 			active[manifestRecordIdentity(rec)] = activeRecord{rec, index}
 		case "delete":
 			if rec.MarkerKey != "" && rec.Bucket != "" {
-				delete(active, manifestRecordIdentity(rec))
+				identity := manifestRecordIdentity(rec)
+				delete(active, identity)
+				delete(protection, identity)
 				continue
 			}
 			for identity, candidate := range active {
 				if candidate.record.Key == rec.Key {
 					delete(active, identity)
+					delete(protection, identity)
 				}
 			}
+		case "protect":
+			protection[manifestRecordIdentity(rec)] = protectionState{
+				at: rec.Time, reason: rec.ProtectReason,
+			}
+		case "unprotect":
+			delete(protection, manifestRecordIdentity(rec))
 		}
 	}
 	out := make([]activeRecord, 0, len(active))
@@ -546,7 +596,16 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 	sort.Slice(out, func(i, j int) bool { return out[i].order < out[j].order })
 	uploads := make([]ManifestRecord, 0, len(out))
 	for _, record := range out {
-		uploads = append(uploads, record.record)
+		rec := record.record
+		// An upload never clears protection: a sync re-import of a still
+		// protected directory must not silently drop it. Protection state
+		// without an active upload is simply not surfaced.
+		if state, ok := protection[manifestRecordIdentity(rec)]; ok {
+			rec.Protected = true
+			rec.ProtectedAt = state.at
+			rec.ProtectReason = state.reason
+		}
+		uploads = append(uploads, rec)
 	}
 	return uploads
 }
@@ -598,7 +657,7 @@ func manifestMarkerKey(rec ManifestRecord) string {
 func manifestRecordIdentity(rec ManifestRecord) string {
 	markerKey := manifestMarkerKey(rec)
 	if rec.Bucket != "" && markerKey != "" &&
-		(rec.Type == "delete" || IsSupportedMarkerVersion(rec.MarkerVersion)) {
+		(rec.Type != "upload" || IsSupportedMarkerVersion(rec.MarkerVersion)) {
 		return "managed\x00" + rec.Bucket + "\x00" + markerKey
 	}
 	return "legacy\x00" + rec.Key

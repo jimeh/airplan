@@ -141,7 +141,8 @@ func (t *httpTransport) ListRemote(
 		uploads = append(uploads, RemoteUpload{
 			Dir: upload.ID, MarkerKey: upload.MarkerKey,
 			Kind: UploadKind(upload.Kind), Conflict: upload.Conflict,
-			Slug: upload.Slug, Key: upload.Key, URL: upload.URL,
+			Protected: upload.Protected,
+			Slug:      upload.Slug, Key: upload.Key, URL: upload.URL,
 			Keys:    append([]string(nil), upload.Keys...),
 			Objects: upload.Objects, Bytes: upload.Bytes,
 			LastModified: upload.LastModified,
@@ -169,13 +170,18 @@ func coreInspection(result httpapi.UploadInspection) *UploadInspection {
 		Bytes: result.Bytes, Format: result.Format,
 		Kind: UploadKind(result.Kind), Title: result.Title,
 		Repo: result.RepositoryURL, MarkerVersion: result.MarkerVersion,
-		Page:     coreInspectedObject(result.Page),
-		Source:   coreInspectedObject(result.Source),
-		Warnings: append([]string(nil), result.Warnings...),
-		Error:    MarkerErrorCode(result.Error),
+		Page:          coreInspectedObject(result.Page),
+		Source:        coreInspectedObject(result.Source),
+		Protected:     result.Protected,
+		ProtectReason: result.ProtectReason,
+		Warnings:      append([]string(nil), result.Warnings...),
+		Error:         MarkerErrorCode(result.Error),
 	}
 	if result.CreatedAt != nil {
 		core.CreatedAt = *result.CreatedAt
+	}
+	if result.ProtectedAt != nil {
+		core.ProtectedAt = *result.ProtectedAt
 	}
 	for _, file := range result.Files {
 		file := file
@@ -262,12 +268,19 @@ func (t *httpTransport) GetUpload(
 }
 
 func (t *httpTransport) DeleteUpload(
-	ctx context.Context, target string,
+	ctx context.Context, target string, opts DeleteOptions,
 ) (*DeleteResult, error) {
-	result, err := t.client.DeleteUpload(ctx, httpapi.TargetRequest{
-		URLOrKey: target,
+	result, err := t.client.DeleteUpload(ctx, httpapi.DeleteRequest{
+		URLOrKey: target, Force: opts.Force,
 	})
 	if err != nil {
+		// Reconstruct the typed protection failure so purge skip handling
+		// and the CLI --force hint behave identically under either backend.
+		var problem *httpapi.ProblemError
+		if errors.As(err, &problem) &&
+			problem.Problem.Code == "upload_protected" {
+			return nil, &UploadProtectedError{Target: target}
+		}
 		return nil, transportError(err)
 	}
 	return &DeleteResult{
@@ -276,6 +289,44 @@ func (t *httpTransport) DeleteUpload(
 		Kind:     UploadKind(result.Kind),
 		Warnings: append([]string(nil), result.Warnings...),
 	}, nil
+}
+
+func (t *httpTransport) ProtectUpload(
+	ctx context.Context, target, reason string,
+) (*ProtectionResult, error) {
+	result, err := t.client.ProtectUpload(ctx, httpapi.ProtectRequest{
+		URLOrKey: target, Reason: reason,
+	})
+	if err != nil {
+		return nil, transportError(err)
+	}
+	return coreProtectionResult(result), nil
+}
+
+func (t *httpTransport) UnprotectUpload(
+	ctx context.Context, target string,
+) (*ProtectionResult, error) {
+	result, err := t.client.UnprotectUpload(ctx, httpapi.TargetRequest{
+		URLOrKey: target,
+	})
+	if err != nil {
+		return nil, transportError(err)
+	}
+	return coreProtectionResult(result), nil
+}
+
+func coreProtectionResult(result httpapi.ProtectionResult) *ProtectionResult {
+	core := &ProtectionResult{
+		ID: result.ID, MarkerKey: result.MarkerKey,
+		SentinelKey: result.SentinelKey, PageKey: result.PageKey,
+		Kind: UploadKind(result.Kind), Protected: result.Protected,
+		Reason:   result.Reason,
+		Warnings: append([]string(nil), result.Warnings...),
+	}
+	if result.ProtectedAt != nil {
+		core.ProtectedAt = *result.ProtectedAt
+	}
+	return core
 }
 
 func (t *httpTransport) SyncManifest(
@@ -303,6 +354,11 @@ func (t *httpTransport) SyncManifest(
 	for _, record := range result.TombstoneRecords {
 		core.Tombstoned = append(
 			core.Tombstoned, coreManifestRecord(record),
+		)
+	}
+	for _, record := range result.ProtectionRecords {
+		core.Protection = append(
+			core.Protection, coreManifestRecord(record),
 		)
 	}
 	for _, failure := range result.Failures {
@@ -339,7 +395,7 @@ func (t *httpTransport) PlanPurge(
 		Invalid:  result.Invalid,
 		Warnings: append([]string(nil), result.Warnings...),
 	}
-	for _, candidate := range result.Candidates {
+	coreCandidate := func(candidate httpapi.PurgeCandidate) PurgeCandidate {
 		item := PurgeCandidate{
 			UploadID: candidate.UploadID,
 			Record:   coreManifestRecord(candidate.Record),
@@ -348,7 +404,13 @@ func (t *httpTransport) PlanPurge(
 		if candidate.Inspection != nil {
 			item.Inspection = coreInspection(*candidate.Inspection)
 		}
-		core.Candidates = append(core.Candidates, item)
+		return item
+	}
+	for _, candidate := range result.Candidates {
+		core.Candidates = append(core.Candidates, coreCandidate(candidate))
+	}
+	for _, candidate := range result.Protected {
+		core.Protected = append(core.Protected, coreCandidate(candidate))
 	}
 	return core, nil
 }
@@ -366,7 +428,8 @@ func (t *httpTransport) Purge(
 	failed := 0
 	for _, item := range result.Items {
 		coreItem := PurgeItemResult{
-			UploadID: item.UploadID, Error: item.Error,
+			UploadID: item.UploadID, Protected: item.Protected,
+			Error: item.Error,
 		}
 		if item.Deleted != nil {
 			coreItem.Deleted = &DeleteResult{

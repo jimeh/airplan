@@ -321,7 +321,7 @@ func prepareCollection(ctx context.Context, in FilesInput, repository string) ([
 const mathMaxInt64 = int64(^uint64(0) >> 1)
 
 func validateCollectionName(name string) error {
-	if name == "" || name == "." || name == ".." || name == MarkerFilename || name == CollectionMarkerFilename || name == "index.html" {
+	if name == "" || name == "." || name == ".." || name == MarkerFilename || name == CollectionMarkerFilename || name == ProtectedFilename || name == "index.html" {
 		return fmt.Errorf("airplan: invalid collection filename %q", name)
 	}
 	if !utf8.ValidString(name) || strings.ContainsAny(name, "/\\\x00") {

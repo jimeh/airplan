@@ -42,6 +42,9 @@ type SyncManifestResult struct {
 	Enriched []ManifestRecord `json:"enriched_records"`
 	// Tombstoned contains delete records planned or appended by this run.
 	Tombstoned []ManifestRecord `json:"tombstone_records"`
+	// Protection contains protect/unprotect records planned or appended to
+	// mirror remote sentinel state from the listing snapshot (SPEC.md §9).
+	Protection []ManifestRecord `json:"protection_records"`
 	// Unchanged counts remote markers already active and complete in the
 	// local manifest. A record selected for enrichment is reported as
 	// enriched or deferred instead, never as unchanged.
@@ -128,6 +131,14 @@ func (c *Client) SyncManifest(
 			})
 			continue
 		}
+		// Protection reconciliation reuses the listing snapshot every job
+		// already came from, so it costs no extra requests. Markers absent
+		// from the snapshot belong to prune, which has its own
+		// confirm-absence rules (SPEC.md §9).
+		if upload.Protected != local.Protected {
+			result.Protection = append(result.Protection,
+				c.syncProtectionRecord(local, upload.Protected, ""))
+		}
 		// An already-active record still needs its marker inspected when it
 		// predates declared totals, so history converges in one pass without
 		// re-importing anything (SPEC.md §9). Such a record is reported by its
@@ -213,6 +224,9 @@ func (c *Client) SyncManifest(
 		if item.enriched != nil {
 			result.Enriched = append(result.Enriched, *item.enriched)
 		}
+		if item.protection != nil {
+			result.Protection = append(result.Protection, *item.protection)
+		}
 		if item.tombstone != nil {
 			result.Tombstoned = append(result.Tombstoned, *item.tombstone)
 		}
@@ -231,7 +245,7 @@ func (c *Client) SyncManifest(
 	}
 
 	if !opts.DryRun && (len(result.Added) > 0 || len(result.Enriched) > 0 ||
-		len(result.Tombstoned) > 0) {
+		len(result.Tombstoned) > 0 || len(result.Protection) > 0) {
 		initialLen := len(records)
 		if err := c.commitSyncManifest(
 			ctx, manifestPath, initialLen, result,
@@ -306,6 +320,16 @@ func (c *Client) syncImport(
 		record.SourceKey = inspection.Source.Key
 	}
 	result := syncJobResult{upload: &record}
+	if inspection.Protected {
+		protection := c.syncProtectionRecord(
+			record, true, inspection.ProtectReason,
+		)
+		if !inspection.ProtectedAt.IsZero() {
+			protection.Time = inspection.ProtectedAt.UTC().
+				Truncate(time.Second)
+		}
+		result.protection = &protection
+	}
 	if len(inspection.Warnings) > 0 {
 		result.warning = inspection.Warnings[0]
 	}
@@ -371,6 +395,26 @@ func deferredEnrichment(markerKey, reason string) syncJobResult {
 		warning: fmt.Sprintf(
 			"declared totals deferred for marker %q: %s", markerKey, reason,
 		),
+	}
+}
+
+// syncProtectionRecord builds one protect or unprotect manifest record for a
+// scoped identity. Reason and remote timestamps are advisory: reconciliation
+// for already-active records is presence-based and uses the sync time.
+func (c *Client) syncProtectionRecord(
+	record ManifestRecord, protected bool, reason string,
+) ManifestRecord {
+	recordType := "unprotect"
+	if !protected {
+		reason = ""
+	} else {
+		recordType = "protect"
+	}
+	return ManifestRecord{
+		Type: recordType, Time: time.Now().UTC().Truncate(time.Second),
+		Key: record.Key, MarkerKey: manifestMarkerKey(record),
+		Bucket: c.cfg.Bucket, Profile: c.cfg.Profile,
+		ProtectReason: reason,
 	}
 }
 
@@ -466,15 +510,32 @@ func (c *Client) commitSyncManifest(
 			appendedTombstones = append(appendedTombstones, rec)
 			delete(active, manifestMarkerKey(rec))
 		}
+		// Protection records are appended only for identities still active
+		// after re-reduction, and only while the local projection still
+		// disagrees with the planned state (SPEC.md §9).
+		appendedProtection := make([]ManifestRecord, 0,
+			len(result.Protection))
+		for _, rec := range result.Protection {
+			record, exists := active[manifestMarkerKey(rec)]
+			if !exists {
+				continue
+			}
+			if record.Protected == (rec.Type == "protect") {
+				continue
+			}
+			appendedProtection = append(appendedProtection, rec)
+		}
 		all := append([]ManifestRecord(nil), appendedUploads...)
 		all = append(all, appendedEnriched...)
 		all = append(all, appendedTombstones...)
+		all = append(all, appendedProtection...)
 		if err := appendManifestRecordsUnlocked(path, all); err != nil {
 			return err
 		}
 		result.Added = appendedUploads
 		result.Enriched = appendedEnriched
 		result.Tombstoned = appendedTombstones
+		result.Protection = appendedProtection
 		return nil
 	})
 }
@@ -532,14 +593,15 @@ func hasConcurrentDelete(
 }
 
 type syncJobResult struct {
-	upload    *ManifestRecord
-	enriched  *ManifestRecord
-	tombstone *ManifestRecord
-	failure   *SyncFailure
-	warning   string
-	state     UploadState
-	retained  bool
-	deferred  bool
+	upload     *ManifestRecord
+	enriched   *ManifestRecord
+	protection *ManifestRecord
+	tombstone  *ManifestRecord
+	failure    *SyncFailure
+	warning    string
+	state      UploadState
+	retained   bool
+	deferred   bool
 }
 
 // syncJobKind selects what a sync worker does with one marker key.

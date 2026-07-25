@@ -339,6 +339,7 @@ type remoteListJSONRecord struct {
 	URL       string             `json:"url,omitempty"`
 	Kind      airplan.UploadKind `json:"kind,omitempty"`
 	Conflict  bool               `json:"conflict,omitempty"`
+	Protected bool               `json:"protected,omitempty"`
 }
 
 func remoteListJSONRecords(
@@ -357,6 +358,7 @@ func remoteListJSONRecords(
 			URL:       upload.URL,
 			Kind:      upload.Kind,
 			Conflict:  upload.Conflict,
+			Protected: upload.Protected,
 		})
 	}
 	return records

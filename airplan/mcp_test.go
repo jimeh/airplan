@@ -33,8 +33,8 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 		localFiles bool
 		wantTools  int
 	}{
-		{name: "stdio", localFiles: true, wantTools: 8},
-		{name: "hosted HTTP", localFiles: false, wantTools: 7},
+		{name: "stdio", localFiles: true, wantTools: 10},
+		{name: "hosted HTTP", localFiles: false, wantTools: 9},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

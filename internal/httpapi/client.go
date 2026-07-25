@@ -235,13 +235,37 @@ func (c *Client) GetUpload(
 // DeleteUpload permanently deletes one marker-managed upload.
 func (c *Client) DeleteUpload(
 	ctx context.Context,
-	request TargetRequest,
+	request DeleteRequest,
 ) (DeleteResult, error) {
 	response, err := c.generated.DeleteUpload(ctx, request)
 	if err != nil {
 		return DeleteResult{}, err
 	}
 	return decodeResponse[DeleteResult](response, http.StatusOK)
+}
+
+// ProtectUpload marks one marker-managed upload as purge-protected.
+func (c *Client) ProtectUpload(
+	ctx context.Context,
+	request ProtectRequest,
+) (ProtectionResult, error) {
+	response, err := c.generated.ProtectUpload(ctx, request)
+	if err != nil {
+		return ProtectionResult{}, err
+	}
+	return decodeResponse[ProtectionResult](response, http.StatusOK)
+}
+
+// UnprotectUpload removes purge protection from one marker-managed upload.
+func (c *Client) UnprotectUpload(
+	ctx context.Context,
+	request TargetRequest,
+) (ProtectionResult, error) {
+	response, err := c.generated.UnprotectUpload(ctx, request)
+	if err != nil {
+		return ProtectionResult{}, err
+	}
+	return decodeResponse[ProtectionResult](response, http.StatusOK)
 }
 
 // ListManifestUploads lists scoped server manifest history.

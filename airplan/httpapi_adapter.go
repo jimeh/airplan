@@ -42,7 +42,8 @@ func (o *HTTPOperations) Capabilities(
 		APIVersion: "v1", ServerVersion: version,
 		Operations: []string{
 			"upload_document", "upload_collection", "inspect_upload",
-			"get_upload", "delete_upload", "list_manifest",
+			"get_upload", "delete_upload", "protect_upload",
+			"unprotect_upload", "list_manifest",
 			"list_storage", "sync_manifest", "preview_purge",
 			"execute_purge",
 		},
@@ -211,6 +212,12 @@ func wireInspection(result *UploadInspection) httpapi.UploadInspection {
 	if result.CreatedAt.IsZero() {
 		wire.CreatedAt = nil
 	}
+	wire.Protected = result.Protected
+	if !result.ProtectedAt.IsZero() {
+		protectedAt := result.ProtectedAt
+		wire.ProtectedAt = &protectedAt
+	}
+	wire.ProtectReason = result.ProtectReason
 	wire.Page = wireInspectedObject(result.Page)
 	wire.Source = wireInspectedObject(result.Source)
 	for _, file := range result.Files {
@@ -266,17 +273,64 @@ func (o *HTTPOperations) GetUpload(
 
 // DeleteUpload permanently removes one marker-managed upload.
 func (o *HTTPOperations) DeleteUpload(
-	ctx context.Context, request httpapi.TargetRequest,
+	ctx context.Context, request httpapi.DeleteRequest,
 ) (httpapi.DeleteResult, error) {
 	client, err := o.client()
 	if err != nil {
 		return httpapi.DeleteResult{}, err
 	}
-	result, err := client.DeleteUpload(ctx, request.URLOrKey)
+	result, err := client.DeleteUploadWithOptions(
+		ctx, request.URLOrKey, DeleteOptions{Force: request.Force},
+	)
 	if err != nil {
 		return httpapi.DeleteResult{}, apiOperationError(err)
 	}
 	return wireDeleteResult(result), nil
+}
+
+// ProtectUpload marks one marker-managed upload as purge-protected.
+func (o *HTTPOperations) ProtectUpload(
+	ctx context.Context, request httpapi.ProtectRequest,
+) (httpapi.ProtectionResult, error) {
+	client, err := o.client()
+	if err != nil {
+		return httpapi.ProtectionResult{}, err
+	}
+	result, err := client.ProtectUpload(ctx, request.URLOrKey, request.Reason)
+	if err != nil {
+		return httpapi.ProtectionResult{}, apiOperationError(err)
+	}
+	return wireProtectionResult(result), nil
+}
+
+// UnprotectUpload removes purge protection from one marker-managed upload.
+func (o *HTTPOperations) UnprotectUpload(
+	ctx context.Context, request httpapi.TargetRequest,
+) (httpapi.ProtectionResult, error) {
+	client, err := o.client()
+	if err != nil {
+		return httpapi.ProtectionResult{}, err
+	}
+	result, err := client.UnprotectUpload(ctx, request.URLOrKey)
+	if err != nil {
+		return httpapi.ProtectionResult{}, apiOperationError(err)
+	}
+	return wireProtectionResult(result), nil
+}
+
+func wireProtectionResult(result *ProtectionResult) httpapi.ProtectionResult {
+	wire := httpapi.ProtectionResult{
+		ID: result.ID, MarkerKey: result.MarkerKey,
+		SentinelKey: result.SentinelKey, PageKey: result.PageKey,
+		Kind:      httpapi.ProtectionResultKind(result.Kind),
+		Protected: result.Protected, Reason: result.Reason,
+		Warnings: serverSafeWarnings(result.Warnings),
+	}
+	if !result.ProtectedAt.IsZero() {
+		protectedAt := result.ProtectedAt
+		wire.ProtectedAt = &protectedAt
+	}
+	return wire
 }
 
 func wireDeleteResult(result *DeleteResult) httpapi.DeleteResult {
@@ -320,7 +374,7 @@ func (o *HTTPOperations) ListManifestUploads(
 }
 
 func wireManifestRecord(record ManifestRecord) httpapi.ManifestRecord {
-	return httpapi.ManifestRecord{
+	wire := httpapi.ManifestRecord{
 		Type: httpapi.ManifestRecordType(record.Type),
 		Time: record.Time, Key: record.Key,
 		SourceKey: record.SourceKey, MarkerKey: record.MarkerKey,
@@ -330,11 +384,17 @@ func wireManifestRecord(record ManifestRecord) httpapi.ManifestRecord {
 		RepositoryURL: record.Repo, Bytes: record.Bytes,
 		Objects: record.Objects, TotalBytes: record.TotalBytes,
 		Reason: record.Reason, MarkerVersion: record.MarkerVersion,
+		ProtectReason: record.ProtectReason, Protected: record.Protected,
 	}
+	if !record.ProtectedAt.IsZero() {
+		protectedAt := record.ProtectedAt
+		wire.ProtectedAt = &protectedAt
+	}
+	return wire
 }
 
 func coreManifestRecord(record httpapi.ManifestRecord) ManifestRecord {
-	return ManifestRecord{
+	core := ManifestRecord{
 		Type: string(record.Type), Time: record.Time, Key: record.Key,
 		SourceKey: record.SourceKey, MarkerKey: record.MarkerKey,
 		URL: record.URL, Bucket: record.Bucket, Format: record.Format,
@@ -342,7 +402,12 @@ func coreManifestRecord(record httpapi.ManifestRecord) ManifestRecord {
 		Repo: record.RepositoryURL, Bytes: record.Bytes,
 		Objects: record.Objects, TotalBytes: record.TotalBytes,
 		Reason: record.Reason, MarkerVersion: record.MarkerVersion,
+		ProtectReason: record.ProtectReason, Protected: record.Protected,
 	}
+	if record.ProtectedAt != nil {
+		core.ProtectedAt = *record.ProtectedAt
+	}
+	return core
 }
 
 // ListStorageUploads returns a direct marker-prefix storage snapshot.
@@ -362,7 +427,8 @@ func (o *HTTPOperations) ListStorageUploads(
 		uploads = append(uploads, httpapi.RemoteUpload{
 			ID: upload.Dir, MarkerKey: upload.MarkerKey,
 			Kind: httpapi.RemoteUploadKind(upload.Kind), Conflict: upload.Conflict,
-			Slug: upload.Slug, Key: upload.Key, URL: upload.URL,
+			Protected: upload.Protected,
+			Slug:      upload.Slug, Key: upload.Key, URL: upload.URL,
 			Keys:    nonNilStrings(upload.Keys),
 			Objects: upload.Objects, Bytes: upload.Bytes,
 			LastModified: upload.LastModified,
@@ -390,12 +456,13 @@ func (o *HTTPOperations) SyncManifest(
 		Unchanged: result.Unchanged, Deferred: result.Deferred,
 		Incomplete: result.Incomplete,
 		Invalid:    result.Invalid, Retained: result.Retained,
-		Warnings:         serverSafeWarnings(result.Warnings),
-		Complete:         len(result.Failures) == 0,
-		AddedRecords:     []httpapi.ManifestRecord{},
-		EnrichedRecords:  []httpapi.ManifestRecord{},
-		TombstoneRecords: []httpapi.ManifestRecord{},
-		Failures:         []httpapi.SyncFailure{},
+		Warnings:          serverSafeWarnings(result.Warnings),
+		Complete:          len(result.Failures) == 0,
+		AddedRecords:      []httpapi.ManifestRecord{},
+		EnrichedRecords:   []httpapi.ManifestRecord{},
+		TombstoneRecords:  []httpapi.ManifestRecord{},
+		ProtectionRecords: []httpapi.ManifestRecord{},
+		Failures:          []httpapi.SyncFailure{},
 	}
 	for _, record := range result.Added {
 		wire.AddedRecords = append(
@@ -410,6 +477,11 @@ func (o *HTTPOperations) SyncManifest(
 	for _, record := range result.Tombstoned {
 		wire.TombstoneRecords = append(
 			wire.TombstoneRecords, wireManifestRecord(record),
+		)
+	}
+	for _, record := range result.Protection {
+		wire.ProtectionRecords = append(
+			wire.ProtectionRecords, wireManifestRecord(record),
 		)
 	}
 	for _, failure := range result.Failures {
@@ -451,8 +523,9 @@ func (o *HTTPOperations) PreviewPurge(
 		Invalid:    result.Invalid,
 		Warnings:   serverSafeWarnings(result.Warnings),
 		Candidates: []httpapi.PurgeCandidate{},
+		Protected:  []httpapi.PurgeCandidate{},
 	}
-	for _, candidate := range result.Candidates {
+	wireCandidate := func(candidate PurgeCandidate) httpapi.PurgeCandidate {
 		item := httpapi.PurgeCandidate{
 			UploadID: candidate.UploadID,
 			Record:   wireManifestRecord(candidate.Record),
@@ -462,7 +535,13 @@ func (o *HTTPOperations) PreviewPurge(
 			inspection := wireInspection(candidate.Inspection)
 			item.Inspection = &inspection
 		}
-		wire.Candidates = append(wire.Candidates, item)
+		return item
+	}
+	for _, candidate := range result.Candidates {
+		wire.Candidates = append(wire.Candidates, wireCandidate(candidate))
+	}
+	for _, candidate := range result.Protected {
+		wire.Protected = append(wire.Protected, wireCandidate(candidate))
 	}
 	return wire, nil
 }
@@ -484,7 +563,8 @@ func (o *HTTPOperations) ExecutePurge(
 	wire := httpapi.PurgeResult{Items: []httpapi.PurgeItemResult{}}
 	for _, item := range result.Items {
 		wireItem := httpapi.PurgeItemResult{
-			UploadID: item.UploadID, Error: serverSafeItemError(item.Error),
+			UploadID: item.UploadID, Protected: item.Protected,
+			Error: serverSafeItemError(item.Error),
 		}
 		if item.Deleted != nil {
 			deleted := wireDeleteResult(item.Deleted)
@@ -526,6 +606,13 @@ func apiOperationError(err error) error {
 			http.StatusUnprocessableEntity, "invalid_target",
 			"Invalid upload target",
 			"The target is not a valid marker-managed Airplan upload.",
+		)
+	}
+	var protectedErr *UploadProtectedError
+	if errors.As(err, &protectedErr) {
+		return httpapi.NewProblemError(
+			http.StatusConflict, "upload_protected", "Upload protected",
+			"The upload is purge-protected; unprotect it or force deletion.",
 		)
 	}
 	if _, ok := MarkerCode(err); ok {

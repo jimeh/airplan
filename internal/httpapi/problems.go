@@ -95,6 +95,8 @@ func safeProblemDetail(code string) string {
 		return "The target is not a valid marker-managed Airplan upload."
 	case "upload_not_found":
 		return "The marker-managed upload could not be found."
+	case "upload_protected":
+		return "The upload is purge-protected; unprotect it or force deletion."
 	default:
 		return "The server could not complete the request."
 	}

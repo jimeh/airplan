@@ -484,6 +484,8 @@ airplan get [--source] <url-or-key>  # raw page or source bytes
 airplan delete <url-or-key>      # delete one upload
 airplan list --newer-than 7d     # only recent uploads (also --kind, --slug)
 airplan list --all-profiles      # uploads recorded under every profile
+airplan protect <url-or-key>     # mark one upload purge-protected
+airplan unprotect <url-or-key>   # remove purge protection
 airplan purge --older-than 30d   # review and delete older uploads
 airplan sync                     # reconcile remote uploads into local history
 ```
@@ -835,7 +837,15 @@ and on the overview. HTML and SVG members may execute active content when
 opened; Airplan uploads every member byte-for-byte and does not sanitize it.
 
 Use `airplan purge --older-than 30d --yes` manually or from cron when uploads
-should expire. For large remote inventories, `purge --remote --concurrency N`
+should expire. Mark uploads that must survive bulk cleanup — a demo linked
+from a README, say — with `airplan protect --reason "why" <url-or-key>`.
+Purge skips protected uploads with a stderr note and no failure, and
+`delete` refuses them unless given `--force`; `airplan unprotect` lifts the
+mark again. Protection lives in the bucket as a small
+`.airplan-protected.json` sentinel object, so it follows the upload across
+machines; note that older airplan builds do not know about the sentinel and
+will purge straight through it. For large remote inventories,
+`purge --remote --concurrency N`
 changes only parallel marker inspection (default 8, range 1-64); destructive
 deletions stay sequential after confirmation. For defense in depth on
 Cloudflare, a Transform Rule can add an

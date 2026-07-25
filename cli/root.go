@@ -127,6 +127,8 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newShowCmd())
 	cmd.AddCommand(newGetCmd())
 	cmd.AddCommand(newDeleteCmd())
+	cmd.AddCommand(newProtectCmd())
+	cmd.AddCommand(newUnprotectCmd())
 	cmd.AddCommand(newPurgeCmd())
 	cmd.AddCommand(newSyncCmd())
 	cmd.AddCommand(newServeCmd())

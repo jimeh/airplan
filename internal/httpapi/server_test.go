@@ -81,9 +81,23 @@ func (s *stubOperations) GetUpload(
 
 func (s *stubOperations) DeleteUpload(
 	context.Context,
-	TargetRequest,
+	DeleteRequest,
 ) (DeleteResult, error) {
 	return DeleteResult{ID: "id"}, nil
+}
+
+func (s *stubOperations) ProtectUpload(
+	context.Context,
+	ProtectRequest,
+) (ProtectionResult, error) {
+	return ProtectionResult{ID: "id", Protected: true}, nil
+}
+
+func (s *stubOperations) UnprotectUpload(
+	context.Context,
+	TargetRequest,
+) (ProtectionResult, error) {
+	return ProtectionResult{ID: "id"}, nil
 }
 
 func (s *stubOperations) ListManifestUploads(context.Context) (ManifestList, error) {

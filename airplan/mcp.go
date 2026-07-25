@@ -112,6 +112,16 @@ type mcpTargetInput struct {
 	URLOrKey string `json:"url_or_key" jsonschema:"Airplan public URL, upload directory, marker key, or declared object key."`
 }
 
+type mcpDeleteInput struct {
+	URLOrKey string `json:"url_or_key" jsonschema:"Airplan public URL, upload directory, marker key, or declared object key."`
+	Force    bool   `json:"force,omitempty" jsonschema:"Delete the upload even when it is purge-protected."`
+}
+
+type mcpProtectInput struct {
+	URLOrKey string `json:"url_or_key" jsonschema:"Airplan public URL, upload directory, marker key, or declared object key."`
+	Reason   string `json:"reason,omitempty" jsonschema:"Optional short note stored with the protection sentinel (at most 256 characters)."`
+}
+
 type mcpSyncInput struct {
 	Apply       bool `json:"apply,omitempty" jsonschema:"Write manifest changes. Defaults to false (preview only)."`
 	Prune       bool `json:"prune,omitempty"`
@@ -333,15 +343,60 @@ func NewMCPServerWithOptions(
 	mcp.AddTool(server, &mcp.Tool{
 		Name: "delete_upload",
 		Description: "Permanently delete one explicit marker-managed upload. " +
-			"Payload objects are removed first and the ownership marker last.",
+			"Payload objects are removed first and the ownership marker last. " +
+			"Purge-protected uploads are refused unless force is true.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest,
-		input mcpTargetInput,
+		input mcpDeleteInput,
 	) (*mcp.CallToolResult, DeleteResult, error) {
 		ctx, cancel := mcpOperationContext(ctx, client)
 		defer cancel()
-		result, err := client.DeleteUpload(ctx, input.URLOrKey)
+		result, err := client.DeleteUploadWithOptions(
+			ctx, input.URLOrKey, DeleteOptions{Force: input.Force},
+		)
 		if err != nil {
 			return nil, DeleteResult{}, mcpOperationError(
+				ctx, err, !localFiles, options.Logger,
+			)
+		}
+		if !localFiles {
+			result.Warnings = serverSafeWarnings(result.Warnings)
+		}
+		return nil, *result, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "protect_upload",
+		Description: "Mark one marker-managed upload as purge-protected so " +
+			"bulk purge skips it and delete_upload requires force.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest,
+		input mcpProtectInput,
+	) (*mcp.CallToolResult, ProtectionResult, error) {
+		ctx, cancel := mcpOperationContext(ctx, client)
+		defer cancel()
+		result, err := client.ProtectUpload(ctx, input.URLOrKey, input.Reason)
+		if err != nil {
+			return nil, ProtectionResult{}, mcpOperationError(
+				ctx, err, !localFiles, options.Logger,
+			)
+		}
+		if !localFiles {
+			result.Warnings = serverSafeWarnings(result.Warnings)
+		}
+		return nil, *result, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "unprotect_upload",
+		Description: "Remove purge protection from one marker-managed " +
+			"upload so purge and delete_upload can remove it again.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest,
+		input mcpTargetInput,
+	) (*mcp.CallToolResult, ProtectionResult, error) {
+		ctx, cancel := mcpOperationContext(ctx, client)
+		defer cancel()
+		result, err := client.UnprotectUpload(ctx, input.URLOrKey)
+		if err != nil {
+			return nil, ProtectionResult{}, mcpOperationError(
 				ctx, err, !localFiles, options.Logger,
 			)
 		}
@@ -545,7 +600,8 @@ func safeMCPToolName(request mcp.Request) string {
 	}
 	switch call.Params.Name {
 	case "upload_document", "upload_files", "list_uploads", "inspect_upload",
-		"delete_upload", "sync_manifest", "preview_purge", "execute_purge":
+		"delete_upload", "protect_upload", "unprotect_upload",
+		"sync_manifest", "preview_purge", "execute_purge":
 		return call.Params.Name
 	default:
 		return "unknown"
@@ -592,6 +648,7 @@ func mcpOperationError(
 			"request_id", serverlog.RequestID(ctx),
 		)
 	}
+	var protectedErr *UploadProtectedError
 	public := "airplan: the server could not complete the operation"
 	switch {
 	case errors.Is(err, context.Canceled),
@@ -604,6 +661,9 @@ func mcpOperationError(
 	case errors.Is(err, ErrBinaryInput), errors.Is(err, ErrInvalidUTF8),
 		errors.Is(err, ErrEmptyInput):
 		public = "airplan: the request is not a valid document upload"
+	case errors.As(err, &protectedErr):
+		public = "airplan: the upload is purge-protected; " +
+			"unprotect it or delete with force"
 	}
 	return &hostedMCPError{public: public, cause: err}
 }

@@ -48,17 +48,35 @@ func (e *missingMarkerRecordError) Unwrap() error {
 	return errOwnershipMarkerMissing
 }
 
+// DeleteOptions controls targeted upload deletion (SPEC.md §9).
+type DeleteOptions struct {
+	// Force deletes the upload even when it is purge-protected.
+	Force bool
+}
+
 // DeleteUpload validates the upload's ownership marker, removes every
 // non-marker object, removes the marker separately, and appends a manifest
-// tombstone (SPEC.md §9).
+// tombstone (SPEC.md §9). It refuses purge-protected uploads; use
+// DeleteUploadWithOptions to force deletion.
 func (c *Client) DeleteUpload(
 	ctx context.Context, urlOrKey string,
+) (*DeleteResult, error) {
+	return c.DeleteUploadWithOptions(ctx, urlOrKey, DeleteOptions{})
+}
+
+// DeleteUploadWithOptions is DeleteUpload with explicit options. Without
+// Force, a purge-protected upload fails with *UploadProtectedError. With
+// Force, deletion removes payloads first, then the protection sentinel, and
+// the ownership marker last, so an interrupted forced delete leaves a
+// still-marked, still-protected remnant (SPEC.md §9).
+func (c *Client) DeleteUploadWithOptions(
+	ctx context.Context, urlOrKey string, opts DeleteOptions,
 ) (*DeleteResult, error) {
 	if err := c.validate(ctx); err != nil {
 		return nil, err
 	}
 	if c.remote != nil {
-		return c.remote.DeleteUpload(ctx, urlOrKey)
+		return c.remote.DeleteUpload(ctx, urlOrKey, opts)
 	}
 	if err := c.ensureStorage(ctx); err != nil {
 		return nil, err
@@ -84,7 +102,7 @@ func (c *Client) DeleteUpload(
 	if err != nil {
 		return nil, err
 	}
-	if err := validateDeleteTarget(key, dirPrefix, marker); err != nil {
+	if err := validateManagedTarget("delete", key, dirPrefix, marker); err != nil {
 		return nil, err
 	}
 
@@ -92,7 +110,12 @@ func (c *Client) DeleteUpload(
 	if err != nil {
 		return nil, err
 	}
+	sentinelKey := dirPrefix + ProtectedFilename
+	protected := false
 	for _, object := range objects {
+		if object.Key == sentinelKey {
+			protected = true
+		}
 		if object.Key != resolved.Key &&
 			(object.Key == dirPrefix+MarkerFilename ||
 				object.Key == dirPrefix+CollectionMarkerFilename) {
@@ -100,21 +123,41 @@ func (c *Client) DeleteUpload(
 				errors.New("conflicting ownership markers"))
 		}
 	}
+	// This listing-based guard is the delete-time enforcement layer: it
+	// catches protection set on another machine and not yet synced locally
+	// (SPEC.md §9). A listing failure already failed the delete above, so
+	// undeterminable protection can never fall through to deletion.
+	if protected && !opts.Force {
+		reason := ""
+		if body, err := c.st.getBytes(ctx, sentinelKey, MaxMarkerSize); err == nil {
+			_, reason = decodeProtectionSentinel(body)
+		}
+		return nil, &UploadProtectedError{Target: urlOrKey, Reason: reason}
+	}
 	payloadKeys := make([]string, 0, len(objects))
 	for _, object := range objects {
-		if object.Key != resolved.Key {
+		if object.Key != resolved.Key && object.Key != sentinelKey {
 			payloadKeys = append(payloadKeys, object.Key)
 		}
 	}
 	if err := c.st.deleteKeys(ctx, payloadKeys); err != nil {
 		return nil, err
 	}
+	deletedKeys := payloadKeys
+	// The sentinel outlives every payload so an interrupted forced delete
+	// leaves a protected remnant rather than an unprotected one (SPEC.md §9).
+	if protected {
+		if err := c.st.deleteObject(ctx, sentinelKey); err != nil {
+			return nil, err
+		}
+		deletedKeys = append(deletedKeys, sentinelKey)
+	}
 	if err := c.st.deleteMarker(ctx, resolved.Key); err != nil {
 		return nil, err
 	}
 
 	res := &DeleteResult{
-		Keys:      append(payloadKeys, resolved.Key),
+		Keys:      append(deletedKeys, resolved.Key),
 		PageKey:   dirPrefix + marker.Page,
 		MarkerKey: resolved.Key,
 		Kind:      marker.Kind,
@@ -123,8 +166,11 @@ func (c *Client) DeleteUpload(
 	return res, nil
 }
 
-func validateDeleteTarget(
-	key, dirPrefix string, marker *UploadMarker,
+// validateManagedTarget checks a destructive or protective operation's target
+// against the validated marker: the directory, the marker itself, or any
+// declared payload object. op names the operation in the error text.
+func validateManagedTarget(
+	op, key, dirPrefix string, marker *UploadMarker,
 ) error {
 	dirKey := strings.TrimSuffix(dirPrefix, "/")
 	markerName, _ := MarkerFilenameForKind(marker.Kind)
@@ -138,8 +184,8 @@ func validateDeleteTarget(
 	}
 	if !allowed {
 		return invalidTargetf(
-			"airplan: delete target %q is not the directory, marker, or declared payload",
-			key,
+			"airplan: %s target %q is not the directory, marker, or declared payload",
+			op, key,
 		)
 	}
 	return nil

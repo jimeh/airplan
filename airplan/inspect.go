@@ -48,6 +48,13 @@ type UploadInspection struct {
 	Page          *InspectedObject   `json:"page,omitempty"`
 	Source        *InspectedObject   `json:"source,omitempty"`
 	Files         []*InspectedObject `json:"files,omitempty"`
+	// Protected reports the purge-protection sentinel's presence in the
+	// directory listing (SPEC.md §9). ProtectedAt and ProtectReason are
+	// advisory metadata from a best-effort sentinel body read; both stay
+	// zero when the body cannot be read or decoded.
+	Protected     bool      `json:"protected,omitempty"`
+	ProtectedAt   time.Time `json:"protected_at,omitzero"`
+	ProtectReason string    `json:"protect_reason,omitempty"`
 	// Warnings contains non-fatal URL assembly caveats for callers to report.
 	Warnings []string `json:"warnings,omitempty"`
 
@@ -194,7 +201,7 @@ func (c *Client) inspectListedUpload(
 }
 
 func (c *Client) inspectUploadSnapshot(
-	_ context.Context, upload RemoteUpload, markerBody []byte,
+	ctx context.Context, upload RemoteUpload, markerBody []byte,
 ) (*UploadInspection, error) {
 	inspection := &UploadInspection{
 		Dir: upload.Dir, MarkerKey: upload.MarkerKey,
@@ -212,6 +219,7 @@ func (c *Client) inspectUploadSnapshot(
 		inspection.Objects++
 		inspection.Bytes += int64(len(markerBody))
 	}
+	c.inspectProtection(ctx, inspection, byKey)
 
 	marker, err := DecodeUploadMarkerForName(markerBody, upload.Dir,
 		path.Base(upload.MarkerKey))
@@ -280,6 +288,35 @@ func (c *Client) inspectUploadSnapshot(
 		}
 	}
 	return inspection, nil
+}
+
+// inspectProtection derives protection state from the same listing snapshot
+// the inspection already holds. Presence is authoritative (SPEC.md §5); the
+// sentinel body only supplies advisory metadata, so any read or decode
+// failure keeps the listing's protected state and timestamp.
+func (c *Client) inspectProtection(
+	ctx context.Context,
+	inspection *UploadInspection,
+	objects map[string]objectInfo,
+) {
+	dirPrefix := strings.TrimSuffix(
+		inspection.MarkerKey, path.Base(inspection.MarkerKey),
+	)
+	sentinel, ok := objects[dirPrefix+ProtectedFilename]
+	if !ok {
+		return
+	}
+	inspection.Protected = true
+	inspection.ProtectedAt = sentinel.LastModified.UTC()
+	body, err := c.st.getBytes(ctx, sentinel.Key, MaxMarkerSize)
+	if err != nil {
+		return
+	}
+	createdAt, reason := decodeProtectionSentinel(body)
+	if !createdAt.IsZero() {
+		inspection.ProtectedAt = createdAt
+	}
+	inspection.ProtectReason = reason
 }
 
 func (c *Client) inspectedObject(

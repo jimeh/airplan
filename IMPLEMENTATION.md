@@ -466,8 +466,11 @@ outside the project's signing and notarization pipeline.
 6. Discover both marker names through one LIST snapshot. The basename supplies
    only a kind hint; `show` validates content and every declared size.
 7. Targeted get/delete resolve exactly one marker without LIST. Get streams one
-   declared object. Delete removes payloads and extras, then the marker, then
-   appends a tombstone.
+   declared object. Delete refuses purge-protected uploads unless forced,
+   removes payloads and extras, then the sentinel when present, then the
+   marker, then appends a tombstone. Protect/unprotect resolve the marker the
+   same way, then PUT or DELETE the sentinel and append the matching manifest
+   record.
 8. Sync complete normalized uploads into compact local history. Confirm every
    LIST-absent active marker with a targeted GET before local tombstoning.
 
@@ -491,7 +494,8 @@ deletion has succeeded.
   preflight, size limits, slug sanitization, format sniffing, key
   entropy/encoding properties, URL assembly, strict v1-v3 marker validation,
   dual-marker resolution, LIST-only kind grouping, inspection states and exact
-  sizes, streaming get selection, delete request ordering, manifest reduction
+  sizes, streaming get selection, delete request ordering, purge-protection
+  sentinel detection and forced-delete ordering, manifest reduction
   and lock cancellation, sync reconciliation, and document-only slug filters.
 - Golden files: markdown fixtures → rendered HTML snapshots
   (`testdata/`, `GOLDEN_UPDATE=1` convention).
@@ -530,7 +534,8 @@ Client
 └── backend=airplan → HTTP transport  → REST adapter ──────┘
 ```
 
-The operation boundary is upload, inspect, get, delete, manifest list, storage
+The operation boundary is upload, inspect, get, delete, protect/unprotect,
+manifest list, storage
 list, purge planning/execution, and sync—not S3 object primitives. The local
 transport calls the S3-backed service in memory. The HTTP transport wraps the
 generated OpenAPI client and maps wire results and problems back to public

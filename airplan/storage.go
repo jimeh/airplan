@@ -277,6 +277,19 @@ func (s *storage) deleteMarker(ctx context.Context, key string) error {
 	return nil
 }
 
+// deleteObject removes one non-marker object in a dedicated request. S3
+// deletion is idempotent: removing an absent key succeeds.
+func (s *storage) deleteObject(ctx context.Context, key string) error {
+	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{
+		Bucket: aws.String(s.bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return fmt.Errorf("airplan: delete object %q: %w", key, err)
+	}
+	return nil
+}
+
 // PublicURL assembles the public URL for an object key:
 // <public_base_url>/<key> when public_base_url is set, else path-style
 // <endpoint>/<bucket>/<key> with fallback=true so the caller can warn

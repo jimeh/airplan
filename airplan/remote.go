@@ -28,6 +28,11 @@ type RemoteUpload struct {
 	Kind      UploadKind `json:"kind,omitempty"`
 	Conflict  bool       `json:"conflict,omitempty"`
 
+	// Protected reports the purge-protection sentinel's presence in this
+	// listing snapshot. Presence is the entire contract (SPEC.md §5), so
+	// unlike Kind it needs no marker fetch to be authoritative.
+	Protected bool `json:"protected,omitempty"`
+
 	// Slug is inferred only when exactly one valid direct-child HTML page
 	// filename exists. It is a display hint, not trusted marker data.
 	Slug string `json:"slug,omitempty"`
@@ -54,6 +59,7 @@ type remoteGroup struct {
 	dir              string
 	marker           *objectInfo
 	collectionMarker *objectInfo
+	protected        bool
 	keys             []string
 	objects          map[string]objectInfo
 	bytes            int64
@@ -116,6 +122,8 @@ func (c *Client) ListRemote(ctx context.Context) ([]RemoteUpload, error) {
 		case CollectionMarkerFilename:
 			marker := obj
 			group.collectionMarker = &marker
+		case ProtectedFilename:
+			group.protected = true
 		default:
 			if _, ok := pageSlug(segments[1]); ok {
 				group.pageKeys = append(group.pageKeys, obj.Key)
@@ -146,6 +154,7 @@ func (c *Client) ListRemote(ctx context.Context) ([]RemoteUpload, error) {
 			MarkerKey:    marker.Key,
 			Kind:         kind,
 			Conflict:     conflict,
+			Protected:    group.protected,
 			Keys:         group.keys,
 			Objects:      len(group.keys),
 			Bytes:        group.bytes,

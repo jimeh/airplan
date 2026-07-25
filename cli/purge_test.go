@@ -286,7 +286,7 @@ func TestPurgeRemoteOlderThanDeletesOnlyOldUploads(t *testing.T) {
 	if stdout != "" {
 		t.Fatalf("stdout = %q, want empty", stdout)
 	}
-	if !strings.Contains(stderr, "purged 1 uploads (0 failed)") {
+	if !strings.Contains(stderr, "purged 1 uploads (0 protected, 0 failed)") {
 		t.Fatalf("stderr = %q, want purge summary", stderr)
 	}
 	if fake.deleteCalls() != 1 {
@@ -331,7 +331,7 @@ func TestPurgeRemoteDeletesIncompleteAndSkipsInvalid(t *testing.T) {
 	}
 	if stdout != "" ||
 		!strings.Contains(stderr, "skipped 1 invalid remote marker") ||
-		!strings.Contains(stderr, "purged 1 uploads (0 failed)") ||
+		!strings.Contains(stderr, "purged 1 uploads (0 protected, 0 failed)") ||
 		fake.markerDeleteCalls() != 1 {
 		t.Fatalf("stdout = %q, stderr = %q, marker deletes = %d",
 			stdout, stderr, fake.markerDeleteCalls())
@@ -436,7 +436,7 @@ func TestPurgeRemotePartialDeleteFailure(t *testing.T) {
 		"purge", "--remote", "--all", "--yes",
 		"--config", writeCLIConfig(t, fake.server.URL))
 	if err == nil || stdout != "" ||
-		!strings.Contains(stderr, "purged 1 uploads (1 failed)") ||
+		!strings.Contains(stderr, "purged 1 uploads (0 protected, 1 failed)") ||
 		fake.deleteCalls() != 1 || fake.markerDeleteCalls() != 1 {
 		t.Fatalf("stdout = %q, stderr = %q, error = %v, deletes = %d/%d",
 			stdout, stderr, err, fake.deleteCalls(), fake.markerDeleteCalls())
@@ -761,7 +761,7 @@ func TestPurgeYesDeletesAndTombstones(t *testing.T) {
 	if stdout != "" {
 		t.Fatalf("stdout = %q, want empty", stdout)
 	}
-	if !strings.Contains(stderr, "purged 2 uploads (0 failed)") {
+	if !strings.Contains(stderr, "purged 2 uploads (0 protected, 0 failed)") {
 		t.Fatalf("stderr = %q, want purge summary", stderr)
 	}
 	if fake.deleteCalls() != 2 {
@@ -858,7 +858,7 @@ func TestPurgePartialFailureLeavesFailedUploadActive(t *testing.T) {
 		t.Fatalf("stdout = %q, want empty", stdout)
 	}
 	if !strings.Contains(stderr, "airplan: error: delete") ||
-		!strings.Contains(stderr, "purged 2 uploads (1 failed)") {
+		!strings.Contains(stderr, "purged 2 uploads (0 protected, 1 failed)") {
 		t.Fatalf("stderr = %q, want error line and summary", stderr)
 	}
 

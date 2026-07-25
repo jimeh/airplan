@@ -691,6 +691,7 @@ func normalizeLegacyMarker(marker *UploadMarker) {
 func validMarkerObjectName(name string) bool {
 	if !utf8.ValidString(name) || name == "" || name == "." || name == ".." ||
 		name == MarkerFilename || name == CollectionMarkerFilename ||
+		name == ProtectedFilename ||
 		strings.ContainsAny(name, `/\\`) {
 		return false
 	}
