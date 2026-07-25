@@ -37,9 +37,15 @@ export function cleanEnv() {
 /** Compile the airplan binary that the browser tests drive. */
 export async function buildAirplan() {
   const env = cleanEnv();
-  // Resolve the toolchain through the shim, then invoke its binary
-  // directly so a mise shim cannot restore the AIRPLAN_* variables
-  // removed above.
+  // Ignore the developer's persisted `go env -w` settings. A stored
+  // GOOS, GOARCH, or GOFLAGS would otherwise produce a binary the tests
+  // cannot execute; the hook used to get this isolation for free by
+  // pointing XDG_CONFIG_HOME at its temporary fixture root.
+  env.GOENV = 'off';
+
+  // Resolve the toolchain through the shim, then build with that binary
+  // directly, so the compile uses the Go version mise selects for this
+  // worktree rather than whatever else PATH resolution may find.
   const { stdout: goRoot } = await execFileAsync(
     'go', ['env', 'GOROOT'], { cwd: repoRoot, env },
   );

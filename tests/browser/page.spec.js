@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -74,6 +75,13 @@ const test = base.extend({
 });
 
 test.beforeAll(async () => {
+  if (!existsSync(binaryPath)) {
+    throw new Error(
+      `${binaryPath} is missing; it is built by ` +
+      'tests/browser/global-setup.js, which runs only when Playwright ' +
+      'uses this repository\'s playwright.config.js',
+    );
+  }
   tempRoot = await mkdtemp(join(tmpdir(), 'airplan-browser-'));
   fixtureSource = await readFile(fixturePath, 'utf8');
   const outputPath = join(tempRoot, 'index.html');
