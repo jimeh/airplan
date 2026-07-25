@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.28.0.
+may contradict it. Targets spec version 0.29.0.
 
 ---
 
@@ -91,6 +91,9 @@ api/openapi.yaml        authoritative REST wire contract (embedded)
 api/oapi-codegen.yaml   deterministic generator configuration
 internal/httpapi/       generated REST models/client/server plus auth,
                         problem mapping, request safety, and adapters
+internal/cmd/preparecontainer/
+                        validates GoReleaser metadata and creates the
+                        deterministic multi-platform image context
 skills/embed.go         go:embed bridge for the canonical agent skill
 schema/airplan.schema.json   generated config schema (committed)
 skills/airplan/SKILL.md      agent skill: using airplan from harnesses
@@ -393,6 +396,49 @@ write leaves the prior tap file in place and opens a Cask-specific issue. GitHub
 can re-run that failed job without re-entering the successful, draft-only
 release publication job. The workflow does not use GoReleaser Pro split/merge.
 
+The official `ghcr.io/jimeh/airplan` image reuses the exact GoReleaser Linux
+executables rather than compiling in Docker. After release-asset verification,
+`preparecontainer` reads `dist/artifacts.json`, requires one amd64 and one
+arm64 binary for the Airplan build, validates their ELF machine types, and
+compares their bytes with the matching release archives. It normalizes the
+paths to `linux/$GOARCH/airplan` in a small, seven-day workflow artifact.
+
+The release Dockerfile selects that normalized binary with
+`TARGETPLATFORM`, copies it into a digest-pinned distroless Debian 13 non-root
+base, and contains no `RUN` instruction. Buildx therefore resolves both base
+manifests and copies both static executables without QEMU or target-platform
+execution. The executable resolves server environment fallbacks directly;
+there is no shell entrypoint. `XDG_CONFIG_HOME=/etc` makes
+`/etc/airplan/config.toml` an optional default without forcing an explicit
+config path. The manifest is explicitly placed under the owned, declared
+`/var/lib/airplan` volume.
+
+Container publication is a separate job downstream of immutable GitHub
+release verification. It restores the prevalidated context and pushes the
+amd64/arm64 index canonically by digest without a user-facing tag. It verifies
+the runnable platform set, exact child-image binary bytes against the preserved
+GoReleaser context, SBOM attachment, OCI labels, version, numeric non-root
+runtime, shell-free configuration, writable temp and state paths,
+environment-only and file-based server startup, MinIO upload, graceful
+shutdown, and manifest persistence. GitHub provides the one authoritative
+provenance attestation because Buildx provenance is disabled; verification
+requires this repository's release workflow as its signer. Buildx still
+generates the image SBOM. A retry that reuses an existing exact-version digest
+verifies its attestation but does not generate a duplicate.
+
+Only after verification does the workflow assign the unprefixed exact version
+tag and, after querying the latest GitHub release at the mutation boundary,
+possibly `latest`. An existing exact tag is trusted only after its provenance,
+release identity, platforms, and runtime all validate; a conflicting digest is
+never overwritten by the workflow. A constant package-scoped job concurrency
+group with `queue: max` serializes workflow-owned GHCR mutations across release
+versions without replacing queued publications. GHCR does not enforce
+immutable tags against external writers, so digest references remain the
+immutable deployment boundary. Failures after GitHub release publication
+create one deduplicated issue and are independently rerunnable. The first
+package publication requires the accepted one-time manual change to public
+visibility.
+
 The signed executable remains inside the existing `.tar.gz`; Quill submits
 the executable to Apple without changing the distribution format. Raw Mach-O
 executables cannot carry stapled tickets, so the first Gatekeeper assessment
@@ -459,6 +505,10 @@ deletion has succeeded.
   restoration, and successful marker-last deletion. The image release
   tag and multi-platform digest are immutable-pinned together in
   `airplan/integration_test.go`.
+- Container: GoReleaser artifact-selection and ELF fixtures are unit tested.
+  Docker CI builds both Linux platforms without QEMU, loads the native image,
+  checks its runtime configuration, and runs environment-only and mounted-file
+  MinIO server lifecycles across container replacement and persistent state.
 - Smoke (manual or tagged, needs creds): real R2 upload via a
   scoped token, fetched through the custom domain. Collection smoke coverage
   includes an image and short recording, external image embedding, video seek,

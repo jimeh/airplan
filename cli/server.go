@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -33,6 +34,10 @@ type serveOptions struct {
 
 func newServeCmd() *cobra.Command {
 	opts := &serveOptions{}
+	return newServeCmdWithOptions(opts)
+}
+
+func newServeCmdWithOptions(opts *serveOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve the Airplan REST API and Streamable HTTP MCP",
@@ -62,6 +67,9 @@ func newServeCmd() *cobra.Command {
 }
 
 func runServe(cmd *cobra.Command, opts *serveOptions) error {
+	if err := resolveServeOptions(cmd, opts); err != nil {
+		return err
+	}
 	level, err := serveLogLevel(cmd, opts.logLevel)
 	if err != nil {
 		return err
@@ -153,6 +161,110 @@ func runServe(cmd *cobra.Command, opts *serveOptions) error {
 	return nil
 }
 
+func resolveServeOptions(cmd *cobra.Command, opts *serveOptions) error {
+	flags := cmd.Flags()
+	if !flags.Changed("listen") {
+		host := "127.0.0.1"
+		if value, ok := os.LookupEnv("AIRPLAN_SERVER_HOST"); ok {
+			if value == "" {
+				return errors.New(
+					"airplan: AIRPLAN_SERVER_HOST must not be empty",
+				)
+			}
+			host = value
+		}
+		port := 8080
+		if value, ok := os.LookupEnv("AIRPLAN_SERVER_PORT"); ok {
+			parsed, err := parseServerPort(value)
+			if err != nil {
+				return err
+			}
+			port = parsed
+		}
+		opts.listen = net.JoinHostPort(host, strconv.Itoa(port))
+	}
+	if !flags.Changed("allow-non-loopback") {
+		value, ok := os.LookupEnv("AIRPLAN_SERVER_ALLOW_NON_LOOPBACK")
+		if ok {
+			parsed, err := parseServerBool(
+				"AIRPLAN_SERVER_ALLOW_NON_LOOPBACK", value,
+			)
+			if err != nil {
+				return err
+			}
+			opts.allowNonLoopback = parsed
+		}
+	}
+	if !flags.Changed("token-file") {
+		opts.tokenFile = os.Getenv("AIRPLAN_SERVER_TOKEN_FILE")
+	}
+	if !flags.Changed("allowed-origin") {
+		value, ok := os.LookupEnv("AIRPLAN_SERVER_ALLOWED_ORIGINS")
+		if ok {
+			origins, err := parseServerOrigins(value)
+			if err != nil {
+				return err
+			}
+			opts.allowedOrigins = origins
+		}
+	}
+	if !flags.Changed("temp-dir") {
+		opts.tempDir = os.Getenv("AIRPLAN_SERVER_TEMP_DIR")
+	}
+	return nil
+}
+
+func parseServerPort(value string) (int, error) {
+	if value == "" {
+		return 0, errors.New(
+			"airplan: AIRPLAN_SERVER_PORT must be a decimal port from 0 to 65535",
+		)
+	}
+	for _, character := range value {
+		if character < '0' || character > '9' {
+			return 0, errors.New(
+				"airplan: AIRPLAN_SERVER_PORT must be a decimal port " +
+					"from 0 to 65535",
+			)
+		}
+	}
+	port, err := strconv.ParseUint(value, 10, 16)
+	if err != nil {
+		return 0, errors.New(
+			"airplan: AIRPLAN_SERVER_PORT must be a decimal port from 0 to 65535",
+		)
+	}
+	return int(port), nil
+}
+
+func parseServerBool(name, value string) (bool, error) {
+	switch value {
+	case "true":
+		return true, nil
+	case "false":
+		return false, nil
+	default:
+		return false, fmt.Errorf(
+			"airplan: %s must be true or false", name,
+		)
+	}
+}
+
+func parseServerOrigins(value string) ([]string, error) {
+	values := strings.Split(value, ",")
+	origins := make([]string, 0, len(values))
+	for _, origin := range values {
+		origin = strings.TrimSpace(origin)
+		if origin == "" {
+			return nil, errors.New(
+				"airplan: AIRPLAN_SERVER_ALLOWED_ORIGINS contains an empty origin",
+			)
+		}
+		origins = append(origins, origin)
+	}
+	return origins, nil
+}
+
 func writeServeListen(writer io.Writer, logger *slog.Logger, address string) {
 	if logger.Enabled(context.Background(), slog.LevelInfo) {
 		fmt.Fprintf(writer, "airplan: serving on http://%s\n", address)
@@ -213,7 +325,8 @@ func DefaultServerDocumentBytes() int64 { return airplan.DefaultMaxInputSize }
 func loadServerToken(tokenFile, environment string) (string, error) {
 	if tokenFile != "" && environment != "" {
 		return "", errors.New(
-			"airplan: set either --token-file or AIRPLAN_SERVER_TOKEN, not both",
+			"airplan: set either a server token file or " +
+				"AIRPLAN_SERVER_TOKEN, not both",
 		)
 	}
 	token := environment

@@ -61,6 +61,29 @@ filesystem paths. Request IDs are server-generated; incoming `X-Request-Id`
 values are ignored rather than reflected into responses or logs. Treat debug
 and trace output as operational data despite these exclusions.
 
+## Official container image
+
+`ghcr.io/jimeh/airplan` contains no credentials, bearer token, or config file
+and runs as numeric UID/GID `65532:65532` without a shell or package manager.
+Inject storage credentials and the server token at runtime. Prefer a secret
+manager or a mode-0600 token file; a bind-mounted token or config file must be
+owned by UID/GID `65532:65532` so the non-root process can read it.
+
+The manifest lives under the declared `/var/lib/airplan` volume. Use an
+explicitly named volume, run one active server against it, and back it up when
+upload history matters. An anonymous volume can lose its useful association
+when containers are replaced. A state bind mount must be writable by UID/GID
+`65532:65532`. Neither automatic startup reconciliation nor an ephemeral
+container layer is a substitute for persistent state.
+
+Exact container versions are published without a leading `v`; `latest` is
+mutable. Pin the OCI image-index digest for an immutable deployment and verify
+its GitHub provenance attestation. The image still requires a trusted reverse
+proxy for TLS and restricted network exposure. Its non-loopback image default
+is an explicit deployment acknowledgement, not embedded TLS or public-service
+hardening. The static-token, active-content, capability-URL, logging, and
+single-instance boundaries above apply unchanged.
+
 ## Capability URLs and uploaded content
 
 Airplan's published links are unguessable capability URLs, not authenticated

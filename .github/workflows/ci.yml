@@ -118,6 +118,25 @@ jobs:
           cache_save: ${{ github.event_name != 'pull_request' }}
       - run: mise run test-integration
 
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: go.sum
+      - uses: jdx/mise-action@dad1bfd3df957f44999b559dd69dc1671cb4e9ea # v4.2.1
+        with:
+          add_shims_to_path: false
+          cache_save: ${{ github.event_name != 'pull_request' }}
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - run: mise run container:check
+      - run: scripts/container/integration.sh
+
   browser:
     runs-on: ubuntu-latest
     steps:
