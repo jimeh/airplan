@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -96,9 +97,15 @@ func encodeProtectionSentinel(
 
 // decodeProtectionSentinel extracts advisory metadata from a sentinel body.
 // It never fails: sentinel presence, not content, grants protection, so any
-// malformed body decodes to zero values. Out-of-bound reasons are dropped so
-// downstream manifest records stay valid.
+// malformed body decodes to zero values. Invalid reasons are dropped so
+// downstream manifest records and terminals stay safe.
 func decodeProtectionSentinel(data []byte) (time.Time, string) {
+	// encoding/json substitutes U+FFFD for invalid UTF-8 inside strings
+	// instead of failing, so a byte-level check must come first or a
+	// mangled reason would pass validation below.
+	if !utf8.Valid(data) {
+		return time.Time{}, ""
+	}
 	var sentinel protectionSentinel
 	if err := json.Unmarshal(data, &sentinel); err != nil {
 		return time.Time{}, ""
@@ -120,6 +127,15 @@ func validateProtectReason(reason string) error {
 	if utf8.RuneCountInString(reason) > MaxProtectReasonRunes {
 		return fmt.Errorf("protect reason exceeds %d characters",
 			MaxProtectReasonRunes)
+	}
+	// Reasons reach terminals raw through delete errors and the show
+	// detail block; control characters could smuggle ANSI escapes or
+	// forge output rows.
+	for _, r := range reason {
+		if unicode.IsControl(r) {
+			return errors.New(
+				"protect reason must not contain control characters")
+		}
 	}
 	return nil
 }

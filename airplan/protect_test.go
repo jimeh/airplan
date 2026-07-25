@@ -16,6 +16,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/jimeh/airplan/internal/httpapi"
 )
 
 func TestProtectUploadWritesSentinelAndManifest(t *testing.T) {
@@ -91,6 +93,12 @@ func TestProtectUploadValidatesReasonBeforeAnyRequest(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "not valid UTF-8") {
 		t.Fatalf("error = %v, want UTF-8 rejection", err)
 	}
+	// Reasons are echoed to terminals, so control characters are rejected.
+	_, err = client.ProtectUpload(context.Background(), testDir,
+		"keep\x1b[31m")
+	if err == nil || !strings.Contains(err.Error(), "control characters") {
+		t.Fatalf("error = %v, want control-character rejection", err)
+	}
 	if len(fake.operationOrder()) != before {
 		t.Fatalf("invalid reasons reached storage: %v", fake.operationOrder())
 	}
@@ -123,6 +131,126 @@ func TestProtectUploadRequiresMarkerAndDeclaredTarget(t *testing.T) {
 			t.Fatal("sentinel written for rejected target")
 		}
 	})
+	t.Run("conflicting markers", func(t *testing.T) {
+		fake := newProtectStorage(t)
+		fake.addUploadV1(t, testDir, "plan.html")
+		fake.addObject(testDir+"/"+CollectionMarkerFilename,
+			[]byte(`{}`), time.Now())
+		client := newProtectTestClient(t, fake.server.URL, "")
+		_, err := client.ProtectUpload(context.Background(), testDir, "")
+		assertMarkerCode(t, err, MarkerErrorConflictingMarkers)
+		if _, ok := fake.object(testDir + "/" + ProtectedFilename); ok {
+			t.Fatal("sentinel written despite marker conflict")
+		}
+		if _, err := client.UnprotectUpload(
+			context.Background(), testDir,
+		); err == nil {
+			t.Fatal("unprotect accepted conflicting ownership markers")
+		}
+	})
+}
+
+func TestProtectUploadHonorsKeyPrefix(t *testing.T) {
+	fake := newProtectStorage(t)
+	marker, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: 1, Directory: testDir,
+		CreatedAt: time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC),
+		Format:    "html", Page: "plan.html", Title: "Plan",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	when := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)
+	fake.addObject("team/"+testDir+"/"+MarkerFilename, marker, when)
+	fake.addObject("team/"+testDir+"/plan.html", []byte("page"), when)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client, err := New(context.Background(), &Config{
+		Endpoint: fake.server.URL, Bucket: "plans", AccessKeyID: "test",
+		SecretAccessKey: "test", PublicBaseURL: "https://plans.example.com",
+		ManifestPath: manifest, Profile: "work", KeyPrefix: "team",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := client.ProtectUpload(context.Background(),
+		"team/"+testDir+"/plan.html", "keep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sentinelKey := "team/" + testDir + "/" + ProtectedFilename
+	if res.SentinelKey != sentinelKey ||
+		res.PageKey != "team/"+testDir+"/plan.html" {
+		t.Fatalf("result = %+v", res)
+	}
+	if _, ok := fake.object(sentinelKey); !ok {
+		t.Fatal("sentinel not written under the key prefix")
+	}
+	records, _, err := ReadManifest(manifest)
+	if err != nil || len(records) != 1 ||
+		records[0].MarkerKey != "team/"+testDir+"/"+MarkerFilename {
+		t.Fatalf("manifest = %+v, error = %v", records, err)
+	}
+	if _, err := client.UnprotectUpload(
+		context.Background(), "team/"+testDir,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := fake.object(sentinelKey); ok {
+		t.Fatal("sentinel still present after unprotect")
+	}
+}
+
+func TestProtectUploadCollection(t *testing.T) {
+	fake := newProtectStorage(t)
+	when := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)
+	marker, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: testDir,
+		CreatedAt: when, Kind: UploadKindCollection,
+		Objects: []MarkerObject{
+			{
+				Name: "index.html", Role: MarkerRolePage, Bytes: 8,
+				ContentType: pageContentType,
+			},
+			{
+				Name: "shot.png", Role: MarkerRoleFile, Bytes: 3,
+				ContentType: "image/png",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.addObject(testDir+"/"+CollectionMarkerFilename, marker, when)
+	fake.addObject(testDir+"/index.html", []byte("overview"), when)
+	fake.addObject(testDir+"/shot.png", []byte("png"), when)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := newProtectTestClient(t, fake.server.URL, manifest)
+
+	res, err := client.ProtectUpload(context.Background(),
+		testDir+"/shot.png", "evidence")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Kind != UploadKindCollection ||
+		res.PageKey != testDir+"/index.html" ||
+		res.MarkerKey != testDir+"/"+CollectionMarkerFilename {
+		t.Fatalf("result = %+v", res)
+	}
+	if _, ok := fake.object(testDir + "/" + ProtectedFilename); !ok {
+		t.Fatal("sentinel not written for collection")
+	}
+	if _, err := client.UnprotectUpload(
+		context.Background(), testDir,
+	); err != nil {
+		t.Fatal(err)
+	}
+	records, warnings, err := ReadManifest(manifest)
+	if err != nil || len(warnings) != 0 || len(records) != 2 ||
+		records[0].MarkerKey != testDir+"/"+CollectionMarkerFilename {
+		t.Fatalf("manifest = %+v, warnings = %v, error = %v",
+			records, warnings, err)
+	}
 }
 
 func TestUnprotectUploadDeletesSentinelAndIsIdempotent(t *testing.T) {
@@ -337,6 +465,10 @@ func TestReadManifestValidatesProtectionRecords(t *testing.T) {
 			name: "oversized reason",
 			line: line(`,"protect_reason":"` +
 				strings.Repeat("x", MaxProtectReasonRunes+1) + `"`),
+		},
+		{
+			name: "control characters in reason",
+			line: line(`,"protect_reason":"keep\u001b[31m"`),
 		},
 		{
 			name: "unprotect with reason",
@@ -609,6 +741,21 @@ func TestInspectUploadReportsProtection(t *testing.T) {
 				strings.Repeat("x", MaxProtectReasonRunes+1) + `"}`),
 			wantAt: when,
 		},
+		{
+			// encoding/json would substitute U+FFFD for the invalid bytes,
+			// so the whole advisory body is dropped instead.
+			name: "invalid UTF-8 body dropped",
+			body: []byte(`{"schema":"airplan-protection","version":1,` +
+				`"created_at":"2026-07-21T12:00:00Z","reason":"a` +
+				string([]byte{0xff, 0xfe}) + `"}`),
+		},
+		{
+			name: "control-character reason dropped",
+			body: []byte(`{"schema":"airplan-protection","version":1,` +
+				`"created_at":"2026-07-21T12:00:00Z",` +
+				`"reason":"keep\u001b[31m"}`),
+			wantAt: when,
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			fake := newProtectStorage(t)
@@ -658,6 +805,51 @@ func TestInspectUploadWithoutSentinelIsUnprotected(t *testing.T) {
 	if inspection.Protected || !inspection.ProtectedAt.IsZero() ||
 		inspection.ProtectReason != "" {
 		t.Fatalf("inspection = %+v, want unprotected", inspection)
+	}
+}
+
+func TestProtectedDeleteErrorTextMatchesAcrossBackends(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newProtectStorage(t)
+	fake.addUploadV1(t, testDir, "plan.html")
+	sentinel, err := encodeProtectionSentinel(when, "README demo link")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.addObject(testDir+"/"+ProtectedFilename, sentinel, when)
+
+	s3Client := newProtectTestClient(t, fake.server.URL, "")
+	_, s3Err := s3Client.DeleteUpload(context.Background(), testDir)
+
+	const token = "01234567890123456789012345678901"
+	handler, err := httpapi.NewHandler(
+		&HTTPOperations{Client: newProtectTestClient(t, fake.server.URL, "")},
+		httpapi.Options{Token: token},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	remote, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL, APIToken: token,
+		Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, httpErr := remote.DeleteUpload(context.Background(), testDir)
+
+	// The advisory reason survives the REST round trip, so the actionable
+	// delete error reads identically under either backend (SPEC.md §11).
+	var protectedErr *UploadProtectedError
+	if !errors.As(httpErr, &protectedErr) ||
+		protectedErr.Reason != "README demo link" {
+		t.Fatalf("HTTP error = %v, want protected error with reason", httpErr)
+	}
+	if s3Err == nil || httpErr.Error() != s3Err.Error() {
+		t.Fatalf("error text differs across backends:\ns3   = %q\nhttp = %q",
+			s3Err, httpErr)
 	}
 }
 

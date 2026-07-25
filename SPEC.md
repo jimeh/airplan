@@ -608,9 +608,9 @@ already is the original file.
   }
   ```
 
-  The body is advisory context only. `reason` is optional and at most 256
-  Unicode characters; readers drop longer or invalid reasons while the upload
-  stays protected. `.airplan-protected.json` is a reserved basename alongside
+  The body is advisory context only. `reason` is optional, at most 256
+  Unicode characters, valid UTF-8, and free of control characters; readers
+  drop reasons that violate any of these while the upload stays protected. `.airplan-protected.json` is a reserved basename alongside
   both marker basenames: collection member filenames and marker-declared
   object names must not use it, or a member could forge protection for its
   own upload. The sentinel is an ordinary extra object — it counts toward
@@ -1337,7 +1337,8 @@ conforming implementations can share a manifest:
   identity. Both require `key`, `marker_key`, and `bucket` — protection
   applies only to marker-managed identities, so pre-marker legacy history can
   never appear protected. `protect_reason` is an optional advisory note of at
-  most 256 Unicode characters, present on `protect` records only; it is a
+  most 256 Unicode characters with no control characters, present on
+  `protect` records only; it is a
   distinct field because `reason` is already a delete-tombstone enum.
 - Manifest history reduces chronologically. The latest event for an upload
   identity wins, duplicate uploads collapse to their latest record, and a
@@ -1604,12 +1605,13 @@ machine) and must be safe:
   already protected upload succeeds and rewrites the sentinel, as does
   unprotecting an unprotected one. A missing, conflicting, or invalid marker
   fails without writing; pre-marker legacy uploads therefore cannot be
-  protected. `--reason` is bounded to 256 Unicode characters and rejected
-  beyond that. Each success appends the matching `protect`/`unprotect`
+  protected. `--reason` is bounded to 256 Unicode characters, must not
+  contain control characters, and is rejected otherwise. Each success appends the matching `protect`/`unprotect`
   manifest record best-effort and prints a one-line stderr summary
   (`protected upload (key ...)` / `unprotected upload (key ...)`); stdout
   stays empty.
-- Before `show`, `get`, or `delete` resolves its connection, it consults local
+- Before `show`, `get`, `delete`, `protect`, or `unprotect` resolves its
+  connection, it consults local
   history for exactly one matching active, marker-managed manifest record.
   When neither
   `--profile` nor `AIRPLAN_PROFILE` is set and that record names a
@@ -2012,7 +2014,9 @@ rendering a non-conforming inventory pair. The MCP `list_uploads` tool uses the
 same order.
 
 Delete accepts an optional `force` boolean; without it, deleting a
-purge-protected upload fails with problem code `upload_protected` (409).
+purge-protected upload fails with problem code `upload_protected` (409),
+whose problem object carries the advisory `protect_reason` when the sentinel
+body could be read — so both backends surface the same delete error text.
 Protect accepts an optional advisory `reason` of at most 256 characters and
 returns the resulting protection state; unprotect returns the cleared state.
 Inspection, manifest, and storage listings expose `protected` (with advisory

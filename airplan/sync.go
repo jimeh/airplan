@@ -511,8 +511,10 @@ func (c *Client) commitSyncManifest(
 			delete(active, manifestMarkerKey(rec))
 		}
 		// Protection records are appended only for identities still active
-		// after re-reduction, and only while the local projection still
-		// disagrees with the planned state (SPEC.md §9).
+		// after re-reduction, only while the local projection still
+		// disagrees with the planned state, and never over a concurrent
+		// protect/unprotect append: a fresher record for the identity means
+		// the plan is stale even when it still "disagrees" (SPEC.md §9).
 		appendedProtection := make([]ManifestRecord, 0,
 			len(result.Protection))
 		for _, rec := range result.Protection {
@@ -521,6 +523,9 @@ func (c *Client) commitSyncManifest(
 				continue
 			}
 			if record.Protected == (rec.Type == "protect") {
+				continue
+			}
+			if hasConcurrentProtection(current, initialLen, rec) {
 				continue
 			}
 			appendedProtection = append(appendedProtection, rec)
@@ -564,6 +569,22 @@ func hasConcurrentUpload(
 	identity := manifestRecordIdentity(tombstone)
 	for _, rec := range records[initialLen:] {
 		if rec.Type == "upload" && manifestRecordIdentity(rec) == identity {
+			return true
+		}
+	}
+	return false
+}
+
+func hasConcurrentProtection(
+	records []ManifestRecord, initialLen int, planned ManifestRecord,
+) bool {
+	if initialLen >= len(records) {
+		return false
+	}
+	identity := manifestRecordIdentity(planned)
+	for _, rec := range records[initialLen:] {
+		if (rec.Type == "protect" || rec.Type == "unprotect") &&
+			manifestRecordIdentity(rec) == identity {
 			return true
 		}
 	}

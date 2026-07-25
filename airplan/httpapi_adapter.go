@@ -610,10 +610,15 @@ func apiOperationError(err error) error {
 	}
 	var protectedErr *UploadProtectedError
 	if errors.As(err, &protectedErr) {
-		return httpapi.NewProblemError(
+		problem := httpapi.NewProblemError(
 			http.StatusConflict, "upload_protected", "Upload protected",
 			"The upload is purge-protected; unprotect it or force deletion.",
 		)
+		// The advisory reason is already bounded and control-free (SPEC.md
+		// §5), so it is safe to carry to the client for parity with the
+		// direct S3 error text.
+		problem.Problem.ProtectReason = protectedErr.Reason
+		return problem
 	}
 	if _, ok := MarkerCode(err); ok {
 		return httpapi.NewProblemError(

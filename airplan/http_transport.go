@@ -274,12 +274,17 @@ func (t *httpTransport) DeleteUpload(
 		URLOrKey: target, Force: opts.Force,
 	})
 	if err != nil {
-		// Reconstruct the typed protection failure so purge skip handling
-		// and the CLI --force hint behave identically under either backend.
+		// Reconstruct the typed protection failure, including the advisory
+		// reason the problem carries, so purge skip handling and the CLI
+		// --force hint match the direct S3 backend.
 		var problem *httpapi.ProblemError
 		if errors.As(err, &problem) &&
 			problem.Problem.Code == "upload_protected" {
-			return nil, &UploadProtectedError{Target: target}
+			reason := problem.Problem.ProtectReason
+			if validateProtectReason(reason) != nil {
+				reason = ""
+			}
+			return nil, &UploadProtectedError{Target: target, Reason: reason}
 		}
 		return nil, transportError(err)
 	}

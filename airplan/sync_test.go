@@ -401,50 +401,71 @@ func TestSyncManifestProtectionDryRunWritesNothing(t *testing.T) {
 }
 
 func TestCommitSyncManifestSkipsConcurrentlyReconciledProtection(t *testing.T) {
-	dir := strings.Repeat("s", 26)
-	markerKey := dir + "/" + MarkerFilename
-	pageKey := dir + "/plan.html"
-	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
-	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
-	upload := ManifestRecord{
-		Type: "upload", Time: when, Key: pageKey, MarkerKey: markerKey,
-		URL:    "https://plans.example.com/" + pageKey,
-		Bucket: "plans", Profile: "work", Format: "html", Bytes: 4,
-		MarkerVersion: MarkerVersion,
-	}
-	if err := appendManifestRecord(
-		context.Background(), manifest, upload,
-	); err != nil {
-		t.Fatal(err)
-	}
-	initialRecords, _, err := ReadManifest(manifest)
-	if err != nil {
-		t.Fatal(err)
-	}
+	for _, tt := range []struct {
+		name string
+		// planned is the stale protection record built before a concurrent
+		// protect record landed in the manifest.
+		planned string
+	}{
+		// Same direction: the concurrent record makes the plan redundant.
+		{name: "duplicate protect", planned: "protect"},
+		// Opposite direction: the plan came from a snapshot taken before
+		// the concurrent protect, so its disagreement is stale and must
+		// not overwrite the fresher local record.
+		{name: "stale unprotect", planned: "unprotect"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := strings.Repeat("s", 26)
+			markerKey := dir + "/" + MarkerFilename
+			pageKey := dir + "/plan.html"
+			manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+			when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+			upload := ManifestRecord{
+				Type: "upload", Time: when, Key: pageKey, MarkerKey: markerKey,
+				URL:    "https://plans.example.com/" + pageKey,
+				Bucket: "plans", Profile: "work", Format: "html", Bytes: 4,
+				MarkerVersion: MarkerVersion,
+			}
+			if err := appendManifestRecord(
+				context.Background(), manifest, upload,
+			); err != nil {
+				t.Fatal(err)
+			}
+			initialRecords, _, err := ReadManifest(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-	// A concurrent protect lands between planning and commit.
-	if err := appendManifestRecord(context.Background(), manifest,
-		ManifestRecord{
-			Type: "protect", Time: when.Add(time.Minute), Key: pageKey,
-			MarkerKey: markerKey, Bucket: "plans", Profile: "work",
-		}); err != nil {
-		t.Fatal(err)
-	}
-	result := &SyncManifestResult{Protection: []ManifestRecord{{
-		Type: "protect", Time: when.Add(2 * time.Minute), Key: pageKey,
-		MarkerKey: markerKey, Bucket: "plans", Profile: "work",
-	}}}
-	client := &Client{cfg: &Config{Bucket: "plans", Profile: "work"}}
-	if err := client.commitSyncManifest(context.Background(), manifest,
-		len(initialRecords), result); err != nil {
-		t.Fatal(err)
-	}
-	if len(result.Protection) != 0 {
-		t.Fatalf("duplicate protection appended = %+v", result.Protection)
-	}
-	records, _, err := ReadManifest(manifest)
-	if err != nil || len(records) != 2 {
-		t.Fatalf("records = %+v, error = %v", records, err)
+			// A concurrent protect lands between planning and commit.
+			if err := appendManifestRecord(context.Background(), manifest,
+				ManifestRecord{
+					Type: "protect", Time: when.Add(time.Minute), Key: pageKey,
+					MarkerKey: markerKey, Bucket: "plans", Profile: "work",
+				}); err != nil {
+				t.Fatal(err)
+			}
+			result := &SyncManifestResult{Protection: []ManifestRecord{{
+				Type: tt.planned, Time: when.Add(2 * time.Minute),
+				Key: pageKey, MarkerKey: markerKey,
+				Bucket: "plans", Profile: "work",
+			}}}
+			client := &Client{cfg: &Config{Bucket: "plans", Profile: "work"}}
+			if err := client.commitSyncManifest(context.Background(), manifest,
+				len(initialRecords), result); err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Protection) != 0 {
+				t.Fatalf("stale protection appended = %+v", result.Protection)
+			}
+			records, _, err := ReadManifest(manifest)
+			if err != nil || len(records) != 2 {
+				t.Fatalf("records = %+v, error = %v", records, err)
+			}
+			active := ActiveUploads(records)
+			if len(active) != 1 || !active[0].Protected {
+				t.Fatalf("active = %+v, want protected upload", active)
+			}
+		})
 	}
 }
 

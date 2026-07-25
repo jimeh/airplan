@@ -375,6 +375,12 @@ components:
           pattern: "^[a-z][a-z0-9_]*$"
         request_id:
           type: string
+        protect_reason:
+          type: string
+          maxLength: 256
+          description: >-
+            Advisory purge-protection reason accompanying the
+            upload_protected code, when the sentinel body could be read.
     Capabilities:
       type: object
       additionalProperties: false
