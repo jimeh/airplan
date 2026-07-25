@@ -114,7 +114,11 @@ coverage has no equivalent local task on non-Windows hosts.
   accessible; screenshots and traces are failure evidence, not golden files.
   Resolve the active toolchain with `go env GOROOT`, then invoke its binary
   directly; a mise shim can re-inject stripped `AIRPLAN_*` variables from
-  worktree-local mise environment configuration.
+  worktree-local mise environment configuration. **Never compile inside a
+  test hook**: `globalSetup` builds `bin/airplan-browser` once for the whole
+  run, because hooks carry a 30s timeout that a cold Go cache overruns and
+  every project would otherwise repeat the build. Global setup has no such
+  deadline.
 - **Print disclosures**: Chromium hides closed `details` content through its
   `::details-content` box. Forced child display can expose hidden, script, or
   style content; use the pseudo-element fallback plus `beforeprint`/`afterprint`
