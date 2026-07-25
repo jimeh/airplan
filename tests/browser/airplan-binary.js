@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
@@ -52,6 +53,11 @@ export async function buildAirplan() {
     'go', ['env', 'GOROOT'], { cwd: repoRoot, env },
   );
   const goPath = join(goRoot.trim(), 'bin', windows ? 'go.exe' : 'go');
+
+  // `go build -o` does create missing parents, but `go help build`
+  // promises only that it writes to the named file or directory, so
+  // create bin/ rather than depend on undocumented behaviour.
+  await mkdir(dirname(binaryPath), { recursive: true });
 
   // -o to an explicit path: a bare "go build ." would try to write a
   // binary named airplan over the airplan/ package directory.
