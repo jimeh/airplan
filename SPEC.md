@@ -780,7 +780,7 @@ airplan skill
 airplan template [document|collection]
 airplan preview [flags] [file ...]
 airplan completion bash|zsh|fish|powershell
-airplan list|ls [--remote] [--json]
+airplan list|ls [--remote] [--json] [--columns LIST] [--wide] [--reverse]
 airplan show [--json] <url|key>
 airplan get [--output PATH] [--source] <url|key>
 airplan delete <url|key>
@@ -1319,12 +1319,46 @@ machine) and must be safe:
 
 ### Commands
 
-- `airplan list`: past uploads from the manifest (date, profile,
-  management state, title, human-readable binary size, URL); `--json`
-  for scripting with exact byte counts. Table state is `managed` for
-  the supported `marker_version` and `legacy` when the field is absent.
-  Both appear in history without warning; legacy entries remain
-  ineligible for delete reconciliation and purge.
+- `airplan list`: past uploads from the manifest; `--json` for
+  scripting with exact byte counts. Rows are ordered by record time
+  ascending, tie-broken by marker key, so `sync`-imported history
+  interleaves chronologically with locally recorded uploads regardless
+  of file position. `--reverse` prints newest first and also reverses
+  the `--json` array. Managed and legacy uploads both appear in
+  history without warning; legacy entries remain ineligible for delete
+  reconciliation and purge.
+- Local and remote list tables share one column registry; a column
+  name means the same thing in both modes. The columns, in table
+  order, are `date`, `kind`, `title`, `objects`, `size`, `slug`,
+  `profile`, `state`, `dir`, `page-size`, `format`, `repo`, and
+  `bucket`, with `url` always last. `title`, `profile`, `state`,
+  `page-size`, `format`, `repo`, and `bucket` are local-only. `size`
+  describes the whole upload while `page-size` is the recorded primary
+  page bytes. Default local columns are `date`, `kind`, `title`,
+  `objects`, `size`, and `url`; default remote columns are `date`,
+  `kind`, `objects`, `size`, `slug`, and `url`. A value a row cannot
+  provide renders `-`; local rows render `-` for `objects` and `size`
+  when the manifest record carries no recorded counts.
+- Three automatic columns join the default set only when they carry
+  information: `profile` when the results span more than one recorded
+  profile (root-level history renders `<root>`), `state`
+  (`managed`/`legacy`, from the supported `marker_version` or its
+  absence) when at least one legacy row is present — exactly when it
+  explains why delete reconciliation and purge cannot touch a row —
+  and `dir` when some row has no inferable URL (a dual-marker conflict
+  or a collection without `index.html`), where the directory is the
+  only usable handle for `show` and `delete`. `dir` is the
+  26-character random directory without `key_prefix`.
+- `--columns` selects table columns, either as an absolute list
+  (`--columns date,title,url`, rendered in the given order) or as
+  `+`/`-` adjustments applied to the mode default and rendered in
+  registry order (`--columns +dir,-title`). The two forms cannot be
+  mixed. An unknown column name is an error naming the valid columns
+  for the mode; a column valid only in the other mode is an explicit
+  error, never a silently blank column. `--wide` shows every column
+  valid for the mode. `--columns` and `--wide` shape table output only
+  and are rejected with `--json`, whose records always carry every
+  field.
 - With no resolvable configuration or backend selection, `list` assumes `s3`
   and reads the resolved local manifest without requiring storage credentials.
   Local S3 listing with no explicit profile shows every recorded profile; an
@@ -1339,21 +1373,20 @@ machine) and must be safe:
   `[key_prefix/]<26-char lowercase base32>/` directory, then emits groups
   containing `.airplan.json`, `.airplan-collection.json`, or both. Payload
   filename shape without either marker is never evidence of visibility.
-- Remote list rows have `DATE`, `KIND`, `OBJECTS`, `SIZE`, `SLUG`, `DIRECTORY`,
-  and `URL` columns. `DATE` is the selected marker object's storage
-  last-modified time. `OBJECTS` and `SIZE` count every object and byte
+- In remote rows, `date` is the selected marker object's storage
+  last-modified time. `objects` and `size` count every object and byte
   recursively beneath the random directory, including the marker,
-  nested keys, and unrecognized extras. `KIND` is `document` or `collection`
-  from the exact marker basename, and remains an untrusted hint.
-  `.airplan.json` retains the existing unambiguous direct-child HTML inference
-  for `SLUG`, key, and URL. `.airplan-collection.json` leaves `SLUG` empty and
-  selects an exact direct-child `index.html` as its key and URL even when other
-  HTML members exist. With both marker names, `KIND` is `conflict` and page,
-  slug, and URL inference is suppressed. No marker or page request is made.
-  URL fallback without `public_base_url` emits the normal warning once.
-  `DIRECTORY` is the 26-character random directory without
-  `key_prefix`. Rows sort by marker last-modified time, then marker
-  key.
+  nested keys, and unrecognized extras. `kind` is `document` or
+  `collection` from the exact marker basename, and remains an
+  untrusted hint. `.airplan.json` retains the existing unambiguous
+  direct-child HTML inference for `slug`, key, and URL.
+  `.airplan-collection.json` leaves `slug` empty and selects an exact
+  direct-child `index.html` as its key and URL even when other HTML
+  members exist. With both marker names, `kind` is `conflict` and
+  page, slug, and URL inference is suppressed. No marker or page
+  request is made. URL fallback without `public_base_url` emits the
+  normal warning once. Rows sort by marker last-modified time
+  ascending, then marker key; `--reverse` prints newest first.
 - `list --remote --json` prints an array with one object per row. Its stable
   fields are `time`, `dir`, `marker_key`, `objects`, `bytes`, and `kind` when
   one marker kind is implied. `conflict` is true for dual-marker directories;

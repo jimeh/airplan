@@ -48,11 +48,11 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"DATE", "PROFILE", "STATE", "TITLE", "SIZE", "URL",
-		"work", "managed",
-		"2026-07-08 14:03", "Active plan", "18 KiB",
+		"DATE", "KIND", "PROFILE", "TITLE", "OBJECTS", "SIZE", "URL",
+		"work", "<root>", "document",
+		"2026-07-08 14:03", "Active plan",
 		"https://plans.example.com/active/plan.html",
-		"2026-07-08 16:05", "7 B",
+		"2026-07-08 16:05",
 		"https://plans.example.com/untitled/plan.html",
 	} {
 		if !strings.Contains(stdout, want) {
@@ -62,10 +62,12 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 	for _, unwanted := range []string{
 		"Deleted plan",
 		"https://plans.example.com/deleted/plan.html",
+		// Every record is marker-managed, so the state column carries
+		// no information and stays hidden.
+		"STATE", "managed",
 	} {
 		if strings.Contains(stdout, unwanted) {
-			t.Fatalf("stdout contains tombstoned upload %q:\n%s",
-				unwanted, stdout)
+			t.Fatalf("stdout contains %q:\n%s", unwanted, stdout)
 		}
 	}
 }
@@ -86,10 +88,15 @@ func TestListShowsLegacyUploadsWithoutWarnings(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	for _, want := range []string{"work", "legacy", "Legacy plan"} {
+	for _, want := range []string{"STATE", "legacy", "Legacy plan"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout)
 		}
+	}
+	// A single recorded profile carries no information, so the profile
+	// column stays hidden even though the state column fired.
+	if strings.Contains(stdout, "PROFILE") {
+		t.Fatalf("stdout contains PROFILE column:\n%s", stdout)
 	}
 }
 
@@ -238,13 +245,18 @@ func TestListRemoteTableAndJSON(t *testing.T) {
 			t.Fatalf("stderr = %q, want empty", stderr)
 		}
 		for _, want := range []string{
-			"DATE", "OBJECTS", "SIZE", "SLUG", "DIRECTORY", "URL",
-			"2026-07-08 14:03", "3", "18.1 KiB", "plan", deleteDirA,
+			"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "URL",
+			"2026-07-08 14:03", "document", "3", "18.1 KiB", "plan",
 			"https://plans.example.com/" + key,
 		} {
 			if !strings.Contains(stdout, want) {
 				t.Fatalf("stdout missing %q:\n%s", want, stdout)
 			}
+		}
+		// Every row has an inferable URL, so the directory column stays
+		// hidden by default.
+		if strings.Contains(stdout, "DIRECTORY") {
+			t.Fatalf("stdout contains DIRECTORY column:\n%s", stdout)
 		}
 		if fake.headCalls() != 0 {
 			t.Fatalf("HEAD calls = %d, want none", fake.headCalls())
@@ -292,6 +304,334 @@ func TestListRemoteTableAndJSON(t *testing.T) {
 			t.Fatalf("record = %+v", rec)
 		}
 	})
+}
+
+func listRecordLine(dir, timestamp, title string) string {
+	return `{"type":"upload","time":"` + timestamp + `",` +
+		`"key":"` + dir + `/plan.html",` +
+		`"marker_key":"` + dir + `/.airplan.json",` +
+		`"url":"https://plans.example.com/` + dir + `/plan.html",` +
+		`"bucket":"plans","profile":"work","format":"md",` +
+		`"kind":"document","title":"` + title + `","bytes":18432,` +
+		`"marker_version":3}`
+}
+
+func listHeaderFields(t *testing.T, stdout string) []string {
+	t.Helper()
+
+	line, _, found := strings.Cut(stdout, "\n")
+	if !found {
+		t.Fatalf("stdout has no header line: %q", stdout)
+	}
+	return strings.Fields(line)
+}
+
+func assertHeaderFields(t *testing.T, stdout string, want []string) {
+	t.Helper()
+
+	got := listHeaderFields(t, stdout)
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Fatalf("header = %v, want %v\nstdout:\n%s", got, want, stdout)
+	}
+}
+
+func TestListTableColumnSelection(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			name: "default",
+			want: []string{"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL"},
+		},
+		{
+			name: "wide",
+			args: []string{"--wide"},
+			want: []string{
+				"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "SLUG",
+				"PROFILE", "STATE", "DIRECTORY", "PAGE-SIZE", "FORMAT",
+				"REPO", "BUCKET", "URL",
+			},
+		},
+		{
+			name: "absolute keeps the given order",
+			args: []string{"--columns", "url,date"},
+			want: []string{"URL", "DATE"},
+		},
+		{
+			name: "adjustments against the default",
+			args: []string{"--columns", "+slug,-title"},
+			want: []string{"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "URL"},
+		},
+		{
+			name: "adding an auto column forces it on",
+			args: []string{"--columns", "+state"},
+			want: []string{
+				"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "STATE", "URL",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := setListState(t)
+			writeManifest(t, path,
+				listRecordLine(deleteDirA, "2026-07-08T14:03:11Z", "Plan")+
+					"\n")
+
+			stdout, stderr, err := executeList(t, tt.args...)
+			if err != nil || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, error = %v",
+					stdout, stderr, err)
+			}
+			assertHeaderFields(t, stdout, tt.want)
+		})
+	}
+}
+
+func TestListTableWideValues(t *testing.T) {
+	path := setListState(t)
+	writeManifest(t, path,
+		listRecordLine(deleteDirA, "2026-07-08T14:03:11Z", "Plan")+"\n")
+
+	stdout, stderr, err := executeList(t, "--wide")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v",
+			stdout, stderr, err)
+	}
+	for _, want := range []string{
+		"document", "plan", "work", "managed", deleteDirA,
+		"18 KiB", "md", "plans",
+		"https://plans.example.com/" + deleteDirA + "/plan.html",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestListColumnFlagErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "unknown column",
+			args: []string{"--columns", "nope"},
+			want: `unknown column "nope" (valid columns: date, kind, ` +
+				"title, objects, size, slug, profile, state, dir, " +
+				"page-size, format, repo, bucket, url)",
+		},
+		{
+			name: "unknown column lists remote names",
+			args: []string{"--remote", "--columns", "nope"},
+			want: `unknown column "nope" (valid columns: date, kind, ` +
+				"objects, size, slug, dir, url)",
+		},
+		{
+			name: "local-only column in remote mode",
+			args: []string{"--remote", "--columns", "title"},
+			want: `column "title" is only available in local list, ` +
+				"not with --remote",
+		},
+		{
+			name: "mixed absolute and adjustments",
+			args: []string{"--columns", "date,+dir"},
+			want: "--columns cannot mix an absolute column list with " +
+				"+/- adjustments",
+		},
+		{
+			name: "duplicate column",
+			args: []string{"--columns", "date,date"},
+			want: `--columns lists column "date" more than once`,
+		},
+		{
+			name: "empty column name",
+			args: []string{"--columns", "date,,url"},
+			want: "--columns: empty column name",
+		},
+		{
+			name: "removing every column",
+			args: []string{"--columns", "-date,-kind,-title,-objects," +
+				"-size,-url"},
+			want: "--columns removes every column",
+		},
+		{
+			name: "columns with wide",
+			args: []string{"--wide", "--columns", "date"},
+			want: "--columns cannot be combined with --wide",
+		},
+		{
+			name: "columns with json",
+			args: []string{"--json", "--columns", "date"},
+			want: "--columns cannot be combined with --json",
+		},
+		{
+			name: "wide with json",
+			args: []string{"--json", "--wide"},
+			want: "--wide cannot be combined with --json",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setListState(t)
+			stdout, _, err := executeList(t, tt.args...)
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+			if stdout != "" {
+				t.Fatalf("stdout = %q, want empty", stdout)
+			}
+		})
+	}
+}
+
+func TestListOrdersRecordsByTime(t *testing.T) {
+	listDirC := strings.Repeat("c", 26)
+	// Sync-style history: the newest local upload was recorded first,
+	// then a sync appended two older imports in marker-key order.
+	manifest := strings.Join([]string{
+		listRecordLine(listDirC, "2026-07-08T16:00:00Z", "Newest"),
+		listRecordLine(deleteDirA, "2026-07-08T14:00:00Z", "Oldest"),
+		listRecordLine(deleteDirB, "2026-07-08T15:00:00Z", "Middle"),
+	}, "\n") + "\n"
+
+	t.Run("table ascending", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path, manifest)
+
+		stdout, stderr, err := executeList(t)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		assertRelativeOrder(t, stdout, "Oldest", "Middle", "Newest")
+	})
+
+	t.Run("reverse", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path, manifest)
+
+		stdout, stderr, err := executeList(t, "--reverse")
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		assertRelativeOrder(t, stdout, "Newest", "Middle", "Oldest")
+	})
+
+	t.Run("json honours ordering and reverse", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path, manifest)
+
+		stdout, stderr, err := executeList(t, "--json", "--reverse")
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		var records []airplan.ManifestRecord
+		if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+			t.Fatalf("json.Unmarshal: %v\nstdout: %s", err, stdout)
+		}
+		if len(records) != 3 || records[0].Title != "Newest" ||
+			records[1].Title != "Middle" || records[2].Title != "Oldest" {
+			t.Fatalf("records = %+v, want newest first", records)
+		}
+	})
+
+	t.Run("equal times tie-break on marker key", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path, strings.Join([]string{
+			listRecordLine(deleteDirB, "2026-07-08T14:00:00Z", "TieB"),
+			listRecordLine(deleteDirA, "2026-07-08T14:00:00Z", "TieA"),
+		}, "\n")+"\n")
+
+		stdout, stderr, err := executeList(t)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		assertRelativeOrder(t, stdout, "TieA", "TieB")
+	})
+}
+
+func assertRelativeOrder(t *testing.T, stdout string, wants ...string) {
+	t.Helper()
+
+	last := -1
+	for _, want := range wants {
+		index := strings.Index(stdout, want)
+		if index < 0 {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
+		if index < last {
+			t.Fatalf("stdout order wrong, want %v:\n%s", wants, stdout)
+		}
+		last = index
+	}
+}
+
+func TestListRemoteAutoDirectoryColumn(t *testing.T) {
+	isolateEnv(t)
+	when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
+	objects := []remoteFakeObject{
+		{
+			key:  deleteDirA + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: when,
+		},
+		{key: deleteDirA + "/plan.html", size: 20, lastModified: when},
+		// A dual-marker conflict has no inferable URL; the directory is
+		// then the only handle for show/delete and must stay visible.
+		{
+			key:  deleteDirB + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: when,
+		},
+		{
+			key:  deleteDirB + "/" + airplan.CollectionMarkerFilename,
+			size: 100, lastModified: when,
+		},
+	}
+	fake := newFakeRemoteS3(t, objects, nil, nil)
+
+	stdout, stderr, err := executeList(t,
+		"--remote", "--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	assertHeaderFields(t, stdout, []string{
+		"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "DIRECTORY", "URL",
+	})
+	for _, want := range []string{"conflict", deleteDirB} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+func TestListRemoteWideColumns(t *testing.T) {
+	isolateEnv(t)
+	when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
+	objects := []remoteFakeObject{
+		{
+			key:  deleteDirA + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: when,
+		},
+		{key: deleteDirA + "/plan.html", size: 20, lastModified: when},
+	}
+	fake := newFakeRemoteS3(t, objects, nil, nil)
+
+	stdout, stderr, err := executeList(t,
+		"--remote", "--wide", "--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	assertHeaderFields(t, stdout, []string{
+		"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "DIRECTORY", "URL",
+	})
+	if !strings.Contains(stdout, deleteDirA) {
+		t.Fatalf("stdout missing %q:\n%s", deleteDirA, stdout)
+	}
 }
 
 func TestListRemoteFallbackURLWarnsOnce(t *testing.T) {

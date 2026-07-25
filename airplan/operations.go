@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"sort"
 	"strings"
 	"time"
 )
@@ -98,7 +99,24 @@ func (c *Client) ListManifest(
 		}
 		filtered = append(filtered, rec)
 	}
+	sortListRecords(filtered)
 	return &ManifestList{Records: filtered, Warnings: warnings}, nil
+}
+
+// sortListRecords orders listing output by record time ascending with a
+// marker-key tie-break (SPEC.md §9). Sync appends imports in marker-key
+// order while carrying their original creation times, so file position
+// alone interleaves history unpredictably after a sync. ManifestUploads
+// keeps its positional latest-wins reduction; only listing output is
+// re-ordered.
+func sortListRecords(records []ManifestRecord) {
+	sort.SliceStable(records, func(i, j int) bool {
+		if records[i].Time.Equal(records[j].Time) {
+			return manifestMarkerKey(records[i]) <
+				manifestMarkerKey(records[j])
+		}
+		return records[i].Time.Before(records[j].Time)
+	})
 }
 
 // ListManifestHistory reads active local manifest history without validating
@@ -118,6 +136,7 @@ func ListManifestHistory(
 		}
 		filtered = append(filtered, record)
 	}
+	sortListRecords(filtered)
 	return &ManifestList{Records: filtered, Warnings: warnings}, nil
 }
 
