@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,9 +9,10 @@ import { promisify } from 'node:util';
 
 import { expect, test as base } from '@playwright/test';
 
+import { binaryPath, cleanEnv, repoRoot } from './airplan-binary.js';
+
 const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
-const repoRoot = join(here, '..', '..');
 const fixturePath = join(here, 'testdata', 'smoke.md');
 const sourceFixturePath = join(
   repoRoot,
@@ -73,31 +75,26 @@ const test = base.extend({
 });
 
 test.beforeAll(async () => {
+  if (!existsSync(binaryPath)) {
+    throw new Error(
+      `${binaryPath} is missing; it is built by ` +
+      'tests/browser/global-setup.js, which runs only when Playwright ' +
+      'uses this repository\'s playwright.config.js',
+    );
+  }
   tempRoot = await mkdtemp(join(tmpdir(), 'airplan-browser-'));
   fixtureSource = await readFile(fixturePath, 'utf8');
   const outputPath = join(tempRoot, 'index.html');
   const collectionOutputPath = join(tempRoot, 'collection.html');
   const configRoot = join(tempRoot, 'config');
-  const env = Object.fromEntries(
-    Object.entries(process.env).filter(([name]) => !name.startsWith('AIRPLAN_')),
-  );
+  const env = cleanEnv();
   env.XDG_CONFIG_HOME = configRoot;
-  // Invoke the toolchain binary directly so a mise shim cannot restore the
-  // AIRPLAN_* variables removed above.
-  const { stdout: goRoot } = await execFileAsync(
-    'go', ['env', 'GOROOT'], { cwd: repoRoot, env },
-  );
-  const goPath = join(
-    goRoot.trim(),
-    'bin',
-    process.platform === 'win32' ? 'go.exe' : 'go',
-  );
 
+  // The binary is built once by the global setup; running it here keeps
+  // this hook well inside its timeout even on a cold Go cache.
   await execFileAsync(
-    goPath,
+    binaryPath,
     [
-      'run',
-      '.',
       'preview',
       '--repo',
       'none',
@@ -114,9 +111,9 @@ test.beforeAll(async () => {
   await writeFile(join(tempRoot, 'sound.ogg'), 'audio fixture');
   await writeFile(join(tempRoot, 'notes.bin'), 'generic fixture');
   await execFileAsync(
-    goPath,
+    binaryPath,
     [
-      'run', '.', 'preview', '--files', '--repo', 'none', '--title',
+      'preview', '--files', '--repo', 'none', '--title',
       '<Evidence & results>', '--output', collectionOutputPath,
       join(tempRoot, 'shot.svg'), join(tempRoot, 'demo.webm'),
       join(tempRoot, 'sound.ogg'), join(tempRoot, 'notes.bin'),
