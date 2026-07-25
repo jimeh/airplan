@@ -112,9 +112,11 @@ coverage has no equivalent local task on non-Windows hosts.
   through `airplan preview` with isolated configuration, then covers Chromium
   across desktop/narrow and light/dark projects. Keep selectors behavioral and
   accessible; screenshots and traces are failure evidence, not golden files.
-  Resolve the active toolchain with `go env GOROOT` and compile through that
-  binary so the build is deterministic, and set `GOENV=off` so a developer's
-  persisted `go env -w` settings cannot cross-compile the fixture binary.
+  Compile through `go env GOROOT`'s own binary rather than PATH: both resolve
+  to the same Go, but going direct keeps a mise shim from mutating the build
+  environment. Set `GOENV=off` so a developer's persisted `go env -w` settings
+  — `GOOS` and `GOFLAGS` especially — cannot reshape the fixture binary;
+  exported process variables still apply.
   Execute airplan itself straight from `bin/`, never through a mise shim: a
   shim re-injects stripped `AIRPLAN_*` variables from worktree-local mise
   environment configuration. **Never compile inside a test hook**:
