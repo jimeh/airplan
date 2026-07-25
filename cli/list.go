@@ -19,13 +19,18 @@ import (
 )
 
 type listOptions struct {
-	config  string
-	profile string
-	json    bool
-	remote  bool
-	columns string
-	wide    bool
-	reverse bool
+	config    string
+	profile   string
+	json      bool
+	remote    bool
+	columns   string
+	wide      bool
+	reverse   bool
+	newerThan string
+	olderThan string
+	limit     int
+	kind      string
+	slug      string
 }
 
 func newListCmd() *cobra.Command {
@@ -63,6 +68,19 @@ func newListCmd() *cobra.Command {
 		"show every table column valid for the selected mode")
 	f.BoolVar(&opts.reverse, "reverse", false,
 		"print newest uploads first")
+	f.StringVar(&opts.newerThan, "newer-than", "",
+		"filter: uploads at or after this age or date "+
+			"(7d, 2026-07-01, 2026-07-01T09:00:00Z)")
+	f.StringVar(&opts.olderThan, "older-than", "",
+		"filter: uploads before this age or date (30d, 2026-01-01)")
+	f.IntVar(&opts.limit, "limit", 0,
+		"keep only the N most recent matches "+
+			"(still printed oldest first unless --reverse)")
+	f.StringVar(&opts.kind, "kind", "",
+		"filter: document or collection")
+	f.StringVar(&opts.slug, "slug", "",
+		"filter: glob matched against document slugs; "+
+			"collections are excluded")
 
 	return cmd
 }
@@ -71,8 +89,12 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 	if err := validateListPresentationFlags(cmd, opts); err != nil {
 		return err
 	}
+	filter, err := listFilterFromFlags(cmd, opts)
+	if err != nil {
+		return err
+	}
 	if opts.remote {
-		return runRemoteList(cmd, opts)
+		return runRemoteList(cmd, opts, filter)
 	}
 
 	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
@@ -109,13 +131,76 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 		if err != nil {
 			return err
 		}
-		return outputManifestList(cmd, listed.Records, listed.Warnings, opts)
+		return outputManifestList(
+			cmd, filter.manifest(listed.Records), listed.Warnings, opts,
+		)
 	}
 	listed, err := airplan.ListManifestHistory(cfg.ManifestPath, profile)
 	if err != nil {
 		return err
 	}
-	return outputManifestList(cmd, listed.Records, listed.Warnings, opts)
+	return outputManifestList(
+		cmd, filter.manifest(listed.Records), listed.Warnings, opts,
+	)
+}
+
+// listSelection applies the resolved list filters (SPEC.md §9). An
+// explicit --limit 0 selects nothing, while the flag default means no
+// limit.
+type listSelection struct {
+	filter    airplan.ListFilter
+	limitZero bool
+}
+
+func (s listSelection) manifest(
+	records []airplan.ManifestRecord,
+) []airplan.ManifestRecord {
+	if s.limitZero {
+		return []airplan.ManifestRecord{}
+	}
+	return s.filter.FilterManifest(records)
+}
+
+func (s listSelection) remote(
+	uploads []airplan.RemoteUpload,
+) []airplan.RemoteUpload {
+	if s.limitZero {
+		return []airplan.RemoteUpload{}
+	}
+	return s.filter.FilterRemote(uploads)
+}
+
+func listFilterFromFlags(
+	cmd *cobra.Command, opts *listOptions,
+) (listSelection, error) {
+	selection := listSelection{filter: airplan.ListFilter{
+		Kind:  airplan.UploadKind(opts.kind),
+		Slug:  opts.slug,
+		Limit: opts.limit,
+	}}
+	now := time.Now()
+	if opts.newerThan != "" {
+		when, err := airplan.ParseTimeFilter(opts.newerThan, now)
+		if err != nil {
+			return selection, fmt.Errorf("--newer-than: %s",
+				strings.TrimPrefix(err.Error(), "airplan: "))
+		}
+		selection.filter.NewerThan = when
+	}
+	if opts.olderThan != "" {
+		when, err := airplan.ParseTimeFilter(opts.olderThan, now)
+		if err != nil {
+			return selection, fmt.Errorf("--older-than: %s",
+				strings.TrimPrefix(err.Error(), "airplan: "))
+		}
+		selection.filter.OlderThan = when
+	}
+	selection.limitZero = cmd.Flags().Changed("limit") && opts.limit == 0
+	if err := selection.filter.Validate(); err != nil {
+		return selection, errors.New(
+			strings.TrimPrefix(err.Error(), "airplan: "))
+	}
+	return selection, nil
 }
 
 // validateListPresentationFlags rejects invalid table-presentation flag
@@ -193,7 +278,9 @@ func outputManifestList(
 	return printListTable(cmd.OutOrStdout(), cols, rows)
 }
 
-func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
+func runRemoteList(
+	cmd *cobra.Command, opts *listOptions, filter listSelection,
+) error {
 	client, cfg, ctx, cancel, err := setupClient(
 		cmd, opts.config, opts.profile)
 	if err != nil {
@@ -205,6 +292,7 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 	if err != nil {
 		return err
 	}
+	uploads = filter.remote(uploads)
 	if cfg.EffectiveBackend() == airplan.BackendS3 && cfg.PublicBaseURL == "" {
 		for _, upload := range uploads {
 			if upload.URL != "" {

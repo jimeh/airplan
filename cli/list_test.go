@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -307,13 +308,26 @@ func TestListRemoteTableAndJSON(t *testing.T) {
 }
 
 func listRecordLine(dir, timestamp, title string) string {
+	return listRecordLineSlug(dir, timestamp, title, "plan")
+}
+
+func listRecordLineSlug(dir, timestamp, title, slug string) string {
 	return `{"type":"upload","time":"` + timestamp + `",` +
-		`"key":"` + dir + `/plan.html",` +
+		`"key":"` + dir + `/` + slug + `.html",` +
 		`"marker_key":"` + dir + `/.airplan.json",` +
-		`"url":"https://plans.example.com/` + dir + `/plan.html",` +
-		`"bucket":"plans","profile":"work","format":"md",` +
+		`"url":"https://plans.example.com/` + dir + `/` + slug +
+		`.html","bucket":"plans","profile":"work","format":"md",` +
 		`"kind":"document","title":"` + title + `","bytes":18432,` +
 		`"marker_version":3}`
+}
+
+func listCollectionLine(dir, timestamp, title string) string {
+	return `{"type":"upload","time":"` + timestamp + `",` +
+		`"key":"` + dir + `/index.html",` +
+		`"marker_key":"` + dir + `/.airplan-collection.json",` +
+		`"url":"https://plans.example.com/` + dir + `/index.html",` +
+		`"bucket":"plans","profile":"work","kind":"collection",` +
+		`"title":"` + title + `","bytes":9216,"marker_version":3}`
 }
 
 func listHeaderFields(t *testing.T, stdout string) []string {
@@ -569,6 +583,239 @@ func assertRelativeOrder(t *testing.T, stdout string, wants ...string) {
 			t.Fatalf("stdout order wrong, want %v:\n%s", wants, stdout)
 		}
 		last = index
+	}
+}
+
+func TestListFiltersSelectIdenticallyForTableAndJSON(t *testing.T) {
+	listDirC := strings.Repeat("c", 26)
+	listDirD := strings.Repeat("d", 26)
+	manifest := strings.Join([]string{
+		listRecordLineSlug(deleteDirA, "2026-07-08T14:00:00Z",
+			"Oldest", "plan"),
+		listRecordLineSlug(deleteDirB, "2026-07-08T15:00:00Z",
+			"Middle", "notes"),
+		listCollectionLine(listDirC, "2026-07-08T15:30:00Z", "Shots"),
+		listRecordLineSlug(listDirD, "2026-07-08T16:00:00Z",
+			"Newest", "plan-two"),
+	}, "\n") + "\n"
+	allTitles := []string{"Oldest", "Middle", "Shots", "Newest"}
+
+	tests := []struct {
+		name string
+		args []string
+		want []string // expected titles in output order
+	}{
+		{
+			// Exactly-at-threshold rows are kept: time >= newer-than.
+			name: "newer-than inclusive boundary",
+			args: []string{"--newer-than", "2026-07-08T15:00:00Z"},
+			want: []string{"Middle", "Shots", "Newest"},
+		},
+		{
+			// Exactly-at-threshold rows are dropped: time < older-than.
+			name: "older-than exclusive boundary",
+			args: []string{"--older-than", "2026-07-08T15:00:00Z"},
+			want: []string{"Oldest"},
+		},
+		{
+			name: "kind document",
+			args: []string{"--kind", "document"},
+			want: []string{"Oldest", "Middle", "Newest"},
+		},
+		{
+			name: "kind collection",
+			args: []string{"--kind", "collection"},
+			want: []string{"Shots"},
+		},
+		{
+			name: "slug glob",
+			args: []string{"--slug", "plan*"},
+			want: []string{"Oldest", "Newest"},
+		},
+		{
+			name: "slug wildcard excludes collections",
+			args: []string{"--slug", "*"},
+			want: []string{"Oldest", "Middle", "Newest"},
+		},
+		{
+			name: "limit keeps most recent printed ascending",
+			args: []string{"--limit", "2"},
+			want: []string{"Shots", "Newest"},
+		},
+		{
+			name: "limit larger than the set",
+			args: []string{"--limit", "9"},
+			want: allTitles,
+		},
+		{
+			name: "explicit limit zero selects nothing",
+			args: []string{"--limit", "0"},
+			want: []string{},
+		},
+		{
+			name: "limit with reverse prints newest first",
+			args: []string{"--limit", "2", "--reverse"},
+			want: []string{"Newest", "Shots"},
+		},
+		{
+			name: "combined filters",
+			args: []string{
+				"--kind", "document",
+				"--newer-than", "2026-07-08T14:30:00Z",
+				"--limit", "1",
+			},
+			want: []string{"Newest"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := setListState(t)
+			writeManifest(t, path, manifest)
+
+			stdout, stderr, err := executeList(t, tt.args...)
+			if err != nil || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, error = %v",
+					stdout, stderr, err)
+			}
+			assertRelativeOrder(t, stdout, tt.want...)
+			for _, title := range allTitles {
+				if slices.Contains(tt.want, title) {
+					continue
+				}
+				if strings.Contains(stdout, title) {
+					t.Fatalf("stdout contains filtered %q:\n%s",
+						title, stdout)
+				}
+			}
+			if len(tt.want) == 0 && stdout != "" {
+				t.Fatalf("stdout = %q, want empty table", stdout)
+			}
+
+			jsonOut, stderr, err := executeList(t,
+				append([]string{"--json"}, tt.args...)...)
+			if err != nil || stderr != "" {
+				t.Fatalf("json stdout = %q, stderr = %q, error = %v",
+					jsonOut, stderr, err)
+			}
+			var records []airplan.ManifestRecord
+			if err := json.Unmarshal([]byte(jsonOut), &records); err != nil {
+				t.Fatalf("json.Unmarshal: %v\nstdout: %s", err, jsonOut)
+			}
+			titles := make([]string, 0, len(records))
+			for _, rec := range records {
+				titles = append(titles, rec.Title)
+			}
+			if strings.Join(titles, ",") != strings.Join(tt.want, ",") {
+				t.Fatalf("--json selection = %v, want %v",
+					titles, tt.want)
+			}
+		})
+	}
+}
+
+func TestListRemoteFiltersSelectIdenticallyForTableAndJSON(t *testing.T) {
+	when := time.Date(2026, 7, 8, 14, 0, 0, 0, time.UTC)
+	later := time.Date(2026, 7, 8, 16, 0, 0, 0, time.UTC)
+	objects := []remoteFakeObject{
+		{
+			key:  deleteDirA + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: when,
+		},
+		{key: deleteDirA + "/plan.html", size: 20, lastModified: when},
+		{
+			key:  deleteDirB + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: later,
+		},
+		{key: deleteDirB + "/notes.html", size: 30, lastModified: later},
+	}
+	args := []string{"--newer-than", "2026-07-08T16:00:00Z"}
+
+	t.Run("table", func(t *testing.T) {
+		isolateEnv(t)
+		fake := newFakeRemoteS3(t, objects, nil, nil)
+
+		stdout, stderr, err := executeList(t, append([]string{
+			"--remote", "--config", writeCLIConfig(t, fake.server.URL),
+		}, args...)...)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		if !strings.Contains(stdout, "notes") {
+			t.Fatalf("stdout missing kept row:\n%s", stdout)
+		}
+		if strings.Contains(stdout, deleteDirA) ||
+			strings.Contains(stdout, "plan.html") {
+			t.Fatalf("stdout contains filtered row:\n%s", stdout)
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		isolateEnv(t)
+		fake := newFakeRemoteS3(t, objects, nil, nil)
+
+		stdout, stderr, err := executeList(t, append([]string{
+			"--remote", "--json",
+			"--config", writeCLIConfig(t, fake.server.URL),
+		}, args...)...)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		var records []struct {
+			Dir string `json:"dir"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+			t.Fatalf("json.Unmarshal: %v\nstdout: %s", err, stdout)
+		}
+		if len(records) != 1 || records[0].Dir != deleteDirB {
+			t.Fatalf("records = %+v, want only %s", records, deleteDirB)
+		}
+	})
+}
+
+func TestListFilterFlagErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "invalid kind",
+			args: []string{"--kind", "bogus"},
+			want: `invalid kind "bogus" (document or collection)`,
+		},
+		{
+			name: "invalid slug pattern",
+			args: []string{"--slug", "["},
+			want: "invalid slug pattern",
+		},
+		{
+			name: "negative limit",
+			args: []string{"--limit", "-1"},
+			want: "limit must not be negative",
+		},
+		{
+			name: "invalid newer-than",
+			args: []string{"--newer-than", "junk"},
+			want: "--newer-than: invalid time \"junk\" (use a duration " +
+				"like 30d or a date like 2026-07-01)",
+		},
+		{
+			name: "ambiguous slash date",
+			args: []string{"--older-than", "03/04/2026"},
+			want: "--older-than: invalid time \"03/04/2026\" " +
+				"(ambiguous day/month order; use YYYY-MM-DD)",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setListState(t)
+			_, _, err := executeList(t, tt.args...)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 

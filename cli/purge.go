@@ -47,7 +47,8 @@ func newPurgeCmd() *cobra.Command {
 	f.StringVar(&opts.config, "config", "",
 		"config file path (default: XDG config dir)")
 	f.StringVar(&opts.olderThan, "older-than", "",
-		"filter: uploads older than this age, e.g. 30d, 2w, 36h")
+		"filter: uploads older than this age or before this date, "+
+			"e.g. 30d, 2w, 2026-07-01")
 	f.StringVar(&opts.slug, "slug", "",
 		"filter: glob pattern matched against the page slug")
 	// Local manifest semantics (SPEC.md §9): every resolved connection
@@ -91,10 +92,12 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		}
 	}
 
-	var olderThan time.Duration
+	var createdBefore time.Time
 	if opts.olderThan != "" {
 		var err error
-		olderThan, err = airplan.ParseAge(opts.olderThan)
+		createdBefore, err = airplan.ParseTimeFilter(
+			opts.olderThan, time.Now(),
+		)
 		if err != nil {
 			return fmt.Errorf("--older-than: %s",
 				strings.TrimPrefix(err.Error(), "airplan: "))
@@ -130,10 +133,6 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		planCtx, planCancel = timeoutContext(planCtx, cfg)
 	}
 	defer planCancel()
-	var createdBefore time.Time
-	if olderThan > 0 {
-		createdBefore = time.Now().Add(-olderThan)
-	}
 	plan, err := client.PlanPurge(planCtx, airplan.PurgePlanOptions{
 		Source: source, CreatedBefore: createdBefore,
 		Slug: opts.slug, All: opts.all || profileOnly,

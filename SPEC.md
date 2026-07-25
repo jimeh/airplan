@@ -781,6 +781,8 @@ airplan template [document|collection]
 airplan preview [flags] [file ...]
 airplan completion bash|zsh|fish|powershell
 airplan list|ls [--remote] [--json] [--columns LIST] [--wide] [--reverse]
+                [--newer-than X] [--older-than X] [--limit N]
+                [--kind document|collection] [--slug PATTERN]
 airplan show [--json] <url|key>
 airplan get [--output PATH] [--source] <url|key>
 airplan delete <url|key>
@@ -1359,6 +1361,34 @@ machine) and must be safe:
   valid for the mode. `--columns` and `--wide` shape table output only
   and are rejected with `--json`, whose records always carry every
   field.
+- List filters are selection, not presentation: table and `--json`
+  output honour them identically in both modes. `--newer-than X` keeps
+  rows with time >= X; `--older-than X` keeps rows with time < X — the
+  same boundary as `purge --older-than`. `--kind document|collection`
+  keeps one kind. `--slug PATTERN` is a glob over document slugs with
+  collections excluded even from a wildcard, identical to the purge
+  slug filter. Remote mode applies the filters to the untrusted listing
+  hints (marker last-modified time, marker-basename kind, inferred
+  slug); a dual-marker conflict matches no `--kind` or `--slug`
+  filter. `--limit N` keeps the N most recent matches, still printed
+  oldest first (newest first only under `--reverse`); an explicit
+  `--limit 0` selects nothing and a negative limit is an error.
+- Time boundaries — list `--newer-than`/`--older-than` and the purge
+  `--older-than` filter — accept exactly two forms. A duration (`7d`,
+  `2w`,
+  `36h`, `1h30m`; `d`/`w` units as below) is subtracted from the
+  current time. An input whose leading four-digit year stands alone or
+  is followed by `-` or `/` is an absolute timestamp: `2026`,
+  `2026-07`, `2026-07-01`, `2026/07/01`, `2026-07-01 09:30`,
+  `2026-07-01T09:30:00`, or RFC 3339. Unspecified fields resolve to
+  the first instant of the period, and bare dates resolve to **local**
+  midnight — the manifest keeps storing UTC; only the flag value is
+  interpreted in the local zone — while an explicit RFC 3339 offset is
+  honored exactly. A slash date without a leading four-digit year
+  (`03/04/2026`) is refused with a pointer to the ISO form because
+  day-first and month-first orders are both plausible. No calendar
+  units (`mo`, `y`), natural-language keywords, or other date formats
+  are accepted.
 - With no resolvable configuration or backend selection, `list` assumes `s3`
   and reads the resolved local manifest without requiring storage credentials.
   Local S3 listing with no explicit profile shows every recorded profile; an
@@ -1495,7 +1525,9 @@ machine) and must be safe:
   authority to delete unmarked bucket objects.
 - `airplan purge`: bulk delete driven by the manifest with filters —
   `--older-than 30d`, `--slug PATTERN`, `--profile P`. Durations
-  accept `d`/`w` units. `--profile`/`-p` behaves as on every other
+  accept `d`/`w` units, and `--older-than` also accepts the absolute
+  timestamp forms shared with list time filters above.
+  `--profile`/`-p` behaves as on every other
   command by selecting the connection profile. Local purge always
   considers only uploads recorded with the resolved active profile,
   whether it came from `--profile`, `AIRPLAN_PROFILE`,

@@ -103,6 +103,120 @@ func (c *Client) ListManifest(
 	return &ManifestList{Records: filtered, Warnings: warnings}, nil
 }
 
+// ListFilter selects list rows in both manifest and storage modes
+// (SPEC.md §9). Filters are selection, not presentation: table and
+// JSON output honour them identically.
+type ListFilter struct {
+	// NewerThan keeps rows with time >= NewerThan when non-zero.
+	NewerThan time.Time `json:"newer_than,omitempty"`
+	// OlderThan keeps rows with time < OlderThan when non-zero.
+	OlderThan time.Time `json:"older_than,omitempty"`
+	// Kind keeps only document or collection rows when non-empty.
+	Kind UploadKind `json:"kind,omitempty"`
+	// Slug is a glob matched against document slugs; collections are
+	// excluded, matching purge --slug semantics (SPEC.md §9).
+	Slug string `json:"slug,omitempty"`
+	// Limit keeps only the most recent Limit matches when positive.
+	// Rows stay in ascending order.
+	Limit int `json:"limit,omitempty"`
+}
+
+// Validate rejects unusable filter values before any selection runs.
+func (f ListFilter) Validate() error {
+	if f.Kind != "" && f.Kind != UploadKindDocument &&
+		f.Kind != UploadKindCollection {
+		return fmt.Errorf(
+			"airplan: invalid kind %q (document or collection)", f.Kind)
+	}
+	if f.Slug != "" {
+		if _, err := path.Match(f.Slug, ""); err != nil {
+			return fmt.Errorf("airplan: invalid slug pattern: %w", err)
+		}
+	}
+	if f.Limit < 0 {
+		return errors.New("airplan: limit must not be negative")
+	}
+	return nil
+}
+
+func (f ListFilter) matchesTime(when time.Time) bool {
+	if !f.NewerThan.IsZero() && when.Before(f.NewerThan) {
+		return false
+	}
+	if !f.OlderThan.IsZero() && !when.Before(f.OlderThan) {
+		return false
+	}
+	return true
+}
+
+// FilterManifest selects manifest records, preserving ascending order.
+func (f ListFilter) FilterManifest(
+	records []ManifestRecord,
+) []ManifestRecord {
+	out := make([]ManifestRecord, 0, len(records))
+	for _, rec := range records {
+		if !f.matchesTime(rec.Time) {
+			continue
+		}
+		if f.Kind != "" && rec.Kind != string(f.Kind) {
+			continue
+		}
+		if f.Slug != "" && !slugPatternMatchesRecord(f.Slug, rec) {
+			continue
+		}
+		out = append(out, rec)
+	}
+	return limitMostRecent(out, f.Limit)
+}
+
+// FilterRemote selects listed uploads, preserving ascending order. The
+// filters read the untrusted LIST-derived hints; dual-marker conflicts
+// match no kind or slug filter.
+func (f ListFilter) FilterRemote(uploads []RemoteUpload) []RemoteUpload {
+	out := make([]RemoteUpload, 0, len(uploads))
+	for _, upload := range uploads {
+		if !f.matchesTime(upload.LastModified) {
+			continue
+		}
+		if f.Kind != "" && (upload.Conflict || upload.Kind != f.Kind) {
+			continue
+		}
+		if f.Slug != "" {
+			if upload.Conflict || upload.Kind != UploadKindDocument {
+				continue
+			}
+			if matched, _ := path.Match(f.Slug, upload.Slug); !matched {
+				continue
+			}
+		}
+		out = append(out, upload)
+	}
+	return limitMostRecent(out, f.Limit)
+}
+
+// limitMostRecent keeps the last limit entries of an ascending list.
+func limitMostRecent[T any](rows []T, limit int) []T {
+	if limit <= 0 || len(rows) <= limit {
+		return rows
+	}
+	return rows[len(rows)-limit:]
+}
+
+// slugPatternMatchesRecord applies purge --slug semantics (SPEC.md §9):
+// documents only, collections excluded even from a wildcard, with the
+// slug derived from the page key when the record omits it.
+func slugPatternMatchesRecord(pattern string, rec ManifestRecord) bool {
+	if rec.Kind == string(UploadKindCollection) {
+		return false
+	}
+	slug := rec.Slug
+	if slug == "" {
+		slug, _ = pageSlug(path.Base(rec.Key))
+	}
+	matched, _ := path.Match(pattern, slug)
+	return matched
+}
+
 // sortListRecords orders listing output by record time ascending with a
 // marker-key tie-break (SPEC.md §9). Sync appends imports in marker-key
 // order while carrying their original creation times, so file position
@@ -311,15 +425,7 @@ func purgeRecordMatches(rec ManifestRecord, opts PurgePlanOptions) bool {
 	if opts.Slug == "" {
 		return true
 	}
-	if rec.Kind == string(UploadKindCollection) {
-		return false
-	}
-	slug := rec.Slug
-	if slug == "" {
-		slug, _ = pageSlug(path.Base(rec.Key))
-	}
-	matched, _ := path.Match(opts.Slug, slug)
-	return matched
+	return slugPatternMatchesRecord(opts.Slug, rec)
 }
 
 func manifestRecordFromInspection(
