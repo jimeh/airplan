@@ -900,6 +900,158 @@ func TestListFilterFlagErrors(t *testing.T) {
 	}
 }
 
+// TestManifestAutoInfoFlagsMissingURL covers the local auto-dir input.
+// A manifest file cannot produce this: validateManifestRecord requires a
+// url on upload records, so a URL-less row is skipped on read. The
+// airplan transport decodes records without that validation, so the
+// guard stays and is exercised directly rather than through a manifest
+// fixture that could never contain such a row.
+func TestManifestAutoInfoFlagsMissingURL(t *testing.T) {
+	when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
+	withURL := uploadRecord(deleteDirA, "alpha", "", when)
+	if auto := manifestAutoInfo(
+		[]airplan.ManifestRecord{withURL},
+	); auto.missingURL {
+		t.Fatal("a record with a URL must not request the dir column")
+	}
+
+	noURL := uploadRecord(deleteDirB, "beta", "", when)
+	noURL.URL = ""
+	auto := manifestAutoInfo([]airplan.ManifestRecord{withURL, noURL})
+	if !auto.missingURL {
+		t.Fatal("a URL-less record must request the dir column")
+	}
+	cols, err := resolveListColumns(false, "", false, auto)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var headers []string
+	for _, col := range cols {
+		headers = append(headers, col.header)
+	}
+	if !slices.Contains(headers, "DIRECTORY") {
+		t.Fatalf("headers = %v, want DIRECTORY", headers)
+	}
+}
+
+// TestDirColumnFallsBackForDirectorylessKeys covers the dir column's
+// local extractor when a record's key carries no directory component,
+// which is possible for legacy history predating the random-directory
+// key scheme. It must render "-" rather than "." or "/".
+func TestDirColumnFallsBackForDirectorylessKeys(t *testing.T) {
+	var dir listColumnSpec
+	for _, spec := range listColumns() {
+		if spec.name == "dir" {
+			dir = spec
+		}
+	}
+	if dir.localValue == nil {
+		t.Fatal("dir column has no local extractor")
+	}
+	for key, want := range map[string]string{
+		"plan.html":                        "-",
+		"/plan.html":                       "-",
+		deleteDirA + "/plan.html":          deleteDirA,
+		"nested/" + deleteDirA + "/x.html": deleteDirA,
+	} {
+		got := dir.localValue(airplan.ManifestRecord{Key: key})
+		if got != want {
+			t.Fatalf("key %q -> %q, want %q", key, got, want)
+		}
+	}
+}
+
+// TestListColumnIndexRejectsOtherModeColumns covers both directions of
+// the cross-mode column error. The remote-only direction is unreachable
+// through the real registry — every column it defines is available in
+// local mode — so it is exercised against a synthetic spec rather than
+// left uncovered or deleted, since adding a remote-only column later
+// must produce this error rather than a blank column.
+func TestListColumnIndexRejectsOtherModeColumns(t *testing.T) {
+	specs := []listColumnSpec{
+		{name: "localonly", header: "LOCALONLY", local: columnDefault},
+		{name: "remoteonly", header: "REMOTEONLY", remote: columnDefault},
+	}
+
+	if _, err := listColumnIndex(specs, true, "localonly"); err == nil ||
+		!strings.Contains(err.Error(), "only available in local list") {
+		t.Fatalf("error = %v, want the local-only rejection", err)
+	}
+	if _, err := listColumnIndex(specs, false, "remoteonly"); err == nil ||
+		!strings.Contains(err.Error(), "only available with --remote") {
+		t.Fatalf("error = %v, want the remote-only rejection", err)
+	}
+	if _, err := listColumnIndex(specs, false, "localonly"); err != nil {
+		t.Fatalf("localonly must resolve in local mode: %v", err)
+	}
+	if _, err := listColumnIndex(specs, false, "nope"); err == nil ||
+		!strings.Contains(err.Error(), "unknown column") {
+		t.Fatalf("error = %v, want the unknown-column rejection", err)
+	}
+}
+
+// TestListRemoteReverseAndLimitZero covers the remote mode's own copies
+// of the ordering and explicit-zero-limit rules. Local mode has separate
+// code paths for both, so covering one does not cover the other.
+func TestListRemoteReverseAndLimitZero(t *testing.T) {
+	when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
+	older := deleteDirA + "/older.html"
+	newer := deleteDirB + "/newer.html"
+	objects := []remoteFakeObject{
+		{
+			key:  deleteDirA + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: when,
+		},
+		{key: older, size: 10, lastModified: when},
+		{
+			key:  deleteDirB + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: when.Add(time.Hour),
+		},
+		{key: newer, size: 20, lastModified: when.Add(time.Hour)},
+	}
+
+	t.Run("reverse prints newest first", func(t *testing.T) {
+		isolateEnv(t)
+		fake := newFakeRemoteS3(t, objects, nil, nil)
+		stdout, stderr, err := executeList(t, "--remote", "--reverse",
+			"--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		newerAt := strings.Index(stdout, "newer")
+		olderAt := strings.Index(stdout, "older")
+		if newerAt < 0 || olderAt < 0 || newerAt > olderAt {
+			t.Fatalf("--remote --reverse must print newest first:\n%s", stdout)
+		}
+	})
+
+	t.Run("explicit limit zero selects nothing", func(t *testing.T) {
+		isolateEnv(t)
+		fake := newFakeRemoteS3(t, objects, nil, nil)
+		stdout, stderr, err := executeList(t, "--remote", "--limit", "0",
+			"--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		if stdout != "" {
+			t.Fatalf("stdout = %q, want empty for --limit 0", stdout)
+		}
+	})
+
+	t.Run("explicit limit zero empties the JSON array", func(t *testing.T) {
+		isolateEnv(t)
+		fake := newFakeRemoteS3(t, objects, nil, nil)
+		stdout, _, err := executeList(t, "--remote", "--json", "--limit", "0",
+			"--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.TrimSpace(stdout) != "[]" {
+			t.Fatalf("stdout = %q, want an empty JSON array", stdout)
+		}
+	})
+}
+
 func TestListRemoteAutoDirectoryColumn(t *testing.T) {
 	isolateEnv(t)
 	when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)

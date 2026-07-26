@@ -1609,14 +1609,20 @@ machine) and must be safe:
   connection, never the marker.
   Sync also backfills declared counts: every active, scoped,
   marker-managed local record missing both `objects` and `total_bytes`
-  has its listed marker fetched and inspected, and only a `complete`
+  is a candidate, provided its recorded `marker_version` could declare a
+  full inventory at all. Marker v3 always can; v2 can only without a
+  `source_key`, and v1 never can. Candidates have their listed marker
+  fetched and inspected, and only a `complete`
   upload whose marker fully declares its inventory appends an enriched
   copy of the record — original time and identity with the declared
   counts added — which latest-wins reduction collapses in place. A
   non-complete, invalid, or underdeclared inspection leaves the record
-  untouched rather than guessing. Backfill converges once a marker
-  inspects complete with a fully declared inventory; records that
-  never do are simply re-inspected by later syncs. It never resurrects
+  untouched rather than guessing. Versions that can never declare a full
+  inventory are excluded from local history without any remote request,
+  so they cost nothing on later syncs. A candidate that fetches but does
+  not inspect complete — a drifted or interrupted upload — is retried by
+  later syncs, which is the intended behavior for a repairable
+  upload. It never resurrects
   a tombstoned identity, shares the `--concurrency` budget, and
   follows the same lock/reread/recheck commit path; `--dry-run` plans
   enrichment without writing.

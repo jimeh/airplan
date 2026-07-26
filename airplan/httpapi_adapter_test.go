@@ -266,6 +266,42 @@ func TestHostedAdapterSafetyAndRequiredArrays(t *testing.T) {
 	}
 }
 
+// TestWireManifestRecordRoundTripsDeclaredTotals covers the server half
+// of the declared-inventory wire mapping in both directions. A dropped
+// field here would silently degrade counts to "unrecorded" over the
+// airplan backend while the local backend reported them correctly.
+func TestWireManifestRecordRoundTripsDeclaredTotals(t *testing.T) {
+	dir := strings.Repeat("u", 26)
+	original := ManifestRecord{
+		Type: "upload",
+		Time: time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC),
+		Key:  dir + "/plan.html", SourceKey: dir + "/plan.md",
+		MarkerKey: dir + "/.airplan.json",
+		URL:       "https://plans.example.com/" + dir + "/plan.html",
+		Bucket:    "plans", Format: "md", Kind: string(UploadKindDocument),
+		Slug: "plan", Title: "Refactor auth", Bytes: 18432,
+		Objects: 3, TotalBytes: 25600, MarkerVersion: MarkerVersion,
+	}
+
+	wire := wireManifestRecord(original)
+	if wire.Objects != 3 || wire.TotalBytes != 25600 {
+		t.Fatalf("wire counts = %d/%d, want 3/25600",
+			wire.Objects, wire.TotalBytes)
+	}
+	got := coreManifestRecord(wire)
+	if got != original {
+		t.Fatalf("round trip = %+v, want %+v", got, original)
+	}
+
+	// Unrecorded counts must stay unrecorded rather than becoming zero
+	// values that read as a recorded empty inventory.
+	original.Objects, original.TotalBytes = 0, 0
+	if back := coreManifestRecord(wireManifestRecord(original)); back !=
+		original {
+		t.Fatalf("absent-count round trip = %+v, want %+v", back, original)
+	}
+}
+
 func TestAPIOperationErrorDoesNotClassifyStorageText(t *testing.T) {
 	storageErr := errors.New("bucket not found: InvalidAccessKeyId")
 	if got := apiOperationError(storageErr); !errors.Is(got, storageErr) {

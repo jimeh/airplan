@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -94,6 +95,116 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 				t.Fatalf("result = %+v", result)
 			}
 		})
+	}
+}
+
+// TestListFilterFromMCPInputTimeBoundaries covers both time boundaries
+// over MCP. The tool surface parses them with the same ParseTimeFilter
+// the CLI flags use, so an invalid value must fail rather than silently
+// widening the selection.
+func TestListFilterFromMCPInputTimeBoundaries(t *testing.T) {
+	filter, limitZero, err := listFilterFromMCPInput(mcpListInput{
+		OlderThan: "2026-07-08T15:00:00Z",
+	})
+	if err != nil || limitZero {
+		t.Fatalf("older_than = %+v, %v, limitZero=%v", filter, err, limitZero)
+	}
+	want := time.Date(2026, 7, 8, 15, 0, 0, 0, time.UTC)
+	if !filter.OlderThan.Equal(want) || !filter.NewerThan.IsZero() {
+		t.Fatalf("filter = %+v, want only OlderThan set to %v", filter, want)
+	}
+
+	if _, _, err := listFilterFromMCPInput(mcpListInput{
+		OlderThan: "03/04/2026",
+	}); err == nil || !strings.Contains(err.Error(), "ambiguous day/month") {
+		t.Fatalf("older_than error = %v, want the ambiguity refusal", err)
+	}
+	if _, _, err := listFilterFromMCPInput(mcpListInput{
+		OlderThan: "not-a-time",
+	}); err == nil {
+		t.Fatal("unparseable older_than must fail")
+	}
+
+	zero := 0
+	_, limitZero, err = listFilterFromMCPInput(mcpListInput{Limit: &zero})
+	if err != nil || !limitZero {
+		t.Fatalf("explicit zero limit = %v, %v, want limitZero", limitZero, err)
+	}
+}
+
+// TestMCPListUploadsStorageSourceAppliesFilters covers the storage
+// branch of list_uploads end to end. The manifest branch has its own
+// copy of the filter and explicit-zero-limit wiring, so covering one
+// does not cover the other.
+func TestMCPListUploadsStorageSourceAppliesFilters(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("s", 26)
+	fake.addUpload(t, declaredDocumentMarker(dir, when), []byte("0123456789"))
+	fake.addObject(dir+"/new.md", []byte("12345678"), when)
+	client := newSyncClient(t, fake.server.URL,
+		filepath.Join(t.TempDir(), "manifest.jsonl"))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", true)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	call := func(args map[string]any) (mcpListOutput, error) {
+		t.Helper()
+		var out mcpListOutput
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "list_uploads", Arguments: args,
+		})
+		if err != nil {
+			return out, err
+		}
+		if result.IsError {
+			return out, fmt.Errorf("tool error: %+v", result.Content)
+		}
+		data, err := json.Marshal(result.StructuredContent)
+		if err != nil {
+			return out, err
+		}
+		return out, json.Unmarshal(data, &out)
+	}
+
+	all, err := call(map[string]any{"source": "storage"})
+	if err != nil || len(all.Storage) != 1 {
+		t.Fatalf("storage listing = %+v, %v", all, err)
+	}
+	if all.Storage[0].Kind != UploadKindDocument {
+		t.Fatalf("kind = %q, want document", all.Storage[0].Kind)
+	}
+
+	kinded, err := call(map[string]any{
+		"source": "storage", "kind": "collection",
+	})
+	if err != nil || len(kinded.Storage) != 0 {
+		t.Fatalf("collection filter = %+v, %v, want nothing", kinded, err)
+	}
+
+	// Explicit zero carries CLI --limit 0 semantics on this source too.
+	none, err := call(map[string]any{"source": "storage", "limit": 0})
+	if err != nil || len(none.Storage) != 0 {
+		t.Fatalf("explicit limit 0 = %+v, %v, want nothing", none, err)
+	}
+	one, err := call(map[string]any{"source": "storage", "limit": 1})
+	if err != nil || len(one.Storage) != 1 {
+		t.Fatalf("limit 1 = %+v, %v, want the row", one, err)
 	}
 }
 

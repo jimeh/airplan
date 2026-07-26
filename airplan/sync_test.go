@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -528,6 +529,142 @@ func TestSyncBackfillLeavesNonCompleteMarkersUntouched(t *testing.T) {
 	})
 }
 
+// TestSyncClassifiesDualMarkerConflictAsInvalid covers the conflict
+// short-circuit in inspectListedUploadBody. A directory carrying both
+// marker names grants no authority, so sync must classify it invalid
+// without fetching either marker, and import nothing.
+func TestSyncClassifiesDualMarkerConflictAsInvalid(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("q", 26)
+	fake.addObject(dir+"/"+MarkerFilename, []byte("{}"), when)
+	fake.addObject(dir+"/"+CollectionMarkerFilename, []byte("{}"), when)
+	fake.addObject(dir+"/index.html", []byte("0123456789"), when)
+
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := newSyncClient(t, fake.server.URL, manifest)
+	result, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Invalid != 1 || len(result.Added) != 0 {
+		t.Fatalf("result = %+v, want one invalid and no imports", result)
+	}
+	fake.mu.Lock()
+	fetched := fake.gets[dir+"/"+MarkerFilename] +
+		fake.gets[dir+"/"+CollectionMarkerFilename]
+	fake.mu.Unlock()
+	if fetched != 0 {
+		t.Fatalf("marker fetches = %d; a conflict is decided from the "+
+			"listing alone", fetched)
+	}
+	records, _, err := ReadManifest(manifest)
+	if err != nil || len(records) != 0 {
+		t.Fatalf("records = %+v, %v, want nothing imported", records, err)
+	}
+}
+
+// TestSyncFailureForContextClassifiesJobs pins the wire-visible
+// operation each job kind reports when the run is cancelled before it is
+// scheduled. Enrich jobs carry a local record like prune jobs do, so
+// without the explicit enrich check they would wrongly claim
+// "confirm_absence" — asserting an absence the sync never probed.
+func TestSyncFailureForContextClassifiesJobs(t *testing.T) {
+	record := ManifestRecord{Key: "dir/plan.html"}
+	upload := RemoteUpload{MarkerKey: "dir/" + MarkerFilename}
+	for name, tc := range map[string]struct {
+		job  syncJob
+		want string
+	}{
+		"import": {syncJob{markerKey: "k", upload: &upload}, "fetch"},
+		"prune":  {syncJob{markerKey: "k", local: &record}, "confirm_absence"},
+		"enrich": {
+			syncJob{
+				markerKey: "k", upload: &upload, local: &record, enrich: true,
+			},
+			"fetch",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := syncFailureForContext(tc.job, context.Canceled)
+			if got.Operation != tc.want {
+				t.Fatalf("operation = %q, want %q", got.Operation, tc.want)
+			}
+			if got.MarkerKey != "k" || got.Error != context.Canceled.Error() {
+				t.Fatalf("failure = %+v", got)
+			}
+		})
+	}
+}
+
+// TestSyncBackfillSkipsVersionsThatCannotDeclareInventory pins that
+// backfill eligibility is decided from local history (SPEC.md §9). A
+// marker version that can never declare every counted object's size
+// must cost no remote request at all, otherwise every sync would
+// re-fetch the same markers forever and discard the result.
+func TestSyncBackfillSkipsVersionsThatCannotDeclareInventory(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+
+	// line builds an active record predating objects/total_bytes at the
+	// given marker version, with or without a recorded source.
+	line := func(dir string, version int, source bool) string {
+		sourceKey := ""
+		if source {
+			sourceKey = `"source_key":"` + dir + `/new.md",`
+		}
+		return `{"type":"upload","time":"` + when.UTC().Format(time.RFC3339) +
+			`","key":"` + dir + `/new.html",` + sourceKey +
+			`"marker_key":"` + dir + `/.airplan.json",` +
+			`"url":"https://plans.example.com/` + dir + `/new.html",` +
+			`"bucket":"plans","profile":"work","format":"md",` +
+			`"kind":"document","title":"New plan","bytes":10,` +
+			`"marker_version":` + strconv.Itoa(version) + `}` + "\n"
+	}
+
+	for name, tc := range map[string]struct {
+		version   int
+		source    bool
+		wantFetch bool
+	}{
+		"v1 declares no page bytes":      {1, false, false},
+		"v1 with source":                 {1, true, false},
+		"v2 with source lacks src bytes": {2, true, false},
+		"v2 without source qualifies":    {2, false, true},
+		"v3 always qualifies":            {MarkerVersion, true, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := newSyncStorage(t)
+			dir := strings.Repeat("k", 26)
+			marker := declaredDocumentMarker(dir, when)
+			fake.addUpload(t, marker, []byte("0123456789"))
+			fake.addObject(dir+"/new.md", []byte("12345678"), when)
+
+			manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+			if err := os.WriteFile(manifest,
+				[]byte(line(dir, tc.version, tc.source)), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			client := newSyncClient(t, fake.server.URL, manifest)
+			if _, err := client.SyncManifest(context.Background(),
+				SyncManifestOptions{Prune: true}); err != nil {
+				t.Fatal(err)
+			}
+
+			fake.mu.Lock()
+			fetches := fake.gets[dir+"/"+MarkerFilename]
+			fake.mu.Unlock()
+			if tc.wantFetch && fetches == 0 {
+				t.Fatal("eligible record must fetch its marker")
+			}
+			if !tc.wantFetch && fetches != 0 {
+				t.Fatalf("marker fetched %d time(s); an ineligible version "+
+					"must cost no remote request", fetches)
+			}
+		})
+	}
+}
+
 // TestSyncBackfillFetchFailureReportsFetchOperation pins the wire-visible
 // SyncFailure.Operation for a backfill job. syncFailureForContext
 // distinguishes enrich jobs from prune jobs even though both carry a
@@ -739,6 +876,7 @@ type syncStorage struct {
 	modified    map[string]time.Time
 	hidden      map[string]bool
 	failGet     map[string]bool
+	gets        map[string]int
 	delay       time.Duration
 	inFlight    int
 	maxInFlight int
@@ -749,6 +887,7 @@ func newSyncStorage(t *testing.T) *syncStorage {
 	fake := &syncStorage{
 		objects: make(map[string][]byte), modified: make(map[string]time.Time),
 		hidden: make(map[string]bool), failGet: make(map[string]bool),
+		gets: make(map[string]int),
 	}
 	fake.server = httptest.NewServer(http.HandlerFunc(fake.handle))
 	t.Cleanup(fake.server.Close)
@@ -816,6 +955,7 @@ func (f *syncStorage) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	key := strings.TrimPrefix(r.URL.Path, "/plans/")
 	f.mu.Lock()
+	f.gets[key]++
 	serverError := f.failGet[key]
 	f.mu.Unlock()
 	if serverError {

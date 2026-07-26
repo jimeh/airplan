@@ -123,11 +123,12 @@ func (c *Client) SyncManifest(
 			continue
 		}
 		// Backfill declared objects/total_bytes for active records that
-		// predate those fields (SPEC.md §9). Only records missing both
-		// fields qualify, so backfill converges once a marker inspects
-		// complete and fully declares its inventory; markers that never
-		// do are re-inspected on later syncs and left untouched.
-		if record.Objects == 0 && record.TotalBytes == 0 {
+		// predate those fields (SPEC.md §9). Records missing both fields
+		// qualify only when their recorded marker version could declare a
+		// full inventory, so versions that never can are skipped here
+		// rather than re-fetched on every sync.
+		if record.Objects == 0 && record.TotalBytes == 0 &&
+			recordDeclaresFullInventory(record) {
 			jobs = append(jobs, syncJob{
 				markerKey: upload.MarkerKey, upload: &upload,
 				local: &record, enrich: true,
@@ -299,6 +300,26 @@ func (c *Client) syncImport(
 		result.warning = inspection.Warnings[0]
 	}
 	return result
+}
+
+// recordDeclaresFullInventory reports whether a record's marker version
+// is capable of declaring every counted object's size (SPEC.md §9).
+// Marker v3 declares page, source, and file bytes; v2 declares page
+// bytes but not source bytes, so it qualifies only without a source; v1
+// declares none. Deciding this from local history means an ineligible
+// record costs no remote request, rather than being fetched and
+// discarded on every sync. declaredInspectionTotals still re-checks the
+// fetched marker, which is what catches a record whose recorded version
+// no longer matches the remote one.
+func recordDeclaresFullInventory(rec ManifestRecord) bool {
+	switch rec.MarkerVersion {
+	case MarkerVersion:
+		return true
+	case 2:
+		return rec.SourceKey == ""
+	default:
+		return false
+	}
 }
 
 // declaredInspectionTotals derives the marker-declared inventory from a

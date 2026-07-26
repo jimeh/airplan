@@ -45,6 +45,67 @@ func TestAirplanBackendUsesHTTPWithoutS3Credentials(t *testing.T) {
 	}
 }
 
+// TestAirplanBackendDecodesEnrichedSyncRecords covers the client half of
+// the enriched_records wire field. Without it a sync against an airplan
+// backend would silently drop the backfill report that the local backend
+// shows, and the declared counts would not survive the round trip.
+func TestAirplanBackendDecodesEnrichedSyncRecords(t *testing.T) {
+	const token = "01234567890123456789012345678901"
+	dir := strings.Repeat("t", 26)
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v1/sync" {
+				t.Fatalf("path = %q", r.URL.Path)
+			}
+			_, _ = io.WriteString(w, `{
+				"added_records": [],
+				"enriched_records": [{
+					"type": "upload",
+					"time": "2026-07-21T12:00:00Z",
+					"key": "`+dir+`/plan.html",
+					"marker_key": "`+dir+`/.airplan.json",
+					"url": "https://plans.example.com/`+dir+`/plan.html",
+					"bucket": "plans", "kind": "document", "slug": "plan",
+					"bytes": 18432, "objects": 3, "total_bytes": 25600,
+					"marker_version": 3
+				}],
+				"tombstone_records": [], "failures": [],
+				"unchanged": 1, "incomplete": 0, "invalid": 0,
+				"retained": 0, "complete": true
+			}`)
+		},
+	))
+	defer server.Close()
+
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL, APIToken: token,
+		Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.SyncManifest(
+		context.Background(), SyncManifestOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Enriched) != 1 {
+		t.Fatalf("enriched = %+v, want one record", result.Enriched)
+	}
+	got := result.Enriched[0]
+	if got.Objects != 3 || got.TotalBytes != 25600 {
+		t.Fatalf("declared counts = %d/%d, want 3/25600",
+			got.Objects, got.TotalBytes)
+	}
+	if got.Key != dir+"/plan.html" || got.Bytes != 18432 {
+		t.Fatalf("record = %+v", got)
+	}
+	if len(result.Added) != 0 || len(result.Tombstoned) != 0 {
+		t.Fatalf("result = %+v, want only enriched records", result)
+	}
+}
+
 func TestAirplanBackendStreamsDocumentMultipart(t *testing.T) {
 	const token = "01234567890123456789012345678901"
 	server := httptest.NewServer(http.HandlerFunc(

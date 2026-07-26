@@ -470,6 +470,43 @@ func TestReadManifestSkipsOversizedLineAndContinues(t *testing.T) {
 	}
 }
 
+// TestReadManifestRejectsNegativeDeclaredTotals covers the lower bound
+// on the declared-inventory fields. Go writers cannot emit these (both
+// are omitempty ints), but the record schema is a cross-implementation
+// contract, so a foreign writer's negative count must be rejected.
+func TestReadManifestRejectsNegativeDeclaredTotals(t *testing.T) {
+	const base = `{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+		`"key":"vq3nhk2p7r4wzt5c6ydjm3xhqd/plan.html",` +
+		`"url":"https://plans.example.com/vq3n/plan.html",` +
+		`"bucket":"plans","bytes":1,"marker_version":3`
+
+	for name, tail := range map[string]string{
+		"negative objects":     `,"objects":-1,"total_bytes":10}`,
+		"negative total_bytes": `,"objects":2,"total_bytes":-10}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "manifest.jsonl")
+			if err := os.WriteFile(
+				path, []byte(base+tail+"\n"), 0o600,
+			); err != nil {
+				t.Fatal(err)
+			}
+			records, warnings, err := readManifest(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(records) != 0 {
+				t.Fatalf("records = %+v, want the record skipped", records)
+			}
+			if len(warnings) != 1 ||
+				!strings.Contains(warnings[0], "must not be negative") {
+				t.Fatalf("warnings = %v, want a negative-count warning",
+					warnings)
+			}
+		})
+	}
+}
+
 // TestReadManifestRequiresPairedDeclaredTotals pins SPEC.md §9's atomic
 // pair rule: a record carrying exactly one of objects/total_bytes would
 // report a count with no size (or the reverse) and would never qualify

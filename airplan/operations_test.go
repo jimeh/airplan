@@ -138,6 +138,72 @@ func (s *stubListTransport) SyncManifest(
 	return nil, errors.New("not implemented")
 }
 
+// TestSlugPatternDerivesSlugFromPageKey covers the shared purge/list
+// slug helper's fallback for records that never recorded a slug, which
+// is how pre-v3 history is matched.
+func TestSlugPatternDerivesSlugFromPageKey(t *testing.T) {
+	dir := strings.Repeat("m", 26)
+	for name, tc := range map[string]struct {
+		rec     ManifestRecord
+		pattern string
+		want    bool
+	}{
+		"derived from key": {
+			ManifestRecord{Key: dir + "/plan.html"}, "pl*", true,
+		},
+		"derived and not matching": {
+			ManifestRecord{Key: dir + "/plan.html"}, "report*", false,
+		},
+		"recorded slug wins": {
+			ManifestRecord{Key: dir + "/plan.html", Slug: "report"},
+			"report", true,
+		},
+		"collections never match": {
+			ManifestRecord{
+				Key: dir + "/index.html", Kind: string(UploadKindCollection),
+			}, "*", false,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := slugPatternMatchesRecord(tc.pattern, tc.rec); got != tc.want {
+				t.Fatalf("match = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestPurgeRecordMatchesSlug pins that purge selection routes through the
+// same slug helper as list, so the two cannot drift.
+func TestPurgeRecordMatchesSlug(t *testing.T) {
+	dir := strings.Repeat("n", 26)
+	rec := ManifestRecord{Key: dir + "/plan.html", Slug: "plan"}
+	if !purgeRecordMatches(rec, PurgePlanOptions{Slug: "pl*"}) {
+		t.Fatal("matching slug pattern must select the record")
+	}
+	if purgeRecordMatches(rec, PurgePlanOptions{Slug: "report*"}) {
+		t.Fatal("non-matching slug pattern must not select the record")
+	}
+	collection := ManifestRecord{
+		Key: dir + "/index.html", Kind: string(UploadKindCollection),
+	}
+	if purgeRecordMatches(collection, PurgePlanOptions{Slug: "*"}) {
+		t.Fatal("collections are excluded even from a wildcard")
+	}
+}
+
+// TestFilterRemoteSlugExcludesNonMatching covers the remote slug filter's
+// reject path, which reads the untrusted LIST-derived slug hint.
+func TestFilterRemoteSlugExcludesNonMatching(t *testing.T) {
+	uploads := []RemoteUpload{
+		{MarkerKey: "a/.airplan.json", Kind: UploadKindDocument, Slug: "plan"},
+		{MarkerKey: "b/.airplan.json", Kind: UploadKindDocument, Slug: "report"},
+	}
+	got := ListFilter{Slug: "pl*"}.FilterRemote(uploads)
+	if len(got) != 1 || got[0].Slug != "plan" {
+		t.Fatalf("filtered = %+v, want only the matching slug", got)
+	}
+}
+
 // TestListManifestSortsRemoteTransportRecords pins client-side
 // ordering for the airplan backend: an older server may return file
 // order, and downstream --limit selection assumes ascending time, so
