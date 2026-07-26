@@ -1499,6 +1499,93 @@ func TestListRemoteRejectsAllProfiles(t *testing.T) {
 	}
 }
 
+// TestListRemoteJSONReportsProtection locks in the purge-protection contract
+// for remote listings (SPEC.md §9): protection is JSON-only, so the field must
+// appear when the sentinel is listed and the human table must never gain a
+// column. Protected is a *bool so an absent field is distinguishable from an
+// explicit false — protection is a conditional presence flag like conflict,
+// not a stable field.
+func TestListRemoteJSONReportsProtection(t *testing.T) {
+	when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
+	key := deleteDirA + "/plan.html"
+	markerKey := deleteDirA + "/" + airplan.MarkerFilename
+	sentinelKey := deleteDirA + "/" + airplan.ProtectedFilename
+	objects := []remoteFakeObject{
+		{key: markerKey, size: 100, lastModified: when},
+		{key: key, size: 18432, lastModified: when.Add(time.Minute)},
+	}
+
+	decode := func(t *testing.T, stdout string) *bool {
+		t.Helper()
+		var records []struct {
+			Dir       string `json:"dir"`
+			Protected *bool  `json:"protected"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+			t.Fatalf("json.Unmarshal: %v\nstdout: %s", err, stdout)
+		}
+		if len(records) != 1 || records[0].Dir != deleteDirA {
+			t.Fatalf("records = %+v, want one record for %s",
+				records, deleteDirA)
+		}
+		return records[0].Protected
+	}
+
+	t.Run("protected", func(t *testing.T) {
+		isolateEnv(t)
+		listed := append(objects,
+			remoteFakeObject{key: sentinelKey, size: 96, lastModified: when})
+		fake := newFakeRemoteS3(t, listed, nil, nil)
+
+		stdout, stderr, err := executeList(t,
+			"--remote", "--json",
+			"--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		protected := decode(t, stdout)
+		if protected == nil || !*protected {
+			t.Fatalf("protected = %v, want true\nstdout: %s",
+				protected, stdout)
+		}
+	})
+
+	t.Run("unprotected omits the field", func(t *testing.T) {
+		isolateEnv(t)
+		fake := newFakeRemoteS3(t, objects, nil, nil)
+
+		stdout, stderr, err := executeList(t,
+			"--remote", "--json",
+			"--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		if protected := decode(t, stdout); protected != nil {
+			t.Fatalf("protected = %v, want the field omitted\nstdout: %s",
+				*protected, stdout)
+		}
+	})
+
+	t.Run("table gains no protection column", func(t *testing.T) {
+		isolateEnv(t)
+		listed := append(objects,
+			remoteFakeObject{key: sentinelKey, size: 96, lastModified: when})
+		fake := newFakeRemoteS3(t, listed, nil, nil)
+
+		stdout, stderr, err := executeList(t,
+			"--remote", "--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+		if strings.Contains(strings.ToUpper(stdout), "PROTECT") {
+			t.Fatalf("remote table must not report protection:\n%s", stdout)
+		}
+	})
+}
+
 func TestListRemoteFallbackURLWarnsOnce(t *testing.T) {
 	isolateEnv(t)
 	when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
