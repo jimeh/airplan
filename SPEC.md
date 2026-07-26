@@ -1598,7 +1598,8 @@ machine) and must be safe:
   Imported v3 records retain kind, exact marker identity, primary page,
   document slug/format/source where applicable, title, and repository, but do
   not duplicate collection inventories. Imported records carry declared
-  `objects`/`total_bytes`. Imported profile,
+  `objects`/`total_bytes` when the marker fully declares its inventory.
+  Imported profile,
   bucket, and public URL values come from the receiving machine's resolved
   connection, never the marker.
   Sync also backfills declared counts: every active, scoped,

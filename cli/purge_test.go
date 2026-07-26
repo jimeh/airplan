@@ -47,6 +47,33 @@ func TestPurgeOlderThanRequiresPastThreshold(t *testing.T) {
 	}
 }
 
+// TestPurgeOlderThanPastThresholdWithAll pins the error text when --all
+// is already set: the threshold is still rejected, but suggesting --all
+// back to a caller who passed it would be contradictory.
+func TestPurgeOlderThanPastThresholdWithAll(t *testing.T) {
+	now := time.Now().UTC()
+	records := []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "alpha", "", now.Add(-time.Hour)),
+	}
+	const want = "--older-than: must select a time in the past"
+
+	isolateEnv(t)
+	writeDefaultManifest(t, records)
+
+	stdout, _, err := executeCommand(t, "", "",
+		"purge", "--all", "--older-than", "2100-01-01", "--yes")
+	if err == nil || err.Error() != want {
+		t.Fatalf("error = %v, want %q", err, want)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	listed, err := airplan.ListManifestHistory("", nil)
+	if err != nil || len(listed.Records) != 1 {
+		t.Fatalf("records = %+v, %v; upload must survive", listed, err)
+	}
+}
+
 func TestPurgeCommandFilters(t *testing.T) {
 	now := time.Now().UTC()
 	records := []airplan.ManifestRecord{

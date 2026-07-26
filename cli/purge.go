@@ -103,10 +103,13 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		}
 		// A zero age resolves to now and a future date past it; either
 		// would silently select every upload. Purging everything must be
-		// said explicitly with --all.
+		// said explicitly with --all, so only suggest it when it is absent.
 		if !createdBefore.Before(now) {
-			return errors.New("--older-than: must select a time in the " +
-				"past; use --all to purge everything")
+			msg := "--older-than: must select a time in the past"
+			if !opts.all {
+				msg += "; use --all to purge everything"
+			}
+			return errors.New(msg)
 		}
 	}
 
