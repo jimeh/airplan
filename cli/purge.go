@@ -101,6 +101,15 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		if err != nil {
 			return flagError("--older-than", err)
 		}
+		// PurgePlanOptions reads a zero CreatedBefore as "no age filter", so a
+		// year-one boundary would widen the selection to everything instead
+		// of the nothing it selects in list --older-than. Refuse it rather
+		// than diverge on a destructive command.
+		if createdBefore.IsZero() {
+			return errors.New(
+				"--older-than: that boundary selects nothing; " +
+					"no upload is older than year one")
+		}
 		// An age of zero degenerates into "everything recorded before now",
 		// which is what an unset or miscomputed script variable expands to.
 		// Refuse it here rather than deleting every upload; --all is how a

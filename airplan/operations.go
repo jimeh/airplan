@@ -299,8 +299,9 @@ func purgeRecordMatches(rec ManifestRecord, opts PurgePlanOptions) bool {
 	if rec.Kind == string(UploadKindCollection) {
 		return false
 	}
-	matched, _ := path.Match(opts.Slug, ManifestRecordSlug(rec))
-	return matched
+	// Shared with list --slug so both mean the same thing, including that an
+	// upload with no derivable slug never matches (SPEC.md §9).
+	return matchesSlugPattern(opts.Slug, ManifestRecordSlug(rec))
 }
 
 func manifestRecordFromInspection(

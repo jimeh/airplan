@@ -56,14 +56,14 @@ func (in mcpListInput) listFilter(now time.Time) (ListFilter, error) {
 		if err != nil {
 			return filter, err
 		}
-		filter.NewerThan = when
+		filter.NewerThan = &when
 	}
 	if in.OlderThan != "" {
 		when, err := ParseTimeFilter(in.OlderThan, now)
 		if err != nil {
 			return filter, err
 		}
-		filter.OlderThan = when
+		filter.OlderThan = &when
 	}
 	return filter, filter.Validate()
 }

@@ -387,8 +387,9 @@ func (o *HTTPOperations) SyncManifest(
 		return httpapi.SyncResult{}, apiOperationError(syncErr)
 	}
 	wire := httpapi.SyncResult{
-		Unchanged: result.Unchanged, Incomplete: result.Incomplete,
-		Invalid: result.Invalid, Retained: result.Retained,
+		Unchanged: result.Unchanged, Deferred: result.Deferred,
+		Incomplete: result.Incomplete,
+		Invalid:    result.Invalid, Retained: result.Retained,
 		Warnings:         serverSafeWarnings(result.Warnings),
 		Complete:         len(result.Failures) == 0,
 		AddedRecords:     []httpapi.ManifestRecord{},

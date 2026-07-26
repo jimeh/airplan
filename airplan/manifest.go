@@ -286,10 +286,15 @@ func validateManifestRecord(rec ManifestRecord) error {
 		if rec.Bytes <= 0 {
 			return errors.New("bytes must be positive")
 		}
-		// Both totals are optional, but a negative one is corrupt rather than
-		// absent.
+		// Both totals are optional, but they describe one measurement: a
+		// negative or half-present pair is corrupt rather than absent, and
+		// would otherwise render inconsistently forever, since backfill only
+		// completes records missing both.
 		if rec.Objects < 0 || rec.TotalBytes < 0 {
 			return errors.New("objects and total_bytes must not be negative")
+		}
+		if (rec.Objects == 0) != (rec.TotalBytes == 0) {
+			return errors.New("objects and total_bytes must be set together")
 		}
 		if rec.MarkerKey != "" {
 			expected := markerKeyForManifestRecord(rec)

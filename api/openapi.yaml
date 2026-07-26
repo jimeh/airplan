@@ -773,6 +773,7 @@ components:
         - enriched_records
         - tombstone_records
         - unchanged
+        - deferred
         - incomplete
         - invalid
         - retained
@@ -793,6 +794,9 @@ components:
           items:
             $ref: "#/components/schemas/ManifestRecord"
         unchanged:
+          type: integer
+          minimum: 0
+        deferred:
           type: integer
           minimum: 0
         incomplete:

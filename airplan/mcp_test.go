@@ -232,6 +232,14 @@ func TestMCPListUploadsFilters(t *testing.T) {
 			[]string{"a"},
 		},
 		{
+			// Year one is a boundary, not an absent argument.
+			"older than year one selects nothing",
+			map[string]any{
+				"source": "manifest", "older_than": "0001-01-01T00:00:00Z",
+			},
+			nil,
+		},
+		{
 			"limit keeps the most recent",
 			map[string]any{"source": "manifest", "limit": 1},
 			[]string{"c"},

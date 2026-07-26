@@ -148,8 +148,13 @@ type listColumnRequest struct {
 }
 
 // validate rejects unusable selections before any manifest read or bucket
-// listing happens, so a mistyped column costs no request. Column selection is
-// a table concern, so it cannot be combined with --json.
+// listing happens, so a mistyped column costs no request: bad flag
+// combinations, unknown or wrong-mode names, and a selection that strips every
+// column the mode can print. A selection that empties only because an
+// automatic column did not fire is caught once the rows are known, since that
+// depends on them.
+//
+// Column selection is a table concern, so it cannot be combined with --json.
 func (r listColumnRequest) validate(mode listMode, jsonOutput bool) error {
 	if jsonOutput {
 		if r.wide {
@@ -165,8 +170,38 @@ func (r listColumnRequest) validate(mode listMode, jsonOutput bool) error {
 	if !r.changed {
 		return nil
 	}
-	_, _, err := parseListColumnSpec(mode, r.spec)
-	return err
+	adjustments, additive, err := parseListColumnSpec(mode, r.spec)
+	if err != nil {
+		return err
+	}
+	if additive && removesEveryListColumn(mode, adjustments) {
+		return errors.New("--columns left no columns to print")
+	}
+	return nil
+}
+
+// removesEveryListColumn reports whether adjustments strip every column the
+// mode could select on its own, automatic ones included. That is the only
+// empty selection knowable before the result set is.
+func removesEveryListColumn(
+	mode listMode, adjustments []listColumnAdjustment,
+) bool {
+	removed := make(map[string]bool, len(adjustments))
+	for _, adjustment := range adjustments {
+		if !adjustment.remove {
+			return false
+		}
+		removed[adjustment.name] = true
+	}
+	for _, column := range listColumnRegistry {
+		switch column.role(mode) {
+		case listColumnDefault, listColumnAuto:
+			if !removed[column.name] {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // selectListColumns resolves the columns to print. auto holds the names of the

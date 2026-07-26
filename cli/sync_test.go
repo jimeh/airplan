@@ -95,8 +95,9 @@ func TestSyncCommandReportsEnrichedSeparately(t *testing.T) {
 	if err != nil {
 		t.Fatalf("import: %v\nstderr: %s", err, stderr)
 	}
-	if !strings.Contains(stderr, "synced 1 uploads, enriched 0") {
-		t.Fatalf("stderr = %q, want an enriched count", stderr)
+	if !strings.Contains(stderr, "synced 1 uploads, enriched 0") ||
+		!strings.Contains(stderr, "0 deferred") {
+		t.Fatalf("stderr = %q, want enriched and deferred counts", stderr)
 	}
 
 	// Rewrite the imported record as pre-0.30 history, then let sync complete

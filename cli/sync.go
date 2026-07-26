@@ -108,8 +108,9 @@ func runSync(cmd *cobra.Command, opts *syncOptions) error {
 		verb, len(result.Added), enrichVerb, len(result.Enriched),
 		tombstoneVerb, len(result.Tombstoned))
 	fmt.Fprintf(stderr,
-		"(%d unchanged, %d incomplete, %d invalid, %d retained, %d failed)\n",
-		result.Unchanged, result.Incomplete, result.Invalid,
+		"(%d unchanged, %d deferred, %d incomplete, %d invalid, "+
+			"%d retained, %d failed)\n",
+		result.Unchanged, result.Deferred, result.Incomplete, result.Invalid,
 		result.Retained, len(result.Failures))
 	return syncErr
 }
@@ -119,6 +120,7 @@ type syncJSONResult struct {
 	Enriched         int                      `json:"enriched"`
 	Tombstoned       int                      `json:"tombstoned"`
 	Unchanged        int                      `json:"unchanged"`
+	Deferred         int                      `json:"deferred"`
 	Incomplete       int                      `json:"incomplete"`
 	Invalid          int                      `json:"invalid"`
 	Retained         int                      `json:"retained"`

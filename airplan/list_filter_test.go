@@ -10,6 +10,12 @@ func filterTestTime(hour int) time.Time {
 	return time.Date(2026, 7, 8, hour, 0, 0, 0, time.UTC)
 }
 
+// filterTestBound returns a settable boundary for a filter under test.
+func filterTestBound(hour int) *time.Time {
+	when := filterTestTime(hour)
+	return &when
+}
+
 // filterTestRecords returns three managed document uploads an hour apart, in
 // listing order.
 func filterTestRecords() []ManifestRecord {
@@ -46,7 +52,7 @@ func assertTitles(t *testing.T, got []string, want ...string) {
 // not, matching purge's existing CreatedBefore comparison.
 func TestListFilterTimeBoundaries(t *testing.T) {
 	records := filterTestRecords()
-	threshold := filterTestTime(13)
+	threshold := filterTestBound(13)
 
 	tests := []struct {
 		name   string
@@ -66,12 +72,12 @@ func TestListFilterTimeBoundaries(t *testing.T) {
 		},
 		{
 			"both bounds select one record",
-			ListFilter{NewerThan: threshold, OlderThan: filterTestTime(14)},
+			ListFilter{NewerThan: threshold, OlderThan: filterTestBound(14)},
 			[]string{"b"},
 		},
 		{
 			"empty window selects nothing",
-			ListFilter{NewerThan: filterTestTime(14), OlderThan: filterTestTime(13)},
+			ListFilter{NewerThan: filterTestBound(14), OlderThan: filterTestBound(13)},
 			nil,
 		},
 	}
@@ -80,6 +86,34 @@ func TestListFilterTimeBoundaries(t *testing.T) {
 			got := tt.filter.FilterManifestRecords(records)
 			assertTitles(t, recordTitles(got), tt.want...)
 		})
+	}
+}
+
+// TestListFilterZeroTimeIsABound covers year one, which is a legal boundary
+// value: whether a bound applies must come from whether it was set, never from
+// the time it happens to hold.
+func TestListFilterZeroTimeIsABound(t *testing.T) {
+	records := filterTestRecords()
+	zero := time.Time{}
+	if !zero.IsZero() {
+		t.Fatal("fixture is not a zero time")
+	}
+
+	older := ListFilter{OlderThan: &zero}.FilterManifestRecords(records)
+	if len(older) != 0 {
+		t.Fatalf("older than year one = %q, want none", recordTitles(older))
+	}
+	newer := ListFilter{NewerThan: &zero}.FilterManifestRecords(records)
+	assertTitles(t, recordTitles(newer), "a", "b", "c")
+
+	uploads := []RemoteUpload{{
+		Dir: "aaaaaaaaaaaaaaaaaaaaaaaaaa", Kind: UploadKindDocument,
+		LastModified: filterTestTime(12),
+	}}
+	if got := (ListFilter{OlderThan: &zero}).FilterRemoteUploads(
+		uploads,
+	); len(got) != 0 {
+		t.Fatalf("remote older than year one = %+v, want none", got)
 	}
 }
 
@@ -96,12 +130,19 @@ func TestListFilterKind(t *testing.T) {
 	legacy.MarkerVersion = 0
 	records := []ManifestRecord{document, collection, legacy}
 
+	// A managed record that declares no kind renders as "-" (SPEC.md §9), so
+	// it must not answer to either kind filter either.
+	managed := manifestUploadRecord(
+		filterTestTime(15), "work", "plans", "", "d")
+	managed.Kind = ""
+	records = append(records, managed)
+
 	tests := []struct {
 		name string
 		kind UploadKind
 		want []string
 	}{
-		{"unset keeps every kind", "", []string{"a", "b", "c"}},
+		{"unset keeps every kind", "", []string{"a", "b", "c", "d"}},
 		// SPEC.md §9: readers infer document for valid older records that
 		// omit kind, so legacy history stays selectable.
 		{
@@ -177,6 +218,38 @@ func TestManifestRecordSlug(t *testing.T) {
 	}
 }
 
+// TestPurgeSlugMatchesListSlug pins the parity SPEC §9 claims for --slug,
+// including that an upload with no derivable slug matches neither.
+func TestPurgeSlugMatchesListSlug(t *testing.T) {
+	named := manifestUploadRecord(filterTestTime(12), "work", "plans", "", "a")
+	named.Slug = "plan-alpha"
+	slugless := manifestUploadRecord(
+		filterTestTime(13), "work", "plans", "", "b")
+	slugless.Slug = ""
+	slugless.Key = "bbbbbbbbbbbbbbbbbbbbbbbbbb/plan"
+	slugless.MarkerKey = ""
+	collection := manifestUploadRecord(
+		filterTestTime(14), "work", "plans", "", "c")
+	collection.Kind = string(UploadKindCollection)
+	collection.Slug = ""
+	records := []ManifestRecord{named, slugless, collection}
+
+	for _, pattern := range []string{"*", "plan-*", "plan-alpha", "other"} {
+		t.Run(pattern, func(t *testing.T) {
+			listed := ListFilter{Slug: pattern}.FilterManifestRecords(records)
+			purged := make([]ManifestRecord, 0, len(records))
+			for _, record := range records {
+				if purgeRecordMatches(
+					record, PurgePlanOptions{Slug: pattern},
+				) {
+					purged = append(purged, record)
+				}
+			}
+			assertTitles(t, recordTitles(purged), recordTitles(listed)...)
+		})
+	}
+}
+
 func TestListFilterSlugSkipsRecordsWithoutOne(t *testing.T) {
 	record := manifestUploadRecord(
 		filterTestTime(12), "work", "plans", "", "a")
@@ -223,7 +296,7 @@ func TestListFilterLimitKeepsMostRecent(t *testing.T) {
 func TestListFilterLimitAppliesAfterSelection(t *testing.T) {
 	one := 1
 	got := ListFilter{
-		OlderThan: filterTestTime(14), Limit: &one,
+		OlderThan: filterTestBound(14), Limit: &one,
 	}.FilterManifestRecords(filterTestRecords())
 	assertTitles(t, recordTitles(got), "b")
 }
@@ -303,12 +376,12 @@ func TestListFilterRemoteUploads(t *testing.T) {
 		}},
 		{
 			"newer than keeps the threshold",
-			ListFilter{NewerThan: filterTestTime(13)},
+			ListFilter{NewerThan: filterTestBound(13)},
 			[]string{collection.Dir, conflict.Dir},
 		},
 		{
 			"older than excludes the threshold",
-			ListFilter{OlderThan: filterTestTime(13)},
+			ListFilter{OlderThan: filterTestBound(13)},
 			[]string{document.Dir},
 		},
 		// A dual-marker conflict declares no kind, so it matches neither.

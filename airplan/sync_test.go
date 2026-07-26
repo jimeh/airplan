@@ -304,6 +304,18 @@ type syncStorage struct {
 	inFlight    int
 	maxInFlight int
 	gets        map[string]int
+	failGets    map[string]bool
+}
+
+// failGet makes fetches of key fail with a server error, so tests can cover a
+// transient storage failure on one object.
+func (f *syncStorage) failGet(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failGets == nil {
+		f.failGets = make(map[string]bool)
+	}
+	f.failGets[key] = true
 }
 
 // getCount reports how many times a key's body has been fetched, so tests can
@@ -319,6 +331,7 @@ func newSyncStorage(t *testing.T) *syncStorage {
 	fake := &syncStorage{
 		objects: make(map[string][]byte), modified: make(map[string]time.Time),
 		hidden: make(map[string]bool), gets: make(map[string]int),
+		failGets: make(map[string]bool),
 	}
 	fake.server = httptest.NewServer(http.HandlerFunc(fake.handle))
 	t.Cleanup(fake.server.Close)
@@ -405,6 +418,7 @@ func (f *syncStorage) handle(w http.ResponseWriter, r *http.Request) {
 		f.maxInFlight = f.inFlight
 	}
 	body, ok := f.objects[key]
+	failed := f.failGets[key]
 	delay := f.delay
 	f.mu.Unlock()
 	if delay > 0 {
@@ -413,6 +427,13 @@ func (f *syncStorage) handle(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	f.inFlight--
 	f.mu.Unlock()
+	if failed {
+		w.Header().Set("Content-Type", "application/xml")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w,
+			`<Error><Code>InternalError</Code><Message>boom</Message></Error>`)
+		return
+	}
 	if !ok {
 		w.Header().Set("Content-Type", "application/xml")
 		w.WriteHeader(http.StatusNotFound)

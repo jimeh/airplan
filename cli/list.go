@@ -55,14 +55,14 @@ func (o *listOptions) listFilter(
 		if err != nil {
 			return filter, flagError("--newer-than", err)
 		}
-		filter.NewerThan = when
+		filter.NewerThan = &when
 	}
 	if o.olderThan != "" {
 		when, err := airplan.ParseTimeFilter(o.olderThan, now)
 		if err != nil {
 			return filter, flagError("--older-than", err)
 		}
-		filter.OlderThan = when
+		filter.OlderThan = &when
 	}
 	if cmd.Flags().Changed("limit") {
 		limit := o.limit
@@ -181,7 +181,7 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 		// select one of several profiles, and preserve the historical use of
 		// --profile as a local-manifest filter. Explicit config/backend
 		// selectors remain authoritative and surface their errors.
-		if !allowsConfigFreeLocalList(cmd) {
+		if !allowsConfigFreeLocalList(cmd, opts.allProfiles) {
 			return err
 		}
 		cfg = &airplan.Config{
@@ -225,17 +225,24 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 	)
 }
 
-func allowsConfigFreeLocalList(cmd *cobra.Command) bool {
+func allowsConfigFreeLocalList(cmd *cobra.Command, allProfiles bool) bool {
 	if cmd.Flags().Changed("config") {
 		return false
 	}
 	if _, explicit := selectedManifestPath(cmd); explicit {
 		return false
 	}
-	for _, name := range []string{
+	selectors := []string{
 		"AIRPLAN_CONFIG", "AIRPLAN_BACKEND", "AIRPLAN_API_URL",
 		"AIRPLAN_API_TOKEN", "AIRPLAN_PROFILE",
-	} {
+	}
+	if allProfiles {
+		// --all-profiles asks to ignore profile selection, so the variable it
+		// overrides cannot also block the config-free fallback (SPEC.md §9).
+		// The backend selectors still decide where listing reads from.
+		selectors = selectors[:len(selectors)-1]
+	}
+	for _, name := range selectors {
 		if os.Getenv(name) != "" {
 			return false
 		}

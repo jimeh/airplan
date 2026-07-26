@@ -635,6 +635,33 @@ func TestPurgeOlderThanRejectsZeroAge(t *testing.T) {
 	}
 }
 
+// TestPurgeOlderThanRejectsYearOneBoundary covers the other degenerate
+// boundary: purge's library option treats a zero time as "no age filter", so a
+// year-one date would silently widen --all to every upload instead of matching
+// the nothing that `list --older-than` selects for the same value.
+func TestPurgeOlderThanRejectsYearOneBoundary(t *testing.T) {
+	isolateEnv(t)
+	writeDefaultManifest(t, []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "alpha", "",
+			time.Now().Add(-60*24*time.Hour)),
+	})
+
+	stdout, stderr, err := executeCommand(t, "", "", "purge", "--all",
+		"--older-than", "0001-01-01T00:00:00Z", "--dry-run")
+	if err == nil {
+		t.Fatalf("error = nil, want a refusal\nstderr: %s", stderr)
+	}
+	if !strings.Contains(err.Error(),
+		"--older-than: that boundary selects nothing; "+
+			"no upload is older than year one") {
+		t.Fatalf("error = %q", err)
+	}
+	if stdout != "" || strings.Contains(stderr, "alpha.html") {
+		t.Fatalf("stdout = %q, stderr = %q, want no candidates",
+			stdout, stderr)
+	}
+}
+
 // TestPurgeOlderThanAcceptsExplicitFutureDate keeps a typed absolute boundary
 // working: it selects broadly, but deliberately, unlike a degenerate age.
 func TestPurgeOlderThanAcceptsExplicitFutureDate(t *testing.T) {

@@ -1331,7 +1331,7 @@ machine) and must be safe:
 ### Commands
 
 - `airplan list`: past uploads from the manifest, by default date, kind,
-  title, human-readable binary size, and URL; `--json` for scripting with
+  title, object count, human-readable binary size, and URL; `--json` for scripting with
   exact byte counts. Rows sort by record time, then ownership marker key, so
   local history reads in the same order as a remote listing even when `sync`
   appended imported uploads after later local ones. `--reverse` prints newest
@@ -1401,7 +1401,9 @@ machine) and must be safe:
   otherwise narrow local history; it cannot be combined with `--profile` or
   with `--remote`, whose scope is the selected profile's `key_prefix`. If
   configuration selects an `airplan` profile, `list` calls the server's
-  manifest endpoint, which scopes records to the server's own identity.
+  manifest endpoint, which scopes records to the server's own identity;
+  neither `--profile` nor `--all-profiles` filters that listing, since the
+  server owns its scope.
   `--config` is therefore valid
   for non-remote list because it can select the HTTP backend.
 - `airplan list --remote`: cheaply discovers marker directories made from any
@@ -1610,6 +1612,11 @@ machine) and must be safe:
   record must still be active when sync locks, rereads, and reduces before
   writing. It converges in one pass, shares the same `--concurrency` budget,
   writes nothing under `--dry-run`, and is reported separately from imports.
+  Enrichment completes metadata for an upload already in local history, so it
+  never fails the run: a marker that cannot be fetched, or that is incomplete,
+  invalid, or without declared sizes, is counted as deferred and named in a
+  warning, and a later sync retries it. Otherwise one unreadable marker would
+  fail every later run, because the record keeps qualifying.
   By default, active scoped local records absent from LIST are considered for
   pruning, but airplan performs a targeted marker GET before appending a
   `remote_missing` tombstone. Only a definite not-found response confirms
@@ -1625,9 +1632,11 @@ machine) and must be safe:
   Human output and warnings use stderr while stdout remains empty. `--json`
   emits exactly one object on stdout with deterministic `added_records`,
   `enriched_records`, `tombstone_records`, and `failures` arrays plus
-  `unchanged`, `incomplete`, `invalid`, and `retained` counters. Enriched
-  records complete uploads already in history, so they are never counted as
-  additions. A partial failure exits nonzero after
+  `unchanged`, `deferred`, `incomplete`, `invalid`, and `retained` counters.
+  Enriched records complete uploads already in history, so they are never
+  counted as additions. `unchanged` counts scoped records already complete
+  locally; a record selected for enrichment is reported by its outcome,
+  enriched or deferred, and never also as unchanged. A partial failure exits nonzero after
   writing the result. Sync provides eventual active-inventory convergence;
   it neither uploads deletion history nor makes historical JSONL files
   identical across machines.

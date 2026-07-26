@@ -250,8 +250,11 @@ func TestSyncBackfillRestoresDeclaredTotals(t *testing.T) {
 	if len(result.Enriched) != 3 {
 		t.Fatalf("enriched = %+v, want 3", result.Enriched)
 	}
-	if result.Unchanged != 3 {
-		t.Fatalf("unchanged = %d, want 3", result.Unchanged)
+	// A record selected for enrichment is reported by its outcome, so it is
+	// not also counted as unchanged.
+	if result.Unchanged != 0 || result.Deferred != 0 {
+		t.Fatalf("unchanged = %d, deferred = %d; want 0 and 0",
+			result.Unchanged, result.Deferred)
 	}
 	if got := manifestLineCount(t, manifest); got != strippedLines+3 {
 		t.Fatalf("manifest lines = %d, want %d", got, strippedLines+3)
@@ -281,6 +284,9 @@ func TestSyncBackfillRestoresDeclaredTotals(t *testing.T) {
 	}
 	if len(second.Enriched) != 0 || len(second.Added) != 0 {
 		t.Fatalf("second sync = %+v, want no appends", second)
+	}
+	if second.Unchanged != 3 {
+		t.Fatalf("second sync unchanged = %d, want 3", second.Unchanged)
 	}
 	if got := manifestLineCount(t, manifest); got != strippedLines+3 {
 		t.Fatalf("second sync wrote records: %d lines", got)
@@ -373,6 +379,12 @@ func TestSyncBackfillLeavesUnusableMarkersAlone(t *testing.T) {
 			if len(result.Enriched) != 0 {
 				t.Fatalf("enriched = %+v, want none", result.Enriched)
 			}
+			// Deferred rather than silent: the marker is re-inspected on
+			// every run, so an operator has to be able to see why.
+			if result.Deferred != 1 || len(result.Failures) != 0 {
+				t.Fatalf("deferred = %d, failures = %+v; want 1 and none",
+					result.Deferred, result.Failures)
+			}
 			after, err := os.ReadFile(manifest)
 			if err != nil {
 				t.Fatal(err)
@@ -387,6 +399,62 @@ func TestSyncBackfillLeavesUnusableMarkersAlone(t *testing.T) {
 					records[res.MarkerKey])
 			}
 		})
+	}
+}
+
+// TestSyncBackfillFailureDoesNotFailTheRun covers the operational contract for
+// enrichment: it is metadata completion for uploads already in history, so a
+// storage failure defers it with a warning instead of failing sync. Otherwise
+// one unreadable marker would fail a cron sync forever, since the record keeps
+// qualifying on every run.
+func TestSyncBackfillFailureDoesNotFailTheRun(t *testing.T) {
+	fake := newSyncStorage(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := newSyncClient(t, fake.server.URL, manifest)
+	res, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stripDeclaredTotals(t, manifest)
+	before, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.failGet(res.MarkerKey)
+
+	result, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil {
+		t.Fatalf("sync failed on an enrichment error: %v", err)
+	}
+	if len(result.Failures) != 0 {
+		t.Fatalf("failures = %+v, want none", result.Failures)
+	}
+	if result.Deferred != 1 {
+		t.Fatalf("deferred = %d, want 1", result.Deferred)
+	}
+	if len(result.Enriched) != 0 {
+		t.Fatalf("enriched = %+v, want none", result.Enriched)
+	}
+	warned := false
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, res.MarkerKey) &&
+			strings.Contains(warning, "declared totals") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Fatalf("warnings = %q, want the deferred marker named",
+			result.Warnings)
+	}
+	after, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("manifest changed:\n%s", after)
 	}
 }
 
@@ -491,6 +559,231 @@ func TestSyncBackfillNeverResurrectsTombstonedIdentity(t *testing.T) {
 	}
 }
 
+// TestSyncBackfillMergesIntoTheCurrentRecord covers a concurrent update: a
+// newer record for the same identity was appended while the marker was being
+// inspected, so enrichment must add its two fields to that record rather than
+// re-appending the snapshot it planned from, which would revert the update.
+func TestSyncBackfillMergesIntoTheCurrentRecord(t *testing.T) {
+	fake := newSyncStorage(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := newSyncClient(t, fake.server.URL, manifest)
+	if _, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n"), Name: "plan.md",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stripDeclaredTotals(t, manifest)
+	records, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned := records[0]
+	planned.Objects = 3
+	planned.TotalBytes = 4096
+	initialLen := len(records)
+
+	// A concurrent writer re-titles the same upload while the marker is being
+	// inspected.
+	updated := records[0]
+	updated.Title = "Retitled plan"
+	updated.Time = updated.Time.Add(time.Minute)
+	if err := appendManifestRecord(
+		context.Background(), manifest, updated,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	result := &SyncManifestResult{Enriched: []ManifestRecord{planned}}
+	if err := client.commitSyncManifest(
+		context.Background(), manifest, initialLen, result,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Enriched) != 1 {
+		t.Fatalf("enriched = %+v, want one record", result.Enriched)
+	}
+	got := manifestRecordsByMarker(t, manifest)[planned.MarkerKey]
+	if got.Title != "Retitled plan" {
+		t.Fatalf("title = %q, want the concurrent update preserved", got.Title)
+	}
+	if got.Objects != 3 || got.TotalBytes != 4096 {
+		t.Fatalf("totals = %d/%d, want 3/4096", got.Objects, got.TotalBytes)
+	}
+}
+
+// TestSyncBackfillSkipsUnknownIdentity covers the other half of the commit
+// guard: a planned record whose identity is not in the reread snapshot at all,
+// as opposed to one that was tombstoned.
+func TestSyncBackfillSkipsUnknownIdentity(t *testing.T) {
+	fake := newSyncStorage(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := newSyncClient(t, fake.server.URL, manifest)
+	if _, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n"), Name: "plan.md",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	records, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := manifestLineCount(t, manifest)
+
+	stranger := records[0]
+	stranger.Key = strings.Repeat("z", 26) + "/plan.html"
+	stranger.MarkerKey = strings.Repeat("z", 26) + "/" + MarkerFilename
+	stranger.Objects = 3
+	stranger.TotalBytes = 4096
+
+	result := &SyncManifestResult{Enriched: []ManifestRecord{stranger}}
+	if err := client.commitSyncManifest(
+		context.Background(), manifest, len(records), result,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Enriched) != 0 {
+		t.Fatalf("enriched = %+v, want none", result.Enriched)
+	}
+	if got := manifestLineCount(t, manifest); got != lines {
+		t.Fatalf("manifest lines = %d, want %d", got, lines)
+	}
+}
+
+// TestSyncBackfillSkipsOutOfScopeRecords keeps enrichment inside the resolved
+// profile and bucket: a record naming another one is not this service's to
+// complete, even though its marker key is present in the same listing.
+func TestSyncBackfillSkipsOutOfScopeRecords(t *testing.T) {
+	fake := newSyncStorage(t)
+	seed := filepath.Join(t.TempDir(), "seed.jsonl")
+	client := newSyncClient(t, fake.server.URL, seed)
+	if _, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n"), Name: "plan.md",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stripDeclaredTotals(t, seed)
+	seeded, _, err := ReadManifest(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name   string
+		mutate func(rec *ManifestRecord)
+	}{
+		{
+			name:   "other profile",
+			mutate: func(rec *ManifestRecord) { rec.Profile = "personal" },
+		},
+		{
+			name:   "other bucket",
+			mutate: func(rec *ManifestRecord) { rec.Bucket = "archive" },
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			record := seeded[0]
+			test.mutate(&record)
+			manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+			if err := rewriteManifest(
+				t, manifest, []ManifestRecord{record},
+			); err != nil {
+				t.Fatal(err)
+			}
+			scoped := newSyncClient(t, fake.server.URL, manifest)
+
+			result, err := scoped.SyncManifest(context.Background(),
+				SyncManifestOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Enriched) != 0 || result.Deferred != 0 {
+				t.Fatalf("result = %+v, want the record left alone", result)
+			}
+			current, _, err := ReadManifest(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, got := range current {
+				if got.Profile == record.Profile &&
+					got.Bucket == record.Bucket && got.Objects != 0 {
+					t.Fatalf("out-of-scope record gained totals: %+v", got)
+				}
+			}
+		})
+	}
+}
+
+// TestScopedActiveUploadsRespectsKeyPrefix pins the third scope dimension at
+// the gate every sync job kind shares.
+func TestScopedActiveUploadsRespectsKeyPrefix(t *testing.T) {
+	inside := manifestUploadRecord(
+		filterTestTime(12), "work", "plans", "team/current", "a")
+	outside := manifestUploadRecord(
+		filterTestTime(12), "work", "plans", "team/old", "b")
+
+	active := scopedActiveUploads(
+		[]ManifestRecord{inside, outside},
+		&Config{Profile: "work", Bucket: "plans", KeyPrefix: "team/current"},
+	)
+	if len(active) != 1 {
+		t.Fatalf("active = %+v, want only the in-prefix record", active)
+	}
+	if _, ok := active[inside.MarkerKey]; !ok {
+		t.Fatalf("active = %+v, want %q", active, inside.MarkerKey)
+	}
+}
+
+// TestSyncBackfillDefersMarkerWithoutDeclaredSizes covers a record recorded as
+// v3 whose remote marker declares no sizes: nothing is guessed, and the run
+// reports why rather than silently doing nothing forever.
+func TestSyncBackfillDefersMarkerWithoutDeclaredSizes(t *testing.T) {
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("e", 26)
+	fake.addUpload(t, UploadMarker{
+		Schema: MarkerSchema, Version: 1, Directory: dir,
+		CreatedAt: filterTestTime(12), Format: "html", Page: "old.html",
+	}, []byte("old page"))
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := newSyncClient(t, fake.server.URL, manifest)
+
+	// Local history claims a v3 upload while storage holds a v1 marker, so
+	// the record qualifies for enrichment but the marker cannot supply it.
+	markerKey := dir + "/" + MarkerFilename
+	if err := appendManifestRecord(context.Background(), manifest,
+		ManifestRecord{
+			Type: "upload", Time: filterTestTime(12),
+			Key: dir + "/old.html", MarkerKey: markerKey,
+			URL:     "https://plans.example.com/" + dir + "/old.html",
+			Bucket:  "plans",
+			Profile: "work", Kind: string(UploadKindDocument), Slug: "old",
+			Bytes: 8, MarkerVersion: MarkerVersion,
+		}); err != nil {
+		t.Fatal(err)
+	}
+	lines := manifestLineCount(t, manifest)
+
+	result, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Enriched) != 0 || result.Deferred != 1 {
+		t.Fatalf("result = %+v, want one deferred record", result)
+	}
+	if got := manifestLineCount(t, manifest); got != lines {
+		t.Fatalf("manifest lines = %d, want %d", got, lines)
+	}
+	warned := false
+	for _, warning := range result.Warnings {
+		if strings.Contains(warning, "declares no object sizes") {
+			warned = true
+		}
+	}
+	if !warned {
+		t.Fatalf("warnings = %q, want the reason reported", result.Warnings)
+	}
+}
+
 // TestSyncBackfillSkipsAlreadyEnrichedIdentity covers the second commit guard:
 // a concurrent run that enriched the same identity first leaves nothing to do.
 func TestSyncBackfillSkipsAlreadyEnrichedIdentity(t *testing.T) {
@@ -522,6 +815,38 @@ func TestSyncBackfillSkipsAlreadyEnrichedIdentity(t *testing.T) {
 	}
 	if got := manifestLineCount(t, manifest); got != lines {
 		t.Fatalf("manifest lines = %d, want %d", got, lines)
+	}
+}
+
+// TestManifestPartialDeclaredTotalsAreInvalid covers a half-written pair from
+// another implementation: backfill only completes records missing both fields,
+// so a record carrying one of them would render inconsistently forever. It is
+// skipped with a warning like any other invalid line.
+func TestManifestPartialDeclaredTotalsAreInvalid(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.jsonl")
+	complete := manifestUploadRecord(
+		filterTestTime(12), "work", "plans", "", "a")
+	complete.Objects = 3
+	complete.TotalBytes = 4096
+	partial := manifestUploadRecord(
+		filterTestTime(13), "work", "plans", "", "b")
+	partial.Objects = 3
+	if err := rewriteManifest(
+		t, path, []ManifestRecord{complete, partial},
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	records, warnings, err := ReadManifest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Title != "a" {
+		t.Fatalf("records = %+v, want only the complete pair", records)
+	}
+	if len(warnings) != 1 ||
+		!strings.Contains(warnings[0], "must be set together") {
+		t.Fatalf("warnings = %q, want one explaining the pair", warnings)
 	}
 }
 

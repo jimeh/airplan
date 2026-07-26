@@ -546,6 +546,40 @@ func TestListColumnFlagErrors(t *testing.T) {
 	}
 }
 
+// TestListColumnsRemovingEverythingFailsBeforeReading covers the early half of
+// column validation: a selection that strips every column the mode can print
+// is knowable without the rows, so it must fail before the manifest is read
+// and before its warnings reach stderr.
+func TestListColumnsRemovingEverythingFailsBeforeReading(t *testing.T) {
+	path := setListState(t)
+	writeManifest(t, path, strings.Join([]string{
+		listRecord(
+			`"time":"2026-07-08T14:03:11Z"`,
+			`"key":"`+deleteDirA+`/plan.html"`,
+			`"url":"https://plans.example.com/`+deleteDirA+`/plan.html"`,
+			`"bucket":"plans"`, `"profile":"work"`, `"title":"Plan"`,
+			`"bytes":10`, `"marker_version":3`,
+		),
+		`{"type":"upload","time":"2026-07-08T15:04:12Z",`,
+	}, "\n")+"\n")
+
+	stdout, stderr, err := executeList(t, "--columns",
+		"-date,-profile,-state,-kind,-title,-objects,-size,-dir,-url")
+	if err == nil {
+		t.Fatalf("error = nil, want a refusal\nstdout: %s", stdout)
+	}
+	if !strings.Contains(err.Error(), "--columns left no columns to print") {
+		t.Fatalf("error = %q", err)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	// A torn manifest line would warn on stderr had the manifest been read.
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want the manifest left unread", stderr)
+	}
+}
+
 func TestListRemoteColumnFlagErrors(t *testing.T) {
 	isolateEnv(t)
 	fake := newFakeRemoteS3(t, nil, nil, nil)
@@ -753,6 +787,17 @@ func TestListFiltersSelectRecords(t *testing.T) {
 				"--newer-than", "2026-07-02", "--older-than", "2026-07-08",
 			},
 			[]string{"Beta"},
+		},
+		{
+			// Year one is a legal date, not an absent bound.
+			"older-than year one selects nothing",
+			[]string{"--older-than", "0001-01-01T00:00:00Z"},
+			nil,
+		},
+		{
+			"newer-than year one selects everything",
+			[]string{"--newer-than", "0001-01-01T00:00:00Z"},
+			[]string{"Alpha", "Beta", "Gamma"},
 		},
 		{
 			"kind document",
@@ -1499,6 +1544,24 @@ func TestListLocalExplicitProfileFilter(t *testing.T) {
 	}
 }
 
+// TestListAllProfilesWorksWithoutConfig covers the flag's contract when
+// AIRPLAN_PROFILE is exported and no config file exists: --all-profiles asks
+// to ignore that selector, so listing must still fall back to config-free
+// local history instead of failing to resolve the named profile.
+func TestListAllProfilesWorksWithoutConfig(t *testing.T) {
+	path := setListState(t)
+	writeTwoProfileManifest(t, path)
+	t.Setenv("AIRPLAN_PROFILE", "airplan-dev")
+
+	stdout, stderr, err := executeList(t, "--all-profiles")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	parseListTable(t, stdout).assertColumn(
+		t, "TITLE", "Work plan", "Home shots",
+	)
+}
+
 func TestListLocalNamedMissingConfig(t *testing.T) {
 	setListState(t)
 	_, _, err := executeList(t, "--config", "config.toml")
@@ -1544,11 +1607,13 @@ bucket = "home"
 	if err != nil || stderr != "" {
 		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
 	}
-	for _, title := range []string{"Work", "Home"} {
-		if !strings.Contains(stdout, title) {
-			t.Fatalf("stdout missing %q: %s", title, stdout)
-		}
-	}
+	// Config-free fallback lists both profiles, so the automatic PROFILE
+	// column applies and names them.
+	table := parseListTable(t, stdout)
+	table.assertHeader(t,
+		"DATE", "PROFILE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL")
+	table.assertColumn(t, "TITLE", "Work", "Home")
+	table.assertColumn(t, "PROFILE", "work", "home")
 }
 
 func TestListLocalEnvironmentProfileFiltersHistory(t *testing.T) {

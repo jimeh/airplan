@@ -12,12 +12,14 @@ import (
 // manifest history and to a remote bucket listing, and to table and JSON
 // output alike. The zero value selects everything.
 type ListFilter struct {
-	// NewerThan keeps uploads recorded at or after this time when non-zero.
-	NewerThan time.Time
+	// NewerThan keeps uploads recorded at or after this time when set. It is
+	// a pointer because year one is a legal boundary: whether a bound applies
+	// must never be inferred from its value.
+	NewerThan *time.Time
 
-	// OlderThan keeps uploads recorded strictly before this time when
-	// non-zero, matching the purge age boundary.
-	OlderThan time.Time
+	// OlderThan keeps uploads recorded strictly before this time when set,
+	// matching the purge age boundary.
+	OlderThan *time.Time
 
 	// Kind keeps only this upload kind when non-empty. Manifest records that
 	// omit kind count as documents, mirroring the reader inference for legacy
@@ -88,9 +90,12 @@ func (f ListFilter) matchesRecord(record ManifestRecord) bool {
 	if !f.matchesTime(record.Time) {
 		return false
 	}
-	kind := UploadKindDocument
-	if record.Kind == string(UploadKindCollection) {
-		kind = UploadKindCollection
+	kind := UploadKind(record.Kind)
+	if kind == "" && !IsSupportedMarkerVersion(record.MarkerVersion) {
+		// Pre-marker history predates the field, and readers infer document
+		// for it (SPEC.md §9). A managed record that declares no kind is not
+		// inferred: it renders as unknown, so it answers to neither filter.
+		kind = UploadKindDocument
 	}
 	if f.Kind != "" && kind != f.Kind {
 		return false
@@ -122,10 +127,10 @@ func (f ListFilter) matchesUpload(upload RemoteUpload) bool {
 // matchesTime keeps NewerThan inclusive and OlderThan exclusive, so the two
 // bounds partition a timeline without overlap or gap.
 func (f ListFilter) matchesTime(when time.Time) bool {
-	if !f.NewerThan.IsZero() && when.Before(f.NewerThan) {
+	if f.NewerThan != nil && when.Before(*f.NewerThan) {
 		return false
 	}
-	if !f.OlderThan.IsZero() && !when.Before(f.OlderThan) {
+	if f.OlderThan != nil && !when.Before(*f.OlderThan) {
 		return false
 	}
 	return true
