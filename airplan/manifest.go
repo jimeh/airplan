@@ -51,6 +51,13 @@ type ManifestRecord struct {
 	// Repo is the canonical repository URL when known.
 	Repo  string `json:"repo,omitempty"`
 	Bytes int64  `json:"bytes,omitempty"`
+
+	// Objects counts the ownership marker plus every object it declares, and
+	// TotalBytes sums their declared sizes (SPEC.md §9). Both are absent on
+	// records written before airplan recorded them, and on uploads whose
+	// marker predates v3; Bytes keeps its own meaning, the primary page.
+	Objects    int   `json:"objects,omitempty"`
+	TotalBytes int64 `json:"total_bytes,omitempty"`
 	// Reason is "deleted" or "remote_missing" for modern tombstones.
 	Reason string `json:"reason,omitempty"`
 
@@ -279,6 +286,11 @@ func validateManifestRecord(rec ManifestRecord) error {
 		if rec.Bytes <= 0 {
 			return errors.New("bytes must be positive")
 		}
+		// Both totals are optional, but a negative one is corrupt rather than
+		// absent.
+		if rec.Objects < 0 || rec.TotalBytes < 0 {
+			return errors.New("objects and total_bytes must not be negative")
+		}
 		if rec.MarkerKey != "" {
 			expected := markerKeyForManifestRecord(rec)
 			if expected == "" || rec.MarkerKey != expected {
@@ -343,10 +355,31 @@ func readManifestLine(r *bufio.Reader, max int) ([]byte, bool, error) {
 	}
 }
 
+// declaredTotals carries an upload's marker-declared object count and byte
+// total from the writer that built the marker to the manifest record. A zero
+// value records neither field, which is what a pre-v3 marker warrants.
+type declaredTotals struct {
+	objects int
+	bytes   int64
+}
+
+// markerDeclaredTotals derives the totals for a marker about to be written.
+func markerDeclaredTotals(
+	marker UploadMarker, markerBody []byte,
+) declaredTotals {
+	objects, total, ok := MarkerDeclaredTotals(marker, len(markerBody))
+	if !ok {
+		return declaredTotals{}
+	}
+	return declaredTotals{objects: objects, bytes: total}
+}
+
 // recordUpload appends an upload record for res, best-effort: manifest
 // failures degrade to a warning on the result, never a failed upload
 // (SPEC.md §9 — the manifest is convenience, not a source of truth).
-func (c *Client) recordUpload(ctx context.Context, res *Result) {
+func (c *Client) recordUpload(
+	ctx context.Context, res *Result, declared declaredTotals,
+) {
 	if c.cfg.DisableManifest {
 		return
 	}
@@ -377,6 +410,8 @@ func (c *Client) recordUpload(ctx context.Context, res *Result) {
 		Title:         res.Title,
 		Repo:          res.RepositoryURL,
 		Bytes:         res.Bytes,
+		Objects:       declared.objects,
+		TotalBytes:    declared.bytes,
 		MarkerVersion: res.MarkerVersion,
 	}
 	if err := appendManifestRecord(ctx, path, rec); err != nil {

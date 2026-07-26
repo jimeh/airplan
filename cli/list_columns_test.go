@@ -23,9 +23,10 @@ func TestListColumnRegistryIsConsistent(t *testing.T) {
 		}
 		names[column.name] = true
 		headers[column.header] = true
-		if column.local == listColumnUnavailable &&
-			column.remote == listColumnUnavailable {
-			t.Fatalf("column %q is unavailable in both modes", column.name)
+		// Every column has a local value; the wrong-mode error text depends
+		// on it, since only remote listings can lack one.
+		if column.local == listColumnUnavailable {
+			t.Fatalf("column %q has no local value", column.name)
 		}
 	}
 }
@@ -49,6 +50,9 @@ func TestListColumnsRenderValuesForEveryMode(t *testing.T) {
 		Title:   "Work plan",
 		Repo:    "https://github.com/acme/service",
 		Bytes:   18432,
+		Objects: 3,
+
+		TotalBytes: 18944,
 
 		MarkerVersion: airplan.MarkerVersion,
 	}
@@ -90,7 +94,8 @@ func TestListColumnsRenderDashForMissingValues(t *testing.T) {
 		Bytes: 42,
 	}
 	for _, name := range []string{
-		"kind", "title", "slug", "dir", "format", "repo", "bucket",
+		"kind", "title", "objects", "size", "slug", "dir", "format", "repo",
+		"bucket",
 	} {
 		if got := localListCell(name, record); got != "-" {
 			t.Errorf("localListCell(%q) = %q, want -", name, got)
@@ -113,10 +118,6 @@ func TestSelectListColumnsRejectsUnknownAndWrongMode(t *testing.T) {
 	}{
 		{"unknown local", listModeLocal, "nope", "unknown list column"},
 		{"unknown remote", listModeRemote, "nope", "unknown list column"},
-		{
-			"remote-only locally", listModeLocal, "objects",
-			"only available with --remote",
-		},
 		{
 			"local-only remotely", listModeRemote, "profile",
 			"not available with --remote",

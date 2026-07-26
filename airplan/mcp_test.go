@@ -148,6 +148,138 @@ func TestMCPListUploadsOrdersManifestByRecordTime(t *testing.T) {
 	assertRecordTitles(t, output.Manifest.Records, "a", "b", "c")
 }
 
+// TestMCPListUploadsFilters covers filter parity with the CLI: the MCP tool
+// selects the same uploads from the same fixture (SPEC.md §9).
+func TestMCPListUploadsFilters(t *testing.T) {
+	path := writeUnorderedManifest(t)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendS3, Bucket: "plans", Profile: "work",
+		ManifestPath: path, Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", true)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	listTitles := func(t *testing.T, args map[string]any) []string {
+		t.Helper()
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "list_uploads", Arguments: args,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.IsError {
+			t.Fatalf("result = %+v", result)
+		}
+		encoded, err := json.Marshal(result.StructuredContent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var output struct {
+			Manifest ManifestList `json:"manifest"`
+		}
+		if err := json.Unmarshal(encoded, &output); err != nil {
+			t.Fatalf("json.Unmarshal %s: %v", encoded, err)
+		}
+		titles := make([]string, 0, len(output.Manifest.Records))
+		for _, record := range output.Manifest.Records {
+			titles = append(titles, record.Title)
+		}
+		return titles
+	}
+
+	// writeUnorderedManifest records three uploads an hour apart at 12:00,
+	// 13:00, and 14:00 UTC on 2026-07-08.
+	tests := []struct {
+		name string
+		args map[string]any
+		want []string
+	}{
+		{
+			"unfiltered",
+			map[string]any{"source": "manifest"},
+			[]string{"a", "b", "c"},
+		},
+		{
+			"newer than keeps the threshold",
+			map[string]any{
+				"source": "manifest", "newer_than": "2026-07-08T13:00:00Z",
+			},
+			[]string{"b", "c"},
+		},
+		{
+			"older than excludes the threshold",
+			map[string]any{
+				"source": "manifest", "older_than": "2026-07-08T13:00:00Z",
+			},
+			[]string{"a"},
+		},
+		{
+			"limit keeps the most recent",
+			map[string]any{"source": "manifest", "limit": 1},
+			[]string{"c"},
+		},
+		{
+			"limit zero selects nothing",
+			map[string]any{"source": "manifest", "limit": 0},
+			nil,
+		},
+		{
+			"kind",
+			map[string]any{"source": "manifest", "kind": "collection"},
+			nil,
+		},
+		{
+			"slug glob",
+			map[string]any{"source": "manifest", "slug": "b"},
+			[]string{"b"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := listTitles(t, tt.args)
+			if len(got) != len(tt.want) {
+				t.Fatalf("titles = %q, want %q", got, tt.want)
+			}
+			for index := range tt.want {
+				if got[index] != tt.want[index] {
+					t.Fatalf("titles = %q, want %q", got, tt.want)
+				}
+			}
+		})
+	}
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_uploads",
+		Arguments: map[string]any{
+			"source": "manifest", "kind": "page",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatalf("result = %+v, want an invalid-kind error", result)
+	}
+}
+
 func TestMCPHTTPOriginGuard(t *testing.T) {
 	const originSentinel = "https://private-origin-sentinel.example"
 	client, err := New(context.Background(), &Config{

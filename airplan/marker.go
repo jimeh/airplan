@@ -64,6 +64,30 @@ type MarkerObject struct {
 	ContentType string     `json:"content_type"`
 }
 
+// MarkerDeclaredTotals returns the object count and byte total an upload
+// declares (SPEC.md §9): its ownership marker plus every object the marker
+// lists, with markerBytes the exact serialized marker body written to storage.
+//
+// These are declared values, never a storage listing, so the same upload
+// reports the same totals whether they were recorded when it was uploaded or
+// derived later from its marker by sync. Only marker v3 declares a size for
+// every object; earlier versions report ok false because their totals would be
+// a guess.
+func MarkerDeclaredTotals(
+	marker UploadMarker, markerBytes int,
+) (objects int, total int64, ok bool) {
+	if marker.Version != MarkerVersion || markerBytes <= 0 {
+		return 0, 0, false
+	}
+	objects = 1
+	total = int64(markerBytes)
+	for _, object := range marker.Objects {
+		objects++
+		total += object.Bytes
+	}
+	return objects, total, true
+}
+
 // MarkerFilenameForKind returns the exact marker basename for kind.
 func MarkerFilenameForKind(kind UploadKind) (string, bool) {
 	switch kind {

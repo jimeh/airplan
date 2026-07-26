@@ -36,7 +36,36 @@ type mcpUploadFilesInput struct {
 }
 
 type mcpListInput struct {
-	Source string `json:"source,omitempty" jsonschema:"Inventory source: manifest or storage."`
+	Source    string `json:"source,omitempty" jsonschema:"Inventory source: manifest or storage."`
+	NewerThan string `json:"newer_than,omitempty" jsonschema:"Keep uploads at or after an age or date, such as 7d or 2026-07-01."`
+	OlderThan string `json:"older_than,omitempty" jsonschema:"Keep uploads before an age or date, such as 30d or 2026-07-01."`
+	Limit     *int   `json:"limit,omitempty" jsonschema:"Keep only the N most recent matches, still ordered oldest first."`
+	Kind      string `json:"kind,omitempty" jsonschema:"Keep only document or collection uploads."`
+	Slug      string `json:"slug,omitempty" jsonschema:"Glob matched against document slugs; collections never match."`
+}
+
+// listFilter resolves the tool's selection arguments (SPEC.md §9). It shares
+// the parser and the filter the CLI uses, so a listing selects the same
+// uploads through either surface.
+func (in mcpListInput) listFilter(now time.Time) (ListFilter, error) {
+	filter := ListFilter{
+		Kind: UploadKind(in.Kind), Slug: in.Slug, Limit: in.Limit,
+	}
+	if in.NewerThan != "" {
+		when, err := ParseTimeFilter(in.NewerThan, now)
+		if err != nil {
+			return filter, err
+		}
+		filter.NewerThan = when
+	}
+	if in.OlderThan != "" {
+		when, err := ParseTimeFilter(in.OlderThan, now)
+		if err != nil {
+			return filter, err
+		}
+		filter.OlderThan = when
+	}
+	return filter, filter.Validate()
 }
 
 type mcpListOutput struct {
@@ -205,6 +234,10 @@ func NewMCPServerWithOptions(
 			source = string(UploadSourceManifest)
 		}
 		output := mcpListOutput{Source: source}
+		filter, err := input.listFilter(time.Now())
+		if err != nil {
+			return nil, output, err
+		}
 		switch UploadSource(source) {
 		case UploadSourceManifest:
 			listed, err := client.ListManifest(ctx, ListManifestOptions{
@@ -218,6 +251,7 @@ func NewMCPServerWithOptions(
 			if !localFiles {
 				listed.Warnings = serverSafeWarnings(listed.Warnings)
 			}
+			listed.Records = filter.FilterManifestRecords(listed.Records)
 			output.Manifest = listed
 		case UploadSourceStorage:
 			uploads, err := client.ListRemote(ctx)
@@ -226,6 +260,7 @@ func NewMCPServerWithOptions(
 					ctx, err, !localFiles, options.Logger,
 				)
 			}
+			uploads = filter.FilterRemoteUploads(uploads)
 			if uploads == nil {
 				uploads = []RemoteUpload{}
 			}

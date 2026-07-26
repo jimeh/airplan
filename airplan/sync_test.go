@@ -303,13 +303,22 @@ type syncStorage struct {
 	delay       time.Duration
 	inFlight    int
 	maxInFlight int
+	gets        map[string]int
+}
+
+// getCount reports how many times a key's body has been fetched, so tests can
+// assert that sync does not re-fetch markers it cannot learn anything from.
+func (f *syncStorage) getCount(key string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.gets[key]
 }
 
 func newSyncStorage(t *testing.T) *syncStorage {
 	t.Helper()
 	fake := &syncStorage{
 		objects: make(map[string][]byte), modified: make(map[string]time.Time),
-		hidden: make(map[string]bool),
+		hidden: make(map[string]bool), gets: make(map[string]int),
 	}
 	fake.server = httptest.NewServer(http.HandlerFunc(fake.handle))
 	t.Cleanup(fake.server.Close)
@@ -367,6 +376,19 @@ func (f *syncStorage) hideMarker(key string) {
 }
 
 func (f *syncStorage) handle(w http.ResponseWriter, r *http.Request) {
+	// PUT support lets one fixture hold a real upload and then be reconciled
+	// by sync, so declared totals can be compared across both writers.
+	if r.Method == http.MethodPut {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		f.addObject(strings.TrimPrefix(r.URL.Path, "/plans/"), body,
+			time.Now().UTC().Truncate(time.Second))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 	if r.Method != http.MethodGet {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -377,6 +399,7 @@ func (f *syncStorage) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	key := strings.TrimPrefix(r.URL.Path, "/plans/")
 	f.mu.Lock()
+	f.gets[key]++
 	f.inFlight++
 	if f.inFlight > f.maxInFlight {
 		f.maxInFlight = f.inFlight

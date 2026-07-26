@@ -81,7 +81,7 @@ var listColumnRegistry = []listColumn{
 	},
 	{
 		name: "objects", header: "OBJECTS",
-		local: listColumnUnavailable, remote: listColumnDefault,
+		local: listColumnDefault, remote: listColumnDefault,
 	},
 	{
 		name: "size", header: "SIZE",
@@ -307,13 +307,10 @@ func checkListColumnName(mode listMode, name string) error {
 	if column.role(mode) != listColumnUnavailable {
 		return nil
 	}
-	if mode == listModeRemote {
-		return fmt.Errorf(
-			"list column %q is not available with --remote", name,
-		)
-	}
+	// Every registered column has a local value, so an unavailable one is a
+	// local-only column asked for in a remote listing.
 	return fmt.Errorf(
-		"list column %q is only available with --remote", name,
+		"list column %q is not available with --remote", name,
 	)
 }
 
@@ -373,7 +370,20 @@ func localListCell(name string, record airplan.ManifestRecord) string {
 		return listCellOrDash(record.Kind)
 	case "title":
 		return listCellOrDash(record.Title)
-	case "size", "page-size":
+	case "objects":
+		if record.Objects == 0 {
+			return "-"
+		}
+		return strconv.Itoa(record.Objects)
+	case "size":
+		// SIZE reports the whole upload, matching remote listing; records
+		// written before airplan recorded it show a dash rather than a
+		// page-only number that would mean something different (SPEC.md §9).
+		if record.TotalBytes == 0 {
+			return "-"
+		}
+		return formatListBytes(record.TotalBytes)
+	case "page-size":
 		return formatListBytes(record.Bytes)
 	case "slug":
 		return listCellOrDash(record.Slug)

@@ -296,6 +296,9 @@ func (t *httpTransport) SyncManifest(
 	for _, record := range result.AddedRecords {
 		core.Added = append(core.Added, coreManifestRecord(record))
 	}
+	for _, record := range result.EnrichedRecords {
+		core.Enriched = append(core.Enriched, coreManifestRecord(record))
+	}
 	for _, record := range result.TombstoneRecords {
 		core.Tombstoned = append(
 			core.Tombstoned, coreManifestRecord(record),

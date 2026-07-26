@@ -24,7 +24,7 @@ func TestSyncCommandImportsAndKeepsStdoutClean(t *testing.T) {
 		t.Fatal(err)
 	}
 	if stdout != "" || !strings.Contains(stderr,
-		"synced 1 uploads, tombstoned 0") {
+		"synced 1 uploads, enriched 0, tombstoned 0") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
 	}
 	records, warnings, err := airplan.ReadManifest("")
@@ -58,6 +58,82 @@ func TestSyncCommandJSONAndConcurrencyValidation(t *testing.T) {
 	manifest := filepath.Join(t.TempDir(), "missing.jsonl")
 	if records, _, err := airplan.ReadManifest(manifest); err != nil || records != nil {
 		t.Fatalf("dry run manifest = %+v, %v", records, err)
+	}
+}
+
+// TestSyncCommandReportsEnrichedSeparately covers backfill reporting: records
+// completed with declared totals are counted apart from imports, in the human
+// summary and in --json (SPEC.md §9).
+func TestSyncCommandReportsEnrichedSeparately(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Truncate(time.Second)
+	page := []byte("plan page!")
+	marker, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
+		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Directory: deleteDirA, CreatedAt: when,
+		Kind: airplan.UploadKindDocument, Slug: "plan", Format: "html",
+		Objects: []airplan.MarkerObject{{
+			Name: "plan.html", Role: airplan.MarkerRolePage,
+			Bytes: int64(len(page)), ContentType: "text/html; charset=utf-8",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerKey := deleteDirA + "/" + airplan.MarkerFilename
+	fake := newFakeRemoteS3(t, []remoteFakeObject{
+		{key: markerKey, size: int64(len(marker)), lastModified: when},
+		{
+			key:  deleteDirA + "/plan.html",
+			size: int64(len(page)), lastModified: when,
+		},
+	}, nil, nil)
+	fake.setMarker(markerKey, marker)
+	config := writeCLIConfig(t, fake.server.URL)
+
+	_, stderr, err := executeCommand(t, "", "", "sync", "--config", config)
+	if err != nil {
+		t.Fatalf("import: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(stderr, "synced 1 uploads, enriched 0") {
+		t.Fatalf("stderr = %q, want an enriched count", stderr)
+	}
+
+	// Rewrite the imported record as pre-0.30 history, then let sync complete
+	// it from the same marker.
+	path, err := airplan.DefaultManifestPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, _, err := airplan.ReadManifest(path)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("records = %+v, error = %v", records, err)
+	}
+	records[0].Objects = 0
+	records[0].TotalBytes = 0
+	encoded, err := json.Marshal(records[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeManifest(t, path, string(encoded)+"\n")
+
+	stdout, stderr, err := executeCommand(t, "", "", "sync",
+		"--config", config, "--json")
+	if err != nil {
+		t.Fatalf("backfill: %v\nstderr: %s", err, stderr)
+	}
+	var result syncJSONResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("json.Unmarshal: %v\nstdout: %s", err, stdout)
+	}
+	if result.Added != 0 || result.Enriched != 1 ||
+		len(result.EnrichedRecords) != 1 {
+		t.Fatalf("result = %+v, want one enriched record", result)
+	}
+	if result.EnrichedRecords[0].Objects == 0 ||
+		result.EnrichedRecords[0].TotalBytes == 0 {
+		t.Fatalf("enriched record = %+v, want declared totals",
+			result.EnrichedRecords[0])
 	}
 }
 

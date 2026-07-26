@@ -53,6 +53,31 @@ type UploadInspection struct {
 
 	// Error is set only for UploadInvalid and is stable for JSON output.
 	Error MarkerErrorCode `json:"error,omitempty"`
+
+	// marker and markerBytes retain the validated marker and the exact body
+	// length that was fetched, so callers deriving declared totals use the
+	// same inputs the upload writer had (SPEC.md §9). They stay unexported:
+	// the marker's own fields are untrusted content that inspection results
+	// deliberately do not republish.
+	marker      *UploadMarker
+	markerBytes int
+}
+
+// declaredTotalsFromInspection derives an upload's marker-declared totals from
+// a validated inspection, using the same rule as the upload writer.
+func declaredTotalsFromInspection(
+	inspection *UploadInspection,
+) declaredTotals {
+	if inspection == nil || inspection.marker == nil {
+		return declaredTotals{}
+	}
+	objects, total, ok := MarkerDeclaredTotals(
+		*inspection.marker, inspection.markerBytes,
+	)
+	if !ok {
+		return declaredTotals{}
+	}
+	return declaredTotals{objects: objects, bytes: total}
 }
 
 // InspectUpload fetches and validates one marker, lists its directory, and
@@ -199,6 +224,8 @@ func (c *Client) inspectUploadSnapshot(
 		inspection.Error = code
 		return inspection, nil
 	}
+	inspection.marker = marker
+	inspection.markerBytes = len(markerBody)
 	inspection.CreatedAt = marker.CreatedAt
 	inspection.Format = marker.Format
 	inspection.Kind = marker.Kind

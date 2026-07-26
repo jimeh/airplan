@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.29.0**
+**Spec version: 0.30.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -1260,13 +1260,14 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
- "bytes":18432,"marker_version":3}
+ "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":3}
 {"type":"upload","time":"2026-07-21T12:03:00Z",
  "key":"gaj4.../index.html",
  "marker_key":"gaj4.../.airplan-collection.json",
  "url":"https://plans.example.com/gaj4.../index.html",
  "bucket":"plans","profile":"work","kind":"collection",
- "title":"login.png and 1 more","bytes":9216,"marker_version":3}
+ "title":"login.png and 1 more","bytes":9216,"objects":4,
+ "total_bytes":203512,"marker_version":3}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
@@ -1279,7 +1280,12 @@ conforming implementations can share a manifest:
   are present for documents and omitted for collections. `source_key` is
   document-only and omitted for HTML or under `--no-source`. `key` and `url`
   identify the primary page; `bytes` describes that page, not collection
-  payload bytes. `title` is omitted when empty; `profile` is omitted for
+  payload bytes. `objects` counts the ownership marker plus every object the
+  marker declares, and `total_bytes` sums their declared sizes; both are
+  optional and absent together on history written before airplan recorded
+  them, and on uploads whose marker predates v3, which declares no size for
+  every object. They are additive: `bytes` keeps its own meaning and is never
+  repurposed. `title` is omitted when empty; `profile` is omitted for
   root-level settings. `marker_key` is the exact kind-specific ownership key.
   `repo` preserves canonical repository metadata. The full collection
   inventory remains only in the remote marker.
@@ -1332,15 +1338,18 @@ machine) and must be safe:
   first, in the table and in `--json`. `KIND` is the record's kind, with
   legacy history reading as `document` under the record-schema inference above;
   it shows `-` only when no kind is known at all, as in a served record that
-  declares none. `SIZE` and the wide `PAGE SIZE` column both
-  report the primary page's byte count. `STATE` is `managed` for the supported
+  declares none. `OBJECTS` and `SIZE` report the upload's marker-declared
+  object count and total size, matching what remote listing reports for the
+  same upload; both read `-` for history that predates them, which `sync`
+  fills in. The wide `PAGE SIZE` column always reports the primary page alone,
+  and `bytes` keeps that meaning in `--json`. `STATE` is `managed` for the supported
   `marker_version` and `legacy` when the field is absent. Both appear in
   history without warning; legacy entries remain ineligible for delete
   reconciliation and purge.
 - Table columns are one vocabulary shared by local and remote listing, and
   always print in the canonical order `date`, `profile`, `state`, `kind`,
   `title`, `objects`, `size`, `page-size`, `slug`, `dir`, `format`, `repo`,
-  `bucket`, `url`. Local listing offers every column except `objects`; remote
+  `bucket`, `url`. Local listing offers every one of them; remote
   listing offers `date`, `kind`, `objects`, `size`, `slug`, `dir`, and `url`.
   Three columns are automatic: `profile` when the printed rows span more than
   one profile, `state` when any row is legacy history, and `dir` when any row
@@ -1418,6 +1427,14 @@ machine) and must be safe:
   `DIRECTORY` is the 26-character random directory without
   `key_prefix`. Rows sort by marker last-modified time, then marker
   key; `--reverse` prints newest first.
+- Local and remote `OBJECTS` and `SIZE` are counted differently on purpose.
+  Local values are **marker-declared**: the marker plus exactly the objects it
+  lists, at the sizes it declares. Remote values are **storage-observed**:
+  every object and byte beneath the random directory, including unrecognized
+  extras. The same upload can therefore report different numbers in the two
+  listings, and that divergence is diagnostic signal rather than an error —
+  `show` inspects one directory and reports declared and actual sizes side by
+  side, which is where the two are reconciled.
 - `list --remote --json` prints an array with one object per row. Its stable
   fields are `time`, `dir`, `marker_key`, `objects`, `bytes`, and `kind` when
   one marker kind is implied. `conflict` is true for dual-marker directories;
@@ -1582,6 +1599,17 @@ machine) and must be safe:
   not duplicate collection inventories. Imported profile,
   bucket, and public URL values come from the receiving machine's resolved
   connection, never the marker.
+  Sync also completes local history in place: for each active, scoped,
+  marker-managed record that is missing both `objects` and `total_bytes` and
+  carries a v3 marker version, it fetches and inspects that marker and, only
+  for a `complete` inspection, appends an enriched upload record carrying the
+  record's original time and identity plus the declared totals. Append-only
+  history holds and latest-wins reduction collapses the pair. An incomplete or
+  invalid marker leaves both fields absent rather than guessing, and leaves the
+  record untouched. Enrichment never resurrects a tombstoned identity: the
+  record must still be active when sync locks, rereads, and reduces before
+  writing. It converges in one pass, shares the same `--concurrency` budget,
+  writes nothing under `--dry-run`, and is reported separately from imports.
   By default, active scoped local records absent from LIST are considered for
   pruning, but airplan performs a targeted marker GET before appending a
   `remote_missing` tombstone. Only a definite not-found response confirms
@@ -1596,8 +1624,10 @@ machine) and must be safe:
   records. Per-item failures do not discard successfully validated progress.
   Human output and warnings use stderr while stdout remains empty. `--json`
   emits exactly one object on stdout with deterministic `added_records`,
-  `tombstone_records`, and `failures` arrays plus `unchanged`, `incomplete`,
-  `invalid`, and `retained` counters. A partial failure exits nonzero after
+  `enriched_records`, `tombstone_records`, and `failures` arrays plus
+  `unchanged`, `incomplete`, `invalid`, and `retained` counters. Enriched
+  records complete uploads already in history, so they are never counted as
+  additions. A partial failure exits nonzero after
   writing the result. Sync provides eventual active-inventory convergence;
   it neither uploads deletion history nor makes historical JSONL files
   identical across machines.
@@ -1851,7 +1881,10 @@ commit is ambiguous without persistent idempotency state.
 
 ### MCP servers
 
-`airplan mcp` is a stdio MCP server. It constructs the normal public client,
+`airplan mcp` is a stdio MCP server. Its upload listing tool accepts the same
+selection arguments as `list` — `newer_than`, `older_than`, `limit`, `kind`,
+and `slug`, with the same meanings and the same time parser (§9). It
+constructs the normal public client,
 so it works with either backend. MCP frames are its only stdout content;
 warnings and logs use stderr. `airplan serve` exposes the same tool
 implementation at `/mcp` using MCP Streamable HTTP. Deprecated HTTP+SSE is not

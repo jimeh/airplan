@@ -36,6 +36,10 @@ type SyncFailure struct {
 type SyncManifestResult struct {
 	// Added contains upload records planned or appended by this run.
 	Added []ManifestRecord `json:"added_records"`
+	// Enriched contains records already in local history that this run
+	// completed with declared totals. They are appends of existing uploads,
+	// never new ones, so they are counted apart from Added (SPEC.md §9).
+	Enriched []ManifestRecord `json:"enriched_records"`
 	// Tombstoned contains delete records planned or appended by this run.
 	Tombstoned []ManifestRecord `json:"tombstone_records"`
 	// Unchanged counts remote markers already active in the local manifest.
@@ -111,9 +115,22 @@ func (c *Client) SyncManifest(
 	jobs := make([]syncJob, 0, len(remote)+len(active))
 	for index := range remote {
 		upload := remote[index]
-		if _, ok := active[upload.MarkerKey]; !ok {
+		local, known := active[upload.MarkerKey]
+		if !known {
 			jobs = append(jobs, syncJob{
-				markerKey: upload.MarkerKey, upload: &upload,
+				kind: syncJobImport, markerKey: upload.MarkerKey,
+				upload: &upload,
+			})
+			continue
+		}
+		// An already-active record still needs its marker inspected when it
+		// predates declared totals, so history converges in one pass without
+		// re-importing anything (SPEC.md §9).
+		if manifestRecordNeedsTotals(local) {
+			record := local
+			jobs = append(jobs, syncJob{
+				kind: syncJobEnrich, markerKey: upload.MarkerKey,
+				upload: &upload, local: &record,
 			})
 		}
 	}
@@ -129,7 +146,7 @@ func (c *Client) SyncManifest(
 			}
 			record := active[markerKey]
 			jobs = append(jobs, syncJob{
-				markerKey: markerKey, local: &record,
+				kind: syncJobPrune, markerKey: markerKey, local: &record,
 			})
 		}
 	}
@@ -146,9 +163,14 @@ func (c *Client) SyncManifest(
 			defer wg.Done()
 			for index := range jobCh {
 				job := jobs[index]
-				if job.upload != nil {
+				switch job.kind {
+				case syncJobImport:
 					jobResults[index] = c.syncImport(ctx, *job.upload)
-				} else {
+				case syncJobEnrich:
+					jobResults[index] = c.syncEnrich(
+						ctx, *job.upload, *job.local,
+					)
+				case syncJobPrune:
 					jobResults[index] = c.syncPrune(ctx, *job.local)
 				}
 			}
@@ -180,6 +202,9 @@ func (c *Client) SyncManifest(
 		if item.upload != nil {
 			result.Added = append(result.Added, *item.upload)
 		}
+		if item.enriched != nil {
+			result.Enriched = append(result.Enriched, *item.enriched)
+		}
 		if item.tombstone != nil {
 			result.Tombstoned = append(result.Tombstoned, *item.tombstone)
 		}
@@ -194,7 +219,8 @@ func (c *Client) SyncManifest(
 		}
 	}
 
-	if !opts.DryRun && (len(result.Added) > 0 || len(result.Tombstoned) > 0) {
+	if !opts.DryRun && (len(result.Added) > 0 || len(result.Enriched) > 0 ||
+		len(result.Tombstoned) > 0) {
 		initialLen := len(records)
 		if err := c.commitSyncManifest(
 			ctx, manifestPath, initialLen, result,
@@ -211,7 +237,7 @@ func (c *Client) SyncManifest(
 
 func syncFailureForContext(job syncJob, err error) *SyncFailure {
 	operation := "fetch"
-	if job.local != nil {
+	if job.kind == syncJobPrune {
 		operation = "confirm_absence"
 	}
 	return &SyncFailure{
@@ -248,6 +274,7 @@ func (c *Client) syncImport(
 	if inspection.Page.Bytes <= 0 {
 		return syncJobResult{state: UploadIncomplete}
 	}
+	declared := declaredTotalsFromInspection(inspection)
 	record := ManifestRecord{
 		Type: "upload", Time: inspection.CreatedAt.UTC(),
 		Key: inspection.Page.Key, MarkerKey: inspection.MarkerKey,
@@ -255,7 +282,11 @@ func (c *Client) syncImport(
 		Profile: c.cfg.Profile, Format: inspection.Format,
 		Kind:  string(inspection.Kind),
 		Title: inspection.Title, Repo: inspection.Repo,
-		Bytes: inspection.Page.Bytes, MarkerVersion: inspection.MarkerVersion,
+		Bytes:      inspection.Page.Bytes,
+		Objects:    declared.objects,
+		TotalBytes: declared.bytes,
+
+		MarkerVersion: inspection.MarkerVersion,
 	}
 	if inspection.Kind == UploadKindDocument {
 		record.Slug, _ = pageSlug(path.Base(inspection.Page.Key))
@@ -268,6 +299,45 @@ func (c *Client) syncImport(
 		result.warning = inspection.Warnings[0]
 	}
 	return result
+}
+
+// manifestRecordNeedsTotals reports whether a record predates declared totals
+// and could still gain them. Only records missing both fields qualify, so one
+// pass converges. Only a marker that declares every object's size can supply
+// them, so pre-v3 history is left alone rather than re-fetched by every run.
+func manifestRecordNeedsTotals(rec ManifestRecord) bool {
+	return rec.Objects == 0 && rec.TotalBytes == 0 &&
+		rec.MarkerVersion == MarkerVersion
+}
+
+// syncEnrich fills in declared totals for an active local record by inspecting
+// its existing marker (SPEC.md §9). It appends an enriched copy of the record,
+// preserving its original time and identity, so append-only history holds and
+// latest-wins reduction collapses the pair.
+func (c *Client) syncEnrich(
+	ctx context.Context, upload RemoteUpload, record ManifestRecord,
+) syncJobResult {
+	inspection, err := c.inspectListedUpload(ctx, upload)
+	if err != nil {
+		return syncJobResult{failure: &SyncFailure{
+			MarkerKey: upload.MarkerKey, Operation: "fetch", Error: err.Error(),
+		}}
+	}
+	// An incomplete or invalid marker leaves the fields absent rather than
+	// guessing, and leaves the record itself untouched. These states describe
+	// an upload already in local history, so they do not join the incomplete
+	// and invalid counters, which report on import candidates.
+	if inspection.State != UploadComplete {
+		return syncJobResult{}
+	}
+	declared := declaredTotalsFromInspection(inspection)
+	if declared.objects == 0 {
+		return syncJobResult{}
+	}
+	enriched := record
+	enriched.Objects = declared.objects
+	enriched.TotalBytes = declared.bytes
+	return syncJobResult{enriched: &enriched}
 }
 
 func (c *Client) syncPrune(
@@ -323,6 +393,21 @@ func (c *Client) commitSyncManifest(
 			appendedUploads = append(appendedUploads, rec)
 			active[markerKey] = rec
 		}
+		// An enriched record re-states an upload that must still be active in
+		// the manifest as just reread under the lock. A concurrent tombstone
+		// removes its identity from that snapshot, so appending it here can
+		// never resurrect a deleted upload; a concurrent enrichment leaves the
+		// identity no longer missing its totals, so this run adds nothing.
+		appendedEnriched := make([]ManifestRecord, 0, len(result.Enriched))
+		for _, rec := range result.Enriched {
+			markerKey := manifestMarkerKey(rec)
+			existing, exists := active[markerKey]
+			if !exists || !manifestRecordNeedsTotals(existing) {
+				continue
+			}
+			appendedEnriched = append(appendedEnriched, rec)
+			active[markerKey] = rec
+		}
 		appendedTombstones := make([]ManifestRecord, 0,
 			len(result.Tombstoned))
 		for _, rec := range result.Tombstoned {
@@ -335,12 +420,14 @@ func (c *Client) commitSyncManifest(
 			appendedTombstones = append(appendedTombstones, rec)
 			delete(active, manifestMarkerKey(rec))
 		}
-		all := append(append([]ManifestRecord(nil), appendedUploads...),
-			appendedTombstones...)
+		all := append([]ManifestRecord(nil), appendedUploads...)
+		all = append(all, appendedEnriched...)
+		all = append(all, appendedTombstones...)
 		if err := appendManifestRecordsUnlocked(path, all); err != nil {
 			return err
 		}
 		result.Added = appendedUploads
+		result.Enriched = appendedEnriched
 		result.Tombstoned = appendedTombstones
 		return nil
 	})
@@ -400,6 +487,7 @@ func hasConcurrentDelete(
 
 type syncJobResult struct {
 	upload    *ManifestRecord
+	enriched  *ManifestRecord
 	tombstone *ManifestRecord
 	failure   *SyncFailure
 	warning   string
@@ -407,7 +495,21 @@ type syncJobResult struct {
 	retained  bool
 }
 
+// syncJobKind selects what a sync worker does with one marker key.
+type syncJobKind int
+
+const (
+	// syncJobImport validates a remote marker missing from local history.
+	syncJobImport syncJobKind = iota
+	// syncJobPrune confirms a local record's marker is really absent.
+	syncJobPrune
+	// syncJobEnrich fills in declared totals for an active local record that
+	// predates them (SPEC.md §9).
+	syncJobEnrich
+)
+
 type syncJob struct {
+	kind      syncJobKind
 	markerKey string
 	upload    *RemoteUpload
 	local     *ManifestRecord

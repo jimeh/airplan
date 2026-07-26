@@ -26,6 +26,7 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 			`"url":"https://plans.example.com/active/plan.html",` +
 			`"bucket":"plans","profile":"work",` +
 			`"title":"Active plan","bytes":18432,` +
+			`"objects":3,"total_bytes":18944,` +
 			`"marker_version":1}`,
 		`{"type":"upload","time":"2026-07-08T15:04:12Z",` +
 			`"key":"deleted/plan.html",` +
@@ -39,6 +40,7 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 			`"key":"untitled/plan.html",` +
 			`"url":"https://plans.example.com/untitled/plan.html",` +
 			`"bucket":"plans","profile":"work","bytes":7,` +
+			`"objects":2,"total_bytes":107,` +
 			`"marker_version":1}`,
 	}, "\n")+"\n")
 
@@ -51,10 +53,12 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 	}
 
 	table := parseListTable(t, stdout)
-	table.assertHeader(t, "DATE", "KIND", "TITLE", "SIZE", "URL")
+	table.assertHeader(t,
+		"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL")
 	table.assertColumn(t, "DATE", "2026-07-08 14:03", "2026-07-08 16:05")
 	table.assertColumn(t, "TITLE", "Active plan", "-")
-	table.assertColumn(t, "SIZE", "18 KiB", "7 B")
+	table.assertColumn(t, "OBJECTS", "3", "2")
+	table.assertColumn(t, "SIZE", "18.5 KiB", "107 B")
 	table.assertColumn(t, "URL",
 		"https://plans.example.com/active/plan.html",
 		"https://plans.example.com/untitled/plan.html",
@@ -66,6 +70,54 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 		if strings.Contains(stdout, unwanted) {
 			t.Fatalf("stdout contains tombstoned upload %q:\n%s",
 				unwanted, stdout)
+		}
+	}
+}
+
+// TestListShowsDashForRecordsWithoutDeclaredTotals covers history written
+// before airplan recorded declared totals: OBJECTS and SIZE read as unknown
+// rather than reporting the page as if it were the whole upload, no warning is
+// printed, and the page's own size stays available as PAGE SIZE and as bytes
+// in JSON (SPEC.md §9).
+func TestListShowsDashForRecordsWithoutDeclaredTotals(t *testing.T) {
+	path := setListState(t)
+	writeManifest(t, path, listRecord(
+		`"time":"2026-07-08T14:03:11Z"`,
+		`"key":"`+deleteDirA+`/plan.html"`,
+		`"marker_key":"`+deleteDirA+`/`+airplan.MarkerFilename+`"`,
+		`"url":"https://plans.example.com/`+deleteDirA+`/plan.html"`,
+		`"bucket":"plans"`, `"profile":"work"`, `"kind":"document"`,
+		`"title":"Old plan"`, `"bytes":18432`, `"marker_version":3`,
+	)+"\n")
+
+	stdout, stderr, err := executeList(t)
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	table := parseListTable(t, stdout)
+	table.assertColumn(t, "OBJECTS", "-")
+	table.assertColumn(t, "SIZE", "-")
+
+	stdout, stderr, err = executeList(t, "--wide")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	parseListTable(t, stdout).assertColumn(t, "PAGE SIZE", "18 KiB")
+
+	stdout, stderr, err = executeList(t, "--json")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	var records []map[string]any
+	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+		t.Fatalf("json.Unmarshal: %v\nstdout: %s", err, stdout)
+	}
+	if len(records) != 1 || records[0]["bytes"] != float64(18432) {
+		t.Fatalf("records = %+v, want page bytes preserved", records)
+	}
+	for _, absent := range []string{"objects", "total_bytes"} {
+		if _, ok := records[0][absent]; ok {
+			t.Fatalf("field %q present for legacy history: %s", absent, stdout)
 		}
 	}
 }
@@ -168,7 +220,8 @@ func TestListTableAutoProfileColumn(t *testing.T) {
 				stdout, stderr, err)
 		}
 		table := parseListTable(t, stdout)
-		table.assertHeader(t, "DATE", "PROFILE", "KIND", "TITLE", "SIZE", "URL")
+		table.assertHeader(t, "DATE", "PROFILE", "KIND", "TITLE", "OBJECTS",
+			"SIZE", "URL")
 		table.assertColumn(t, "PROFILE", "work", "home")
 	})
 
@@ -189,7 +242,8 @@ func TestListTableAutoProfileColumn(t *testing.T) {
 				stdout, stderr, err)
 		}
 		table := parseListTable(t, stdout)
-		table.assertHeader(t, "DATE", "KIND", "TITLE", "SIZE", "URL")
+		table.assertHeader(t,
+			"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL")
 		if strings.Contains(stdout, "work") {
 			t.Fatalf("stdout names the only profile:\n%s", stdout)
 		}
@@ -250,7 +304,8 @@ func TestListTableAutoStateColumn(t *testing.T) {
 				stdout, stderr, err)
 		}
 		table := parseListTable(t, stdout)
-		table.assertHeader(t, "DATE", "STATE", "KIND", "TITLE", "SIZE", "URL")
+		table.assertHeader(t, "DATE", "STATE", "KIND", "TITLE", "OBJECTS",
+			"SIZE", "URL")
 		table.assertColumn(t, "STATE", "managed", "legacy")
 	})
 
@@ -307,7 +362,7 @@ func TestListTableAutoDirColumn(t *testing.T) {
 		}
 		table := parseListTable(t, stdout)
 		table.assertHeader(t,
-			"DATE", "KIND", "TITLE", "SIZE", "DIRECTORY", "URL")
+			"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "DIRECTORY", "URL")
 		table.assertColumn(t, "DIRECTORY", deleteDirA, deleteDirB)
 		table.assertColumn(t, "URL",
 			"https://plans.example.com/"+deleteDirA+"/plan.html", "-")
@@ -339,8 +394,8 @@ func TestListTableWideShowsEveryLocalColumn(t *testing.T) {
 	}
 	table := parseListTable(t, stdout)
 	table.assertHeader(t,
-		"DATE", "PROFILE", "STATE", "KIND", "TITLE", "SIZE", "PAGE SIZE",
-		"SLUG", "DIRECTORY", "FORMAT", "REPO", "BUCKET", "URL",
+		"DATE", "PROFILE", "STATE", "KIND", "TITLE", "OBJECTS", "SIZE",
+		"PAGE SIZE", "SLUG", "DIRECTORY", "FORMAT", "REPO", "BUCKET", "URL",
 	)
 	table.assertColumn(t, "KIND", "document", "collection")
 	table.assertColumn(t, "SLUG", "plan", "-")
@@ -384,17 +439,23 @@ func TestListTableColumnSelection(t *testing.T) {
 		{
 			"additive adjustments",
 			[]string{"--columns", "+dir,-title"},
-			[]string{"DATE", "PROFILE", "KIND", "SIZE", "DIRECTORY", "URL"},
+			[]string{
+				"DATE", "PROFILE", "KIND", "OBJECTS", "SIZE",
+				"DIRECTORY", "URL",
+			},
 		},
 		{
 			"additive removal of an auto column",
 			[]string{"--columns", "-profile"},
-			[]string{"DATE", "KIND", "TITLE", "SIZE", "URL"},
+			[]string{"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL"},
 		},
 		{
 			"additive addition already present",
 			[]string{"--columns", "+date"},
-			[]string{"DATE", "PROFILE", "KIND", "TITLE", "SIZE", "URL"},
+			[]string{
+				"DATE", "PROFILE", "KIND", "TITLE", "OBJECTS", "SIZE",
+				"URL",
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -426,13 +487,8 @@ func TestListColumnFlagErrors(t *testing.T) {
 		{
 			"unknown name lists valid columns",
 			[]string{"--columns", "nope"},
-			"valid columns: date, profile, state, kind, title, size, " +
-				"page-size, slug, dir, format, repo, bucket, url",
-		},
-		{
-			"remote-only name in local mode",
-			[]string{"--columns", "objects"},
-			`list column "objects" is only available with --remote`,
+			"valid columns: date, profile, state, kind, title, objects, " +
+				"size, page-size, slug, dir, format, repo, bucket, url",
 		},
 		{
 			"mixed absolute and additive syntax",
@@ -454,7 +510,7 @@ func TestListColumnFlagErrors(t *testing.T) {
 			"every column removed",
 			[]string{
 				"--columns",
-				"-date,-profile,-kind,-title,-size,-url",
+				"-date,-profile,-kind,-title,-objects,-size,-url",
 			},
 			"--columns left no columns to print",
 		},

@@ -19,6 +19,64 @@ import (
 	tcminio "github.com/testcontainers/testcontainers-go/modules/minio"
 )
 
+// assertDeclaredTotalsRoundTrip checks that an upload's marker-declared totals
+// survive a real storage round trip: sync imports exactly what the marker
+// declares, and backfill restores the same values for history that predates
+// them, converging in one pass (SPEC.md §9).
+func assertDeclaredTotalsRoundTrip(
+	ctx context.Context, t *testing.T, syncClient *Client,
+	synced *SyncManifestResult, res *Result,
+) {
+	t.Helper()
+
+	var imported *ManifestRecord
+	for index := range synced.Added {
+		if synced.Added[index].MarkerKey == res.MarkerKey {
+			imported = &synced.Added[index]
+		}
+	}
+	if imported == nil {
+		t.Fatalf("sync did not import %q: %+v", res.MarkerKey, synced.Added)
+	}
+	inspection, err := syncClient.InspectUpload(ctx, res.MarkerKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantObjects, wantBytes, ok := MarkerDeclaredTotals(
+		*inspection.marker, inspection.markerBytes,
+	)
+	if !ok {
+		t.Fatalf("marker %q declares no totals", res.MarkerKey)
+	}
+	if imported.Objects != wantObjects || imported.TotalBytes != wantBytes {
+		t.Fatalf("imported %d/%d, want %d/%d", imported.Objects,
+			imported.TotalBytes, wantObjects, wantBytes)
+	}
+
+	path := syncClient.cfg.ManifestPath
+	stripDeclaredTotals(t, path)
+	backfilled, err := syncClient.SyncManifest(ctx, SyncManifestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(backfilled.Added) != 0 || len(backfilled.Enriched) == 0 {
+		t.Fatalf("backfill = %+v, want enrichment only", backfilled)
+	}
+	records := manifestRecordsByMarker(t, path)
+	if got := records[res.MarkerKey]; got.Objects != wantObjects ||
+		got.TotalBytes != wantBytes {
+		t.Fatalf("backfilled %d/%d, want %d/%d", got.Objects, got.TotalBytes,
+			wantObjects, wantBytes)
+	}
+	second, err := syncClient.SyncManifest(ctx, SyncManifestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Enriched) != 0 {
+		t.Fatalf("second sync enriched again: %+v", second.Enriched)
+	}
+}
+
 // TestIntegrationRoundTrip uploads through the real pipeline against a
 // live S3-compatible server (MinIO, managed by testcontainers) and
 // verifies bytes and headers by fetching the objects back. Excluded
@@ -313,6 +371,9 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		synced.Invalid != 1 {
 		t.Fatalf("initial sync = %+v, %v", synced, err)
 	}
+	// Declared totals must survive a real storage round trip and match what the
+	// uploading machine recorded, then be restorable by backfill (SPEC.md §9).
+	assertDeclaredTotalsRoundTrip(ctx, t, syncClient, synced, res)
 
 	deleted, err := client.DeleteUpload(ctx, res.URL)
 	if err != nil {

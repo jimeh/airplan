@@ -482,6 +482,7 @@ airplan ls -r                    # airplan uploads currently in the bucket
 airplan show <url-or-key>         # validate and inspect one remote upload
 airplan get [--source] <url-or-key>  # raw page or source bytes
 airplan delete <url-or-key>      # delete one upload
+airplan list --newer-than 7d     # only recent uploads (also --kind, --slug)
 airplan purge --older-than 30d   # review and delete older uploads
 airplan sync                     # reconcile remote uploads into local history
 ```
@@ -497,10 +498,30 @@ path, and ignores `AIRPLAN_MANIFEST`.
 `ls` aliases `list`, and `-r` aliases `--remote` for `list` and
 `purge`. An explicit `list --profile NAME` filters local history by its recorded
 profile; `--profile=` selects root-level history. Without that flag, local list
-shows every profile. Without resolvable configuration, local list assumes the
+shows every profile, and `--all-profiles` asks for that default explicitly even
+when `AIRPLAN_PROFILE` is set. Without resolvable configuration, local list assumes the
 `s3` backend and remains config-free. A config can also select an `airplan`
 profile, in which case list reads the server manifest and `--config` is useful
 without `--remote`.
+
+`list` selects rows with `--newer-than`, `--older-than`, `--limit`, `--kind`,
+and `--slug`, in both listing modes and in `--json`, because filters are
+selection rather than presentation. The two time flags take either an age such
+as `7d`, `2w`, or `36h`, or an absolute date such as `2026-07-01`,
+`2026-07-01 09:30`, or an RFC 3339 timestamp; bare dates mean local midnight
+while the manifest keeps recording UTC. A slash date that does not lead with a
+four-digit year, such as `03/04/2026`, is refused rather than guessed, because
+`purge --older-than` reads the same values. `--newer-than` includes uploads
+recorded exactly at the boundary and `--older-than` excludes them, and
+`--limit N` keeps the N most recent matches while still printing them oldest
+first.
+
+Table shape is controlled separately: `--columns date,title,url` selects an
+exact set, `--columns +dir,-title` adjusts the default one, `--wide` prints
+every column a mode offers, and `--reverse` prints newest first. `PROFILE`,
+`STATE`, and `DIRECTORY` appear automatically only when they carry information
+— more than one profile, legacy history, or a row with no URL. Column flags
+are table-only and are rejected with `--json`, while `--reverse` reorders both.
 
 `--remote` reads storage through the selected backend instead, so it can find
 uploads from other machines.
@@ -521,7 +542,11 @@ The remote ownership marker is still authoritative.
 into the receiving machine's manifest. It also tombstones local records whose
 markers are confirmed absent remotely; `--no-prune` makes the operation
 additive-only and `--dry-run` previews it. Sync verifies apparent absences with
-a targeted request instead of trusting a bucket listing alone. `--concurrency`
+a targeted request instead of trusting a bucket listing alone. It also completes
+older local records that predate the recorded `objects` and `total_bytes`
+totals, appending an enriched copy of each one with its original time and
+identity; those are reported separately from imports and never resurrect a
+deleted upload. `--concurrency`
 controls concurrent marker requests (default 8, range 1-64). It converges the
 active remote inventory, not the historical JSONL event stream; deletion
 history is not uploaded.
