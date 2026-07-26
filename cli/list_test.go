@@ -1129,6 +1129,105 @@ func TestListJSONShowsActiveUploads(t *testing.T) {
 	}
 }
 
+// TestListJSONShowsDerivedProtection covers the manifest-backed listing side
+// of SPEC.md §9: reduced upload records carry derived protected, protected_at,
+// and protect_reason, surfaced by list --json. The fields are reduction
+// output rather than stored columns, so nothing else asserts they reach the
+// CLI. Protection stays JSON-only; the human table gains no column.
+func TestListJSONShowsDerivedProtection(t *testing.T) {
+	const dir = "aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	upload := `{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+		`"key":"` + dir + `/plan.html",` +
+		`"marker_key":"` + dir + `/.airplan.json",` +
+		`"url":"https://plans.example.com/` + dir + `/plan.html",` +
+		`"bucket":"plans","profile":"work","kind":"document","slug":"plan",` +
+		`"title":"Active plan","bytes":18432,"marker_version":3}`
+	protect := `{"type":"protect","time":"2026-07-09T09:00:00Z",` +
+		`"key":"` + dir + `/plan.html",` +
+		`"marker_key":"` + dir + `/.airplan.json",` +
+		`"bucket":"plans","profile":"work",` +
+		`"protect_reason":"README demo link"}`
+	unprotect := `{"type":"unprotect","time":"2026-07-10T09:00:00Z",` +
+		`"key":"` + dir + `/plan.html",` +
+		`"marker_key":"` + dir + `/.airplan.json",` +
+		`"bucket":"plans","profile":"work"}`
+
+	listJSON := func(t *testing.T, lines ...string) (
+		map[string]json.RawMessage, airplan.ManifestRecord,
+	) {
+		t.Helper()
+		path := setListState(t)
+		writeManifest(t, path, strings.Join(lines, "\n")+"\n")
+		stdout, stderr, err := executeList(t, "-j")
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+		var fields []map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(stdout), &fields); err != nil {
+			t.Fatalf("json.Unmarshal fields: %v\nstdout: %s", err, stdout)
+		}
+		var records []airplan.ManifestRecord
+		if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+			t.Fatalf("json.Unmarshal records: %v\nstdout: %s", err, stdout)
+		}
+		if len(fields) != 1 || len(records) != 1 {
+			t.Fatalf("got %d records, want 1\nstdout: %s", len(records), stdout)
+		}
+		return fields[0], records[0]
+	}
+
+	t.Run("protected", func(t *testing.T) {
+		fields, record := listJSON(t, upload, protect)
+		if !record.Protected {
+			t.Fatalf("protected = false, want true: %+v", record)
+		}
+		if record.ProtectReason != "README demo link" {
+			t.Fatalf("protect_reason = %q", record.ProtectReason)
+		}
+		if record.ProtectedAt.IsZero() {
+			t.Fatalf("protected_at is zero: %+v", record)
+		}
+		for _, field := range []string{
+			"protected", "protected_at", "protect_reason",
+		} {
+			if _, ok := fields[field]; !ok {
+				t.Fatalf("field %q missing: %+v", field, fields)
+			}
+		}
+	})
+
+	t.Run("unprotect clears the projection", func(t *testing.T) {
+		fields, record := listJSON(t, upload, protect, unprotect)
+		if record.Protected || record.ProtectReason != "" ||
+			!record.ProtectedAt.IsZero() {
+			t.Fatalf("protection survived unprotect: %+v", record)
+		}
+		for _, field := range []string{
+			"protected", "protected_at", "protect_reason",
+		} {
+			if _, ok := fields[field]; ok {
+				t.Fatalf("field %q must be omitted when unprotected: %+v",
+					field, fields)
+			}
+		}
+	})
+
+	t.Run("table gains no protection column", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path, upload+"\n"+protect+"\n")
+		stdout, stderr, err := executeList(t)
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		if strings.Contains(strings.ToUpper(stdout), "PROTECT") {
+			t.Fatalf("list table must not report protection:\n%s", stdout)
+		}
+	})
+}
+
 func TestListWarnsForTornLine(t *testing.T) {
 	path := setListState(t)
 	writeManifest(t, path, strings.Join([]string{

@@ -538,6 +538,73 @@ func TestMCPPartialResultsRetainStructuredContent(t *testing.T) {
 	}
 }
 
+// TestMCPProtectionToolsForwardArguments exercises the protect_upload,
+// unprotect_upload, and delete_upload handler bodies. The tool surface test
+// only counts registered tools, so without this a broken argument binding or a
+// handler wired to the wrong operation stays green (SPEC.md §11).
+func TestMCPProtectionToolsForwardArguments(t *testing.T) {
+	const target = "https://plans.example.com/aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html"
+	transport := &mcpTestTransport{}
+	client := &Client{cfg: &Config{}, remote: transport}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", true)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	call := func(t *testing.T, name string, args map[string]any) {
+		t.Helper()
+		result, err := session.CallTool(ctx,
+			&mcp.CallToolParams{Name: name, Arguments: args})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.IsError {
+			t.Fatalf("%s result = %+v", name, result)
+		}
+	}
+
+	call(t, "protect_upload", map[string]any{
+		"url_or_key": target, "reason": "README demo link",
+	})
+	if transport.protectTarget != target ||
+		transport.protectReason != "README demo link" {
+		t.Fatalf("protect forwarded target %q reason %q",
+			transport.protectTarget, transport.protectReason)
+	}
+
+	call(t, "unprotect_upload", map[string]any{"url_or_key": target})
+	if transport.unprotectTarget != target {
+		t.Fatalf("unprotect forwarded target %q", transport.unprotectTarget)
+	}
+
+	// force defaults to false and must be forwarded when set, otherwise the
+	// tool could never delete a protected upload.
+	call(t, "delete_upload", map[string]any{"url_or_key": target})
+	if transport.deleteTarget != target || transport.deleteOptions.Force {
+		t.Fatalf("delete without force = %q %+v",
+			transport.deleteTarget, transport.deleteOptions)
+	}
+	call(t, "delete_upload", map[string]any{
+		"url_or_key": target, "force": true,
+	})
+	if !transport.deleteOptions.Force {
+		t.Fatalf("delete did not forward force: %+v", transport.deleteOptions)
+	}
+}
+
 func TestHostedMCPHidesServerPaths(t *testing.T) {
 	const privatePath = "/private/airplan/template.html"
 	for _, test := range []struct {
@@ -830,6 +897,13 @@ type mcpTestTransport struct {
 	listResult   *ManifestList
 	listCalls    int
 	remoteResult []RemoteUpload
+
+	// Protection call recording for the protect/unprotect/delete tools.
+	protectTarget   string
+	protectReason   string
+	unprotectTarget string
+	deleteTarget    string
+	deleteOptions   DeleteOptions
 }
 
 func (t *mcpTestTransport) ListManifest(
@@ -878,6 +952,31 @@ func callMCPListUploads(
 		t.Fatal(err)
 	}
 	return encoded
+}
+
+func (t *mcpTestTransport) ProtectUpload(
+	_ context.Context, urlOrKey, reason string,
+) (*ProtectionResult, error) {
+	t.protectTarget = urlOrKey
+	t.protectReason = reason
+	return &ProtectionResult{
+		ID: urlOrKey, Protected: true, Reason: reason,
+	}, nil
+}
+
+func (t *mcpTestTransport) UnprotectUpload(
+	_ context.Context, urlOrKey string,
+) (*ProtectionResult, error) {
+	t.unprotectTarget = urlOrKey
+	return &ProtectionResult{ID: urlOrKey}, nil
+}
+
+func (t *mcpTestTransport) DeleteUpload(
+	_ context.Context, urlOrKey string, opts DeleteOptions,
+) (*DeleteResult, error) {
+	t.deleteTarget = urlOrKey
+	t.deleteOptions = opts
+	return &DeleteResult{PageKey: urlOrKey}, nil
 }
 
 func (t *mcpTestTransport) Upload(context.Context, Input) (*Result, error) {
