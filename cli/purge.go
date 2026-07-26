@@ -47,7 +47,7 @@ func newPurgeCmd() *cobra.Command {
 	f.StringVar(&opts.config, "config", "",
 		"config file path (default: XDG config dir)")
 	f.StringVar(&opts.olderThan, "older-than", "",
-		"filter: uploads older than this age, e.g. 30d, 2w, 36h")
+		"filter: uploads before this age or date, e.g. 30d, 2w, 2026-07-01")
 	f.StringVar(&opts.slug, "slug", "",
 		"filter: glob pattern matched against the page slug")
 	// Local manifest semantics (SPEC.md §9): every resolved connection
@@ -91,13 +91,26 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		}
 	}
 
-	var olderThan time.Duration
+	// Purge shares the listing time parser (SPEC.md §9), so an age and an
+	// absolute date select the same boundary here and in list --older-than.
+	var createdBefore time.Time
 	if opts.olderThan != "" {
+		now := time.Now()
 		var err error
-		olderThan, err = airplan.ParseAge(opts.olderThan)
+		createdBefore, err = airplan.ParseTimeFilter(opts.olderThan, now)
 		if err != nil {
-			return fmt.Errorf("--older-than: %s",
-				strings.TrimPrefix(err.Error(), "airplan: "))
+			return flagError("--older-than", err)
+		}
+		// An age of zero degenerates into "everything recorded before now",
+		// which is what an unset or miscomputed script variable expands to.
+		// Refuse it here rather than deleting every upload; --all is how a
+		// caller asks for that. An explicit absolute date selects broadly too,
+		// but a human typed it, so it stays allowed.
+		if !airplan.IsAbsoluteTimeFilter(opts.olderThan) &&
+			!createdBefore.Before(now) {
+			return errors.New(
+				"--older-than: an age of zero selects every upload; " +
+					"use --all to delete everything")
 		}
 	}
 
@@ -130,10 +143,6 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		planCtx, planCancel = timeoutContext(planCtx, cfg)
 	}
 	defer planCancel()
-	var createdBefore time.Time
-	if olderThan > 0 {
-		createdBefore = time.Now().Add(-olderThan)
-	}
 	plan, err := client.PlanPurge(planCtx, airplan.PurgePlanOptions{
 		Source: source, CreatedBefore: createdBefore,
 		Slug: opts.slug, All: opts.all || profileOnly,

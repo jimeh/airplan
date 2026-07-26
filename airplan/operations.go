@@ -299,11 +299,7 @@ func purgeRecordMatches(rec ManifestRecord, opts PurgePlanOptions) bool {
 	if rec.Kind == string(UploadKindCollection) {
 		return false
 	}
-	slug := rec.Slug
-	if slug == "" {
-		slug, _ = pageSlug(path.Base(rec.Key))
-	}
-	matched, _ := path.Match(opts.Slug, slug)
+	matched, _ := path.Match(opts.Slug, ManifestRecordSlug(rec))
 	return matched
 }
 

@@ -613,6 +613,301 @@ func TestListOrdersByRecordTime(t *testing.T) {
 	})
 }
 
+// writeFilterManifest writes three managed uploads — two documents around a
+// collection — days apart in chronological file order.
+func writeFilterManifest(t *testing.T, path string) {
+	t.Helper()
+
+	writeManifest(t, path, strings.Join([]string{
+		listRecord(
+			`"time":"2026-07-01T12:00:00Z"`,
+			`"key":"`+deleteDirA+`/plan-alpha.html"`,
+			`"marker_key":"`+deleteDirA+`/`+airplan.MarkerFilename+`"`,
+			`"url":"https://plans.example.com/`+deleteDirA+`/plan-alpha.html"`,
+			`"bucket":"plans"`, `"profile":"work"`,
+			`"kind":"document"`, `"slug":"plan-alpha"`, `"format":"md"`,
+			`"title":"Alpha"`, `"bytes":10`, `"marker_version":3`,
+		),
+		listRecord(
+			`"time":"2026-07-05T12:00:00Z"`,
+			`"key":"`+deleteDirB+`/index.html"`,
+			`"marker_key":"`+deleteDirB+`/`+
+				airplan.CollectionMarkerFilename+`"`,
+			`"url":"https://plans.example.com/`+deleteDirB+`/index.html"`,
+			`"bucket":"plans"`, `"profile":"work"`,
+			`"kind":"collection"`, `"title":"Beta"`,
+			`"bytes":10`, `"marker_version":3`,
+		),
+		listRecord(
+			`"time":"2026-07-09T12:00:00Z"`,
+			`"key":"`+deleteDirC+`/plan-gamma.html"`,
+			`"marker_key":"`+deleteDirC+`/`+airplan.MarkerFilename+`"`,
+			`"url":"https://plans.example.com/`+deleteDirC+`/plan-gamma.html"`,
+			`"bucket":"plans"`, `"profile":"work"`,
+			`"kind":"document"`, `"slug":"plan-gamma"`, `"format":"md"`,
+			`"title":"Gamma"`, `"bytes":10`, `"marker_version":3`,
+		),
+	}, "\n")+"\n")
+}
+
+// listJSONTitles decodes local list --json output into record titles.
+func listJSONTitles(t *testing.T, stdout string) []string {
+	t.Helper()
+
+	var records []airplan.ManifestRecord
+	if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+		t.Fatalf("json.Unmarshal: %v\nstdout: %s", err, stdout)
+	}
+	titles := make([]string, 0, len(records))
+	for _, record := range records {
+		titles = append(titles, record.Title)
+	}
+	return titles
+}
+
+func TestListFiltersSelectRecords(t *testing.T) {
+	path := setListState(t)
+	writeFilterManifest(t, path)
+
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"unfiltered", nil, []string{"Alpha", "Beta", "Gamma"}},
+		{
+			"newer-than date",
+			[]string{"--newer-than", "2026-07-05"},
+			[]string{"Beta", "Gamma"},
+		},
+		{
+			// An exact timestamp avoids depending on the host time zone.
+			"newer-than keeps the threshold",
+			[]string{"--newer-than", "2026-07-05T12:00:00Z"},
+			[]string{"Beta", "Gamma"},
+		},
+		{
+			"older-than excludes the threshold",
+			[]string{"--older-than", "2026-07-05T12:00:00Z"},
+			[]string{"Alpha"},
+		},
+		{
+			"both bounds",
+			[]string{
+				"--newer-than", "2026-07-02", "--older-than", "2026-07-08",
+			},
+			[]string{"Beta"},
+		},
+		{
+			"kind document",
+			[]string{"--kind", "document"},
+			[]string{"Alpha", "Gamma"},
+		},
+		{
+			"kind collection",
+			[]string{"--kind", "collection"},
+			[]string{"Beta"},
+		},
+		{"slug exact", []string{"--slug", "plan-alpha"}, []string{"Alpha"}},
+		{
+			"slug glob",
+			[]string{"--slug", "plan-*"},
+			[]string{"Alpha", "Gamma"},
+		},
+		{
+			"slug star excludes collections",
+			[]string{"--slug", "*"},
+			[]string{"Alpha", "Gamma"},
+		},
+		{
+			"limit keeps most recent",
+			[]string{"--limit", "2"},
+			[]string{"Beta", "Gamma"},
+		},
+		{
+			"limit beyond the set",
+			[]string{"--limit", "9"},
+			[]string{"Alpha", "Beta", "Gamma"},
+		},
+		{"limit zero", []string{"--limit", "0"}, nil},
+		{
+			"limit with reverse",
+			[]string{"--limit", "2", "--reverse"},
+			[]string{"Gamma", "Beta"},
+		},
+		{
+			"limit applies after other filters",
+			[]string{"--kind", "document", "--limit", "1"},
+			[]string{"Gamma"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout, stderr, err := executeList(t, tt.args...)
+			if err != nil || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, error = %v",
+					stdout, stderr, err)
+			}
+			if len(tt.want) == 0 {
+				if stdout != "" {
+					t.Fatalf("stdout = %q, want empty", stdout)
+				}
+			} else {
+				parseListTable(t, stdout).assertColumn(t, "TITLE", tt.want...)
+			}
+
+			// Filters are selection, not presentation: --json must select
+			// exactly the same records.
+			jsonArgs := append([]string{"--json"}, tt.args...)
+			stdout, stderr, err = executeList(t, jsonArgs...)
+			if err != nil || stderr != "" {
+				t.Fatalf("json stdout = %q, stderr = %q, error = %v",
+					stdout, stderr, err)
+			}
+			got := listJSONTitles(t, stdout)
+			if len(got) != len(tt.want) {
+				t.Fatalf("json titles = %q, want %q", got, tt.want)
+			}
+			for index := range tt.want {
+				if got[index] != tt.want[index] {
+					t.Fatalf("json titles = %q, want %q", got, tt.want)
+				}
+			}
+		})
+	}
+}
+
+func TestListFilterAgeRelativeToNow(t *testing.T) {
+	path := setListState(t)
+	now := time.Now().UTC()
+	record := func(dir, title string, age time.Duration) string {
+		return listRecord(
+			`"time":"`+now.Add(-age).Format(time.RFC3339)+`"`,
+			`"key":"`+dir+`/plan.html"`,
+			`"marker_key":"`+dir+`/`+airplan.MarkerFilename+`"`,
+			`"url":"https://plans.example.com/`+dir+`/plan.html"`,
+			`"bucket":"plans"`, `"profile":"work"`, `"kind":"document"`,
+			`"title":"`+title+`"`, `"bytes":10`, `"marker_version":3`,
+		)
+	}
+	writeManifest(t, path, strings.Join([]string{
+		record(deleteDirA, "Ancient", 40*24*time.Hour),
+		record(deleteDirB, "Older", 20*24*time.Hour),
+		record(deleteDirC, "Recent", 2*24*time.Hour),
+	}, "\n")+"\n")
+
+	stdout, stderr, err := executeList(t, "--newer-than", "7d")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	parseListTable(t, stdout).assertColumn(t, "TITLE", "Recent")
+
+	stdout, stderr, err = executeList(t, "--older-than", "3w")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	parseListTable(t, stdout).assertColumn(t, "TITLE", "Ancient")
+
+	// A zero age is harmless when only selecting rows to print, so the parser
+	// stays permissive; refusing it is purge's invariant, not the parser's.
+	stdout, stderr, err = executeList(t, "--older-than", "0s")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	parseListTable(t, stdout).assertColumn(
+		t, "TITLE", "Ancient", "Older", "Recent",
+	)
+}
+
+func TestListFilterFlagErrors(t *testing.T) {
+	path := setListState(t)
+	writeFilterManifest(t, path)
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			"ambiguous slash date",
+			[]string{"--older-than", "03/04/2026"},
+			`--older-than: invalid time "03/04/2026" (ambiguous date; ` +
+				`write the year first, as 2026-03-04)`,
+		},
+		{
+			"unparsable newer-than",
+			[]string{"--newer-than", "yesterday"},
+			`--newer-than: invalid time "yesterday"`,
+		},
+		{
+			"unknown kind",
+			[]string{"--kind", "page"},
+			`--kind: invalid kind "page" (want document or collection)`,
+		},
+		{
+			"malformed slug pattern",
+			[]string{"--slug", "["},
+			"--slug: invalid slug pattern",
+		},
+		{
+			"negative limit",
+			[]string{"--limit", "-1"},
+			"--limit must not be negative",
+		},
+		{
+			"all-profiles with profile",
+			[]string{"--all-profiles", "--profile", "work"},
+			"--all-profiles cannot be combined with --profile",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout, _, err := executeList(t, tt.args...)
+			if err == nil {
+				t.Fatalf("error = nil, want %q\nstdout: %s", tt.want, stdout)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %q, want it to contain %q", err, tt.want)
+			}
+			if stdout != "" {
+				t.Fatalf("stdout = %q, want empty", stdout)
+			}
+		})
+	}
+}
+
+func TestListAllProfilesOverridesProfileSelection(t *testing.T) {
+	path := setListState(t)
+	writeTwoProfileManifest(t, path)
+	t.Setenv("AIRPLAN_PROFILE", "work")
+	config := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "airplan",
+		"config.toml")
+	if err := os.MkdirAll(filepath.Dir(config), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config, []byte(`
+[profiles.work]
+endpoint = "https://work.invalid"
+bucket = "plans"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeList(t)
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	parseListTable(t, stdout).assertColumn(t, "TITLE", "Work plan")
+
+	stdout, stderr, err = executeList(t, "--all-profiles")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	table := parseListTable(t, stdout)
+	table.assertColumn(t, "TITLE", "Work plan", "Home shots")
+	table.assertColumn(t, "PROFILE", "work", "home")
+}
+
 func TestListJSONShowsActiveUploads(t *testing.T) {
 	path := setListState(t)
 	writeManifest(t, path, strings.Join([]string{
@@ -927,6 +1222,119 @@ func TestListRemoteAutoDirColumnForUninferableURL(t *testing.T) {
 		"-",
 		"https://plans.example.com/"+deleteDirC+"/index.html",
 	)
+}
+
+func TestListRemoteFilters(t *testing.T) {
+	document := "https://plans.example.com/" + deleteDirA + "/plan.html"
+	collection := "https://plans.example.com/" + deleteDirC + "/index.html"
+
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"unfiltered", nil, []string{document, collection}},
+		{
+			"newer-than keeps the threshold",
+			[]string{"--newer-than", "2026-07-08T16:03:00Z"},
+			[]string{collection},
+		},
+		{
+			"older-than excludes the threshold",
+			[]string{"--older-than", "2026-07-08T16:03:00Z"},
+			[]string{document},
+		},
+		{
+			"kind document",
+			[]string{"--kind", "document"},
+			[]string{document},
+		},
+		{
+			"kind collection",
+			[]string{"--kind", "collection"},
+			[]string{collection},
+		},
+		{
+			"slug matches documents only",
+			[]string{"--slug", "plan"},
+			[]string{document},
+		},
+		{
+			"slug star excludes collections",
+			[]string{"--slug", "*"},
+			[]string{document},
+		},
+		{
+			"limit keeps most recent",
+			[]string{"--limit", "1"},
+			[]string{collection},
+		},
+		{"limit zero", []string{"--limit", "0"}, nil},
+		{
+			"limit with reverse",
+			[]string{"--limit", "2", "--reverse"},
+			[]string{collection, document},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isolateEnv(t)
+			fake := newFakeRemoteS3(t, remoteListFixture(), nil, nil)
+			config := writeCLIConfig(t, fake.server.URL)
+			args := append([]string{"--remote", "--config", config}, tt.args...)
+
+			stdout, stderr, err := executeList(t, args...)
+			if err != nil || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, error = %v",
+					stdout, stderr, err)
+			}
+			if len(tt.want) == 0 {
+				if stdout != "" {
+					t.Fatalf("stdout = %q, want empty", stdout)
+				}
+			} else {
+				parseListTable(t, stdout).assertColumn(t, "URL", tt.want...)
+			}
+
+			jsonArgs := append(args, "--json")
+			stdout, stderr, err = executeList(t, jsonArgs...)
+			if err != nil || stderr != "" {
+				t.Fatalf("json stdout = %q, stderr = %q, error = %v",
+					stdout, stderr, err)
+			}
+			var records []struct {
+				URL string `json:"url"`
+			}
+			if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+				t.Fatalf("json.Unmarshal: %v\nstdout: %s", err, stdout)
+			}
+			got := make([]string, 0, len(records))
+			for _, record := range records {
+				got = append(got, record.URL)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Fatalf("json urls = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestListRemoteRejectsAllProfiles(t *testing.T) {
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, remoteListFixture(), nil, nil)
+
+	stdout, _, err := executeList(t, "--remote", "--all-profiles",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err == nil {
+		t.Fatalf("error = nil, want a mode error\nstdout: %s", stdout)
+	}
+	if !strings.Contains(err.Error(),
+		"--all-profiles cannot be combined with --remote") {
+		t.Fatalf("error = %q", err)
+	}
+	if fake.listCalls() != 0 {
+		t.Fatalf("LIST calls = %d, want none", fake.listCalls())
+	}
 }
 
 func TestListRemoteFallbackURLWarnsOnce(t *testing.T) {

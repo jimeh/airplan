@@ -404,6 +404,20 @@ func ManifestRecordDir(rec ManifestRecord) string {
 	return uploadIDFromMarkerKey(manifestMarkerKey(rec))
 }
 
+// ManifestRecordSlug returns a record's document slug (SPEC.md §9): the
+// recorded value, or the slug derived from its page key for valid older
+// records that omit one. Collections have no slug and return "".
+func ManifestRecordSlug(rec ManifestRecord) string {
+	if rec.Kind == string(UploadKindCollection) {
+		return ""
+	}
+	if rec.Slug != "" {
+		return rec.Slug
+	}
+	slug, _ := pageSlug(path.Base(rec.Key))
+	return slug
+}
+
 // ReadManifest loads the manifest at path ("" = platform default),
 // returning records in file order plus torn-line warnings (SPEC.md
 // §9). A missing manifest yields no records and no error.

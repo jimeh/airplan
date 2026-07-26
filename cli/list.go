@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -16,13 +17,19 @@ import (
 )
 
 type listOptions struct {
-	config  string
-	profile string
-	json    bool
-	remote  bool
-	columns string
-	wide    bool
-	reverse bool
+	config      string
+	profile     string
+	json        bool
+	remote      bool
+	columns     string
+	wide        bool
+	reverse     bool
+	newerThan   string
+	olderThan   string
+	limit       int
+	kind        string
+	slug        string
+	allProfiles bool
 }
 
 // columnRequest returns the table column selection given on the command line.
@@ -34,6 +41,55 @@ func (o *listOptions) columnRequest(cmd *cobra.Command) listColumnRequest {
 	}
 }
 
+// listFilter resolves the selection flags into a library filter (SPEC.md §9).
+// Times are interpreted relative to now, so ages and local dates resolve once
+// per invocation.
+func (o *listOptions) listFilter(
+	cmd *cobra.Command, now time.Time,
+) (airplan.ListFilter, error) {
+	filter := airplan.ListFilter{
+		Kind: airplan.UploadKind(o.kind), Slug: o.slug,
+	}
+	if o.newerThan != "" {
+		when, err := airplan.ParseTimeFilter(o.newerThan, now)
+		if err != nil {
+			return filter, flagError("--newer-than", err)
+		}
+		filter.NewerThan = when
+	}
+	if o.olderThan != "" {
+		when, err := airplan.ParseTimeFilter(o.olderThan, now)
+		if err != nil {
+			return filter, flagError("--older-than", err)
+		}
+		filter.OlderThan = when
+	}
+	if cmd.Flags().Changed("limit") {
+		limit := o.limit
+		filter.Limit = &limit
+	}
+
+	// Validating one field at a time keeps the library's rules authoritative
+	// while still naming the flag that carried the bad value.
+	if err := (airplan.ListFilter{Kind: filter.Kind}).Validate(); err != nil {
+		return filter, flagError("--kind", err)
+	}
+	if err := (airplan.ListFilter{Slug: filter.Slug}).Validate(); err != nil {
+		return filter, flagError("--slug", err)
+	}
+	if err := (airplan.ListFilter{Limit: filter.Limit}).Validate(); err != nil {
+		return filter, fmt.Errorf("--limit %s",
+			strings.TrimPrefix(err.Error(), "airplan: limit "))
+	}
+	return filter, filter.Validate()
+}
+
+// flagError restates a library error as a flag-scoped command-line error.
+func flagError(flag string, err error) error {
+	return fmt.Errorf("%s: %s", flag,
+		strings.TrimPrefix(err.Error(), "airplan: "))
+}
+
 func newListCmd() *cobra.Command {
 	opts := &listOptions{}
 
@@ -42,7 +98,11 @@ func newListCmd() *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "List uploads from the local manifest",
 		Long: "List uploads from the local manifest, or with --remote, " +
-			"from a live bucket listing using the selected config profile.",
+			"from a live bucket listing using the selected config profile.\n\n" +
+			"Local listing spans every recorded profile by default. " +
+			"--profile NAME limits it to that profile, --profile= selects " +
+			"root-level history, and --all-profiles asks for the default " +
+			"explicitly even when AIRPLAN_PROFILE is set.",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -69,6 +129,20 @@ func newListCmd() *cobra.Command {
 		"show every table column available for this listing")
 	f.BoolVar(&opts.reverse, "reverse", false,
 		"print newest uploads first")
+	// Selection flags (SPEC.md §9) apply to the table and to --json alike.
+	f.StringVar(&opts.newerThan, "newer-than", "",
+		"filter: uploads at or after an age or date, e.g. 7d or 2026-07-01")
+	f.StringVar(&opts.olderThan, "older-than", "",
+		"filter: uploads before an age or date, e.g. 30d or 2026-07-01")
+	f.IntVar(&opts.limit, "limit", 0,
+		"filter: keep only the N most recent matches, still printed "+
+			"oldest first")
+	f.StringVar(&opts.kind, "kind", "",
+		"filter: document or collection")
+	f.StringVar(&opts.slug, "slug", "",
+		"filter: glob matched against document slugs; collections never match")
+	f.BoolVar(&opts.allProfiles, "all-profiles", false,
+		"list every recorded profile, even when AIRPLAN_PROFILE is set")
 
 	return cmd
 }
@@ -81,8 +155,24 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 	if err := opts.columnRequest(cmd).validate(mode, opts.json); err != nil {
 		return err
 	}
+	if opts.allProfiles {
+		if cmd.Flags().Changed("profile") {
+			return errors.New(
+				"--all-profiles cannot be combined with --profile")
+		}
+		// Remote listing is scoped to the selected profile's key_prefix by
+		// storage layout, not by choice (SPEC.md §9).
+		if opts.remote {
+			return errors.New(
+				"--all-profiles cannot be combined with --remote")
+		}
+	}
+	filter, err := opts.listFilter(cmd, time.Now())
+	if err != nil {
+		return err
+	}
 	if opts.remote {
-		return runRemoteList(cmd, opts)
+		return runRemoteList(cmd, opts, filter)
 	}
 
 	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
@@ -102,9 +192,12 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 		}
 	}
 	var profile *string
-	if cmd.Flags().Changed("profile") {
+	switch {
+	case opts.allProfiles:
+		profile = nil
+	case cmd.Flags().Changed("profile"):
 		profile = &opts.profile
-	} else if os.Getenv("AIRPLAN_PROFILE") != "" {
+	case os.Getenv("AIRPLAN_PROFILE") != "":
 		profile = &cfg.Profile
 	}
 	if cfg.EffectiveBackend() == airplan.BackendAirplan {
@@ -119,13 +212,17 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 		if err != nil {
 			return err
 		}
-		return outputManifestList(cmd, opts, listed.Records, listed.Warnings)
+		return outputManifestList(
+			cmd, opts, filter, listed.Records, listed.Warnings,
+		)
 	}
 	listed, err := airplan.ListManifestHistory(cfg.ManifestPath, profile)
 	if err != nil {
 		return err
 	}
-	return outputManifestList(cmd, opts, listed.Records, listed.Warnings)
+	return outputManifestList(
+		cmd, opts, filter, listed.Records, listed.Warnings,
+	)
 }
 
 func allowsConfigFreeLocalList(cmd *cobra.Command) bool {
@@ -147,13 +244,14 @@ func allowsConfigFreeLocalList(cmd *cobra.Command) bool {
 }
 
 func outputManifestList(
-	cmd *cobra.Command, opts *listOptions,
+	cmd *cobra.Command, opts *listOptions, filter airplan.ListFilter,
 	uploads []airplan.ManifestRecord, warnings []string,
 ) error {
 	stderr := cmd.ErrOrStderr()
 	for _, warning := range warnings {
 		fmt.Fprintf(stderr, "airplan: warning: %s\n", warning)
 	}
+	uploads = filter.FilterManifestRecords(uploads)
 	if opts.reverse {
 		slices.Reverse(uploads)
 	}
@@ -173,7 +271,9 @@ func outputManifestList(
 	return printUploadTable(cmd.OutOrStdout(), uploads, columns)
 }
 
-func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
+func runRemoteList(
+	cmd *cobra.Command, opts *listOptions, filter airplan.ListFilter,
+) error {
 	client, cfg, ctx, cancel, err := setupClient(
 		cmd, opts.config, opts.profile)
 	if err != nil {
@@ -185,6 +285,7 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 	if err != nil {
 		return err
 	}
+	uploads = filter.FilterRemoteUploads(uploads)
 	if cfg.EffectiveBackend() == airplan.BackendS3 && cfg.PublicBaseURL == "" {
 		for _, upload := range uploads {
 			if upload.URL != "" {

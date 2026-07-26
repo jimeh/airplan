@@ -534,6 +534,129 @@ func TestPurgeDryRunDeletesNothing(t *testing.T) {
 	}
 }
 
+// TestPurgeOlderThanAcceptsAbsoluteDates covers purge adopting the shared
+// time-filter parser: an absolute boundary selects the same way an age does,
+// and an ambiguous slash date is refused rather than guessed.
+func TestPurgeOlderThanAcceptsAbsoluteDates(t *testing.T) {
+	records := []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "ancient", "",
+			time.Date(2024, 5, 1, 12, 0, 0, 0, time.UTC)),
+		uploadRecord(deleteDirB, "recent", "",
+			time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)),
+	}
+
+	t.Run("absolute date", func(t *testing.T) {
+		isolateEnv(t)
+		writeDefaultManifest(t, records)
+
+		stdout, stderr, err := executeCommand(t, "", "",
+			"purge", "--older-than", "2026-01-01", "--dry-run")
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		if stdout != "" {
+			t.Fatalf("stdout = %q, want empty", stdout)
+		}
+		if !strings.Contains(stderr, "ancient.html") {
+			t.Fatalf("stderr = %q, want the 2024 upload", stderr)
+		}
+		if strings.Contains(stderr, "recent.html") {
+			t.Fatalf("stderr = %q, did not want the 2026 upload", stderr)
+		}
+	})
+
+	t.Run("ambiguous slash date", func(t *testing.T) {
+		isolateEnv(t)
+		writeDefaultManifest(t, records)
+
+		stdout, stderr, err := executeCommand(t, "", "",
+			"purge", "--older-than", "03/04/2026", "--dry-run")
+		if err == nil {
+			t.Fatalf("error = nil, want a parse error\nstderr: %s", stderr)
+		}
+		if !strings.Contains(err.Error(),
+			`--older-than: invalid time "03/04/2026" (ambiguous date; `+
+				`write the year first, as 2026-03-04)`) {
+			t.Fatalf("error = %q", err)
+		}
+		if stdout != "" || strings.Contains(stderr, ".html") {
+			t.Fatalf("stdout = %q, stderr = %q, want no candidates",
+				stdout, stderr)
+		}
+	})
+}
+
+// TestPurgeOlderThanRejectsZeroAge covers the degenerate-filter guard. An age
+// of zero resolves to "everything recorded before now", which is what a
+// script's unset or miscomputed age variable expands to, so purge must refuse
+// it instead of emptying the bucket.
+func TestPurgeOlderThanRejectsZeroAge(t *testing.T) {
+	for _, age := range []string{"0d", "0s", "0h0m", "0w"} {
+		t.Run(age, func(t *testing.T) {
+			isolateEnv(t)
+			writeDefaultManifest(t, []airplan.ManifestRecord{
+				uploadRecord(deleteDirA, "alpha", "",
+					time.Now().Add(-60*24*time.Hour)),
+				uploadRecord(deleteDirB, "beta", "",
+					time.Now().Add(-time.Hour)),
+			})
+			fake := newFakeDeleteS3(t, map[string][]string{
+				deleteDirA + "/": {deleteDirA + "/alpha.html"},
+				deleteDirB + "/": {deleteDirB + "/beta.html"},
+			}, nil)
+
+			stdout, stderr, err := executeCommand(t, "", "", "purge",
+				"--older-than", age, "--yes",
+				"--config", writeCLIConfig(t, fake.server.URL))
+			if err == nil {
+				t.Fatalf("error = nil, want a refusal\nstderr:\n%s", stderr)
+			}
+			if !strings.Contains(err.Error(),
+				"--older-than: an age of zero selects every upload; "+
+					"use --all to delete everything") {
+				t.Fatalf("error = %q", err)
+			}
+			if stdout != "" {
+				t.Fatalf("stdout = %q, want empty", stdout)
+			}
+			if fake.deleteCalls() != 0 || fake.markerDeleteCalls() != 0 {
+				t.Fatalf("delete calls = %d, marker deletes = %d; want none",
+					fake.deleteCalls(), fake.markerDeleteCalls())
+			}
+
+			records, warnings, err := airplan.ReadManifest("")
+			if err != nil || len(warnings) != 0 {
+				t.Fatalf("ReadManifest: %v %v", err, warnings)
+			}
+			if got := airplan.ActiveUploads(records); len(got) != 2 {
+				t.Fatalf("active uploads = %d, want 2 untouched", len(got))
+			}
+		})
+	}
+}
+
+// TestPurgeOlderThanAcceptsExplicitFutureDate keeps a typed absolute boundary
+// working: it selects broadly, but deliberately, unlike a degenerate age.
+func TestPurgeOlderThanAcceptsExplicitFutureDate(t *testing.T) {
+	isolateEnv(t)
+	writeDefaultManifest(t, []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "alpha", "",
+			time.Now().Add(-60*24*time.Hour)),
+	})
+
+	stdout, stderr, err := executeCommand(t, "", "", "purge",
+		"--older-than", "2099-01-01", "--dry-run")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	if !strings.Contains(stderr, "alpha.html") {
+		t.Fatalf("stderr = %q, want the upload listed", stderr)
+	}
+}
+
 // TestPurgeDryRunListsCandidatesOldestFirst pins purge candidate order to
 // manifest listing order (SPEC.md §9), including when manifest file order
 // disagrees with record time as it does after a sync import.

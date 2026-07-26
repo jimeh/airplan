@@ -783,10 +783,13 @@ airplan template [document|collection]
 airplan preview [flags] [file ...]
 airplan completion bash|zsh|fish|powershell
 airplan list|ls [--remote] [--json] [--columns SET] [--wide] [--reverse]
+                [--newer-than X] [--older-than X] [--limit N]
+                [--kind document|collection] [--slug PATTERN]
+                [--all-profiles]
 airplan show [--json] <url|key>
 airplan get [--output PATH] [--source] <url|key>
 airplan delete <url|key>
-airplan purge [--remote] [--older-than 30d]
+airplan purge [--remote] [--older-than 30d|2026-01-01]
               [--all] [--dry-run] [--yes] [--concurrency N]
 airplan sync [--config PATH] [--profile NAME] [--concurrency N]
              [--no-prune] [--dry-run] [--json]
@@ -1326,8 +1329,10 @@ machine) and must be safe:
   exact byte counts. Rows sort by record time, then ownership marker key, so
   local history reads in the same order as a remote listing even when `sync`
   appended imported uploads after later local ones. `--reverse` prints newest
-  first, in the table and in `--json`. `KIND` is the recorded kind and `-` for
-  legacy records that omit it. `SIZE` and the wide `PAGE SIZE` column both
+  first, in the table and in `--json`. `KIND` is the record's kind, with
+  legacy history reading as `document` under the record-schema inference above;
+  it shows `-` only when no kind is known at all, as in a served record that
+  declares none. `SIZE` and the wide `PAGE SIZE` column both
   report the primary page's byte count. `STATE` is `managed` for the supported
   `marker_version` and `legacy` when the field is absent. Both appear in
   history without warning; legacy entries remain ineligible for delete
@@ -1351,12 +1356,44 @@ machine) and must be safe:
   with neither `--columns` nor `--json`. Column selection is presentation, so
   `--columns` and `--wide` are rejected with `--json`, while `--reverse`
   reorders both outputs.
+- `list` filters are selection, not presentation, so they apply to both listing
+  modes and to the table and `--json` alike. `--newer-than X` keeps uploads
+  recorded at or after `X`; `--older-than X` keeps uploads recorded strictly
+  before it, the same boundary `purge --older-than` uses, so the two bounds
+  partition a timeline without overlap or gap. `--limit N` keeps the **N most
+  recent** matches and still prints them oldest first; it applies after the
+  other filters, `--limit 0` selects nothing, and a negative value is an error.
+  `--kind document|collection` selects one kind, counting legacy history that
+  omits `kind` as a document and never matching a remote dual-marker conflict,
+  which declares no kind. `--slug PATTERN` is a glob over document slugs with
+  the same meaning as `purge --slug`: collections are excluded even from
+  `--slug '*'`, an upload with no known slug never matches, and a local record
+  that omits `slug` uses the one derived from its page key. Filters compose,
+  and `--reverse` reorders whatever they selected.
+- `--newer-than` and `--older-than` accept exactly two forms. An age, as
+  `purge --older-than` has always accepted, including `d` and `w` units:
+  `7d`, `2w`, `36h`, `1h30m`. Or an absolute date: `2026`, `2026-07`,
+  `2026-07-01`, `2026/07/01`, `2026-07-01 09:30`, `2026-07-01T09:30`,
+  `2026-07-01T09:30:00`, or
+  RFC 3339 with an offset. A value opening with four digits, alone or followed
+  by `-` or `/`, is a date; everything else is an age. Dates and times without
+  an offset resolve at **local** midnight or local wall-clock time, matching
+  `docker` and `journalctl`; an explicit offset is honored as written. The
+  manifest continues to record UTC — only the flag value is local. Because the
+  same parser selects purge deletions, ambiguous input is refused rather than
+  guessed: a slash date that does not lead with a four-digit year, such as
+  `03/04/2026`, is an error naming the year-first form.
 - With no resolvable configuration or backend selection, `list` assumes `s3`
   and reads the resolved local manifest without requiring storage credentials.
   Local S3 listing with no explicit profile shows every recorded profile; an
   explicit `--profile NAME` filters that exact profile, and `--profile=`
-  selects root-level history. If configuration selects an `airplan` profile,
-  `list` calls the server's manifest endpoint. `--config` is therefore valid
+  selects root-level history. `--all-profiles` asks for the cross-profile
+  default explicitly, so it also overrides an `AIRPLAN_PROFILE` that would
+  otherwise narrow local history; it cannot be combined with `--profile` or
+  with `--remote`, whose scope is the selected profile's `key_prefix`. If
+  configuration selects an `airplan` profile, `list` calls the server's
+  manifest endpoint, which scopes records to the server's own identity.
+  `--config` is therefore valid
   for non-remote list because it can select the HTTP backend.
 - `airplan list --remote`: cheaply discovers marker directories made from any
   machine. It performs only paginated bucket LIST operations beneath the
@@ -1488,8 +1525,14 @@ machine) and must be safe:
   deletion fails. This exception repairs local history; it never grants
   authority to delete unmarked bucket objects.
 - `airplan purge`: bulk delete driven by the manifest with filters —
-  `--older-than 30d`, `--slug PATTERN`, `--profile P`. Durations
-  accept `d`/`w` units. `--profile`/`-p` behaves as on every other
+  `--older-than 30d`, `--slug PATTERN`, `--profile P`. `--older-than` takes
+  the same values as `list --older-than`, an age with `d`/`w` units or an
+  absolute date, read by the same parser with the same refusal to guess at
+  ambiguous input. Purge additionally rejects an age of zero, which would
+  select every upload; that is what an unset script variable expands to, and
+  `--all` is how a caller asks to delete everything. An explicit absolute date
+  is accepted however broadly it selects, because a human wrote it.
+  `--profile`/`-p` behaves as on every other
   command by selecting the connection profile. Local purge always
   considers only uploads recorded with the resolved active profile,
   whether it came from `--profile`, `AIRPLAN_PROFILE`,
