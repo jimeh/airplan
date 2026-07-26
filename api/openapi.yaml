@@ -661,11 +661,11 @@ components:
           format: int64
         objects:
           type: integer
-          minimum: 0
+          minimum: 1
         total_bytes:
           type: integer
           format: int64
-          minimum: 0
+          minimum: 1
         reason:
           type: string
         marker_version:

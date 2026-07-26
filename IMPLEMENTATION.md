@@ -267,8 +267,9 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
 - `--older-than` durations: small custom parser for `d`/`w` units —
   Go's stdlib `time.ParseDuration` has no days. List and purge time
   boundaries layer `ParseTimeFilter` on top: a leading four-digit year
-  selects an ordered `time.ParseInLocation` layout list in the local
-  zone, and everything else falls through to the duration parser.
+  selects an ordered timestamp layout list, where offset-less forms
+  resolve in the local zone while an explicit RFC 3339 offset is honored
+  exactly. Everything else falls through to the duration parser.
 - Manifest appends: `O_APPEND` open, whole line in one `Write` call,
   wrapped in context-aware `gofrs/flock` acquisition (flock on Unix,
   LockFileEx on Windows) per spec §9's concurrency and timeout rules.

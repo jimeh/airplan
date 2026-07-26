@@ -470,6 +470,59 @@ func TestReadManifestSkipsOversizedLineAndContinues(t *testing.T) {
 	}
 }
 
+// TestReadManifestRequiresPairedDeclaredTotals pins SPEC.md §9's atomic
+// pair rule: a record carrying exactly one of objects/total_bytes would
+// report a count with no size (or the reverse) and would never qualify
+// for the sync backfill, which selects only records missing both.
+func TestReadManifestRequiresPairedDeclaredTotals(t *testing.T) {
+	const base = `{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+		`"key":"vq3nhk2p7r4wzt5c6ydjm3xhqd/plan.html",` +
+		`"url":"https://plans.example.com/vq3n/plan.html",` +
+		`"bucket":"plans","bytes":1,"marker_version":3`
+
+	for name, tail := range map[string]string{
+		"objects only":     `,"objects":3}`,
+		"total_bytes only": `,"total_bytes":25600}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "manifest.jsonl")
+			if err := os.WriteFile(
+				path, []byte(base+tail+"\n"), 0o600,
+			); err != nil {
+				t.Fatal(err)
+			}
+			records, warnings, err := readManifest(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(records) != 0 {
+				t.Fatalf("records = %+v, want the half-paired record skipped",
+					records)
+			}
+			if len(warnings) != 1 ||
+				!strings.Contains(warnings[0], "recorded together") {
+				t.Fatalf("warnings = %v, want a pairing warning", warnings)
+			}
+		})
+	}
+
+	t.Run("both present", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "manifest.jsonl")
+		line := base + `,"objects":3,"total_bytes":25600}` + "\n"
+		if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		records, warnings, err := readManifest(path)
+		if err != nil || len(warnings) != 0 || len(records) != 1 {
+			t.Fatalf("records = %+v, warnings = %v, err = %v",
+				records, warnings, err)
+		}
+		if records[0].Objects != 3 || records[0].TotalBytes != 25600 {
+			t.Fatalf("record = %+v", records[0])
+		}
+	})
+}
+
 func TestReadManifestSkipsInvalidRecordsAndBlankLines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "manifest.jsonl")
 	data := strings.Join([]string{

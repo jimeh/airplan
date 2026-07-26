@@ -528,6 +528,50 @@ func TestSyncBackfillLeavesNonCompleteMarkersUntouched(t *testing.T) {
 	})
 }
 
+// TestSyncBackfillFetchFailureReportsFetchOperation pins the wire-visible
+// SyncFailure.Operation for a backfill job. syncFailureForContext
+// distinguishes enrich jobs from prune jobs even though both carry a
+// local record, so an enrich failure must report "fetch" and never
+// "confirm_absence" — the marker was listed, so nothing about its
+// absence was ever established.
+func TestSyncBackfillFetchFailureReportsFetchOperation(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("j", 26)
+	marker := declaredDocumentMarker(dir, when)
+	fake.addUpload(t, marker, []byte("0123456789"))
+	fake.addObject(dir+"/new.md", []byte("12345678"), when)
+	// Listed, so it pairs with the active record and becomes an enrich
+	// job, but its marker GET fails rather than 404s.
+	fake.failGet[dir+"/"+MarkerFilename] = true
+
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	if err := os.WriteFile(manifest,
+		[]byte(backfillManifestLine(dir, when)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	client := newSyncClient(t, fake.server.URL, manifest)
+	result, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err == nil {
+		t.Fatal("sync must report the fetch failure")
+	}
+	if len(result.Failures) != 1 {
+		t.Fatalf("failures = %+v, want exactly one", result.Failures)
+	}
+	if got := result.Failures[0].Operation; got != "fetch" {
+		t.Fatalf("operation = %q, want \"fetch\"", got)
+	}
+	if len(result.Enriched) != 0 || len(result.Tombstoned) != 0 {
+		t.Fatalf("result = %+v, want no manifest changes", result)
+	}
+	records, _, err := ReadManifest(manifest)
+	if err != nil || len(records) != 1 || records[0].Objects != 0 {
+		t.Fatalf("records = %+v, %v; record must stay untouched",
+			records, err)
+	}
+}
+
 // TestSyncDeclaredTotalsRequireFullyDeclaredMarkers pins the contract
 // that objects/total_bytes are marker-declared, never storage-observed:
 // markers that do not declare every counted object's size (v1 pages,
@@ -694,6 +738,7 @@ type syncStorage struct {
 	objects     map[string][]byte
 	modified    map[string]time.Time
 	hidden      map[string]bool
+	failGet     map[string]bool
 	delay       time.Duration
 	inFlight    int
 	maxInFlight int
@@ -703,7 +748,7 @@ func newSyncStorage(t *testing.T) *syncStorage {
 	t.Helper()
 	fake := &syncStorage{
 		objects: make(map[string][]byte), modified: make(map[string]time.Time),
-		hidden: make(map[string]bool),
+		hidden: make(map[string]bool), failGet: make(map[string]bool),
 	}
 	fake.server = httptest.NewServer(http.HandlerFunc(fake.handle))
 	t.Cleanup(fake.server.Close)
@@ -770,6 +815,15 @@ func (f *syncStorage) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := strings.TrimPrefix(r.URL.Path, "/plans/")
+	f.mu.Lock()
+	serverError := f.failGet[key]
+	f.mu.Unlock()
+	if serverError {
+		// A transport failure, distinct from the NoSuchKey below: absence
+		// is confirmable, a 500 is not.
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 	f.mu.Lock()
 	f.inFlight++
 	if f.inFlight > f.maxInFlight {

@@ -261,24 +261,38 @@ func outputManifestList(
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(uploads)
 	}
 
-	cols, err := resolveListColumns(
-		false, opts.columns, opts.wide, manifestAutoInfo(uploads),
+	return renderListTable(
+		cmd.OutOrStdout(), false, opts, manifestAutoInfo(uploads), uploads,
+		func(col listColumnSpec, rec airplan.ManifestRecord) string {
+			return col.localValue(rec)
+		},
 	)
+}
+
+// renderListTable resolves the column set against the actual result-set
+// metadata, then renders one row per item. Both list modes share it so
+// the zero-column rule and row assembly cannot drift apart; only the
+// per-column value extractor differs.
+func renderListTable[T any](
+	w io.Writer, remote bool, opts *listOptions, auto listAutoInfo,
+	items []T, value func(listColumnSpec, T) string,
+) error {
+	cols, err := resolveListColumns(remote, opts.columns, opts.wide, auto)
 	if err != nil {
 		return err
 	}
 	if len(cols) == 0 {
 		return errors.New("--columns removes every column")
 	}
-	rows := make([][]string, 0, len(uploads))
-	for _, rec := range uploads {
+	rows := make([][]string, 0, len(items))
+	for _, item := range items {
 		row := make([]string, 0, len(cols))
 		for _, col := range cols {
-			row = append(row, col.localValue(rec))
+			row = append(row, value(col, item))
 		}
 		rows = append(rows, row)
 	}
-	return printListTable(cmd.OutOrStdout(), cols, rows)
+	return printListTable(w, cols, rows)
 }
 
 func runRemoteList(
@@ -318,24 +332,12 @@ func runRemoteList(
 		)
 	}
 
-	cols, err := resolveListColumns(
-		true, opts.columns, opts.wide, remoteAutoInfo(uploads),
+	return renderListTable(
+		cmd.OutOrStdout(), true, opts, remoteAutoInfo(uploads), uploads,
+		func(col listColumnSpec, upload airplan.RemoteUpload) string {
+			return col.remoteValue(upload)
+		},
 	)
-	if err != nil {
-		return err
-	}
-	if len(cols) == 0 {
-		return errors.New("--columns removes every column")
-	}
-	rows := make([][]string, 0, len(uploads))
-	for _, upload := range uploads {
-		row := make([]string, 0, len(cols))
-		for _, col := range cols {
-			row = append(row, col.remoteValue(upload))
-		}
-		rows = append(rows, row)
-	}
-	return printListTable(cmd.OutOrStdout(), cols, rows)
 }
 
 // columnMode describes how one column participates in a list mode

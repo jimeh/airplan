@@ -1296,6 +1296,11 @@ conforming implementations can share a manifest:
   rather than persisting observed storage sizes as declared. Records
   that predate the fields simply omit
   them, and readers present unknown counts as `-` with no warning.
+  The two are an atomic pair: both are recorded together or both are
+  omitted, and each is positive when present. A record carrying exactly
+  one is invalid and is skipped with a warning like any other malformed
+  record, because it would report a count with no size (or the reverse)
+  while never qualifying for the `sync` backfill.
   `bytes` keeps its meaning: the primary page object only.
 - Current writers always include `marker_version: 3`; its absence identifies
   legacy pre-marker history. Readers infer `kind: document` and derive its

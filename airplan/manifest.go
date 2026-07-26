@@ -292,6 +292,14 @@ func validateManifestRecord(rec ManifestRecord) error {
 		if rec.TotalBytes < 0 {
 			return errors.New("total_bytes must not be negative")
 		}
+		// Declared inventory is an atomic pair (SPEC.md §9). Writers emit
+		// both or neither, and a record carrying exactly one would report a
+		// count with no size (or the reverse) while never qualifying for the
+		// sync backfill, which selects only records missing both.
+		if (rec.Objects == 0) != (rec.TotalBytes == 0) {
+			return errors.New(
+				"objects and total_bytes must be recorded together")
+		}
 		if rec.MarkerKey != "" {
 			expected := markerKeyForManifestRecord(rec)
 			if expected == "" || rec.MarkerKey != expected {
