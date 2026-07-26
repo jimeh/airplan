@@ -124,8 +124,9 @@ func (c *Client) SyncManifest(
 		}
 		// Backfill declared objects/total_bytes for active records that
 		// predate those fields (SPEC.md §9). Only records missing both
-		// fields qualify, so one pass converges and later syncs cost
-		// nothing.
+		// fields qualify, so backfill converges once a marker inspects
+		// complete and fully declares its inventory; markers that never
+		// do are re-inspected on later syncs and left untouched.
 		if record.Objects == 0 && record.TotalBytes == 0 {
 			jobs = append(jobs, syncJob{
 				markerKey: upload.MarkerKey, upload: &upload,
@@ -282,9 +283,11 @@ func (c *Client) syncImport(
 		Title: inspection.Title, Repo: inspection.Repo,
 		Bytes: inspection.Page.Bytes, MarkerVersion: inspection.MarkerVersion,
 	}
-	record.Objects, record.TotalBytes = declaredInspectionTotals(
+	if objects, total, ok := declaredInspectionTotals(
 		inspection, len(markerBody),
-	)
+	); ok {
+		record.Objects, record.TotalBytes = objects, total
+	}
 	if inspection.Kind == UploadKindDocument {
 		record.Slug, _ = pageSlug(path.Base(inspection.Page.Key))
 	}
@@ -300,24 +303,33 @@ func (c *Client) syncImport(
 
 // declaredInspectionTotals derives the marker-declared inventory from a
 // complete inspection: the marker plus its page, optional source, and
-// files (SPEC.md §9). Sync only records complete uploads, so declared
-// and observed sizes agree here; interrupted remnants and unrecognized
-// extras are deliberately excluded, keeping the values identical to a
-// fresh upload of the same content.
+// files (SPEC.md §9). The counts are recorded only when the marker
+// fully determines every counted object's bytes — marker v1 never
+// declares page bytes and v1/v2 never declare source bytes, so those
+// markers report ok=false and both fields stay absent rather than
+// persisting observed listing sizes labelled as declared. Interrupted
+// remnants and unrecognized extras are deliberately excluded, keeping
+// the values identical to a fresh upload of the same content.
 func declaredInspectionTotals(
 	inspection *UploadInspection, markerBytes int,
-) (int, int64) {
+) (int, int64, bool) {
+	if !inspection.Page.ExpectedKnown {
+		return 0, 0, false
+	}
 	objects := 2 // the marker and its page
-	total := int64(markerBytes) + inspection.Page.Bytes
+	total := int64(markerBytes) + inspection.Page.ExpectedBytes
 	if inspection.Source != nil {
+		if !inspection.Source.ExpectedKnown {
+			return 0, 0, false
+		}
 		objects++
-		total += inspection.Source.Bytes
+		total += inspection.Source.ExpectedBytes
 	}
 	for _, file := range inspection.Files {
 		objects++
-		total += file.Bytes
+		total += file.ExpectedBytes
 	}
-	return objects, total
+	return objects, total, true
 }
 
 // syncEnrich re-appends one active record with declared inventory
@@ -338,10 +350,14 @@ func (c *Client) syncEnrich(
 	if inspection.State != UploadComplete {
 		return syncJobResult{}
 	}
-	enriched := record
-	enriched.Objects, enriched.TotalBytes = declaredInspectionTotals(
+	objects, total, ok := declaredInspectionTotals(
 		inspection, len(markerBody),
 	)
+	if !ok {
+		return syncJobResult{}
+	}
+	enriched := record
+	enriched.Objects, enriched.TotalBytes = objects, total
 	return syncJobResult{enriched: &enriched}
 }
 

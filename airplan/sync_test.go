@@ -528,6 +528,124 @@ func TestSyncBackfillLeavesNonCompleteMarkersUntouched(t *testing.T) {
 	})
 }
 
+// TestSyncDeclaredTotalsRequireFullyDeclaredMarkers pins the contract
+// that objects/total_bytes are marker-declared, never storage-observed:
+// markers that do not declare every counted object's size (v1 pages,
+// v1/v2 sources) leave both fields absent on import and backfill.
+func TestSyncDeclaredTotalsRequireFullyDeclaredMarkers(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name        string
+		marker      UploadMarker
+		source      []byte
+		page        []byte
+		wantCounts  bool
+		wantObjects int
+	}{
+		{
+			name: "v1 leaves counts absent",
+			marker: UploadMarker{
+				Schema: MarkerSchema, Version: 1, Directory: "",
+				CreatedAt: when, Format: "html", Page: "new.html",
+			},
+			page: []byte("page"),
+		},
+		{
+			name: "v2 with source leaves counts absent",
+			marker: UploadMarker{
+				Schema: MarkerSchema, Version: 2, Directory: "",
+				CreatedAt: when, Format: "md", Page: "new.html",
+				PageBytes: 10, Source: "new.md",
+			},
+			page:   []byte("0123456789"),
+			source: []byte("# source"),
+		},
+		{
+			name: "v2 without source records counts",
+			marker: UploadMarker{
+				Schema: MarkerSchema, Version: 2, Directory: "",
+				CreatedAt: when, Format: "html", Page: "new.html",
+				PageBytes: 9,
+			},
+			page:        []byte("123456789"),
+			wantCounts:  true,
+			wantObjects: 2,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fake := newSyncStorage(t)
+			dir := strings.Repeat("j", 26)
+			tt.marker.Directory = dir
+			fake.addUpload(t, tt.marker, tt.page)
+			if tt.source != nil {
+				fake.addObject(dir+"/"+tt.marker.Source, tt.source, when)
+			}
+
+			manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+			client := newSyncClient(t, fake.server.URL, manifest)
+			result, err := client.SyncManifest(context.Background(),
+				SyncManifestOptions{Prune: true})
+			if err != nil || len(result.Added) != 1 {
+				t.Fatalf("sync = %+v, %v", result, err)
+			}
+			imported := result.Added[0]
+			if !tt.wantCounts {
+				if imported.Objects != 0 || imported.TotalBytes != 0 {
+					t.Fatalf("imported counts = (%d, %d), want absent",
+						imported.Objects, imported.TotalBytes)
+				}
+			} else {
+				body, err := EncodeUploadMarker(tt.marker)
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantTotal := int64(len(body)) + tt.marker.PageBytes
+				if imported.Objects != tt.wantObjects ||
+					imported.TotalBytes != wantTotal {
+					t.Fatalf("imported counts = (%d, %d), want (%d, %d)",
+						imported.Objects, imported.TotalBytes,
+						tt.wantObjects, wantTotal)
+				}
+			}
+
+			// Backfill obeys the same rule: an active record missing
+			// both counts stays untouched under an underdeclared
+			// marker instead of gaining observed sizes.
+			backfillManifest := filepath.Join(t.TempDir(), "backfill.jsonl")
+			if err := os.WriteFile(backfillManifest,
+				[]byte(backfillManifestLine(dir, when)),
+				0o600); err != nil {
+				t.Fatal(err)
+			}
+			backfillClient := newSyncClient(
+				t, fake.server.URL, backfillManifest,
+			)
+			backfilled, err := backfillClient.SyncManifest(
+				context.Background(), SyncManifestOptions{Prune: true},
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantCounts {
+				if len(backfilled.Enriched) != 1 {
+					t.Fatalf("backfill = %+v, want one enrichment",
+						backfilled)
+				}
+				return
+			}
+			if len(backfilled.Enriched) != 0 {
+				t.Fatalf("backfill = %+v, want none", backfilled)
+			}
+			records, _, err := ReadManifest(backfillManifest)
+			if err != nil || len(records) != 1 || records[0].Objects != 0 {
+				t.Fatalf("records = %+v, %v", records, err)
+			}
+		})
+	}
+}
+
 func TestSyncCommitNeverResurrectsTombstonedIdentity(t *testing.T) {
 	dir := strings.Repeat("i", 26)
 	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)

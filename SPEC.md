@@ -1289,7 +1289,12 @@ conforming implementations can share a manifest:
   remnants are excluded — so the same upload records the same counts
   whether it arrived by upload or by `sync`. Writers record them for
   every new upload; `sync` records them on import and backfills active
-  records missing both. Records that predate the fields simply omit
+  records missing both, in both cases only when the validated marker
+  fully declares every counted object's size. Marker v3 always does;
+  marker v1 (no declared page bytes) and v1/v2 sources (no declared
+  source bytes) do not, and those records keep both fields absent
+  rather than persisting observed storage sizes as declared. Records
+  that predate the fields simply omit
   them, and readers present unknown counts as `-` with no warning.
   `bytes` keeps its meaning: the primary page object only.
 - Current writers always include `marker_version: 3`; its absence identifies
@@ -1599,14 +1604,16 @@ machine) and must be safe:
   Sync also backfills declared counts: every active, scoped,
   marker-managed local record missing both `objects` and `total_bytes`
   has its listed marker fetched and inspected, and only a `complete`
-  upload appends an enriched copy of the record — original time and
-  identity with the declared counts added — which latest-wins
-  reduction collapses in place. A non-complete or invalid inspection
-  leaves the record untouched rather than guessing. Backfill converges
-  in one pass and then costs nothing, never resurrects a tombstoned
-  identity, shares the `--concurrency` budget, and follows the same
-  lock/reread/recheck commit path; `--dry-run` plans enrichment
-  without writing.
+  upload whose marker fully declares its inventory appends an enriched
+  copy of the record — original time and identity with the declared
+  counts added — which latest-wins reduction collapses in place. A
+  non-complete, invalid, or underdeclared inspection leaves the record
+  untouched rather than guessing. Backfill converges once a marker
+  inspects complete with a fully declared inventory; records that
+  never do are simply re-inspected by later syncs. It never resurrects
+  a tombstoned identity, shares the `--concurrency` budget, and
+  follows the same lock/reread/recheck commit path; `--dry-run` plans
+  enrichment without writing.
   By default, active scoped local records absent from LIST are considered for
   pruning, but airplan performs a targeted marker GET before appending a
   `remote_missing` tombstone. Only a definite not-found response confirms
