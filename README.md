@@ -502,6 +502,26 @@ shows every profile. Without resolvable configuration, local list assumes the
 profile, in which case list reads the server manifest and `--config` is useful
 without `--remote`.
 
+List rows sort oldest first; `--reverse` prints newest first. Local and
+remote list share one column registry with per-mode defaults, and three
+columns appear automatically only when they carry information: `profile`
+(mixed profiles), `state` (legacy rows), and `dir` (rows without an
+inferable URL). Adjust the table with `--columns` — an absolute set
+(`--columns date,title,url`) or `+`/`-` changes against the default
+(`--columns +dir,-title`) — or show every valid column with `--wide`.
+Both are table-only and rejected with `--json`.
+
+List also selects rows with `--newer-than X` (time >= X), `--older-than
+X` (time < X), `--kind document|collection`, `--slug PATTERN` (glob over
+document slugs; collections excluded), and `--limit N` (the N most
+recent matches, still printed oldest first). Filters apply identically
+to the table and `--json` in both modes. Time values are durations
+(`7d`, `2w`, `36h`) or absolute dates and times (`2026-07`,
+`2026-07-01`, `2026-07-01 09:30`, RFC 3339); bare dates mean local
+midnight. `purge --older-than` accepts the same forms, and its
+threshold must lie in the past — purging everything requires an
+explicit `--all`.
+
 `--remote` reads storage through the selected backend instead, so it can find
 uploads from other machines.
 Remote discovery recognizes document `.airplan.json` and collection
