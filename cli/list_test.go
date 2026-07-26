@@ -403,6 +403,51 @@ func TestListTableColumnSelection(t *testing.T) {
 	}
 }
 
+func TestListColumnsAdjustmentsKeepFiringAutoColumns(t *testing.T) {
+	removeDefaults := "-date,-kind,-title,-objects,-size,-url"
+	multiProfile := strings.Join([]string{
+		listRecordLine(deleteDirA, "2026-07-08T14:03:11Z", "Work"),
+		`{"type":"upload","time":"2026-07-08T15:03:11Z",` +
+			`"key":"` + deleteDirB + `/plan.html",` +
+			`"marker_key":"` + deleteDirB + `/.airplan.json",` +
+			`"url":"https://plans.example.com/` + deleteDirB +
+			`/plan.html","bucket":"plans","kind":"document",` +
+			`"title":"Root","bytes":7,"marker_version":3}`,
+	}, "\n") + "\n"
+
+	t.Run("auto column keeps the table alive", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path, multiProfile)
+
+		stdout, stderr, err := executeList(t, "--columns", removeDefaults)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		assertHeaderFields(t, stdout, []string{"PROFILE"})
+		for _, want := range []string{"work", "<root>"} {
+			if !strings.Contains(stdout, want) {
+				t.Fatalf("stdout missing %q:\n%s", want, stdout)
+			}
+		}
+	})
+
+	t.Run("empty selection still errors at render", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path,
+			listRecordLine(deleteDirA, "2026-07-08T14:03:11Z", "Work")+
+				"\n")
+
+		stdout, _, err := executeList(t, "--columns", removeDefaults)
+		if err == nil || err.Error() != "--columns removes every column" {
+			t.Fatalf("error = %v", err)
+		}
+		if stdout != "" {
+			t.Fatalf("stdout = %q, want empty", stdout)
+		}
+	})
+}
+
 func TestListTableWideValues(t *testing.T) {
 	path := setListState(t)
 	writeManifest(t, path,

@@ -196,6 +196,14 @@ func TestMCPListUploadsAppliesFilters(t *testing.T) {
 	if err != nil || len(limited) != 1 || limited[0].Kind != "collection" {
 		t.Fatalf("limit filter = %+v, %v", limited, err)
 	}
+	// An explicit zero carries CLI --limit 0 semantics: select nothing,
+	// unlike omission which returns everything.
+	none, err := call(map[string]any{
+		"source": "manifest", "limit": 0,
+	})
+	if err != nil || len(none) != 0 {
+		t.Fatalf("explicit limit 0 = %+v, %v, want no records", none, err)
+	}
 	if _, err := call(map[string]any{
 		"source": "manifest", "kind": "bogus",
 	}); err == nil || !strings.Contains(err.Error(), "invalid kind") {

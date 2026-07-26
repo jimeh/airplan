@@ -267,6 +267,9 @@ func outputManifestList(
 	if err != nil {
 		return err
 	}
+	if len(cols) == 0 {
+		return errors.New("--columns removes every column")
+	}
 	rows := make([][]string, 0, len(uploads))
 	for _, rec := range uploads {
 		row := make([]string, 0, len(cols))
@@ -320,6 +323,9 @@ func runRemoteList(
 	)
 	if err != nil {
 		return err
+	}
+	if len(cols) == 0 {
+		return errors.New("--columns removes every column")
 	}
 	rows := make([][]string, 0, len(uploads))
 	for _, upload := range uploads {
@@ -659,9 +665,9 @@ func parseColumnsFlag(
 			out = append(out, spec)
 		}
 	}
-	if len(out) == 0 {
-		return nil, errors.New("--columns removes every column")
-	}
+	// An empty adjusted selection is not rejected here: automatic
+	// columns may still join once the real result set is known, so the
+	// zero-column check lives on the render path.
 	return out, nil
 }
 

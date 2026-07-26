@@ -1,6 +1,9 @@
 package airplan
 
 import (
+	"context"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,6 +59,118 @@ func TestListManifestHistoryOrdersByTimeThenMarkerKey(t *testing.T) {
 	first := listed.Records[0].Time
 	if !first.Equal(time.Date(2026, 7, 8, 14, 0, 0, 0, time.UTC)) {
 		t.Fatalf("first record time = %v", first)
+	}
+}
+
+// stubListTransport is a minimal operationTransport for exercising the
+// client-side handling of remote manifest listings.
+type stubListTransport struct {
+	list *ManifestList
+}
+
+func (s *stubListTransport) Upload(context.Context, Input) (*Result, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubListTransport) UploadFiles(
+	context.Context, FilesInput,
+) (*FilesResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubListTransport) ListManifest(
+	context.Context, ListManifestOptions,
+) (*ManifestList, error) {
+	return s.list, nil
+}
+
+func (s *stubListTransport) ListRemote(
+	context.Context,
+) ([]RemoteUpload, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubListTransport) InspectUpload(
+	context.Context, string,
+) (*UploadInspection, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubListTransport) InspectRemoteUploads(
+	context.Context, []RemoteUpload, int,
+) ([]RemoteInspectionResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubListTransport) GetUploadTo(
+	context.Context, string, GetOptions, io.Writer,
+) (string, error) {
+	return "", errors.New("not implemented")
+}
+
+func (s *stubListTransport) GetUpload(
+	context.Context, string, GetOptions,
+) (*GetResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubListTransport) DeleteUpload(
+	context.Context, string,
+) (*DeleteResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubListTransport) PlanPurge(
+	context.Context, PurgePlanOptions,
+) (*PurgePlan, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubListTransport) Purge(
+	context.Context, PurgeRequest,
+) (*PurgeResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubListTransport) SyncManifest(
+	context.Context, SyncManifestOptions,
+) (*SyncManifestResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+// TestListManifestSortsRemoteTransportRecords pins client-side
+// ordering for the airplan backend: an older server may return file
+// order, and downstream --limit selection assumes ascending time, so
+// ordering must not depend on the server version.
+func TestListManifestSortsRemoteTransportRecords(t *testing.T) {
+	dirA := strings.Repeat("a", 26)
+	dirB := strings.Repeat("b", 26)
+	newer := ManifestRecord{
+		Type: "upload",
+		Time: time.Date(2026, 7, 8, 16, 0, 0, 0, time.UTC),
+		Key:  dirB + "/plan.html", MarkerKey: dirB + "/.airplan.json",
+	}
+	older := ManifestRecord{
+		Type: "upload",
+		Time: time.Date(2026, 7, 8, 14, 0, 0, 0, time.UTC),
+		Key:  dirA + "/plan.html", MarkerKey: dirA + "/.airplan.json",
+	}
+	client := &Client{
+		cfg: &Config{Backend: BackendAirplan},
+		remote: &stubListTransport{list: &ManifestList{
+			Records: []ManifestRecord{newer, older},
+		}},
+	}
+
+	listed, err := client.ListManifest(context.Background(),
+		ListManifestOptions{Scope: ManifestScopeService})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Records) != 2 ||
+		!listed.Records[0].Time.Equal(older.Time) ||
+		!listed.Records[1].Time.Equal(newer.Time) {
+		t.Fatalf("records = %+v, want ascending time", listed.Records)
 	}
 }
 

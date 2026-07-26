@@ -39,33 +39,39 @@ type mcpListInput struct {
 	Source    string `json:"source,omitempty" jsonschema:"Inventory source: manifest or storage."`
 	NewerThan string `json:"newer_than,omitempty" jsonschema:"Keep uploads at or after this age or timestamp (7d, 2026-07-01)."`
 	OlderThan string `json:"older_than,omitempty" jsonschema:"Keep uploads before this age or timestamp (30d, 2026-01-01)."`
-	Limit     int    `json:"limit,omitempty" jsonschema:"Keep only the N most recent matches, still in ascending order."`
+	Limit     *int   `json:"limit,omitempty" jsonschema:"Keep only the N most recent matches, still in ascending order. An explicit 0 selects nothing."`
 	Kind      string `json:"kind,omitempty" jsonschema:"Keep one kind: document or collection."`
 	Slug      string `json:"slug,omitempty" jsonschema:"Glob matched against document slugs; collections are excluded."`
 }
 
 // listFilterFromMCPInput builds the shared list selection filter
 // (SPEC.md §9) from tool input, sharing CLI time-filter semantics.
-func listFilterFromMCPInput(input mcpListInput) (ListFilter, error) {
-	filter := ListFilter{
-		Kind: UploadKind(input.Kind), Slug: input.Slug, Limit: input.Limit,
+// limitZero reports an explicit limit of zero, which — like the CLI's
+// --limit 0 — selects nothing rather than everything.
+func listFilterFromMCPInput(
+	input mcpListInput,
+) (filter ListFilter, limitZero bool, err error) {
+	filter = ListFilter{Kind: UploadKind(input.Kind), Slug: input.Slug}
+	if input.Limit != nil {
+		filter.Limit = *input.Limit
+		limitZero = *input.Limit == 0
 	}
 	now := time.Now()
 	if input.NewerThan != "" {
 		when, err := ParseTimeFilter(input.NewerThan, now)
 		if err != nil {
-			return filter, err
+			return filter, false, err
 		}
 		filter.NewerThan = when
 	}
 	if input.OlderThan != "" {
 		when, err := ParseTimeFilter(input.OlderThan, now)
 		if err != nil {
-			return filter, err
+			return filter, false, err
 		}
 		filter.OlderThan = when
 	}
-	return filter, filter.Validate()
+	return filter, limitZero, filter.Validate()
 }
 
 type mcpListOutput struct {
@@ -234,7 +240,7 @@ func NewMCPServerWithOptions(
 			source = string(UploadSourceManifest)
 		}
 		output := mcpListOutput{Source: source}
-		filter, err := listFilterFromMCPInput(input)
+		filter, limitZero, err := listFilterFromMCPInput(input)
 		if err != nil {
 			return nil, output, err
 		}
@@ -249,6 +255,9 @@ func NewMCPServerWithOptions(
 				)
 			}
 			listed.Records = filter.FilterManifest(listed.Records)
+			if limitZero {
+				listed.Records = []ManifestRecord{}
+			}
 			if !localFiles {
 				listed.Warnings = serverSafeWarnings(listed.Warnings)
 			}
@@ -261,6 +270,9 @@ func NewMCPServerWithOptions(
 				)
 			}
 			output.Storage = filter.FilterRemote(uploads)
+			if limitZero {
+				output.Storage = []RemoteUpload{}
+			}
 		default:
 			return nil, output, fmt.Errorf(
 				"airplan: source must be manifest or storage",
