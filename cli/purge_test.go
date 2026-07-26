@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -530,6 +531,40 @@ func TestPurgeDryRunDeletesNothing(t *testing.T) {
 	}
 	if got := airplan.ActiveUploads(records); len(got) != 1 {
 		t.Fatalf("active uploads = %d, want 1", len(got))
+	}
+}
+
+// TestPurgeDryRunListsCandidatesOldestFirst pins purge candidate order to
+// manifest listing order (SPEC.md §9), including when manifest file order
+// disagrees with record time as it does after a sync import.
+func TestPurgeDryRunListsCandidatesOldestFirst(t *testing.T) {
+	isolateEnv(t)
+	now := time.Now()
+	writeDefaultManifest(t, []airplan.ManifestRecord{
+		uploadRecord(deleteDirC, "newest", "", now.Add(-10*24*time.Hour)),
+		uploadRecord(deleteDirA, "oldest", "", now.Add(-30*24*time.Hour)),
+		uploadRecord(deleteDirB, "middle", "", now.Add(-20*24*time.Hour)),
+	})
+
+	stdout, stderr, err := executeCommand(t, "", "", "purge", "--all",
+		"--dry-run")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	var slugs []string
+	for _, line := range strings.Split(strings.TrimSpace(stderr), "\n") {
+		for _, slug := range []string{"oldest", "middle", "newest"} {
+			if strings.Contains(line, "/"+slug+".html") {
+				slugs = append(slugs, slug)
+			}
+		}
+	}
+	if !slices.Equal(slugs, []string{"oldest", "middle", "newest"}) {
+		t.Fatalf("candidates = %q, want oldest first\nstderr:\n%s",
+			slugs, stderr)
 	}
 }
 

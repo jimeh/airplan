@@ -6,6 +6,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -19,6 +20,18 @@ type listOptions struct {
 	profile string
 	json    bool
 	remote  bool
+	columns string
+	wide    bool
+	reverse bool
+}
+
+// columnRequest returns the table column selection given on the command line.
+func (o *listOptions) columnRequest(cmd *cobra.Command) listColumnRequest {
+	return listColumnRequest{
+		spec:    o.columns,
+		changed: cmd.Flags().Changed("columns"),
+		wide:    o.wide,
+	}
 }
 
 func newListCmd() *cobra.Command {
@@ -48,11 +61,26 @@ func newListCmd() *cobra.Command {
 	// SPEC.md §6 defines -r as the list --remote shorthand.
 	f.BoolVarP(&opts.remote, "remote", "r", false,
 		"list uploads from a live bucket listing instead of the manifest")
+	// Column selection is long-only: -c already means --config (SPEC.md §6).
+	f.StringVar(&opts.columns, "columns", "",
+		"table columns: an absolute set (date,title,url) or adjustments "+
+			"to the default set (+dir,-title)")
+	f.BoolVar(&opts.wide, "wide", false,
+		"show every table column available for this listing")
+	f.BoolVar(&opts.reverse, "reverse", false,
+		"print newest uploads first")
 
 	return cmd
 }
 
 func runList(cmd *cobra.Command, opts *listOptions) error {
+	mode := listModeLocal
+	if opts.remote {
+		mode = listModeRemote
+	}
+	if err := opts.columnRequest(cmd).validate(mode, opts.json); err != nil {
+		return err
+	}
 	if opts.remote {
 		return runRemoteList(cmd, opts)
 	}
@@ -91,15 +119,13 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 		if err != nil {
 			return err
 		}
-		return outputManifestList(cmd, listed.Records, listed.Warnings, opts.json)
+		return outputManifestList(cmd, opts, listed.Records, listed.Warnings)
 	}
 	listed, err := airplan.ListManifestHistory(cfg.ManifestPath, profile)
 	if err != nil {
 		return err
 	}
-	return outputManifestList(
-		cmd, listed.Records, listed.Warnings, opts.json,
-	)
+	return outputManifestList(cmd, opts, listed.Records, listed.Warnings)
 }
 
 func allowsConfigFreeLocalList(cmd *cobra.Command) bool {
@@ -121,21 +147,30 @@ func allowsConfigFreeLocalList(cmd *cobra.Command) bool {
 }
 
 func outputManifestList(
-	cmd *cobra.Command, uploads []airplan.ManifestRecord,
-	warnings []string, jsonOutput bool,
+	cmd *cobra.Command, opts *listOptions,
+	uploads []airplan.ManifestRecord, warnings []string,
 ) error {
 	stderr := cmd.ErrOrStderr()
 	for _, warning := range warnings {
 		fmt.Fprintf(stderr, "airplan: warning: %s\n", warning)
 	}
-	if jsonOutput {
+	if opts.reverse {
+		slices.Reverse(uploads)
+	}
+	if opts.json {
 		if uploads == nil {
 			uploads = []airplan.ManifestRecord{}
 		}
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(uploads)
 	}
 
-	return printUploadTable(cmd.OutOrStdout(), uploads)
+	columns, err := selectListColumns(
+		listModeLocal, opts.columnRequest(cmd), autoLocalListColumns(uploads),
+	)
+	if err != nil {
+		return err
+	}
+	return printUploadTable(cmd.OutOrStdout(), uploads, columns)
 }
 
 func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
@@ -159,6 +194,9 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 			}
 		}
 	}
+	if opts.reverse {
+		slices.Reverse(uploads)
+	}
 
 	if opts.json {
 		if uploads == nil {
@@ -169,7 +207,14 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 		)
 	}
 
-	return printRemoteUploadTable(cmd.OutOrStdout(), uploads)
+	columns, err := selectListColumns(
+		listModeRemote, opts.columnRequest(cmd),
+		autoRemoteListColumns(uploads),
+	)
+	if err != nil {
+		return err
+	}
+	return printRemoteUploadTable(cmd.OutOrStdout(), uploads, columns)
 }
 
 type remoteListJSONRecord struct {
@@ -206,84 +251,53 @@ func remoteListJSONRecords(
 	return records
 }
 
-func printRemoteUploadTable(w io.Writer, uploads []airplan.RemoteUpload) error {
-	if len(uploads) == 0 {
-		return nil
-	}
-
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(
-		tw, "DATE\tKIND\tOBJECTS\tSIZE\tSLUG\tDIRECTORY\tURL",
-	); err != nil {
-		return err
-	}
+func printRemoteUploadTable(
+	w io.Writer, uploads []airplan.RemoteUpload, columns []listColumn,
+) error {
+	rows := make([][]string, 0, len(uploads))
 	for _, upload := range uploads {
-		slug := upload.Slug
-		if slug == "" {
-			slug = "-"
+		row := make([]string, 0, len(columns))
+		for _, column := range columns {
+			row = append(row, remoteListCell(column.name, upload))
 		}
-		url := upload.URL
-		if url == "" {
-			url = "-"
-		}
-		kind := string(upload.Kind)
-		if upload.Conflict {
-			kind = "conflict"
-		}
-		if kind == "" {
-			kind = "-"
-		}
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\n",
-			upload.LastModified.UTC().Format("2006-01-02 15:04"),
-			kind,
-			upload.Objects,
-			formatListBytes(upload.Bytes),
-			slug,
-			upload.Dir,
-			url,
-		); err != nil {
-			return err
-		}
+		rows = append(rows, row)
 	}
-	return tw.Flush()
+	return printListTable(w, columns, rows)
 }
 
 func printUploadTable(
-	w io.Writer,
-	uploads []airplan.ManifestRecord,
+	w io.Writer, uploads []airplan.ManifestRecord, columns []listColumn,
 ) error {
-	if len(uploads) == 0 {
+	rows := make([][]string, 0, len(uploads))
+	for _, upload := range uploads {
+		row := make([]string, 0, len(columns))
+		for _, column := range columns {
+			row = append(row, localListCell(column.name, upload))
+		}
+		rows = append(rows, row)
+	}
+	return printListTable(w, columns, rows)
+}
+
+// printListTable writes an aligned table, or nothing at all when there are no
+// rows, so an empty listing keeps stdout empty (SPEC.md §1).
+func printListTable(
+	w io.Writer, columns []listColumn, rows [][]string,
+) error {
+	if len(rows) == 0 {
 		return nil
 	}
 
+	headers := make([]string, 0, len(columns))
+	for _, column := range columns {
+		headers = append(headers, column.header)
+	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(
-		tw, "DATE\tPROFILE\tSTATE\tTITLE\tSIZE\tURL",
-	); err != nil {
+	if _, err := fmt.Fprintln(tw, strings.Join(headers, "\t")); err != nil {
 		return err
 	}
-	for _, upload := range uploads {
-		title := upload.Title
-		if title == "" {
-			title = "-"
-		}
-		profile := upload.Profile
-		if profile == "" {
-			profile = "<root>"
-		}
-		state := "legacy"
-		if airplan.IsSupportedMarkerVersion(upload.MarkerVersion) {
-			state = "managed"
-		}
-
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			upload.Time.UTC().Format("2006-01-02 15:04"),
-			profile,
-			state,
-			title,
-			formatListBytes(upload.Bytes),
-			upload.URL,
-		); err != nil {
+	for _, row := range rows {
+		if _, err := fmt.Fprintln(tw, strings.Join(row, "\t")); err != nil {
 			return err
 		}
 	}

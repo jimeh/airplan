@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -29,14 +30,16 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 		`{"type":"upload","time":"2026-07-08T15:04:12Z",` +
 			`"key":"deleted/plan.html",` +
 			`"url":"https://plans.example.com/deleted/plan.html",` +
-			`"bucket":"plans","title":"Deleted plan","bytes":42,` +
+			`"bucket":"plans","profile":"work",` +
+			`"title":"Deleted plan","bytes":42,` +
 			`"marker_version":1}`,
 		`{"type":"delete","time":"2026-07-09T09:12:44Z",` +
 			`"key":"deleted/plan.html"}`,
 		`{"type":"upload","time":"2026-07-08T16:05:13Z",` +
 			`"key":"untitled/plan.html",` +
 			`"url":"https://plans.example.com/untitled/plan.html",` +
-			`"bucket":"plans","bytes":7,"marker_version":1}`,
+			`"bucket":"plans","profile":"work","bytes":7,` +
+			`"marker_version":1}`,
 	}, "\n")+"\n")
 
 	stdout, stderr, err := executeList(t)
@@ -47,18 +50,15 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
 
-	for _, want := range []string{
-		"DATE", "PROFILE", "STATE", "TITLE", "SIZE", "URL",
-		"work", "managed",
-		"2026-07-08 14:03", "Active plan", "18 KiB",
+	table := parseListTable(t, stdout)
+	table.assertHeader(t, "DATE", "KIND", "TITLE", "SIZE", "URL")
+	table.assertColumn(t, "DATE", "2026-07-08 14:03", "2026-07-08 16:05")
+	table.assertColumn(t, "TITLE", "Active plan", "-")
+	table.assertColumn(t, "SIZE", "18 KiB", "7 B")
+	table.assertColumn(t, "URL",
 		"https://plans.example.com/active/plan.html",
-		"2026-07-08 16:05", "7 B",
 		"https://plans.example.com/untitled/plan.html",
-	} {
-		if !strings.Contains(stdout, want) {
-			t.Fatalf("stdout missing %q:\n%s", want, stdout)
-		}
-	}
+	)
 	for _, unwanted := range []string{
 		"Deleted plan",
 		"https://plans.example.com/deleted/plan.html",
@@ -86,11 +86,531 @@ func TestListShowsLegacyUploadsWithoutWarnings(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	for _, want := range []string{"work", "legacy", "Legacy plan"} {
-		if !strings.Contains(stdout, want) {
-			t.Fatalf("stdout missing %q:\n%s", want, stdout)
-		}
+	table := parseListTable(t, stdout)
+	table.assertColumn(t, "STATE", "legacy")
+	table.assertColumn(t, "TITLE", "Legacy plan")
+}
+
+// listRecord builds a one-line manifest upload record from field fragments.
+func listRecord(fields ...string) string {
+	return `{"type":"upload",` + strings.Join(fields, ",") + `}`
+}
+
+// writeTwoProfileManifest writes two fully populated managed records in
+// different profiles, in chronological file order.
+func writeTwoProfileManifest(t *testing.T, path string) {
+	t.Helper()
+
+	writeManifest(t, path, strings.Join([]string{
+		listRecord(
+			`"time":"2026-07-08T14:03:11Z"`,
+			`"key":"`+deleteDirA+`/plan.html"`,
+			`"marker_key":"`+deleteDirA+`/`+airplan.MarkerFilename+`"`,
+			`"url":"https://plans.example.com/`+deleteDirA+`/plan.html"`,
+			`"bucket":"plans"`, `"profile":"work"`,
+			`"kind":"document"`, `"slug":"plan"`, `"format":"md"`,
+			`"title":"Work plan"`,
+			`"repo":"https://github.com/acme/service"`,
+			`"bytes":18432`, `"marker_version":3`,
+		),
+		listRecord(
+			`"time":"2026-07-08T15:04:12Z"`,
+			`"key":"`+deleteDirB+`/index.html"`,
+			`"marker_key":"`+deleteDirB+`/`+
+				airplan.CollectionMarkerFilename+`"`,
+			`"url":"https://plans.example.com/`+deleteDirB+`/index.html"`,
+			`"bucket":"plans"`, `"profile":"home"`,
+			`"kind":"collection"`, `"title":"Home shots"`,
+			`"bytes":9216`, `"marker_version":3`,
+		),
+	}, "\n")+"\n")
+}
+
+// writeAirplanBackendConfig serves body from a fake airplan backend's manifest
+// endpoint and returns a config file selecting it.
+func writeAirplanBackendConfig(t *testing.T, body string) string {
+	t.Helper()
+
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v1/uploads" {
+				t.Errorf("path = %q, want /api/v1/uploads", r.URL.Path)
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, body)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	path := filepath.Join(t.TempDir(), "config.toml")
+	data := fmt.Sprintf(
+		"backend = \"airplan\"\napi_url = %q\n"+
+			"api_token = \"01234567890123456789012345678901\"\n"+
+			"timeout = \"5s\"\n",
+		server.URL,
+	)
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
 	}
+	return path
+}
+
+func TestListTableAutoProfileColumn(t *testing.T) {
+	t.Run("fires for multiple profiles", func(t *testing.T) {
+		path := setListState(t)
+		writeTwoProfileManifest(t, path)
+
+		stdout, stderr, err := executeList(t)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		table := parseListTable(t, stdout)
+		table.assertHeader(t, "DATE", "PROFILE", "KIND", "TITLE", "SIZE", "URL")
+		table.assertColumn(t, "PROFILE", "work", "home")
+	})
+
+	t.Run("stays hidden for one profile", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path, listRecord(
+			`"time":"2026-07-08T14:03:11Z"`,
+			`"key":"`+deleteDirA+`/plan.html"`,
+			`"url":"https://plans.example.com/`+deleteDirA+`/plan.html"`,
+			`"bucket":"plans"`, `"profile":"work"`,
+			`"kind":"document"`, `"title":"Work plan"`,
+			`"bytes":10`, `"marker_version":3`,
+		)+"\n")
+
+		stdout, stderr, err := executeList(t)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		table := parseListTable(t, stdout)
+		table.assertHeader(t, "DATE", "KIND", "TITLE", "SIZE", "URL")
+		if strings.Contains(stdout, "work") {
+			t.Fatalf("stdout names the only profile:\n%s", stdout)
+		}
+	})
+
+	t.Run("shows root history as <root>", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path, strings.Join([]string{
+			listRecord(
+				`"time":"2026-07-08T14:03:11Z"`,
+				`"key":"`+deleteDirA+`/plan.html"`,
+				`"url":"https://plans.example.com/`+deleteDirA+`/plan.html"`,
+				`"bucket":"plans"`, `"profile":"work"`,
+				`"title":"Work plan"`, `"bytes":10`, `"marker_version":3`,
+			),
+			listRecord(
+				`"time":"2026-07-08T15:03:11Z"`,
+				`"key":"`+deleteDirB+`/plan.html"`,
+				`"url":"https://plans.example.com/`+deleteDirB+`/plan.html"`,
+				`"bucket":"plans"`, `"title":"Root plan"`,
+				`"bytes":10`, `"marker_version":3`,
+			),
+		}, "\n")+"\n")
+
+		stdout, stderr, err := executeList(t)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		table := parseListTable(t, stdout)
+		table.assertColumn(t, "PROFILE", "work", "<root>")
+	})
+}
+
+func TestListTableAutoStateColumn(t *testing.T) {
+	t.Run("fires for legacy history", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path, strings.Join([]string{
+			listRecord(
+				`"time":"2026-07-08T14:03:11Z"`,
+				`"key":"`+deleteDirA+`/plan.html"`,
+				`"url":"https://plans.example.com/`+deleteDirA+`/plan.html"`,
+				`"bucket":"plans"`, `"profile":"work"`,
+				`"title":"Managed plan"`, `"bytes":10`, `"marker_version":3`,
+			),
+			listRecord(
+				`"time":"2026-07-08T15:03:11Z"`,
+				`"key":"`+deleteDirB+`/plan.html"`,
+				`"url":"https://plans.example.com/`+deleteDirB+`/plan.html"`,
+				`"bucket":"plans"`, `"profile":"work"`,
+				`"title":"Legacy plan"`, `"bytes":10`,
+			),
+		}, "\n")+"\n")
+
+		stdout, stderr, err := executeList(t)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		table := parseListTable(t, stdout)
+		table.assertHeader(t, "DATE", "STATE", "KIND", "TITLE", "SIZE", "URL")
+		table.assertColumn(t, "STATE", "managed", "legacy")
+	})
+
+	t.Run("stays hidden when every row is managed", func(t *testing.T) {
+		path := setListState(t)
+		writeTwoProfileManifest(t, path)
+
+		stdout, stderr, err := executeList(t)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		table := parseListTable(t, stdout)
+		if table.index("STATE") >= 0 {
+			t.Fatalf("header = %q, want no STATE column", table.header)
+		}
+	})
+}
+
+func TestListTableAutoDirColumn(t *testing.T) {
+	// A locally written record always carries a URL, so the rule fires for
+	// served history: an airplan backend may report a record without one.
+	t.Run("fires when a served row has no URL", func(t *testing.T) {
+		isolateEnv(t)
+		body := `{"records":[` + strings.Join([]string{
+			listRecord(
+				`"time":"2026-07-08T14:03:11Z"`,
+				`"key":"`+deleteDirA+`/plan.html"`,
+				`"marker_key":"`+deleteDirA+`/`+airplan.MarkerFilename+`"`,
+				`"url":"https://plans.example.com/`+deleteDirA+`/plan.html"`,
+				`"bucket":"plans"`, `"kind":"document"`,
+				`"title":"Linked plan"`, `"bytes":10`, `"marker_version":3`,
+			),
+			listRecord(
+				`"time":"2026-07-08T15:03:11Z"`,
+				`"key":"`+deleteDirB+`/plan.html"`,
+				`"marker_key":"`+deleteDirB+`/`+airplan.MarkerFilename+`"`,
+				`"bucket":"plans"`, `"kind":"document"`,
+				`"title":"Unlinked plan"`, `"bytes":10`, `"marker_version":3`,
+			),
+		}, ",") + `],"warnings":[]}`
+		config := writeAirplanBackendConfig(t, body)
+
+		// The isolated environment supplies S3 credentials the airplan
+		// backend does not use, so stderr carries their inactive-field
+		// warnings.
+		stdout, stderr, err := executeList(t, "--config", config)
+		if err != nil {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		if strings.Contains(stderr, "skipping") {
+			t.Fatalf("stderr = %q, want no manifest warnings", stderr)
+		}
+		table := parseListTable(t, stdout)
+		table.assertHeader(t,
+			"DATE", "KIND", "TITLE", "SIZE", "DIRECTORY", "URL")
+		table.assertColumn(t, "DIRECTORY", deleteDirA, deleteDirB)
+		table.assertColumn(t, "URL",
+			"https://plans.example.com/"+deleteDirA+"/plan.html", "-")
+	})
+
+	t.Run("stays hidden when every row has a URL", func(t *testing.T) {
+		path := setListState(t)
+		writeTwoProfileManifest(t, path)
+
+		stdout, stderr, err := executeList(t)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		table := parseListTable(t, stdout)
+		if table.index("DIRECTORY") >= 0 {
+			t.Fatalf("header = %q, want no DIRECTORY column", table.header)
+		}
+	})
+}
+
+func TestListTableWideShowsEveryLocalColumn(t *testing.T) {
+	path := setListState(t)
+	writeTwoProfileManifest(t, path)
+
+	stdout, stderr, err := executeList(t, "--wide")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	table := parseListTable(t, stdout)
+	table.assertHeader(t,
+		"DATE", "PROFILE", "STATE", "KIND", "TITLE", "SIZE", "PAGE SIZE",
+		"SLUG", "DIRECTORY", "FORMAT", "REPO", "BUCKET", "URL",
+	)
+	table.assertColumn(t, "KIND", "document", "collection")
+	table.assertColumn(t, "SLUG", "plan", "-")
+	table.assertColumn(t, "DIRECTORY", deleteDirA, deleteDirB)
+	table.assertColumn(t, "FORMAT", "md", "-")
+	table.assertColumn(t, "REPO", "https://github.com/acme/service", "-")
+	table.assertColumn(t, "BUCKET", "plans", "plans")
+	table.assertColumn(t, "PAGE SIZE", "18 KiB", "9 KiB")
+	table.assertColumn(t, "STATE", "managed", "managed")
+}
+
+func TestListTableColumnSelection(t *testing.T) {
+	path := setListState(t)
+	writeTwoProfileManifest(t, path)
+
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{
+			"absolute set",
+			[]string{"--columns", "date,title,url"},
+			[]string{"DATE", "TITLE", "URL"},
+		},
+		{
+			"absolute set uses canonical order",
+			[]string{"--columns", "url,title,date"},
+			[]string{"DATE", "TITLE", "URL"},
+		},
+		{
+			"absolute set excludes auto columns",
+			[]string{"--columns", "date,title"},
+			[]string{"DATE", "TITLE"},
+		},
+		{
+			"absolute set collapses duplicates",
+			[]string{"--columns", "date,date,url"},
+			[]string{"DATE", "URL"},
+		},
+		{
+			"additive adjustments",
+			[]string{"--columns", "+dir,-title"},
+			[]string{"DATE", "PROFILE", "KIND", "SIZE", "DIRECTORY", "URL"},
+		},
+		{
+			"additive removal of an auto column",
+			[]string{"--columns", "-profile"},
+			[]string{"DATE", "KIND", "TITLE", "SIZE", "URL"},
+		},
+		{
+			"additive addition already present",
+			[]string{"--columns", "+date"},
+			[]string{"DATE", "PROFILE", "KIND", "TITLE", "SIZE", "URL"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout, stderr, err := executeList(t, tt.args...)
+			if err != nil || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, error = %v",
+					stdout, stderr, err)
+			}
+			parseListTable(t, stdout).assertHeader(t, tt.want...)
+		})
+	}
+}
+
+func TestListColumnFlagErrors(t *testing.T) {
+	path := setListState(t)
+	writeTwoProfileManifest(t, path)
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			"unknown name",
+			[]string{"--columns", "date,nope"},
+			`unknown list column "nope"`,
+		},
+		{
+			"unknown name lists valid columns",
+			[]string{"--columns", "nope"},
+			"valid columns: date, profile, state, kind, title, size, " +
+				"page-size, slug, dir, format, repo, bucket, url",
+		},
+		{
+			"remote-only name in local mode",
+			[]string{"--columns", "objects"},
+			`list column "objects" is only available with --remote`,
+		},
+		{
+			"mixed absolute and additive syntax",
+			[]string{"--columns", "date,+dir"},
+			"--columns cannot mix an absolute column set with " +
+				"+/- adjustments",
+		},
+		{
+			"empty selection",
+			[]string{"--columns", ""},
+			"--columns requires at least one column name",
+		},
+		{
+			"empty name in list",
+			[]string{"--columns", "date,,url"},
+			"--columns requires at least one column name",
+		},
+		{
+			"every column removed",
+			[]string{
+				"--columns",
+				"-date,-profile,-kind,-title,-size,-url",
+			},
+			"--columns left no columns to print",
+		},
+		{
+			"columns with json",
+			[]string{"--columns", "date", "--json"},
+			"--columns cannot be combined with --json",
+		},
+		{
+			"wide with json",
+			[]string{"--wide", "--json"},
+			"--wide cannot be combined with --json",
+		},
+		{
+			"wide with columns",
+			[]string{"--wide", "--columns", "date"},
+			"--wide cannot be combined with --columns",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout, _, err := executeList(t, tt.args...)
+			if err == nil {
+				t.Fatalf("error = nil, want %q\nstdout: %s", tt.want, stdout)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %q, want it to contain %q", err, tt.want)
+			}
+			if stdout != "" {
+				t.Fatalf("stdout = %q, want empty", stdout)
+			}
+		})
+	}
+}
+
+func TestListRemoteColumnFlagErrors(t *testing.T) {
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, nil, nil, nil)
+	config := writeCLIConfig(t, fake.server.URL)
+
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			"local-only name in remote mode",
+			[]string{"--columns", "title"},
+			`list column "title" is not available with --remote`,
+		},
+		{
+			"unknown name lists remote columns",
+			[]string{"--columns", "nope"},
+			"valid columns: date, kind, objects, size, slug, dir, url",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := append([]string{"--remote", "--config", config}, tt.args...)
+			stdout, _, err := executeList(t, args...)
+			if err == nil {
+				t.Fatalf("error = nil, want %q\nstdout: %s", tt.want, stdout)
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %q, want it to contain %q", err, tt.want)
+			}
+			if fake.listCalls() != 0 {
+				t.Fatalf("LIST calls = %d, want none before column validation",
+					fake.listCalls())
+			}
+		})
+	}
+}
+
+func TestListOrdersByRecordTime(t *testing.T) {
+	path := setListState(t)
+	writeManifest(t, path, strings.Join([]string{
+		listRecord(
+			`"time":"2026-07-09T09:00:00Z"`,
+			`"key":"`+deleteDirC+`/plan.html"`,
+			`"url":"https://plans.example.com/`+deleteDirC+`/plan.html"`,
+			`"bucket":"plans"`, `"profile":"work"`,
+			`"title":"Newest"`, `"bytes":10`, `"marker_version":3`,
+		),
+		listRecord(
+			`"time":"2026-07-07T09:00:00Z"`,
+			`"key":"`+deleteDirA+`/plan.html"`,
+			`"url":"https://plans.example.com/`+deleteDirA+`/plan.html"`,
+			`"bucket":"plans"`, `"profile":"work"`,
+			`"title":"Oldest"`, `"bytes":10`, `"marker_version":3`,
+		),
+		listRecord(
+			`"time":"2026-07-08T09:00:00Z"`,
+			`"key":"`+deleteDirB+`/plan.html"`,
+			`"url":"https://plans.example.com/`+deleteDirB+`/plan.html"`,
+			`"bucket":"plans"`, `"profile":"work"`,
+			`"title":"Middle"`, `"bytes":10`, `"marker_version":3`,
+		),
+	}, "\n")+"\n")
+
+	t.Run("table", func(t *testing.T) {
+		stdout, stderr, err := executeList(t)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		parseListTable(t, stdout).assertColumn(
+			t, "TITLE", "Oldest", "Middle", "Newest",
+		)
+	})
+
+	t.Run("json", func(t *testing.T) {
+		stdout, stderr, err := executeList(t, "--json")
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		var records []airplan.ManifestRecord
+		if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+			t.Fatalf("json.Unmarshal: %v\nstdout: %s", err, stdout)
+		}
+		got := make([]string, 0, len(records))
+		for _, record := range records {
+			got = append(got, record.Title)
+		}
+		if !slices.Equal(got, []string{"Oldest", "Middle", "Newest"}) {
+			t.Fatalf("titles = %q, want oldest first", got)
+		}
+	})
+
+	t.Run("reverse", func(t *testing.T) {
+		stdout, stderr, err := executeList(t, "--reverse")
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		parseListTable(t, stdout).assertColumn(
+			t, "TITLE", "Newest", "Middle", "Oldest",
+		)
+	})
+
+	t.Run("reverse json", func(t *testing.T) {
+		stdout, stderr, err := executeList(t, "--reverse", "--json")
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v",
+				stdout, stderr, err)
+		}
+		var records []airplan.ManifestRecord
+		if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+			t.Fatalf("json.Unmarshal: %v\nstdout: %s", err, stdout)
+		}
+		if len(records) != 3 || records[0].Title != "Newest" ||
+			records[2].Title != "Oldest" {
+			t.Fatalf("records = %+v, want newest first", records)
+		}
+	})
 }
 
 func TestListJSONShowsActiveUploads(t *testing.T) {
@@ -237,15 +757,15 @@ func TestListRemoteTableAndJSON(t *testing.T) {
 		if stderr != "" {
 			t.Fatalf("stderr = %q, want empty", stderr)
 		}
-		for _, want := range []string{
-			"DATE", "OBJECTS", "SIZE", "SLUG", "DIRECTORY", "URL",
-			"2026-07-08 14:03", "3", "18.1 KiB", "plan", deleteDirA,
-			"https://plans.example.com/" + key,
-		} {
-			if !strings.Contains(stdout, want) {
-				t.Fatalf("stdout missing %q:\n%s", want, stdout)
-			}
-		}
+		table := parseListTable(t, stdout)
+		table.assertHeader(t,
+			"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "URL")
+		table.assertColumn(t, "DATE", "2026-07-08 14:03")
+		table.assertColumn(t, "KIND", "document")
+		table.assertColumn(t, "OBJECTS", "3")
+		table.assertColumn(t, "SIZE", "18.1 KiB")
+		table.assertColumn(t, "SLUG", "plan")
+		table.assertColumn(t, "URL", "https://plans.example.com/"+key)
 		if fake.headCalls() != 0 {
 			t.Fatalf("HEAD calls = %d, want none", fake.headCalls())
 		}
@@ -292,6 +812,121 @@ func TestListRemoteTableAndJSON(t *testing.T) {
 			t.Fatalf("record = %+v", rec)
 		}
 	})
+}
+
+// remoteListFixture describes two marker directories: a document upload and a
+// later collection upload, both with inferable URLs.
+func remoteListFixture() []remoteFakeObject {
+	when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
+	later := time.Date(2026, 7, 8, 16, 3, 0, 0, time.UTC)
+	return []remoteFakeObject{
+		{
+			key:  deleteDirA + "/" + airplan.MarkerFilename,
+			size: 100, lastModified: when,
+		},
+		{key: deleteDirA + "/plan.html", size: 18432, lastModified: when},
+		{
+			key:  deleteDirC + "/" + airplan.CollectionMarkerFilename,
+			size: 10, lastModified: later,
+		},
+		{key: deleteDirC + "/index.html", size: 30, lastModified: later},
+	}
+}
+
+func TestListRemoteTableColumns(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+		date []string
+	}{
+		{
+			"default",
+			nil,
+			[]string{"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "URL"},
+			[]string{"2026-07-08 14:03", "2026-07-08 16:03"},
+		},
+		{
+			"wide",
+			[]string{"--wide"},
+			[]string{
+				"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "DIRECTORY", "URL",
+			},
+			[]string{"2026-07-08 14:03", "2026-07-08 16:03"},
+		},
+		{
+			"absolute columns",
+			[]string{"--columns", "objects,date"},
+			[]string{"DATE", "OBJECTS"},
+			[]string{"2026-07-08 14:03", "2026-07-08 16:03"},
+		},
+		{
+			"additive columns",
+			[]string{"--columns", "+dir,-slug"},
+			[]string{"DATE", "KIND", "OBJECTS", "SIZE", "DIRECTORY", "URL"},
+			[]string{"2026-07-08 14:03", "2026-07-08 16:03"},
+		},
+		{
+			"reverse",
+			[]string{"--reverse"},
+			[]string{"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "URL"},
+			[]string{"2026-07-08 16:03", "2026-07-08 14:03"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isolateEnv(t)
+			fake := newFakeRemoteS3(t, remoteListFixture(), nil, nil)
+			args := append([]string{
+				"--remote", "--config", writeCLIConfig(t, fake.server.URL),
+			}, tt.args...)
+
+			stdout, stderr, err := executeList(t, args...)
+			if err != nil || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, error = %v",
+					stdout, stderr, err)
+			}
+			table := parseListTable(t, stdout)
+			table.assertHeader(t, tt.want...)
+			table.assertColumn(t, "DATE", tt.date...)
+		})
+	}
+}
+
+func TestListRemoteAutoDirColumnForUninferableURL(t *testing.T) {
+	isolateEnv(t)
+	when := time.Date(2026, 7, 8, 15, 3, 0, 0, time.UTC)
+	objects := append(remoteListFixture(),
+		remoteFakeObject{
+			key:  deleteDirB + "/" + airplan.MarkerFilename,
+			size: 10, lastModified: when,
+		},
+		remoteFakeObject{
+			key:  deleteDirB + "/" + airplan.CollectionMarkerFilename,
+			size: 10, lastModified: when,
+		},
+		remoteFakeObject{
+			key: deleteDirB + "/index.html", size: 20, lastModified: when,
+		},
+	)
+	fake := newFakeRemoteS3(t, objects, nil, nil)
+
+	stdout, stderr, err := executeList(t,
+		"--remote", "--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	table := parseListTable(t, stdout)
+	table.assertHeader(t,
+		"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "DIRECTORY", "URL")
+	table.assertColumn(t, "DIRECTORY", deleteDirA, deleteDirB, deleteDirC)
+	table.assertColumn(t, "KIND", "document", "conflict", "collection")
+	table.assertColumn(t, "SLUG", "plan", "-", "-")
+	table.assertColumn(t, "URL",
+		"https://plans.example.com/"+deleteDirA+"/plan.html",
+		"-",
+		"https://plans.example.com/"+deleteDirC+"/index.html",
+	)
 }
 
 func TestListRemoteFallbackURLWarnsOnce(t *testing.T) {
@@ -533,6 +1168,114 @@ func TestFormatListBytes(t *testing.T) {
 	}
 }
 
+// listTable is a positional view of tabwriter list output. Header and row
+// cells are sliced at the column offsets the header line establishes, so an
+// assertion fails when a value moves to another column, when columns change
+// order, or when rows change order.
+type listTable struct {
+	header []string
+	rows   [][]string
+}
+
+// parseListTable splits list table output into header and row cells.
+func parseListTable(t *testing.T, stdout string) *listTable {
+	t.Helper()
+
+	trimmed := strings.TrimRight(stdout, "\n")
+	if trimmed == "" {
+		t.Fatalf("stdout has no table:\n%q", stdout)
+	}
+	lines := strings.Split(trimmed, "\n")
+	offsets := listTableOffsets([]rune(lines[0]))
+	table := &listTable{header: listTableCells([]rune(lines[0]), offsets)}
+	for _, line := range lines[1:] {
+		table.rows = append(
+			table.rows, listTableCells([]rune(line), offsets),
+		)
+	}
+	return table
+}
+
+// listTableOffsets returns each column's start offset in a tabwriter line.
+// tabwriter pads every cell but the last with at least its padding (2 spaces
+// here), so content preceded by two spaces starts a new column. Header cells
+// may contain a single space ("PAGE SIZE") without splitting.
+func listTableOffsets(line []rune) []int {
+	offsets := []int{}
+	for i, r := range line {
+		if r == ' ' {
+			continue
+		}
+		if i == 0 {
+			offsets = append(offsets, i)
+			continue
+		}
+		if i >= 2 && line[i-1] == ' ' && line[i-2] == ' ' {
+			offsets = append(offsets, i)
+		}
+	}
+	return offsets
+}
+
+func listTableCells(line []rune, offsets []int) []string {
+	cells := make([]string, 0, len(offsets))
+	for index, start := range offsets {
+		end := len(line)
+		if index+1 < len(offsets) && offsets[index+1] < end {
+			end = offsets[index+1]
+		}
+		if start >= len(line) {
+			cells = append(cells, "")
+			continue
+		}
+		cells = append(cells, strings.TrimSpace(string(line[start:end])))
+	}
+	return cells
+}
+
+// assertHeader requires the exact ordered header sequence.
+func (tbl *listTable) assertHeader(t *testing.T, want ...string) {
+	t.Helper()
+
+	if !slices.Equal(tbl.header, want) {
+		t.Fatalf("header = %q, want %q", tbl.header, want)
+	}
+}
+
+// index returns the position of a named column, or -1.
+func (tbl *listTable) index(name string) int {
+	return slices.Index(tbl.header, name)
+}
+
+// column returns every row's value for a named column, top to bottom.
+func (tbl *listTable) column(t *testing.T, name string) []string {
+	t.Helper()
+
+	index := tbl.index(name)
+	if index < 0 {
+		t.Fatalf("column %q missing from header %q", name, tbl.header)
+	}
+	values := make([]string, 0, len(tbl.rows))
+	for _, row := range tbl.rows {
+		if index >= len(row) {
+			t.Fatalf("row %q has no cell %d", row, index)
+		}
+		values = append(values, row[index])
+	}
+	return values
+}
+
+// assertColumn requires a named column's values in exact row order.
+func (tbl *listTable) assertColumn(t *testing.T, name string, want ...string) {
+	t.Helper()
+
+	got := tbl.column(t, name)
+	if !slices.Equal(got, want) {
+		t.Fatalf("column %s = %q, want %q\nheader: %q",
+			name, got, want, tbl.header)
+	}
+}
+
 func executeList(t *testing.T, args ...string) (string, string, error) {
 	t.Helper()
 
@@ -547,11 +1290,22 @@ func executeList(t *testing.T, args ...string) (string, string, error) {
 	return stdout.String(), stderr.String(), err
 }
 
+// setListState points the default manifest at a temporary state directory and
+// isolates the selectors local listing consults, so a developer's exported
+// AIRPLAN_* variables or real config file cannot filter or redirect the
+// history under test.
 func setListState(t *testing.T) string {
 	t.Helper()
 
 	stateHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	for _, name := range []string{
+		"AIRPLAN_CONFIG", "AIRPLAN_BACKEND", "AIRPLAN_API_URL",
+		"AIRPLAN_API_TOKEN", "AIRPLAN_PROFILE", "AIRPLAN_MANIFEST",
+	} {
+		t.Setenv(name, "")
+	}
 	return filepath.Join(stateHome, "airplan", "manifest.jsonl")
 }
 

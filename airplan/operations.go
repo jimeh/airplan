@@ -50,7 +50,8 @@ type ManifestList struct {
 	Warnings []string         `json:"warnings,omitempty"`
 }
 
-// ListManifest lists active uploads through the selected backend.
+// ListManifest lists active uploads through the selected backend. Records are
+// ordered by record time, then ownership marker key (SPEC.md §9).
 func (c *Client) ListManifest(
 	ctx context.Context, opts ListManifestOptions,
 ) (*ManifestList, error) {
@@ -98,11 +99,13 @@ func (c *Client) ListManifest(
 		}
 		filtered = append(filtered, rec)
 	}
+	sortManifestUploads(filtered)
 	return &ManifestList{Records: filtered, Warnings: warnings}, nil
 }
 
 // ListManifestHistory reads active local manifest history without validating
 // inactive storage settings. Profile nil returns all recorded profiles.
+// Records are ordered by record time, then ownership marker key (SPEC.md §9).
 func ListManifestHistory(
 	path string, profile *string,
 ) (*ManifestList, error) {
@@ -118,6 +121,7 @@ func ListManifestHistory(
 		}
 		filtered = append(filtered, record)
 	}
+	sortManifestUploads(filtered)
 	return &ManifestList{Records: filtered, Warnings: warnings}, nil
 }
 

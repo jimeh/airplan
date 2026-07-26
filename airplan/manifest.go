@@ -396,6 +396,14 @@ func markerKeyForManifestRecord(rec ManifestRecord) string {
 	return dirPrefix + MarkerFilename
 }
 
+// ManifestRecordDir returns a record's 26-character random upload directory
+// without key_prefix (SPEC.md §9), derived from its ownership marker key or,
+// for records that omit one, from its page key. It returns "" when neither
+// key contains a random directory segment, as in pre-marker legacy history.
+func ManifestRecordDir(rec ManifestRecord) string {
+	return uploadIDFromMarkerKey(manifestMarkerKey(rec))
+}
+
 // ReadManifest loads the manifest at path ("" = platform default),
 // returning records in file order plus torn-line warnings (SPEC.md
 // §9). A missing manifest yields no records and no error.
@@ -445,6 +453,24 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 		uploads = append(uploads, record.record)
 	}
 	return uploads
+}
+
+// sortManifestUploads orders reduced manifest uploads by record time
+// ascending, tie-breaking on ownership marker key. This mirrors remote listing
+// order (SPEC.md §9) so both views describe history the same way, including
+// after sync appends imported records out of chronological order.
+//
+// ManifestUploads deliberately keeps its positional reduction order: callers
+// such as delete reconciliation and profile inference depend on it. Listing
+// paths sort the records they are about to return instead.
+func sortManifestUploads(records []ManifestRecord) {
+	sort.SliceStable(records, func(i, j int) bool {
+		if records[i].Time.Equal(records[j].Time) {
+			return manifestMarkerKey(records[i]) <
+				manifestMarkerKey(records[j])
+		}
+		return records[i].Time.Before(records[j].Time)
+	})
 }
 
 // ActiveUploads returns marker-managed manifest uploads that have no matching

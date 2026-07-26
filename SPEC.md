@@ -660,7 +660,9 @@ one-off use.
 Frequent flags get short forms: `-p` (`--profile`), `-s` (`--slug`),
 `-t` (`--title`), `-j` (`--json`), and `-o` (`--open`). On subcommands,
 `-r` is `--remote` for `list` and `purge`, while `-o` is `--output` for
-`preview` and `get`. Connection overrides stay long-only.
+`preview` and `get`. Connection overrides stay long-only, as do `list`'s
+table options `--columns`, `--wide`, and `--reverse` (§9); `-c` is already
+`--config`.
 `airplan completion bash|zsh|fish|powershell` emits shell completions.
 
 If `--open` fails to launch a browser (common in headless/agent
@@ -780,7 +782,7 @@ airplan skill
 airplan template [document|collection]
 airplan preview [flags] [file ...]
 airplan completion bash|zsh|fish|powershell
-airplan list|ls [--remote] [--json]
+airplan list|ls [--remote] [--json] [--columns SET] [--wide] [--reverse]
 airplan show [--json] <url|key>
 airplan get [--output PATH] [--source] <url|key>
 airplan delete <url|key>
@@ -1319,12 +1321,36 @@ machine) and must be safe:
 
 ### Commands
 
-- `airplan list`: past uploads from the manifest (date, profile,
-  management state, title, human-readable binary size, URL); `--json`
-  for scripting with exact byte counts. Table state is `managed` for
-  the supported `marker_version` and `legacy` when the field is absent.
-  Both appear in history without warning; legacy entries remain
-  ineligible for delete reconciliation and purge.
+- `airplan list`: past uploads from the manifest, by default date, kind,
+  title, human-readable binary size, and URL; `--json` for scripting with
+  exact byte counts. Rows sort by record time, then ownership marker key, so
+  local history reads in the same order as a remote listing even when `sync`
+  appended imported uploads after later local ones. `--reverse` prints newest
+  first, in the table and in `--json`. `KIND` is the recorded kind and `-` for
+  legacy records that omit it. `SIZE` and the wide `PAGE SIZE` column both
+  report the primary page's byte count. `STATE` is `managed` for the supported
+  `marker_version` and `legacy` when the field is absent. Both appear in
+  history without warning; legacy entries remain ineligible for delete
+  reconciliation and purge.
+- Table columns are one vocabulary shared by local and remote listing, and
+  always print in the canonical order `date`, `profile`, `state`, `kind`,
+  `title`, `objects`, `size`, `page-size`, `slug`, `dir`, `format`, `repo`,
+  `bucket`, `url`. Local listing offers every column except `objects`; remote
+  listing offers `date`, `kind`, `objects`, `size`, `slug`, `dir`, and `url`.
+  Three columns are automatic: `profile` when the printed rows span more than
+  one profile, `state` when any row is legacy history, and `dir` when any row
+  has no URL to identify it by. They appear in the default set only when their
+  rule holds, so a column never occupies width without carrying information.
+  `--columns date,title,url` selects an absolute set and suppresses automatic
+  columns; `--columns +dir,-title` adjusts the mode's default set instead. The
+  two forms do not mix, requested order does not change the canonical order,
+  and repeated names collapse. An unknown name is an error listing the mode's
+  valid names; a name valid only in the other mode is an error naming that
+  mode rather than a silently blank column; so is a selection that leaves no
+  columns at all. `--wide` prints every column the mode offers and combines
+  with neither `--columns` nor `--json`. Column selection is presentation, so
+  `--columns` and `--wide` are rejected with `--json`, while `--reverse`
+  reorders both outputs.
 - With no resolvable configuration or backend selection, `list` assumes `s3`
   and reads the resolved local manifest without requiring storage credentials.
   Local S3 listing with no explicit profile shows every recorded profile; an
@@ -1339,8 +1365,9 @@ machine) and must be safe:
   `[key_prefix/]<26-char lowercase base32>/` directory, then emits groups
   containing `.airplan.json`, `.airplan-collection.json`, or both. Payload
   filename shape without either marker is never evidence of visibility.
-- Remote list rows have `DATE`, `KIND`, `OBJECTS`, `SIZE`, `SLUG`, `DIRECTORY`,
-  and `URL` columns. `DATE` is the selected marker object's storage
+- Remote list rows have `DATE`, `KIND`, `OBJECTS`, `SIZE`, `SLUG`, and `URL`
+  columns by default, plus `DIRECTORY` when a row has no inferable URL or under
+  `--wide`. `DATE` is the selected marker object's storage
   last-modified time. `OBJECTS` and `SIZE` count every object and byte
   recursively beneath the random directory, including the marker,
   nested keys, and unrecognized extras. `KIND` is `document` or `collection`
@@ -1353,7 +1380,7 @@ machine) and must be safe:
   URL fallback without `public_base_url` emits the normal warning once.
   `DIRECTORY` is the 26-character random directory without
   `key_prefix`. Rows sort by marker last-modified time, then marker
-  key.
+  key; `--reverse` prints newest first.
 - `list --remote --json` prints an array with one object per row. Its stable
   fields are `time`, `dir`, `marker_key`, `objects`, `bytes`, and `kind` when
   one marker kind is implied. `conflict` is true for dual-marker directories;
@@ -1481,6 +1508,8 @@ machine) and must be safe:
   re-run retries them. Purge only considers records with a supported
   `marker_version` under the active bucket and `key_prefix`;
   other-bucket and other-prefix records are skipped with a note.
+  Manifest-sourced candidates are previewed and deleted in manifest listing
+  order — record time, then ownership marker key.
   Every selected deletion still requires the marker, except for the
   local-only ensure-gone reconciliation above. Suitable for cron
   (`purge --older-than 30d --yes`).
@@ -1754,7 +1783,9 @@ declared by exactly one valid Airplan ownership marker. Get streams its
 response with the stored object's content type. Capability URLs are not placed
 in query strings. Upload, list,
 inspection, and purge-preview results expose the randomized directory as an
-opaque `upload_id`.
+opaque `upload_id`. `GET /api/v1/uploads` returns service-scoped manifest
+records in the same order as local `list` (§9): record time, then ownership
+marker key. The MCP `list_uploads` tool uses that same order.
 
 Purge is two-phase. `/purge/preview` applies the source and filters without
 deleting and returns explicit `upload_id` candidates. The CLI displays them

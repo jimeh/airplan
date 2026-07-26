@@ -63,6 +63,12 @@ coverage has no equivalent local task on non-Windows hosts.
   `schema/airplan.schema.json` as contract-sensitive, including deletions and
   moves out of those paths. Local policy findings fail; PR CI reports them as
   warnings while signal quality matures. Git and parsing errors always fail.
+- **CLI tests must clear `AIRPLAN_*` selectors**: worktree-local
+  `mise.local.toml` commonly exports `AIRPLAN_PROFILE`, so `mise run check`
+  runs `go test` with it set while a bare `go test` may not. Local listing
+  consults it, so a test that only sets `XDG_STATE_HOME` silently sees an
+  empty manifest. `isolateEnv` and `setListState` clear those variables; new
+  CLI tests must use one of them rather than setting state paths by hand.
 - **Golden files**: rendering snapshots live in `airplan/testdata/`;
   run `GOLDEN_UPDATE=1 go test ./airplan/ -run TestRenderMarkdownGolden`
   after template/CSS/JS changes.
