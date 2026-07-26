@@ -1543,7 +1543,10 @@ machine) and must be safe:
 - `airplan purge`: bulk delete driven by the manifest with filters —
   `--older-than 30d`, `--slug PATTERN`, `--profile P`. Durations
   accept `d`/`w` units, and `--older-than` also accepts the absolute
-  timestamp forms shared with list time filters above.
+  timestamp forms shared with list time filters above. The resolved
+  purge threshold must lie strictly in the past: a zero age or a
+  future timestamp would silently select every upload and is rejected
+  with a pointer to `--all`, the explicit way to say that.
   `--profile`/`-p` behaves as on every other
   command by selecting the connection profile. Local purge always
   considers only uploads recorded with the resolved active profile,

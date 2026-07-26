@@ -94,13 +94,19 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 
 	var createdBefore time.Time
 	if opts.olderThan != "" {
+		now := time.Now()
 		var err error
-		createdBefore, err = airplan.ParseTimeFilter(
-			opts.olderThan, time.Now(),
-		)
+		createdBefore, err = airplan.ParseTimeFilter(opts.olderThan, now)
 		if err != nil {
 			return fmt.Errorf("--older-than: %s",
 				strings.TrimPrefix(err.Error(), "airplan: "))
+		}
+		// A zero age resolves to now and a future date past it; either
+		// would silently select every upload. Purging everything must be
+		// said explicitly with --all.
+		if !createdBefore.Before(now) {
+			return errors.New("--older-than: must select a time in the " +
+				"past; use --all to purge everything")
 		}
 	}
 

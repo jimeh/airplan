@@ -14,6 +14,39 @@ import (
 	"github.com/jimeh/airplan/airplan"
 )
 
+// TestPurgeOlderThanRequiresPastThreshold pins the fail-closed boundary
+// (SPEC.md §9): a zero age or future date would silently select every
+// upload, and only an explicit --all may say that.
+func TestPurgeOlderThanRequiresPastThreshold(t *testing.T) {
+	now := time.Now().UTC()
+	records := []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "alpha", "", now.Add(-time.Hour)),
+	}
+	const want = "--older-than: must select a time in the past; " +
+		"use --all to purge everything"
+
+	for _, value := range []string{"0s", "0d", "2100-01-01"} {
+		t.Run(value, func(t *testing.T) {
+			isolateEnv(t)
+			writeDefaultManifest(t, records)
+
+			stdout, _, err := executeCommand(t, "", "",
+				"purge", "--older-than", value, "--yes")
+			if err == nil || err.Error() != want {
+				t.Fatalf("error = %v, want %q", err, want)
+			}
+			if stdout != "" {
+				t.Fatalf("stdout = %q, want empty", stdout)
+			}
+			listed, err := airplan.ListManifestHistory("", nil)
+			if err != nil || len(listed.Records) != 1 {
+				t.Fatalf("records = %+v, %v; upload must survive",
+					listed, err)
+			}
+		})
+	}
+}
+
 func TestPurgeCommandFilters(t *testing.T) {
 	now := time.Now().UTC()
 	records := []airplan.ManifestRecord{
