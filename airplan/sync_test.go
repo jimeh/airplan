@@ -368,6 +368,75 @@ func TestSyncManifestReconcilesProtectionBothWays(t *testing.T) {
 	}
 }
 
+// TestSyncManifestReconcilesCollectionProtection covers the collection path of
+// protection reconciliation. Sync-generated protection records carry the
+// collection marker key but no explicit kind, so this asserts the reduced
+// record round trips without warnings — mustActiveUploads fails on any — and
+// that its identity resolves to the collection marker rather than the document
+// one (SPEC.md §9).
+func TestSyncManifestReconcilesCollectionProtection(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("c", 26)
+	fake.addUpload(t, UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: when, Kind: UploadKindCollection,
+		Objects: []MarkerObject{
+			{
+				Name: "index.html", Role: MarkerRolePage, Bytes: 8,
+				ContentType: pageContentType,
+			},
+			{
+				Name: "shot.png", Role: MarkerRoleFile, Bytes: 3,
+				ContentType: "image/png",
+			},
+		},
+	}, []byte("overview"))
+	fake.addObject(dir+"/shot.png", []byte("png"), when)
+	sentinel, err := encodeProtectionSentinel(when, "keep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.addObject(dir+"/"+ProtectedFilename, sentinel, when)
+
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := newSyncClient(t, fake.server.URL, manifest)
+
+	result, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Added) != 1 || len(result.Protection) != 1 ||
+		result.Protection[0].Type != "protect" {
+		t.Fatalf("import result = %+v", result)
+	}
+	markerKey := dir + "/" + CollectionMarkerFilename
+	if result.Protection[0].MarkerKey != markerKey {
+		t.Fatalf("protection marker key = %q, want %q",
+			result.Protection[0].MarkerKey, markerKey)
+	}
+	active := mustActiveUploads(t, manifest)
+	if len(active) != 1 || !active[0].Protected ||
+		active[0].Kind != string(UploadKindCollection) {
+		t.Fatalf("active = %+v", active)
+	}
+
+	// The unprotect direction must round trip cleanly for collections too.
+	fake.removeMarker(dir + "/" + ProtectedFilename)
+	second, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil || len(second.Protection) != 1 ||
+		second.Protection[0].Type != "unprotect" ||
+		second.Protection[0].MarkerKey != markerKey {
+		t.Fatalf("second sync = %+v, %v", second, err)
+	}
+	active = mustActiveUploads(t, manifest)
+	if len(active) != 1 || active[0].Protected {
+		t.Fatalf("active = %+v", active)
+	}
+}
+
 func TestSyncManifestProtectionDryRunWritesNothing(t *testing.T) {
 	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 	fake := newSyncStorage(t)
