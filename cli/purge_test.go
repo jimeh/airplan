@@ -78,6 +78,45 @@ func TestPurgeCommandFilters(t *testing.T) {
 	}
 }
 
+func TestPurgeOlderThanAcceptsAbsoluteTimeWithStrictBoundary(t *testing.T) {
+	isolateEnv(t)
+	boundary := time.Date(2026, 7, 8, 14, 0, 0, 0, time.UTC)
+	records := []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "before", "", boundary.Add(-time.Second)),
+		uploadRecord(deleteDirB, "exact", "", boundary),
+		uploadRecord(deleteDirC, "after", "", boundary.Add(time.Second)),
+	}
+	writeDefaultManifest(t, records)
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--older-than", "2026-07-08T14:00:00Z", "--dry-run")
+	if err != nil {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	if stdout != "" || !strings.Contains(stderr, "before.html") ||
+		strings.Contains(stderr, "exact.html") || strings.Contains(stderr, "after.html") {
+		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
+	}
+}
+
+func TestPurgeExplicitEmptyOlderThanFailsBeforeRemoteListing(t *testing.T) {
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, nil, nil, nil)
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--remote", "--older-than=", "--dry-run",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err == nil || !strings.Contains(err.Error(),
+		"--older-than: invalid time filter") {
+		t.Fatalf("error = %v", err)
+	}
+	if stdout != "" || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, want empty", stdout, stderr)
+	}
+	if fake.listCalls() != 0 {
+		t.Fatalf("LIST calls = %d, want 0", fake.listCalls())
+	}
+}
+
 func TestPurgeRejectsExplicitEmptyProfile(t *testing.T) {
 	isolateEnv(t)
 	_, _, err := executeCommand(

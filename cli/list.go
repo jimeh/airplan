@@ -22,6 +22,11 @@ type listOptions struct {
 	wide        bool
 	reverse     bool
 	allProfiles bool
+	newerThan   string
+	olderThan   string
+	kind        string
+	slug        string
+	limit       int
 }
 
 func newListCmd() *cobra.Command {
@@ -59,6 +64,16 @@ func newListCmd() *cobra.Command {
 		"show every table column valid for the selected list mode")
 	f.BoolVar(&opts.reverse, "reverse", false,
 		"print newest uploads first")
+	f.StringVar(&opts.newerThan, "newer-than", "",
+		"filter: uploads at or after an absolute time or age")
+	f.StringVar(&opts.olderThan, "older-than", "",
+		"filter: uploads before an absolute time or age")
+	f.IntVar(&opts.limit, "limit", 0,
+		"keep the N most recent matching uploads")
+	f.StringVar(&opts.kind, "kind", "",
+		"filter: upload kind (document or collection)")
+	f.StringVar(&opts.slug, "slug", "",
+		"filter: glob pattern matched against document slugs")
 
 	return cmd
 }
@@ -67,8 +82,12 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 	if err := validateListPresentationOptions(cmd.Flags().Changed, opts); err != nil {
 		return err
 	}
+	filters, err := parseListFilters(cmd, opts, time.Now())
+	if err != nil {
+		return err
+	}
 	if opts.remote {
-		return runRemoteList(cmd, opts)
+		return runRemoteList(cmd, opts, filters)
 	}
 
 	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
@@ -110,14 +129,16 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 		if err != nil {
 			return err
 		}
-		return outputManifestList(cmd, listed.Records, listed.Warnings, opts)
+		return outputManifestList(
+			cmd, listed.Records, listed.Warnings, opts, filters,
+		)
 	}
 	listed, err := airplan.ListManifestHistory(cfg.ManifestPath, profile)
 	if err != nil {
 		return err
 	}
 	return outputManifestList(
-		cmd, listed.Records, listed.Warnings, opts,
+		cmd, listed.Records, listed.Warnings, opts, filters,
 	)
 }
 
@@ -141,12 +162,13 @@ func allowsConfigFreeLocalList(cmd *cobra.Command) bool {
 
 func outputManifestList(
 	cmd *cobra.Command, uploads []airplan.ManifestRecord,
-	warnings []string, opts *listOptions,
+	warnings []string, opts *listOptions, filters listFilters,
 ) error {
 	stderr := cmd.ErrOrStderr()
 	for _, warning := range warnings {
 		fmt.Fprintf(stderr, "airplan: warning: %s\n", warning)
 	}
+	uploads = selectManifestList(uploads, filters)
 	if opts.reverse {
 		uploads = reverseManifestRecords(uploads)
 	}
@@ -167,7 +189,9 @@ func outputManifestList(
 	return printListTable(cmd.OutOrStdout(), rows, columns)
 }
 
-func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
+func runRemoteList(
+	cmd *cobra.Command, opts *listOptions, filters listFilters,
+) error {
 	client, cfg, ctx, cancel, err := setupClient(
 		cmd, opts.config, opts.profile)
 	if err != nil {
@@ -179,6 +203,7 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 	if err != nil {
 		return err
 	}
+	uploads = selectRemoteList(uploads, filters)
 	if opts.reverse {
 		uploads = reverseRemoteUploads(uploads)
 	}

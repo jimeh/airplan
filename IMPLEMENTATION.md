@@ -264,8 +264,9 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   target. Payload objects are removed with batched `DeleteObjects`, then the
   marker is removed in a separate final `DeleteObject`. Invalid and markerless
   directories are outside airplan's remote management authority.
-- `--older-than` durations: small custom parser for `d`/`w` units —
-  Go's stdlib `time.ParseDuration` has no days.
+- Time filters: `ParseTimeFilter` classifies ISO-leading values as absolute,
+  parses zone-less layouts in the caller's local location, honors RFC 3339
+  zones, and otherwise delegates to the small `d`/`w`-aware `ParseAge` parser.
 - Manifest appends: `O_APPEND` open, whole line in one `Write` call,
   wrapped in context-aware `gofrs/flock` acquisition (flock on Unix,
   LockFileEx on Windows) per spec §9's concurrency and timeout rules.
@@ -554,6 +555,9 @@ time and marker key, leaving append-order manifest reduction unchanged. The CLI
 maps local and remote rows through one ordered column registry; mode validity,
 defaults, data-dependent profile/state/directory columns, explicit selections,
 and wide layouts are resolved before the shared table renderer writes stdout.
+One CLI selection model filters either local record time or remote marker time,
+applies document-only kind/slug semantics, and takes the most recent limit
+before presentation reversal and table/JSON encoding.
 
 ### OpenAPI and REST adapter
 

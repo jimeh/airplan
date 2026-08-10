@@ -123,6 +123,16 @@ func TestCommandAliasesAndQoLShorthands(t *testing.T) {
 				tt.command, tt.flag, flag.Shorthand, tt.shorthand)
 		}
 	}
+	for _, name := range []string{
+		"newer-than", "older-than", "limit", "kind", "slug",
+	} {
+		flag := list.Flags().Lookup(name)
+		if flag == nil {
+			t.Errorf("list missing --%s flag", name)
+		} else if flag.Shorthand != "" {
+			t.Errorf("list --%s shorthand = %q, want none", name, flag.Shorthand)
+		}
+	}
 
 	setListState(t)
 	root = newRootCmd()
@@ -145,7 +155,8 @@ func TestCommandAliasesAndQoLShorthands(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Aliases:", "list, ls", "-r, --remote", "--all-profiles",
-		"--columns", "--reverse", "--wide",
+		"--columns", "--kind", "--limit", "--newer-than", "--older-than",
+		"--reverse", "--slug", "--wide",
 	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("list help missing %q:\n%s", want, stdout.String())

@@ -660,7 +660,9 @@ one-off use.
 Frequent flags get short forms: `-p` (`--profile`), `-s` (`--slug`),
 `-t` (`--title`), `-j` (`--json`), and `-o` (`--open`). On subcommands,
 `-r` is `--remote` for `list` and `purge`, while `-o` is `--output` for
-`preview` and `get`. Connection overrides stay long-only.
+`preview` and `get`. List's filter flags `--newer-than`, `--older-than`,
+`--limit`, `--kind`, and `--slug` are long-only. Connection overrides stay
+long-only.
 `airplan completion bash|zsh|fish|powershell` emits shell completions.
 
 If `--open` fails to launch a browser (common in headless/agent
@@ -781,6 +783,8 @@ airplan template [document|collection]
 airplan preview [flags] [file ...]
 airplan completion bash|zsh|fish|powershell
 airplan list|ls [--remote] [--json] [--reverse] [--all-profiles]
+                [--newer-than VALUE] [--older-than VALUE] [--limit N]
+                [--kind document|collection] [--slug PATTERN]
                 [--wide | --columns LIST]
 airplan show [--json] <url|key>
 airplan get [--output PATH] [--source] <url|key>
@@ -1378,6 +1382,24 @@ machine) and must be safe:
   Default and wide layouts keep `URL` last. `--reverse` reverses the normal
   oldest-first presentation, including JSON arrays, without changing manifest
   reduction or storage ordering.
+- List filters apply identically to table and JSON output in both local and
+  `--remote` modes before presentation and automatic column selection.
+  `--newer-than VALUE` keeps rows whose manifest time (local) or marker
+  last-modified time (remote) is at or after the threshold. `--older-than VALUE`
+  keeps rows strictly before it. `--kind` accepts only `document` or
+  `collection`. `--slug PATTERN` uses path-style glob matching and applies
+  only to documents; collections and remote marker conflicts never match it,
+  including `*`. `--limit N` keeps the N most recent matches while preserving
+  their oldest-first order; zero selects no rows, a negative value errors, and
+  a value larger than the result changes nothing. `--reverse` runs after this
+  selection.
+- Time filter values accept ages supported by the cleanup duration grammar, or
+  absolute local forms `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, `YYYY/MM/DD`,
+  `YYYY-MM-DD HH:MM`, and `YYYY-MM-DDTHH:MM:SS`. Zone-less values use the
+  caller's local time zone. RFC 3339 offsets and `Z` are honored exactly. A
+  bare four-digit year and values beginning with a four-digit year followed by
+  `-` or `/` are absolute; other values use the duration grammar. Slash dates
+  in non-ISO order fail with guidance to use `YYYY/MM/DD`.
 - `list --remote --json` prints an array with one object per row. Its stable
   fields are `time`, `dir`, `marker_key`, `objects`, `bytes`, and `kind` when
   one marker kind is implied. `conflict` is true for dual-marker directories;
@@ -1485,8 +1507,9 @@ machine) and must be safe:
   deletion fails. This exception repairs local history; it never grants
   authority to delete unmarked bucket objects.
 - `airplan purge`: bulk delete driven by the manifest with filters —
-  `--older-than 30d`, `--slug PATTERN`, `--profile P`. Durations
-  accept `d`/`w` units. `--profile`/`-p` behaves as on every other
+  `--older-than 30d`, `--slug PATTERN`, `--profile P`. `--older-than` uses the
+  same duration or absolute time grammar as list and keeps its strict-before
+  boundary. Durations accept `d`/`w` units. `--profile`/`-p` behaves as on every other
   command by selecting the connection profile. Local purge always
   considers only uploads recorded with the resolved active profile,
   whether it came from `--profile`, `AIRPLAN_PROFILE`,

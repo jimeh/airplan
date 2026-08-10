@@ -86,3 +86,62 @@ func ParseAge(s string) (time.Duration, error) {
 
 	return total, nil
 }
+
+// ParseTimeFilter parses an absolute local/RFC3339 time or an age duration.
+// Absolute values without an explicit zone use now's location; durations are
+// resolved relative to now through ParseAge.
+func ParseTimeFilter(s string, now time.Time) (time.Time, error) {
+	raw := strings.TrimSpace(s)
+	if raw == "" {
+		return time.Time{}, invalidTimeFilterError(s)
+	}
+
+	absolute := len(raw) == 4 && fourLeadingDigits(raw)
+	if len(raw) > 4 && fourLeadingDigits(raw) &&
+		(raw[4] == '-' || raw[4] == '/') {
+		absolute = true
+	}
+	if !absolute {
+		if strings.Contains(raw, "/") {
+			return time.Time{}, fmt.Errorf(
+				"airplan: invalid time filter %q (use ISO order YYYY/MM/DD)", s,
+			)
+		}
+		age, err := ParseAge(raw)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("airplan: invalid time filter %q: %s",
+				s, strings.TrimPrefix(err.Error(), "airplan: "))
+		}
+		return now.Add(-age), nil
+	}
+
+	if parsed, err := time.Parse(time.RFC3339, raw); err == nil {
+		return parsed, nil
+	}
+	for _, layout := range []string{
+		"2006", "2006-01", "2006-01-02", "2006/01/02",
+		"2006-01-02 15:04", "2006-01-02T15:04:05",
+	} {
+		parsed, err := time.ParseInLocation(layout, raw, now.Location())
+		if err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, invalidTimeFilterError(s)
+}
+
+func fourLeadingDigits(s string) bool {
+	if len(s) < 4 {
+		return false
+	}
+	for i := 0; i < 4; i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func invalidTimeFilterError(s string) error {
+	return fmt.Errorf("airplan: invalid time filter %q", s)
+}

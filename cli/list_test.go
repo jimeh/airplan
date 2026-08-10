@@ -458,6 +458,319 @@ func TestListColumnValidationErrorsKeepStdoutPure(t *testing.T) {
 	}
 }
 
+func TestListFiltersLocalTableJSONParity(t *testing.T) {
+	isolateEnv(t)
+	records := listFilterManifestFixture()
+	writeDefaultManifest(t, records)
+	args := []string{
+		"--newer-than", "2026-07-08T14:00:00Z",
+		"--older-than", "2026-07-08T16:00:00Z",
+		"--kind", "document", "--slug", "alpha*",
+	}
+
+	table, stderr, err := executeList(t, args...)
+	if err != nil || stderr != "" {
+		t.Fatalf("table = %q, stderr = %q, error = %v", table, stderr, err)
+	}
+	assertListHeaders(t, table, "DATE", "KIND", "TITLE", "SIZE", "URL")
+	for _, want := range []string{"alpha-lower title", "alpha-middle title"} {
+		if !strings.Contains(table, want) {
+			t.Fatalf("table missing %q:\n%s", want, table)
+		}
+	}
+	for _, unwanted := range []string{
+		"collection title", "alpha-upper title", "beta-newer title",
+	} {
+		if strings.Contains(table, unwanted) {
+			t.Fatalf("table contains %q:\n%s", unwanted, table)
+		}
+	}
+
+	stdout, stderr, err := executeList(t, append(args, "--json")...)
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	var got []airplan.ManifestRecord
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatal(err)
+	}
+	wantKeys := []string{records[0].Key, records[1].Key}
+	if len(got) != len(wantKeys) {
+		t.Fatalf("records = %+v, want keys %v", got, wantKeys)
+	}
+	for i, key := range wantKeys {
+		if got[i].Key != key {
+			t.Fatalf("record %d key = %q, want %q", i, got[i].Key, key)
+		}
+	}
+}
+
+func TestListFiltersLocalLimitAndKindBoundaries(t *testing.T) {
+	isolateEnv(t)
+	records := listFilterManifestFixture()
+	writeDefaultManifest(t, records)
+
+	tests := []struct {
+		name string
+		args []string
+		want []string
+		not  []string
+	}{
+		{
+			name: "limit larger than set",
+			args: []string{"--kind", "document", "--limit", "10"},
+			want: []string{"alpha-lower title", "alpha-middle title", "alpha-upper title", "beta-newer title"},
+		},
+		{
+			name: "limit keeps most recent in ascending order",
+			args: []string{"--kind", "document", "--limit", "2"},
+			want: []string{"alpha-upper title", "beta-newer title"},
+			not:  []string{"alpha-lower title", "alpha-middle title"},
+		},
+		{
+			name: "limit then reverse",
+			args: []string{"--kind", "document", "--limit", "2", "--reverse"},
+			want: []string{"beta-newer title", "alpha-upper title"},
+			not:  []string{"alpha-lower title", "alpha-middle title"},
+		},
+		{
+			name: "collection kind",
+			args: []string{"--kind", "collection"},
+			want: []string{"collection title"},
+			not:  []string{"alpha-lower title", "alpha-middle title", "alpha-upper title", "beta-newer title"},
+		},
+		{
+			name: "slug star remains document only",
+			args: []string{"--slug", "*"},
+			want: []string{"alpha-lower title", "alpha-middle title", "alpha-upper title", "beta-newer title"},
+			not:  []string{"collection title"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stdout, stderr, err := executeList(t, tt.args...)
+			if err != nil || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+			}
+			previous := -1
+			for _, want := range tt.want {
+				index := strings.Index(stdout, want)
+				if index < 0 || index < previous {
+					t.Fatalf("stdout missing or misordered %q:\n%s", want, stdout)
+				}
+				previous = index
+			}
+			for _, unwanted := range tt.not {
+				if strings.Contains(stdout, unwanted) {
+					t.Fatalf("stdout contains %q:\n%s", unwanted, stdout)
+				}
+			}
+		})
+	}
+	stdout, stderr, err := executeList(t,
+		"--kind", "document", "--limit", "2", "--reverse", "--json")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	var limited []airplan.ManifestRecord
+	if err := json.Unmarshal([]byte(stdout), &limited); err != nil {
+		t.Fatal(err)
+	}
+	if len(limited) != 2 || limited[0].Slug != "beta-newer" ||
+		limited[1].Slug != "alpha-upper" {
+		t.Fatalf("limited JSON = %+v", limited)
+	}
+
+	for _, args := range [][]string{{"--limit", "0"}, {"--limit", "0", "--json"}} {
+		stdout, stderr, err := executeList(t, args...)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+		}
+		if want := map[bool]string{false: "", true: "[]\n"}[contains(args, "--json")]; stdout != want {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+}
+
+func TestListFiltersRemoteTableJSONParity(t *testing.T) {
+	isolateEnv(t)
+	objects, dirs := listFilterRemoteFixture()
+	fake := newFakeRemoteS3(t, objects, nil, nil)
+	config := writeCLIConfig(t, fake.server.URL)
+	args := []string{
+		"--remote", "--config", config,
+		"--newer-than", "2026-07-08T14:00:00Z",
+		"--older-than", "2026-07-08T16:00:00Z",
+		"--kind", "document", "--slug", "alpha*",
+	}
+
+	table, stderr, err := executeList(t, args...)
+	if err != nil || stderr != "" {
+		t.Fatalf("table = %q, stderr = %q, error = %v", table, stderr, err)
+	}
+	assertListHeaders(t, table, "DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "URL")
+	for _, want := range []string{"alpha-lower", "alpha-middle"} {
+		if !strings.Contains(table, want) {
+			t.Fatalf("table missing %q:\n%s", want, table)
+		}
+	}
+	for _, unwanted := range []string{
+		"collection", "alpha-upper", "beta-newer", dirs[3],
+	} {
+		if strings.Contains(table, unwanted) {
+			t.Fatalf("table contains %q:\n%s", unwanted, table)
+		}
+	}
+
+	stdout, stderr, err := executeList(t, append(args, "--json")...)
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	var got []remoteListJSONRecord
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Dir != dirs[0] || got[1].Dir != dirs[1] {
+		t.Fatalf("remote records = %+v, want dirs %q, %q", got, dirs[0], dirs[1])
+	}
+}
+
+func TestListFiltersRemoteLimitKindAndSlugBoundaries(t *testing.T) {
+	isolateEnv(t)
+	objects, dirs := listFilterRemoteFixture()
+	fake := newFakeRemoteS3(t, objects, nil, nil)
+	config := writeCLIConfig(t, fake.server.URL)
+
+	stdout, stderr, err := executeList(t, "--remote", "--config", config,
+		"--kind", "document", "--limit", "2", "--reverse")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	if first, second := strings.Index(stdout, "beta-newer"),
+		strings.Index(stdout, "alpha-upper"); first < 0 || second < first ||
+		strings.Contains(stdout, "alpha-middle") {
+		t.Fatalf("remote limit/reverse output:\n%s", stdout)
+	}
+	jsonOut, jsonStderr, jsonErr := executeList(t, "--remote", "--config", config,
+		"--kind", "document", "--limit", "2", "--reverse", "--json")
+	if jsonErr != nil || jsonStderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", jsonOut, jsonStderr, jsonErr)
+	}
+	var limited []remoteListJSONRecord
+	if err := json.Unmarshal([]byte(jsonOut), &limited); err != nil {
+		t.Fatal(err)
+	}
+	if len(limited) != 2 || limited[0].Dir != dirs[5] || limited[1].Dir != dirs[4] {
+		t.Fatalf("limited remote JSON = %+v", limited)
+	}
+
+	stdout, stderr, err = executeList(t, "--remote", "--config", config,
+		"--kind", "collection")
+	if err != nil || stderr != "" || !strings.Contains(stdout, dirs[2]) ||
+		strings.Contains(stdout, dirs[3]) {
+		t.Fatalf("collection stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+
+	stdout, stderr, err = executeList(t, "--remote", "--config", config,
+		"--slug", "*")
+	if err != nil || stderr != "" || strings.Contains(stdout, dirs[2]) ||
+		strings.Contains(stdout, dirs[3]) || !strings.Contains(stdout, "alpha-lower") ||
+		!strings.Contains(stdout, "alpha-middle") ||
+		!strings.Contains(stdout, "alpha-upper") ||
+		!strings.Contains(stdout, "beta-newer") {
+		t.Fatalf("slug stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+
+	for _, args := range [][]string{
+		{"--remote", "--config", config, "--limit", "0"},
+		{"--remote", "--config", config, "--limit", "0", "--json"},
+	} {
+		stdout, stderr, err = executeList(t, args...)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+		}
+		if want := map[bool]string{false: "", true: "[]\n"}[contains(args, "--json")]; stdout != want {
+			t.Fatalf("stdout = %q, want %q", stdout, want)
+		}
+	}
+}
+
+func TestListFilterErrorsKeepStdoutPureAndAvoidRemoteListing(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"negative limit", []string{"--limit=-1"}, "--limit must not be negative"},
+		{"invalid kind", []string{"--kind", "conflict"}, "--kind must be document or collection"},
+		{"invalid slug", []string{"--slug", "["}, "--slug: invalid pattern"},
+		{"invalid newer", []string{"--newer-than", "tomorrow"}, "--newer-than: invalid time filter"},
+		{"invalid older", []string{"--older-than", "03/04/2026"}, "YYYY/MM/DD"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setListState(t)
+			stdout, _, err := executeList(t, tt.args...)
+			if err == nil || stdout != "" || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("stdout = %q, error = %v, want %q", stdout, err, tt.want)
+			}
+		})
+	}
+
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, nil, nil, nil)
+	stdout, _, err := executeList(t, "--remote", "--slug", "[",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err == nil || stdout != "" || fake.listCalls() != 0 {
+		t.Fatalf("stdout = %q, error = %v, LIST calls = %d",
+			stdout, err, fake.listCalls())
+	}
+}
+
+func listFilterManifestFixture() []airplan.ManifestRecord {
+	lower := time.Date(2026, 7, 8, 14, 0, 0, 0, time.UTC)
+	records := []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "alpha-lower", "work", lower),
+		uploadRecord(deleteDirB, "alpha-middle", "work", lower.Add(time.Hour)),
+		uploadRecord(deleteDirC, "collection", "home", lower.Add(90*time.Minute)),
+		uploadRecord(strings.Repeat("d", 26), "alpha-upper", "home", lower.Add(2*time.Hour)),
+		uploadRecord(strings.Repeat("e", 26), "beta-newer", "home", lower.Add(3*time.Hour)),
+	}
+	collection := &records[2]
+	collection.Key = deleteDirC + "/index.html"
+	collection.MarkerKey = deleteDirC + "/" + airplan.CollectionMarkerFilename
+	collection.URL = "https://plans.example.com/" + collection.Key
+	collection.Kind = string(airplan.UploadKindCollection)
+	collection.Title = "collection title"
+	records[3].MarkerVersion = 0
+	return records
+}
+
+func listFilterRemoteFixture() ([]remoteFakeObject, []string) {
+	lower := time.Date(2026, 7, 8, 14, 0, 0, 0, time.UTC)
+	dirs := []string{
+		deleteDirA, deleteDirB, deleteDirC,
+		strings.Repeat("d", 26), strings.Repeat("e", 26),
+		strings.Repeat("f", 26),
+	}
+	objects := []remoteFakeObject{
+		{key: dirs[0] + "/" + airplan.MarkerFilename, size: 10, lastModified: lower},
+		{key: dirs[0] + "/alpha-lower.html", size: 20, lastModified: lower},
+		{key: dirs[1] + "/" + airplan.MarkerFilename, size: 10, lastModified: lower.Add(time.Hour)},
+		{key: dirs[1] + "/alpha-middle.html", size: 20, lastModified: lower.Add(time.Hour)},
+		{key: dirs[2] + "/" + airplan.CollectionMarkerFilename, size: 10, lastModified: lower.Add(90 * time.Minute)},
+		{key: dirs[2] + "/index.html", size: 20, lastModified: lower.Add(90 * time.Minute)},
+		{key: dirs[3] + "/" + airplan.MarkerFilename, size: 10, lastModified: lower.Add(105 * time.Minute)},
+		{key: dirs[3] + "/" + airplan.CollectionMarkerFilename, size: 10, lastModified: lower.Add(105 * time.Minute)},
+		{key: dirs[3] + "/conflict.html", size: 20, lastModified: lower.Add(105 * time.Minute)},
+		{key: dirs[4] + "/" + airplan.MarkerFilename, size: 10, lastModified: lower.Add(2 * time.Hour)},
+		{key: dirs[4] + "/alpha-upper.html", size: 20, lastModified: lower.Add(2 * time.Hour)},
+		{key: dirs[5] + "/" + airplan.MarkerFilename, size: 10, lastModified: lower.Add(3 * time.Hour)},
+		{key: dirs[5] + "/beta-newer.html", size: 20, lastModified: lower.Add(3 * time.Hour)},
+	}
+	return objects, dirs
+}
+
 func assertListHeaders(t *testing.T, stdout string, want ...string) {
 	t.Helper()
 	line, _, _ := strings.Cut(stdout, "\n")
