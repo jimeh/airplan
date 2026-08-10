@@ -44,9 +44,11 @@ type SyncManifestResult struct {
 	Tombstoned []ManifestRecord `json:"tombstone_records"`
 	// Unchanged counts remote markers already active in the local manifest.
 	Unchanged int `json:"unchanged"`
-	// Incomplete counts valid markers whose declared payload is incomplete.
+	// Incomplete counts inspected markers whose declared payload is incomplete,
+	// including import and enrichment candidates.
 	Incomplete int `json:"incomplete"`
-	// Invalid counts marker bodies that fail marker validation.
+	// Invalid counts inspected marker bodies that fail marker validation,
+	// including import and enrichment candidates.
 	Invalid int `json:"invalid"`
 	// Retained counts local records kept after a listing inconsistency or error.
 	Retained int `json:"retained"`
@@ -369,7 +371,7 @@ func (c *Client) syncEnrich(
 		}}
 	}
 	if inspection.State != UploadComplete {
-		return syncJobResult{}
+		return syncJobResult{state: inspection.State}
 	}
 	objects, total, ok := declaredInspectionTotals(
 		inspection, len(markerBody),

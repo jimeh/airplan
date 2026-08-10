@@ -1407,7 +1407,9 @@ machine) and must be safe:
   current time. An input whose leading four-digit year stands alone or
   is followed by `-` or `/` is an absolute timestamp: `2026`,
   `2026-07`, `2026-07-01`, `2026/07/01`, `2026-07-01 09:30`,
-  `2026-07-01T09:30:00`, or RFC 3339. Unspecified fields resolve to
+  `2026-07-01T09:30:00`, or RFC 3339. RFC 3339 fractions use a decimal
+  point, and numeric offset hours/minutes are limited to 00-23 and 00-59.
+  Unspecified fields resolve to
   the first instant of the period, and bare dates resolve to **local**
   midnight — the manifest keeps storing UTC; only the flag value is
   interpreted in the local zone — while an explicit RFC 3339 offset is
@@ -1641,8 +1643,12 @@ machine) and must be safe:
   Human output and warnings use stderr while stdout remains empty. `--json`
   emits exactly one object on stdout with deterministic `added_records`,
   `enriched_records`, `tombstone_records`, and `failures` arrays plus
-  `unchanged`, `incomplete`, `invalid`, and `retained` counters;
-  enrichment is counted separately and never reported as added. A
+  `unchanged`, `incomplete`, `invalid`, and `retained` counters.
+  `unchanged` counts remotely listed markers that were already active before
+  reconciliation, so a successfully enriched record is also unchanged;
+  incomplete and invalid inspections are counted for both import and
+  enrichment candidates. Enrichment is counted separately and never reported
+  as added. A
   partial failure exits nonzero after
   writing the result. Sync provides eventual active-inventory convergence;
   it neither uploads deletion history nor makes historical JSONL files

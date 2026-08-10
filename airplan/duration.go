@@ -91,10 +91,7 @@ func ParseAge(s string) (time.Duration, error) {
 // (SPEC.md §9), tried in order. Unspecified fields default to zero, so
 // partial dates resolve to the first instant of their period.
 var timeFilterLayouts = []string{
-	time.RFC3339,
 	"2006-01-02T15:04:05",
-	"2006-01-02T15:04",
-	"2006-01-02 15:04:05",
 	"2006-01-02 15:04",
 	"2006-01-02",
 	"2006/01/02",
@@ -117,6 +114,11 @@ func parseTimeFilterIn(
 ) (time.Time, error) {
 	raw := strings.TrimSpace(s)
 	if isAbsoluteTimeFilter(raw) {
+		if hasStrictRFC3339Syntax(raw) {
+			if t, err := time.Parse(time.RFC3339, raw); err == nil {
+				return t, nil
+			}
+		}
 		for _, layout := range timeFilterLayouts {
 			if t, err := time.ParseInLocation(layout, raw, loc); err == nil {
 				return t, nil
@@ -141,6 +143,42 @@ func parseTimeFilterIn(
 				"date like 2026-07-01)", s)
 	}
 	return now.Add(-d), nil
+}
+
+// hasStrictRFC3339Syntax rejects extensions accepted by time.Parse but not
+// RFC 3339, including comma fractions and out-of-range numeric offsets.
+// Calendar and clock ranges remain time.Parse's responsibility.
+func hasStrictRFC3339Syntax(raw string) bool {
+	if len(raw) < len("2006-01-02T15:04:05Z") || raw[10] != 'T' {
+		return false
+	}
+	zoneStart := len("2006-01-02T15:04:05")
+	if raw[zoneStart] == '.' {
+		zoneStart++
+		fractionStart := zoneStart
+		for zoneStart < len(raw) && raw[zoneStart] >= '0' && raw[zoneStart] <= '9' {
+			zoneStart++
+		}
+		if zoneStart == fractionStart {
+			return false
+		}
+	}
+	if zoneStart == len(raw)-1 && raw[zoneStart] == 'Z' {
+		return true
+	}
+	if len(raw)-zoneStart != len("+00:00") ||
+		(raw[zoneStart] != '+' && raw[zoneStart] != '-') ||
+		raw[zoneStart+3] != ':' {
+		return false
+	}
+	for _, index := range []int{zoneStart + 1, zoneStart + 2, zoneStart + 4, zoneStart + 5} {
+		if raw[index] < '0' || raw[index] > '9' {
+			return false
+		}
+	}
+	hour := int(raw[zoneStart+1]-'0')*10 + int(raw[zoneStart+2]-'0')
+	minute := int(raw[zoneStart+4]-'0')*10 + int(raw[zoneStart+5]-'0')
+	return hour <= 23 && minute <= 59
 }
 
 // isAbsoluteTimeFilter reports whether the input selects the absolute

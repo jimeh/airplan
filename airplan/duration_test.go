@@ -74,6 +74,11 @@ func TestParseTimeFilter(t *testing.T) {
 			time.Date(2026, 7, 1, 9, 30, 0, 0,
 				time.FixedZone("", 2*60*60)),
 		},
+		{
+			"2026-07-01T09:30:00.125+23:59",
+			time.Date(2026, 7, 1, 9, 30, 0, 125_000_000,
+				time.FixedZone("", 23*60*60+59*60)),
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
@@ -136,6 +141,11 @@ func TestParseTimeFilterErrors(t *testing.T) {
 		{"yesterday", "use a duration like 30d or a date like 2026-07-01"},
 		{"2026-13-45", "expected forms like 2026-07-01"},
 		{"2026-07-01X", "expected forms like 2026-07-01"},
+		{"2026-07-01T09:30", "expected forms like 2026-07-01"},
+		{"2026-07-01 09:30:00", "expected forms like 2026-07-01"},
+		{"2026-07-01T09:30:00+24:00", "expected forms like 2026-07-01"},
+		{"2026-07-01T09:30:00+00:60", "expected forms like 2026-07-01"},
+		{"2026-07-01T09:30:00,5Z", "expected forms like 2026-07-01"},
 		// Slash dates without a leading four-digit year are refused,
 		// never guessed: day-first and month-first are both plausible.
 		{"03/04/2026", "ambiguous day/month order; use YYYY-MM-DD"},

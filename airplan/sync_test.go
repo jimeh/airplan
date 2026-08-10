@@ -496,7 +496,8 @@ func TestSyncBackfillLeavesNonCompleteMarkersUntouched(t *testing.T) {
 		client := newSyncClient(t, fake.server.URL, manifest)
 		result, err := client.SyncManifest(context.Background(),
 			SyncManifestOptions{Prune: true})
-		if err != nil || len(result.Enriched) != 0 {
+		if err != nil || len(result.Enriched) != 0 ||
+			result.Incomplete != 1 || result.Invalid != 0 {
 			t.Fatalf("sync = %+v, %v", result, err)
 		}
 		records, _, err := ReadManifest(manifest)
@@ -519,7 +520,8 @@ func TestSyncBackfillLeavesNonCompleteMarkersUntouched(t *testing.T) {
 		client := newSyncClient(t, fake.server.URL, manifest)
 		result, err := client.SyncManifest(context.Background(),
 			SyncManifestOptions{Prune: true})
-		if err != nil || len(result.Enriched) != 0 {
+		if err != nil || len(result.Enriched) != 0 ||
+			result.Invalid != 1 || result.Incomplete != 0 {
 			t.Fatalf("sync = %+v, %v", result, err)
 		}
 		records, _, err := ReadManifest(manifest)

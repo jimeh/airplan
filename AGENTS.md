@@ -135,6 +135,9 @@ coverage has no equivalent local task on non-Windows hosts.
   `utf8.UTFMax-1` bytes of lookahead so a valid rune split at the boundary is
   not mistaken for binary data. Preserve NUL detection and reject genuinely
   malformed UTF-8.
+- **Strict RFC 3339 time filters**: Go's `time.Parse` accepts comma fractions
+  and out-of-range numeric offsets such as `+24:00` and `+00:60`. Preserve the
+  explicit syntax and offset-range guard before parsing list/purge boundaries.
 - **Markdown alerts** (`airplan/alert.go`): Goldmark splits markers
   such as `[!NOTE]` across multiple text nodes. Reconstruct the first
   blockquote line when matching alerts; do not assume one marker node.
