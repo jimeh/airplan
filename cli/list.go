@@ -2,12 +2,11 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"math"
 	"os"
 	"strings"
-	"text/tabwriter"
 	"time"
 
 	"github.com/jimeh/airplan/airplan"
@@ -15,10 +14,14 @@ import (
 )
 
 type listOptions struct {
-	config  string
-	profile string
-	json    bool
-	remote  bool
+	config      string
+	profile     string
+	columns     string
+	json        bool
+	remote      bool
+	wide        bool
+	reverse     bool
+	allProfiles bool
 }
 
 func newListCmd() *cobra.Command {
@@ -43,16 +46,27 @@ func newListCmd() *cobra.Command {
 		"config file path for --remote (default: XDG config dir)")
 	f.StringVarP(&opts.profile, "profile", "p", "",
 		"filter local history, or select config profile for --remote")
+	f.BoolVar(&opts.allProfiles, "all-profiles", false,
+		"list local S3 manifest history across every recorded profile")
 	f.BoolVarP(&opts.json, "json", "j", false,
 		"print a JSON array instead of a table")
 	// SPEC.md §6 defines -r as the list --remote shorthand.
 	f.BoolVarP(&opts.remote, "remote", "r", false,
 		"list uploads from a live bucket listing instead of the manifest")
+	f.StringVar(&opts.columns, "columns", "",
+		"table columns (comma list, or additive +name/-name modifiers)")
+	f.BoolVar(&opts.wide, "wide", false,
+		"show every table column valid for the selected list mode")
+	f.BoolVar(&opts.reverse, "reverse", false,
+		"print newest uploads first")
 
 	return cmd
 }
 
 func runList(cmd *cobra.Command, opts *listOptions) error {
+	if err := validateListPresentationOptions(cmd.Flags().Changed, opts); err != nil {
+		return err
+	}
 	if opts.remote {
 		return runRemoteList(cmd, opts)
 	}
@@ -73,8 +87,13 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 			return err
 		}
 	}
+	if opts.allProfiles && cfg.EffectiveBackend() == airplan.BackendAirplan {
+		return errors.New("--all-profiles cannot be used with the airplan backend")
+	}
 	var profile *string
-	if cmd.Flags().Changed("profile") {
+	if opts.allProfiles {
+		profile = nil
+	} else if cmd.Flags().Changed("profile") {
 		profile = &opts.profile
 	} else if os.Getenv("AIRPLAN_PROFILE") != "" {
 		profile = &cfg.Profile
@@ -91,14 +110,14 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 		if err != nil {
 			return err
 		}
-		return outputManifestList(cmd, listed.Records, listed.Warnings, opts.json)
+		return outputManifestList(cmd, listed.Records, listed.Warnings, opts)
 	}
 	listed, err := airplan.ListManifestHistory(cfg.ManifestPath, profile)
 	if err != nil {
 		return err
 	}
 	return outputManifestList(
-		cmd, listed.Records, listed.Warnings, opts.json,
+		cmd, listed.Records, listed.Warnings, opts,
 	)
 }
 
@@ -122,20 +141,30 @@ func allowsConfigFreeLocalList(cmd *cobra.Command) bool {
 
 func outputManifestList(
 	cmd *cobra.Command, uploads []airplan.ManifestRecord,
-	warnings []string, jsonOutput bool,
+	warnings []string, opts *listOptions,
 ) error {
 	stderr := cmd.ErrOrStderr()
 	for _, warning := range warnings {
 		fmt.Fprintf(stderr, "airplan: warning: %s\n", warning)
 	}
-	if jsonOutput {
+	if opts.reverse {
+		uploads = reverseManifestRecords(uploads)
+	}
+	if opts.json {
 		if uploads == nil {
 			uploads = []airplan.ManifestRecord{}
 		}
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(uploads)
 	}
 
-	return printUploadTable(cmd.OutOrStdout(), uploads)
+	rows := localListRows(uploads)
+	columns, err := resolveListColumns(
+		listModeLocal, opts.columns, cmd.Flags().Changed("columns"), opts.wide, rows,
+	)
+	if err != nil {
+		return err
+	}
+	return printListTable(cmd.OutOrStdout(), rows, columns)
 }
 
 func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
@@ -149,6 +178,9 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 	uploads, err := client.ListRemote(ctx)
 	if err != nil {
 		return err
+	}
+	if opts.reverse {
+		uploads = reverseRemoteUploads(uploads)
 	}
 	if cfg.EffectiveBackend() == airplan.BackendS3 && cfg.PublicBaseURL == "" {
 		for _, upload := range uploads {
@@ -169,7 +201,14 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 		)
 	}
 
-	return printRemoteUploadTable(cmd.OutOrStdout(), uploads)
+	rows := remoteListRows(uploads)
+	columns, err := resolveListColumns(
+		listModeRemote, opts.columns, cmd.Flags().Changed("columns"), opts.wide, rows,
+	)
+	if err != nil {
+		return err
+	}
+	return printListTable(cmd.OutOrStdout(), rows, columns)
 }
 
 type remoteListJSONRecord struct {
@@ -206,88 +245,20 @@ func remoteListJSONRecords(
 	return records
 }
 
-func printRemoteUploadTable(w io.Writer, uploads []airplan.RemoteUpload) error {
-	if len(uploads) == 0 {
-		return nil
+func reverseManifestRecords(records []airplan.ManifestRecord) []airplan.ManifestRecord {
+	reversed := append([]airplan.ManifestRecord(nil), records...)
+	for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
+		reversed[i], reversed[j] = reversed[j], reversed[i]
 	}
-
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(
-		tw, "DATE\tKIND\tOBJECTS\tSIZE\tSLUG\tDIRECTORY\tURL",
-	); err != nil {
-		return err
-	}
-	for _, upload := range uploads {
-		slug := upload.Slug
-		if slug == "" {
-			slug = "-"
-		}
-		url := upload.URL
-		if url == "" {
-			url = "-"
-		}
-		kind := string(upload.Kind)
-		if upload.Conflict {
-			kind = "conflict"
-		}
-		if kind == "" {
-			kind = "-"
-		}
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\n",
-			upload.LastModified.UTC().Format("2006-01-02 15:04"),
-			kind,
-			upload.Objects,
-			formatListBytes(upload.Bytes),
-			slug,
-			upload.Dir,
-			url,
-		); err != nil {
-			return err
-		}
-	}
-	return tw.Flush()
+	return reversed
 }
 
-func printUploadTable(
-	w io.Writer,
-	uploads []airplan.ManifestRecord,
-) error {
-	if len(uploads) == 0 {
-		return nil
+func reverseRemoteUploads(uploads []airplan.RemoteUpload) []airplan.RemoteUpload {
+	reversed := append([]airplan.RemoteUpload(nil), uploads...)
+	for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
+		reversed[i], reversed[j] = reversed[j], reversed[i]
 	}
-
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(
-		tw, "DATE\tPROFILE\tSTATE\tTITLE\tSIZE\tURL",
-	); err != nil {
-		return err
-	}
-	for _, upload := range uploads {
-		title := upload.Title
-		if title == "" {
-			title = "-"
-		}
-		profile := upload.Profile
-		if profile == "" {
-			profile = "<root>"
-		}
-		state := "legacy"
-		if airplan.IsSupportedMarkerVersion(upload.MarkerVersion) {
-			state = "managed"
-		}
-
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			upload.Time.UTC().Format("2006-01-02 15:04"),
-			profile,
-			state,
-			title,
-			formatListBytes(upload.Bytes),
-			upload.URL,
-		); err != nil {
-			return err
-		}
-	}
-	return tw.Flush()
+	return reversed
 }
 
 func formatListBytes(bytes int64) string {

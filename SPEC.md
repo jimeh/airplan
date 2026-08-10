@@ -780,7 +780,8 @@ airplan skill
 airplan template [document|collection]
 airplan preview [flags] [file ...]
 airplan completion bash|zsh|fish|powershell
-airplan list|ls [--remote] [--json]
+airplan list|ls [--remote] [--json] [--reverse] [--all-profiles]
+                [--wide | --columns LIST]
 airplan show [--json] <url|key>
 airplan get [--output PATH] [--source] <url|key>
 airplan delete <url|key>
@@ -1319,19 +1320,28 @@ machine) and must be safe:
 
 ### Commands
 
-- `airplan list`: past uploads from the manifest (date, profile,
-  management state, title, human-readable binary size, URL); `--json`
-  for scripting with exact byte counts. Table state is `managed` for
-  the supported `marker_version` and `legacy` when the field is absent.
-  Both appear in history without warning; legacy entries remain
-  ineligible for delete reconciliation and purge.
+- `airplan list`: past uploads from the manifest. Active rows sort by record
+  time, then marker key, regardless of append order. The default table has
+  `DATE`, `KIND`, `TITLE`, `SIZE`, and `URL`. `PROFILE` is added when the
+  result contains more than one distinct recorded profile, with the root
+  profile displayed as `<root>`. `STATE` is added when any result is legacy,
+  and is `managed` for a supported `marker_version` or `legacy` when that
+  field is absent. `DIR` is added when any row has no inferable URL. Legacy
+  entries appear without warning and remain ineligible for delete
+  reconciliation and purge. In this spec phase local `SIZE` continues to be
+  the recorded page byte count.
 - With no resolvable configuration or backend selection, `list` assumes `s3`
   and reads the resolved local manifest without requiring storage credentials.
   Local S3 listing with no explicit profile shows every recorded profile; an
   explicit `--profile NAME` filters that exact profile, and `--profile=`
-  selects root-level history. If configuration selects an `airplan` profile,
-  `list` calls the server's manifest endpoint. `--config` is therefore valid
-  for non-remote list because it can select the HTTP backend.
+  selects root-level history. Long-only `--all-profiles` explicitly selects
+  every recorded local profile even when ambient configuration or
+  `AIRPLAN_PROFILE` would select one; it conflicts with an explicit
+  `--profile` and is invalid with `--remote` or a resolved `airplan` backend,
+  whose service-scoped manifest endpoint cannot return cross-profile history.
+  If configuration selects an `airplan` profile, `list` calls the server's
+  manifest endpoint. `--config` is therefore valid for non-remote list because
+  it can select the HTTP backend.
 - `airplan list --remote`: cheaply discovers marker directories made from any
   machine. It performs only paginated bucket LIST operations beneath the
   active profile's `key_prefix`; it does not GET markers, HEAD pages, or trust
@@ -1339,8 +1349,9 @@ machine) and must be safe:
   `[key_prefix/]<26-char lowercase base32>/` directory, then emits groups
   containing `.airplan.json`, `.airplan-collection.json`, or both. Payload
   filename shape without either marker is never evidence of visibility.
-- Remote list rows have `DATE`, `KIND`, `OBJECTS`, `SIZE`, `SLUG`, `DIRECTORY`,
-  and `URL` columns. `DATE` is the selected marker object's storage
+- The default remote table has `DATE`, `KIND`, `OBJECTS`, `SIZE`, `SLUG`, and
+  `URL`; it adds `DIR` when any row has no inferred URL. `DATE` is the selected
+  marker object's storage
   last-modified time. `OBJECTS` and `SIZE` count every object and byte
   recursively beneath the random directory, including the marker,
   nested keys, and unrecognized extras. `KIND` is `document` or `collection`
@@ -1351,9 +1362,22 @@ machine) and must be safe:
   HTML members exist. With both marker names, `KIND` is `conflict` and page,
   slug, and URL inference is suppressed. No marker or page request is made.
   URL fallback without `public_base_url` emits the normal warning once.
-  `DIRECTORY` is the 26-character random directory without
+  `DIR` is the 26-character random directory without
   `key_prefix`. Rows sort by marker last-modified time, then marker
   key.
+- Local and remote tables use one column model. `--columns` accepts either an
+  absolute comma-separated order such as `date,title,url`, or comma-separated
+  `+`/`-` modifiers applied to that mode's data-dependent default, such as
+  `+dir,-title`; the forms cannot be mixed. Valid local names are `date`,
+  `kind`, `title`, `size`, `slug`, `profile`, `state`, `dir`, `page-size`,
+  `format`, `repo`, `bucket`, and `url`. Valid remote names are `date`, `kind`,
+  `objects`, `size`, `slug`, `dir`, and `url`. Unknown and wrong-mode names
+  fail with the valid names for the selected mode. Explicit columns are never
+  auto-pruned. `--wide` selects every valid column for the mode; it and
+  `--columns` are long-only, mutually exclusive, and invalid with `--json`.
+  Default and wide layouts keep `URL` last. `--reverse` reverses the normal
+  oldest-first presentation, including JSON arrays, without changing manifest
+  reduction or storage ordering.
 - `list --remote --json` prints an array with one object per row. Its stable
   fields are `time`, `dir`, `marker_key`, `objects`, `bytes`, and `kind` when
   one marker kind is implied. `conflict` is true for dual-marker directories;

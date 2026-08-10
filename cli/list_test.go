@@ -48,8 +48,8 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"DATE", "PROFILE", "STATE", "TITLE", "SIZE", "URL",
-		"work", "managed",
+		"DATE", "KIND", "PROFILE", "TITLE", "SIZE", "URL",
+		"work", "document",
 		"2026-07-08 14:03", "Active plan", "18 KiB",
 		"https://plans.example.com/active/plan.html",
 		"2026-07-08 16:05", "7 B",
@@ -86,7 +86,7 @@ func TestListShowsLegacyUploadsWithoutWarnings(t *testing.T) {
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	for _, want := range []string{"work", "legacy", "Legacy plan"} {
+	for _, want := range []string{"STATE", "legacy", "Legacy plan"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout)
 		}
@@ -214,6 +214,259 @@ func TestListEmptyManifest(t *testing.T) {
 	})
 }
 
+func TestListTableColumnSelection(t *testing.T) {
+	path := setListState(t)
+	writeManifest(t, path, strings.Join([]string{
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+			`"key":"abcdefghijklmnopqrstuvwxyz/plan.html",` +
+			`"marker_key":"abcdefghijklmnopqrstuvwxyz/.airplan.json",` +
+			`"url":"https://plans.example.com/abcdefghijklmnopqrstuvwxyz/plan.html",` +
+			`"bucket":"plans","profile":"work","title":"Active plan",` +
+			`"format":"md","kind":"document","slug":"plan",` +
+			`"repo":"https://github.com/example/airplan",` +
+			`"bytes":18432,"marker_version":3}`,
+	}, "\n")+"\n")
+
+	t.Run("local default", func(t *testing.T) {
+		stdout, stderr, err := executeList(t)
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+		}
+		assertListHeaders(t, stdout, "DATE", "KIND", "TITLE", "SIZE", "URL")
+	})
+
+	t.Run("local wide", func(t *testing.T) {
+		stdout, stderr, err := executeList(t, "--wide")
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+		}
+		assertListHeaders(t, stdout,
+			"DATE", "KIND", "TITLE", "SIZE", "SLUG", "PROFILE", "STATE",
+			"DIR", "PAGE-SIZE", "FORMAT", "REPO", "BUCKET", "URL")
+	})
+
+	t.Run("absolute", func(t *testing.T) {
+		stdout, stderr, err := executeList(t, "--columns", "date,title,url")
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+		}
+		assertListHeaders(t, stdout, "DATE", "TITLE", "URL")
+	})
+
+	t.Run("additive", func(t *testing.T) {
+		stdout, stderr, err := executeList(t, "--columns", "+dir,-title")
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+		}
+		assertListHeaders(t, stdout, "DATE", "KIND", "SIZE", "DIR", "URL")
+	})
+}
+
+func TestListTableAutomaticColumns(t *testing.T) {
+	t.Run("profile fires only for multiple result profiles", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path, strings.Join([]string{
+			`{"type":"upload","time":"2026-07-08T14:03:11Z","key":"one.html",` +
+				`"url":"https://example/one.html","bucket":"plans","profile":"work",` +
+				`"title":"One","bytes":10,"marker_version":1}`,
+			`{"type":"upload","time":"2026-07-08T14:04:11Z","key":"two.html",` +
+				`"url":"https://example/two.html","bucket":"plans",` +
+				`"title":"Two","bytes":11,"marker_version":1}`,
+		}, "\n")+"\n")
+
+		stdout, _, err := executeList(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertListHeaders(t, stdout,
+			"DATE", "KIND", "TITLE", "SIZE", "PROFILE", "URL")
+
+		stdout, _, err = executeList(t, "--profile", "work")
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertListHeaders(t, stdout, "DATE", "KIND", "TITLE", "SIZE", "URL")
+	})
+
+	t.Run("state fires only for legacy results", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path,
+			`{"type":"upload","time":"2026-07-08T14:03:11Z","key":"managed.html",`+
+				`"url":"https://example/managed.html","bucket":"plans",`+
+				`"title":"Managed","bytes":10,"marker_version":1}`+"\n")
+
+		stdout, _, err := executeList(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertListHeaders(t, stdout, "DATE", "KIND", "TITLE", "SIZE", "URL")
+
+		writeManifest(t, path,
+			`{"type":"upload","time":"2026-07-08T14:03:11Z","key":"legacy.html",`+
+				`"url":"https://example/legacy.html","bucket":"plans",`+
+				`"title":"Legacy","bytes":10}`+"\n")
+		stdout, _, err = executeList(t)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertListHeaders(t, stdout,
+			"DATE", "KIND", "TITLE", "SIZE", "STATE", "URL")
+	})
+
+	t.Run("dir fires only for a row without URL", func(t *testing.T) {
+		when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
+		withURL := []remoteFakeObject{
+			{key: deleteDirA + "/" + airplan.MarkerFilename, size: 10, lastModified: when},
+			{key: deleteDirA + "/plan.html", size: 20, lastModified: when},
+		}
+		isolateEnv(t)
+		fake := newFakeRemoteS3(t, withURL, nil, nil)
+		stdout, _, err := executeList(t,
+			"--remote", "--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertListHeaders(t, stdout,
+			"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "URL")
+
+		withoutURL := []remoteFakeObject{
+			{key: deleteDirB + "/" + airplan.MarkerFilename, size: 10, lastModified: when},
+			{key: deleteDirB + "/plan.html", size: 20, lastModified: when},
+			{key: deleteDirB + "/other.html", size: 30, lastModified: when},
+		}
+		fake = newFakeRemoteS3(t, withoutURL, nil, nil)
+		stdout, _, err = executeList(t,
+			"--remote", "--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertListHeaders(t, stdout,
+			"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "DIR", "URL")
+	})
+}
+
+func TestListRemoteTableColumnSelection(t *testing.T) {
+	isolateEnv(t)
+	when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
+	objects := []remoteFakeObject{
+		{key: deleteDirA + "/" + airplan.MarkerFilename, size: 10, lastModified: when},
+		{key: deleteDirA + "/plan.html", size: 20, lastModified: when},
+	}
+	fake := newFakeRemoteS3(t, objects, nil, nil)
+	config := writeCLIConfig(t, fake.server.URL)
+
+	tests := []struct {
+		name    string
+		args    []string
+		headers []string
+	}{
+		{"default", nil, []string{"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "URL"}},
+		{"wide", []string{"--wide"}, []string{"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "DIR", "URL"}},
+		{"absolute", []string{"--columns", "date,dir,url"}, []string{"DATE", "DIR", "URL"}},
+		{"additive", []string{"--columns", "+dir,-slug"}, []string{"DATE", "KIND", "OBJECTS", "SIZE", "DIR", "URL"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			args := append([]string{"--remote", "--config", config}, tt.args...)
+			stdout, stderr, err := executeList(t, args...)
+			if err != nil || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+			}
+			assertListHeaders(t, stdout, tt.headers...)
+		})
+	}
+}
+
+func TestListReversePresentationOrder(t *testing.T) {
+	t.Run("local table and JSON", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path, strings.Join([]string{
+			`{"type":"upload","time":"2026-07-08T14:03:11Z","key":"old.html",` +
+				`"url":"https://example/old.html","bucket":"plans",` +
+				`"title":"Old","bytes":10,"marker_version":1}`,
+			`{"type":"upload","time":"2026-07-08T15:03:11Z","key":"new.html",` +
+				`"url":"https://example/new.html","bucket":"plans",` +
+				`"title":"New","bytes":10,"marker_version":1}`,
+		}, "\n")+"\n")
+
+		for _, args := range [][]string{{"--reverse"}, {"--reverse", "--json"}} {
+			stdout, stderr, err := executeList(t, args...)
+			if err != nil || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+			}
+			if strings.Index(stdout, "New") > strings.Index(stdout, "Old") {
+				t.Fatalf("stdout is not newest first:\n%s", stdout)
+			}
+		}
+	})
+
+	t.Run("remote", func(t *testing.T) {
+		isolateEnv(t)
+		when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
+		objects := []remoteFakeObject{
+			{key: deleteDirA + "/" + airplan.MarkerFilename, size: 10, lastModified: when},
+			{key: deleteDirA + "/old.html", size: 20, lastModified: when},
+			{key: deleteDirB + "/" + airplan.MarkerFilename, size: 10, lastModified: when.Add(time.Hour)},
+			{key: deleteDirB + "/new.html", size: 20, lastModified: when.Add(time.Hour)},
+		}
+		fake := newFakeRemoteS3(t, objects, nil, nil)
+		stdout, stderr, err := executeList(t, "--remote", "--reverse",
+			"--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil || stderr != "" {
+			t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+		}
+		if strings.Index(stdout, "new") > strings.Index(stdout, "old") {
+			t.Fatalf("stdout is not newest first:\n%s", stdout)
+		}
+	})
+}
+
+func TestListColumnValidationErrorsKeepStdoutPure(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"unknown", []string{"--columns", "date,nope"}, []string{"unknown column \"nope\"", "valid local columns"}},
+		{"wrong mode", []string{"--columns", "date,objects"}, []string{"column \"objects\" is not valid for local list", "valid local columns"}},
+		{"mixed syntax", []string{"--columns", "date,+dir"}, []string{"cannot mix absolute and additive"}},
+		{"wide conflict", []string{"--wide", "--columns", "date,url"}, []string{"--wide cannot be used with --columns"}},
+		{"json columns", []string{"--json", "--columns", "date,url"}, []string{"--columns cannot be used with --json"}},
+		{"json wide", []string{"--json", "--wide"}, []string{"--wide cannot be used with --json"}},
+		{"columns long only", []string{"-c", "date,url"}, []string{"unknown shorthand flag: 'c'"}},
+		{"remote wrong mode", []string{"--remote", "--columns", "title"}, []string{"column \"title\" is not valid for remote list", "valid remote columns"}},
+		{"all profiles with profile", []string{"--all-profiles", "--profile", "work"}, []string{"--all-profiles cannot be used with --profile"}},
+		{"all profiles remote", []string{"--remote", "--all-profiles"}, []string{"--all-profiles is only valid for local list"}},
+		{"all profiles long only", []string{"-a"}, []string{"unknown shorthand flag: 'a'"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			setListState(t)
+			stdout, _, err := executeList(t, tt.args...)
+			if err == nil {
+				t.Fatalf("error = nil, stdout = %q", stdout)
+			}
+			if stdout != "" {
+				t.Fatalf("stdout = %q, want empty", stdout)
+			}
+			for _, want := range tt.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error = %q, want %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+func assertListHeaders(t *testing.T, stdout string, want ...string) {
+	t.Helper()
+	line, _, _ := strings.Cut(stdout, "\n")
+	got := strings.Fields(line)
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("headers = %q, want %q\nstdout:\n%s", got, want, stdout)
+	}
+}
+
 func TestListRemoteTableAndJSON(t *testing.T) {
 	when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
 	key := deleteDirA + "/plan.html"
@@ -238,7 +491,7 @@ func TestListRemoteTableAndJSON(t *testing.T) {
 			t.Fatalf("stderr = %q, want empty", stderr)
 		}
 		for _, want := range []string{
-			"DATE", "OBJECTS", "SIZE", "SLUG", "DIRECTORY", "URL",
+			"DATE", "OBJECTS", "SIZE", "SLUG", "URL",
 			"2026-07-08 14:03", "3", "18.1 KiB", "plan", deleteDirA,
 			"https://plans.example.com/" + key,
 		} {
@@ -488,6 +741,90 @@ bucket = "work"
 	}
 	if !strings.Contains(stdout, "Work") || strings.Contains(stdout, "Home") {
 		t.Fatalf("stdout = %q, want only work history", stdout)
+	}
+}
+
+func TestListAllProfilesOverridesEnvironmentProfile(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("AIRPLAN_PROFILE", "work")
+	manifest := filepath.Join(
+		os.Getenv("XDG_STATE_HOME"), "airplan", "manifest.jsonl",
+	)
+	writeManifest(t, manifest, strings.Join([]string{
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+			`"key":"work/plan.html","url":"https://example/work",` +
+			`"bucket":"work","profile":"work","title":"Work",` +
+			`"bytes":10,"format":"md","kind":"document",` +
+			`"marker_version":3}`,
+		`{"type":"upload","time":"2026-07-08T14:04:11Z",` +
+			`"key":"home/plan.html","url":"https://example/home",` +
+			`"bucket":"home","profile":"home","title":"Home",` +
+			`"bytes":10,"format":"md","kind":"document",` +
+			`"marker_version":3}`,
+	}, "\n")+"\n")
+	config := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "airplan", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(config), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config, []byte(`
+[profiles.work]
+endpoint = "https://work.invalid"
+bucket = "work"
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeList(t, "--all-profiles")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	for _, want := range []string{"PROFILE", "Work", "Home"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q: %s", want, stdout)
+		}
+	}
+}
+
+func TestListAllProfilesRejectsAirplanBackendBeforeRequest(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("AIRPLAN_ACCESS_KEY_ID", "")
+	t.Setenv("AIRPLAN_SECRET_ACCESS_KEY", "")
+	var (
+		requestsMu sync.Mutex
+		requests   int
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(
+		w http.ResponseWriter, _ *http.Request,
+	) {
+		requestsMu.Lock()
+		requests++
+		requestsMu.Unlock()
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	config := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(config, []byte(fmt.Sprintf(
+		"backend = \"airplan\"\napi_url = %q\n"+
+			"api_token = \"01234567890123456789012345678901\"\n",
+		server.URL,
+	)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeList(
+		t, "--all-profiles", "--config", config,
+	)
+	if err == nil || !strings.Contains(err.Error(),
+		"--all-profiles cannot be used with the airplan backend") {
+		t.Fatalf("error = %v", err)
+	}
+	if stdout != "" || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, want both empty", stdout, stderr)
+	}
+	requestsMu.Lock()
+	defer requestsMu.Unlock()
+	if requests != 0 {
+		t.Fatalf("HTTP requests = %d, want 0", requests)
 	}
 }
 

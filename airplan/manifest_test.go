@@ -512,6 +512,51 @@ func TestManifestUploadsChronologicalTombstonesAreReversible(t *testing.T) {
 	}
 }
 
+func TestListManifestHistorySortsSyncStyleAppendsByTimeThenMarkerKey(t *testing.T) {
+	when := time.Date(2026, 7, 21, 1, 0, 0, 0, time.UTC)
+	record := func(key string, at time.Time) ManifestRecord {
+		dir := strings.TrimSuffix(key, "/plan.html")
+		return ManifestRecord{
+			Type: "upload", Time: at, Key: key,
+			MarkerKey: dir + "/" + MarkerFilename,
+			URL:       "https://example.com/" + key,
+			Bucket:    "plans", Kind: string(UploadKindDocument), Bytes: 10,
+			MarkerVersion: MarkerVersion,
+		}
+	}
+	appended := []ManifestRecord{
+		record("cccccccccccccccccccccccccc/plan.html", when.Add(time.Hour)),
+		record("dddddddddddddddddddddddddd/plan.html", when),
+		record("bbbbbbbbbbbbbbbbbbbbbbbbbb/plan.html", when),
+	}
+	manifestPath := filepath.Join(t.TempDir(), "manifest.jsonl")
+	if err := appendManifestRecordsUnlocked(manifestPath, appended); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := ManifestUploads(appended); len(got) != 3 ||
+		got[0].Key != appended[0].Key || got[1].Key != appended[1].Key ||
+		got[2].Key != appended[2].Key {
+		t.Fatalf("ManifestUploads changed append order: %+v", got)
+	}
+
+	listed, err := ListManifestHistory(manifestPath, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"bbbbbbbbbbbbbbbbbbbbbbbbbb/plan.html",
+		"dddddddddddddddddddddddddd/plan.html",
+		"cccccccccccccccccccccccccc/plan.html",
+	}
+	for i, key := range want {
+		if listed.Records[i].Key != key {
+			t.Fatalf("record %d key = %q, want %q; records = %+v",
+				i, listed.Records[i].Key, key, listed.Records)
+		}
+	}
+}
+
 func TestReadManifestInfersKindlessCollectionTombstone(t *testing.T) {
 	dir := strings.Repeat("c", 26)
 	when := time.Date(2026, 7, 21, 1, 0, 0, 0, time.UTC)

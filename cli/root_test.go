@@ -143,7 +143,10 @@ func TestCommandAliasesAndQoLShorthands(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"Aliases:", "list, ls", "-r, --remote"} {
+	for _, want := range []string{
+		"Aliases:", "list, ls", "-r, --remote", "--all-profiles",
+		"--columns", "--reverse", "--wide",
+	} {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("list help missing %q:\n%s", want, stdout.String())
 		}

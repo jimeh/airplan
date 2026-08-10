@@ -549,7 +549,11 @@ platform default or global override and coordinate appends with the existing
 cross-platform file lock. HTTP clients do not write a second local manifest.
 Service-scope list and purge operations filter the shared file by resolved
 profile, bucket, and key prefix; the direct local all-profile list remains a
-separate scope.
+separate scope. Manifest list operations sort the reduced active view by record
+time and marker key, leaving append-order manifest reduction unchanged. The CLI
+maps local and remote rows through one ordered column registry; mode validity,
+defaults, data-dependent profile/state/directory columns, explicit selections,
+and wide layouts are resolved before the shared table renderer writes stdout.
 
 ### OpenAPI and REST adapter
 

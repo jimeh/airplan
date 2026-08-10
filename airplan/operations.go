@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path"
+	"sort"
 	"strings"
 	"time"
 )
@@ -63,9 +64,14 @@ func (c *Client) ListManifest(
 				"airplan: remote manifest listing does not accept local profile filters",
 			)
 		}
-		return c.remote.ListManifest(ctx, ListManifestOptions{
+		listed, err := c.remote.ListManifest(ctx, ListManifestOptions{
 			Scope: ManifestScopeService,
 		})
+		if err != nil {
+			return nil, err
+		}
+		sortManifestListRecords(listed.Records)
+		return listed, nil
 	}
 	if opts.Scope == "" || opts.Scope == ManifestScopeAll {
 		return ListManifestHistory(c.cfg.ManifestPath, opts.Profile)
@@ -98,6 +104,7 @@ func (c *Client) ListManifest(
 		}
 		filtered = append(filtered, rec)
 	}
+	sortManifestListRecords(filtered)
 	return &ManifestList{Records: filtered, Warnings: warnings}, nil
 }
 
@@ -118,7 +125,17 @@ func ListManifestHistory(
 		}
 		filtered = append(filtered, record)
 	}
+	sortManifestListRecords(filtered)
 	return &ManifestList{Records: filtered, Warnings: warnings}, nil
+}
+
+func sortManifestListRecords(records []ManifestRecord) {
+	sort.SliceStable(records, func(i, j int) bool {
+		if records[i].Time.Equal(records[j].Time) {
+			return manifestMarkerKey(records[i]) < manifestMarkerKey(records[j])
+		}
+		return records[i].Time.Before(records[j].Time)
+	})
 }
 
 // UploadSource selects manifest or storage inventory for purge planning.
