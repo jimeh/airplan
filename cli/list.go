@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -271,18 +272,14 @@ func remoteListJSONRecords(
 }
 
 func reverseManifestRecords(records []airplan.ManifestRecord) []airplan.ManifestRecord {
-	reversed := append([]airplan.ManifestRecord(nil), records...)
-	for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
-		reversed[i], reversed[j] = reversed[j], reversed[i]
-	}
+	reversed := slices.Clone(records)
+	slices.Reverse(reversed)
 	return reversed
 }
 
 func reverseRemoteUploads(uploads []airplan.RemoteUpload) []airplan.RemoteUpload {
-	reversed := append([]airplan.RemoteUpload(nil), uploads...)
-	for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
-		reversed[i], reversed[j] = reversed[j], reversed[i]
-	}
+	reversed := slices.Clone(uploads)
+	slices.Reverse(reversed)
 	return reversed
 }
 

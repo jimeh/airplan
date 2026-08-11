@@ -262,7 +262,7 @@ func localListRows(uploads []airplan.ManifestRecord) []listTableRow {
 			legacy:  state == "legacy",
 			url:     upload.URL,
 			values: map[string]string{
-				"date":      upload.Time.UTC().Format("2006-01-02 15:04"),
+				"date":      upload.Time.Local().Format("2006-01-02 15:04"),
 				"kind":      kind,
 				"title":     listValue(upload.Title),
 				"objects":   formatOptionalListInt(upload.Objects),
@@ -292,7 +292,7 @@ func remoteListRows(uploads []airplan.RemoteUpload) []listTableRow {
 		rows = append(rows, listTableRow{
 			url: upload.URL,
 			values: map[string]string{
-				"date":    upload.LastModified.UTC().Format("2006-01-02 15:04"),
+				"date":    upload.LastModified.Local().Format("2006-01-02 15:04"),
 				"kind":    listValue(kind),
 				"objects": fmt.Sprintf("%d", upload.Objects),
 				"size":    formatListBytes(upload.Bytes),

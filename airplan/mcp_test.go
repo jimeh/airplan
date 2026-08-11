@@ -811,6 +811,9 @@ func (t *mcpTestTransport) ListManifest(
 	context.Context, ListManifestOptions,
 ) (*ManifestList, error) {
 	t.listCalls++
+	if t.manifestResult == nil {
+		return &ManifestList{}, nil
+	}
 	return t.manifestResult, nil
 }
 

@@ -70,6 +70,24 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 	}
 }
 
+func TestListTableDatesUseLocalTimeZone(t *testing.T) {
+	previousLocation := time.Local
+	time.Local = time.FixedZone("UTC-04", -4*60*60)
+	t.Cleanup(func() { time.Local = previousLocation })
+
+	when := time.Date(2026, 7, 8, 2, 30, 0, 0, time.UTC)
+	localRows := localListRows([]airplan.ManifestRecord{{Time: when}})
+	remoteRows := remoteListRows([]airplan.RemoteUpload{{LastModified: when}})
+	for mode, got := range map[string]string{
+		"local":  localRows[0].values["date"],
+		"remote": remoteRows[0].values["date"],
+	} {
+		if want := "2026-07-07 22:30"; got != want {
+			t.Errorf("%s DATE = %q, want %q", mode, got, want)
+		}
+	}
+}
+
 func TestListTableUsesDeclaredUploadTotals(t *testing.T) {
 	isolateEnv(t)
 	path := setListState(t)
@@ -81,17 +99,17 @@ func TestListTableUsesDeclaredUploadTotals(t *testing.T) {
 			`"bucket":"plans","title":"Active plan","bytes":3,`+
 			`"objects":2,"total_bytes":2048,"marker_version":3}`+"\n")
 
-	stdout, stderr, err := executeList(t)
+	stdout, stderr, err := executeList(t, "--columns", "objects,size")
 	if err != nil {
 		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
 	}
 	if stderr != "" {
 		t.Fatalf("stderr = %q, want empty", stderr)
 	}
-	for _, want := range []string{"OBJECTS", "2", "2 KiB"} {
-		if !strings.Contains(stdout, want) {
-			t.Fatalf("stdout missing %q:\n%s", want, stdout)
-		}
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) != 2 || strings.Join(strings.Fields(lines[0]), " ") != "OBJECTS SIZE" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "2 2 KiB" {
+		t.Fatalf("stdout = %q", stdout)
 	}
 }
 

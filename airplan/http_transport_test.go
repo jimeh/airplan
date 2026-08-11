@@ -41,7 +41,7 @@ func TestAirplanBackendSyncCarriesEnrichedRecordsAndTotals(t *testing.T) {
 	result, err := client.SyncManifest(context.Background(), SyncManifestOptions{})
 	if err != nil || len(result.Enriched) != 1 ||
 		result.Enriched[0].Objects != 2 || result.Enriched[0].TotalBytes != 123 ||
-		result.Enriched[0].Bytes != 7 {
+		result.Enriched[0].Bytes != 7 || !result.Enriched[0].Time.Equal(when) {
 		t.Fatalf("result = %+v, error = %v", result, err)
 	}
 }

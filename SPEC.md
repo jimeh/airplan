@@ -1388,6 +1388,9 @@ machine) and must be safe:
   fail with the valid names for the selected mode. Explicit columns are never
   auto-pruned. `--wide` selects every valid column for the mode; it and
   `--columns` are long-only, mutually exclusive, and invalid with `--json`.
+  Table `DATE` values render in the caller's local time zone so they share the
+  same calendar-day frame as zone-less filters. JSON timestamps are not
+  presentation-localized.
   Default and wide layouts keep `URL` last. `--reverse` reverses the normal
   oldest-first presentation, including JSON arrays, without changing manifest
   reduction or storage ordering.
