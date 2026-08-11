@@ -36,12 +36,12 @@ type mcpUploadFilesInput struct {
 }
 
 type mcpListInput struct {
-	Source    string `json:"source,omitempty" jsonschema:"Inventory source: manifest or storage."`
-	NewerThan string `json:"newer_than,omitempty" jsonschema:"Keep uploads at or after this time or age."`
-	OlderThan string `json:"older_than,omitempty" jsonschema:"Keep uploads strictly before this time or age."`
-	Limit     *int   `json:"limit,omitempty" jsonschema:"Keep the N most recent matching uploads."`
-	Kind      string `json:"kind,omitempty" jsonschema:"Upload kind: document or collection."`
-	Slug      string `json:"slug,omitempty" jsonschema:"Path-style document slug glob."`
+	Source    string  `json:"source,omitempty" jsonschema:"Inventory source: manifest or storage."`
+	NewerThan *string `json:"newer_than,omitempty" jsonschema:"Keep uploads at or after this time or age."`
+	OlderThan *string `json:"older_than,omitempty" jsonschema:"Keep uploads strictly before this time or age."`
+	Limit     *int    `json:"limit,omitempty" jsonschema:"Keep the N most recent matching uploads."`
+	Kind      *string `json:"kind,omitempty" jsonschema:"Upload kind: document or collection."`
+	Slug      *string `json:"slug,omitempty" jsonschema:"Path-style document slug glob."`
 }
 
 type mcpListOutput struct {
@@ -207,7 +207,9 @@ func NewMCPServerWithOptions(
 		defer cancel()
 		filters, err := parseMCPListFilters(input, time.Now())
 		if err != nil {
-			return nil, mcpListOutput{}, err
+			return nil, mcpListOutput{}, mcpOperationError(
+				ctx, err, !localFiles, options.Logger,
+			)
 		}
 		source := input.Source
 		if source == "" {

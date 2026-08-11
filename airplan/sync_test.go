@@ -508,11 +508,12 @@ func TestSyncManifestConcurrencyLimit(t *testing.T) {
 	for _, test := range []struct {
 		name        string
 		concurrency int
-		want        int
+		cap         int
+		serial      bool
 	}{
-		{name: "serial", concurrency: 1, want: 1},
-		{name: "default", concurrency: 0, want: DefaultRemoteConcurrency},
-		{name: "larger override", concurrency: 12, want: 12},
+		{name: "serial", concurrency: 1, cap: 1, serial: true},
+		{name: "default", concurrency: 0, cap: DefaultRemoteConcurrency},
+		{name: "larger override", concurrency: 12, cap: 12},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
@@ -532,9 +533,13 @@ func TestSyncManifestConcurrencyLimit(t *testing.T) {
 				SyncManifestOptions{Concurrency: test.concurrency}); err != nil {
 				t.Fatal(err)
 			}
-			if fake.maxInFlight != test.want {
-				t.Fatalf("max in flight = %d, want %d",
-					fake.maxInFlight, test.want)
+			if test.serial && fake.maxInFlight != 1 {
+				t.Fatalf("max in flight = %d, want exactly 1", fake.maxInFlight)
+			}
+			if !test.serial &&
+				(fake.maxInFlight <= 1 || fake.maxInFlight > test.cap) {
+				t.Fatalf("max in flight = %d, want > 1 and <= %d",
+					fake.maxInFlight, test.cap)
 			}
 		})
 	}

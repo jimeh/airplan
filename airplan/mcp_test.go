@@ -19,6 +19,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
+func mcpStringPointer(value string) *string { return &value }
+
 func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 	client, err := New(context.Background(), &Config{
 		Backend: BackendS3, ManifestPath: t.TempDir() + "/manifest.jsonl",
@@ -207,6 +209,9 @@ func TestMCPListUploadsFiltersManifestAndStorage(t *testing.T) {
 		{"source": "storage", "kind": "conflict"},
 		{"source": "storage", "slug": "["},
 		{"source": "storage", "older_than": "tomorrow"},
+		{"source": "storage", "newer_than": ""},
+		{"source": "storage", "older_than": ""},
+		{"source": "storage", "kind": ""},
 	} {
 		result, callErr := session.CallTool(ctx, &mcp.CallToolParams{
 			Name: "list_uploads", Arguments: arguments,
@@ -234,7 +239,7 @@ func TestMCPListFilterSelectionBoundaries(t *testing.T) {
 		{Dir: "conflict", LastModified: threshold.Add(2 * time.Second), Conflict: true, Slug: "exact"},
 	}
 	newer, err := parseMCPListFilters(mcpListInput{
-		NewerThan: threshold.Format(time.RFC3339),
+		NewerThan: mcpStringPointer(threshold.Format(time.RFC3339)),
 	}, threshold)
 	if err != nil {
 		t.Fatal(err)
@@ -248,7 +253,7 @@ func TestMCPListFilterSelectionBoundaries(t *testing.T) {
 		t.Fatalf("newer storage = %+v", got)
 	}
 	older, err := parseMCPListFilters(mcpListInput{
-		OlderThan: threshold.Format(time.RFC3339),
+		OlderThan: mcpStringPointer(threshold.Format(time.RFC3339)),
 	}, threshold)
 	if err != nil {
 		t.Fatal(err)
@@ -261,7 +266,9 @@ func TestMCPListFilterSelectionBoundaries(t *testing.T) {
 		got[0].Dir != "before" {
 		t.Fatalf("older storage = %+v", got)
 	}
-	slug, err := parseMCPListFilters(mcpListInput{Slug: "*"}, threshold)
+	slug, err := parseMCPListFilters(mcpListInput{
+		Slug: mcpStringPointer("*"),
+	}, threshold)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,6 +277,111 @@ func TestMCPListFilterSelectionBoundaries(t *testing.T) {
 	}
 	if got := selectMCPRemoteUploads(remote, slug); len(got) != 2 {
 		t.Fatalf("slug storage = %+v", got)
+	}
+}
+
+func TestMCPListFilterExplicitEmptyValues(t *testing.T) {
+	for _, field := range []string{"newer_than", "older_than", "kind"} {
+		t.Run(field, func(t *testing.T) {
+			var input mcpListInput
+			if err := json.Unmarshal([]byte(`{"`+field+`":""}`), &input); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := parseMCPListFilters(input, time.Now()); err == nil {
+				t.Fatalf("explicit empty %s was treated as omitted", field)
+			}
+		})
+	}
+
+	var explicit mcpListInput
+	if err := json.Unmarshal([]byte(`{"slug":""}`), &explicit); err != nil {
+		t.Fatal(err)
+	}
+	filters, err := parseMCPListFilters(explicit, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := []ManifestRecord{
+		{Kind: "document", Slug: ""},
+		{Kind: "document", Slug: "plan"},
+		{Kind: "collection", Slug: ""},
+	}
+	selected := selectMCPManifestRecords(records, filters)
+	if len(selected) != 1 || selected[0].Kind != "document" ||
+		selected[0].Slug != "" {
+		t.Fatalf("explicit empty slug selected %+v", selected)
+	}
+	remote := []RemoteUpload{
+		{Kind: UploadKindDocument, Slug: ""},
+		{Kind: UploadKindDocument, Slug: "plan"},
+		{Kind: UploadKindCollection},
+	}
+	if selectedRemote := selectMCPRemoteUploads(remote, filters); len(selectedRemote) != 1 || selectedRemote[0].Kind != UploadKindDocument ||
+		selectedRemote[0].Slug != "" {
+		t.Fatalf("explicit empty slug selected storage %+v", selectedRemote)
+	}
+
+	omitted, err := parseMCPListFilters(mcpListInput{}, time.Now())
+	if err != nil || len(selectMCPManifestRecords(records, omitted)) != len(records) ||
+		len(selectMCPRemoteUploads(remote, omitted)) != len(remote) {
+		t.Fatalf("omitted filters changed selection: %+v, %v", omitted, err)
+	}
+}
+
+func TestHostedMCPListFilterErrorsAreSanitizedBeforeListing(t *testing.T) {
+	const sentinel = "private-filter-value-sentinel"
+	transport := &mcpTestTransport{}
+	client := &Client{cfg: &Config{}, remote: transport}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServerWithOptions(client, "test", MCPServerOptions{
+		LocalFiles: false,
+	})
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_uploads", Arguments: map[string]any{
+			"source": "storage", "newer_than": sentinel,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatalf("result = %+v, want tool error", result)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := string(encoded)
+	if strings.Contains(visible, sentinel) {
+		t.Fatalf("hosted result exposed request value: %s", visible)
+	}
+	if !strings.Contains(visible, "server could not complete the operation") {
+		t.Fatalf("hosted result = %s, want sanitized operation error", visible)
+	}
+	if transport.listCalls != 0 {
+		t.Fatalf("invalid filter performed %d list calls", transport.listCalls)
+	}
+
+	localInput := mcpListInput{NewerThan: mcpStringPointer(sentinel)}
+	if _, err := parseMCPListFilters(localInput, time.Now()); err == nil ||
+		!strings.Contains(err.Error(), sentinel) {
+		t.Fatalf("local filter error = %v, want detailed request value", err)
 	}
 }
 

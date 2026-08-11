@@ -40,7 +40,8 @@ type SyncManifestResult struct {
 	Enriched []ManifestRecord `json:"enriched_records"`
 	// Tombstoned contains delete records planned or appended by this run.
 	Tombstoned []ManifestRecord `json:"tombstone_records"`
-	// Unchanged counts remote markers already active in the local manifest.
+	// Unchanged counts remote markers already active without an eligible totals
+	// enrichment.
 	Unchanged int `json:"unchanged"`
 	// Incomplete counts valid markers whose declared payload is incomplete.
 	Incomplete int `json:"incomplete"`

@@ -23,10 +23,15 @@ type mcpListFilters struct {
 
 func parseMCPListFilters(input mcpListInput, now time.Time) (mcpListFilters, error) {
 	filters := mcpListFilters{
-		kind: UploadKind(input.Kind), slug: input.Slug,
-		newerSet: input.NewerThan != "", olderSet: input.OlderThan != "",
-		kindSet: input.Kind != "", slugSet: input.Slug != "",
+		newerSet: input.NewerThan != nil, olderSet: input.OlderThan != nil,
+		kindSet: input.Kind != nil, slugSet: input.Slug != nil,
 		limitSet: input.Limit != nil,
+	}
+	if input.Kind != nil {
+		filters.kind = UploadKind(*input.Kind)
+	}
+	if input.Slug != nil {
+		filters.slug = *input.Slug
 	}
 	if input.Limit != nil {
 		filters.limit = *input.Limit
@@ -48,7 +53,7 @@ func parseMCPListFilters(input mcpListInput, now time.Time) (mcpListFilters, err
 		}
 	}
 	if filters.newerSet {
-		parsed, err := ParseTimeFilter(input.NewerThan, now)
+		parsed, err := ParseTimeFilter(*input.NewerThan, now)
 		if err != nil {
 			return mcpListFilters{}, fmt.Errorf("airplan: newer_than: %s",
 				strings.TrimPrefix(err.Error(), "airplan: "))
@@ -56,7 +61,7 @@ func parseMCPListFilters(input mcpListInput, now time.Time) (mcpListFilters, err
 		filters.newerThan = parsed
 	}
 	if filters.olderSet {
-		parsed, err := ParseTimeFilter(input.OlderThan, now)
+		parsed, err := ParseTimeFilter(*input.OlderThan, now)
 		if err != nil {
 			return mcpListFilters{}, fmt.Errorf("airplan: older_than: %s",
 				strings.TrimPrefix(err.Error(), "airplan: "))

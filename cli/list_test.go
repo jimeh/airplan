@@ -71,6 +71,7 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 }
 
 func TestListTableUsesDeclaredUploadTotals(t *testing.T) {
+	isolateEnv(t)
 	path := setListState(t)
 	writeManifest(t, path,
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",`+
@@ -118,6 +119,7 @@ func TestListShowsLegacyUploadsWithoutWarnings(t *testing.T) {
 }
 
 func TestListLegacyTotalsAreAbsentButPageSizeRemains(t *testing.T) {
+	isolateEnv(t)
 	path := setListState(t)
 	writeManifest(t, path,
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",`+
@@ -257,6 +259,7 @@ func TestListEmptyManifest(t *testing.T) {
 }
 
 func TestListTableColumnSelection(t *testing.T) {
+	isolateEnv(t)
 	path := setListState(t)
 	writeManifest(t, path, strings.Join([]string{
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
@@ -305,6 +308,7 @@ func TestListTableColumnSelection(t *testing.T) {
 }
 
 func TestListTableAutomaticColumns(t *testing.T) {
+	isolateEnv(t)
 	t.Run("profile fires only for multiple result profiles", func(t *testing.T) {
 		path := setListState(t)
 		writeManifest(t, path, strings.Join([]string{
