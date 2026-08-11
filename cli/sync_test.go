@@ -24,7 +24,7 @@ func TestSyncCommandImportsAndKeepsStdoutClean(t *testing.T) {
 		t.Fatal(err)
 	}
 	if stdout != "" || !strings.Contains(stderr,
-		"synced 1 uploads, tombstoned 0") {
+		"synced 1 uploads, enriched 0, tombstoned 0") {
 		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
 	}
 	records, warnings, err := airplan.ReadManifest("")
@@ -58,6 +58,49 @@ func TestSyncCommandJSONAndConcurrencyValidation(t *testing.T) {
 	manifest := filepath.Join(t.TempDir(), "missing.jsonl")
 	if records, _, err := airplan.ReadManifest(manifest); err != nil || records != nil {
 		t.Fatalf("dry run manifest = %+v, %v", records, err)
+	}
+}
+
+func TestSyncCommandReportsEnrichedRecords(t *testing.T) {
+	for _, jsonOutput := range []bool{false, true} {
+		name := "human"
+		if jsonOutput {
+			name = "json"
+		}
+		t.Run(name, func(t *testing.T) {
+			isolateEnv(t)
+			when := time.Now().UTC().Truncate(time.Second)
+			fake := newFakeRemoteS3(t,
+				remoteUploadObjects(deleteDirA, "plan", when), nil, nil)
+			writeDefaultManifest(t, []airplan.ManifestRecord{{
+				Type: "upload", Time: when,
+				Key:       deleteDirA + "/plan.html",
+				MarkerKey: deleteDirA + "/" + airplan.MarkerFilename,
+				URL:       "https://plans.example.com/" + deleteDirA + "/plan.html",
+				Bucket:    "plans", Kind: string(airplan.UploadKindDocument),
+				Slug: "plan", Bytes: 10, MarkerVersion: airplan.MarkerVersion,
+			}})
+			args := []string{"sync", "--config", writeCLIConfig(t, fake.server.URL)}
+			if jsonOutput {
+				args = append(args, "--json")
+			}
+			stdout, stderr, err := executeCommand(t, "", "", args...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if jsonOutput {
+				var result syncJSONResult
+				if err := json.Unmarshal([]byte(stdout), &result); err != nil ||
+					result.Enriched != 1 || len(result.EnrichedRecords) != 1 ||
+					result.EnrichedRecords[0].Objects == 0 ||
+					result.EnrichedRecords[0].TotalBytes == 0 {
+					t.Fatalf("stdout = %q, result = %+v, error = %v",
+						stdout, result, err)
+				}
+			} else if stdout != "" || !strings.Contains(stderr, "enriched 1") {
+				t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
+			}
+		})
 	}
 }
 

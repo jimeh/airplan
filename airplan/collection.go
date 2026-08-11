@@ -241,7 +241,8 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 	if err != nil {
 		return nil, err
 	}
-	c.recordUpload(ctx, &res.Result)
+	objectCount, totalBytes := manifestUploadTotals(markerBody, marker.Objects)
+	c.recordUpload(ctx, &res.Result, objectCount, totalBytes)
 	return res, nil
 }
 

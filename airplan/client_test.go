@@ -407,10 +407,18 @@ func TestUploadPersistsRepositoryForEveryFormat(t *testing.T) {
 				res.RepositoryURL != marker.Repo {
 				t.Fatalf("result = %+v, marker = %+v", res, marker)
 			}
+			wantObjects := 1 + len(marker.Objects)
+			wantTotalBytes := int64(len(markerBody))
+			for _, object := range marker.Objects {
+				wantTotalBytes += object.Bytes
+			}
 			records, _, err := ReadManifest(manifest)
 			if err != nil || len(records) != 1 || records[0].Repo != marker.Repo ||
 				records[0].Format != marker.Format ||
-				records[0].MarkerKey != res.MarkerKey {
+				records[0].MarkerKey != res.MarkerKey ||
+				records[0].Objects != wantObjects ||
+				records[0].TotalBytes != wantTotalBytes ||
+				records[0].Bytes != res.Bytes {
 				t.Fatalf("records = %+v, error = %v", records, err)
 			}
 		})

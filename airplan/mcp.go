@@ -36,7 +36,12 @@ type mcpUploadFilesInput struct {
 }
 
 type mcpListInput struct {
-	Source string `json:"source,omitempty" jsonschema:"Inventory source: manifest or storage."`
+	Source    string `json:"source,omitempty" jsonschema:"Inventory source: manifest or storage."`
+	NewerThan string `json:"newer_than,omitempty" jsonschema:"Keep uploads at or after this time or age."`
+	OlderThan string `json:"older_than,omitempty" jsonschema:"Keep uploads strictly before this time or age."`
+	Limit     *int   `json:"limit,omitempty" jsonschema:"Keep the N most recent matching uploads."`
+	Kind      string `json:"kind,omitempty" jsonschema:"Upload kind: document or collection."`
+	Slug      string `json:"slug,omitempty" jsonschema:"Path-style document slug glob."`
 }
 
 type mcpListOutput struct {
@@ -200,6 +205,10 @@ func NewMCPServerWithOptions(
 	) (*mcp.CallToolResult, mcpListOutput, error) {
 		ctx, cancel := mcpOperationContext(ctx, client)
 		defer cancel()
+		filters, err := parseMCPListFilters(input, time.Now())
+		if err != nil {
+			return nil, mcpListOutput{}, err
+		}
 		source := input.Source
 		if source == "" {
 			source = string(UploadSourceManifest)
@@ -218,6 +227,7 @@ func NewMCPServerWithOptions(
 			if !localFiles {
 				listed.Warnings = serverSafeWarnings(listed.Warnings)
 			}
+			listed.Records = selectMCPManifestRecords(listed.Records, filters)
 			output.Manifest = listed
 		case UploadSourceStorage:
 			uploads, err := client.ListRemote(ctx)
@@ -229,6 +239,7 @@ func NewMCPServerWithOptions(
 			if uploads == nil {
 				uploads = []RemoteUpload{}
 			}
+			uploads = selectMCPRemoteUploads(uploads, filters)
 			output.Storage = uploads
 		default:
 			return nil, output, fmt.Errorf(

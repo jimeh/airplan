@@ -24,7 +24,7 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 			`"key":"active/plan.html",` +
 			`"url":"https://plans.example.com/active/plan.html",` +
 			`"bucket":"plans","profile":"work",` +
-			`"title":"Active plan","bytes":18432,` +
+			`"title":"Active plan","bytes":18432,"objects":2,"total_bytes":18432,` +
 			`"marker_version":1}`,
 		`{"type":"upload","time":"2026-07-08T15:04:12Z",` +
 			`"key":"deleted/plan.html",` +
@@ -36,7 +36,7 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 		`{"type":"upload","time":"2026-07-08T16:05:13Z",` +
 			`"key":"untitled/plan.html",` +
 			`"url":"https://plans.example.com/untitled/plan.html",` +
-			`"bucket":"plans","bytes":7,"marker_version":1}`,
+			`"bucket":"plans","bytes":7,"objects":2,"total_bytes":7,"marker_version":1}`,
 	}, "\n")+"\n")
 
 	stdout, stderr, err := executeList(t)
@@ -48,7 +48,7 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		"DATE", "KIND", "PROFILE", "TITLE", "SIZE", "URL",
+		"DATE", "KIND", "PROFILE", "TITLE", "OBJECTS", "SIZE", "URL",
 		"work", "document",
 		"2026-07-08 14:03", "Active plan", "18 KiB",
 		"https://plans.example.com/active/plan.html",
@@ -66,6 +66,30 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 		if strings.Contains(stdout, unwanted) {
 			t.Fatalf("stdout contains tombstoned upload %q:\n%s",
 				unwanted, stdout)
+		}
+	}
+}
+
+func TestListTableUsesDeclaredUploadTotals(t *testing.T) {
+	path := setListState(t)
+	writeManifest(t, path,
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",`+
+			`"key":"aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html",`+
+			`"marker_key":"aaaaaaaaaaaaaaaaaaaaaaaaaa/.airplan.json",`+
+			`"url":"https://plans.example.com/aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html",`+
+			`"bucket":"plans","title":"Active plan","bytes":3,`+
+			`"objects":2,"total_bytes":2048,"marker_version":3}`+"\n")
+
+	stdout, stderr, err := executeList(t)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if stderr != "" {
+		t.Fatalf("stderr = %q, want empty", stderr)
+	}
+	for _, want := range []string{"OBJECTS", "2", "2 KiB"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout missing %q:\n%s", want, stdout)
 		}
 	}
 }
@@ -90,6 +114,24 @@ func TestListShowsLegacyUploadsWithoutWarnings(t *testing.T) {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout missing %q:\n%s", want, stdout)
 		}
+	}
+}
+
+func TestListLegacyTotalsAreAbsentButPageSizeRemains(t *testing.T) {
+	path := setListState(t)
+	writeManifest(t, path,
+		`{"type":"upload","time":"2026-07-08T14:03:11Z",`+
+			`"key":"legacy/plan.html",`+
+			`"url":"https://plans.example.com/legacy/plan.html",`+
+			`"bucket":"plans","bytes":42,"marker_version":1}`+"\n")
+	stdout, stderr, err := executeList(t, "--columns", "objects,size,page-size")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	if len(lines) != 2 || strings.Fields(lines[0])[0] != "OBJECTS" ||
+		strings.Join(strings.Fields(lines[1]), " ") != "- - 42 B" {
+		t.Fatalf("stdout = %q", stdout)
 	}
 }
 
@@ -232,7 +274,7 @@ func TestListTableColumnSelection(t *testing.T) {
 		if err != nil || stderr != "" {
 			t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
 		}
-		assertListHeaders(t, stdout, "DATE", "KIND", "TITLE", "SIZE", "URL")
+		assertListHeaders(t, stdout, "DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL")
 	})
 
 	t.Run("local wide", func(t *testing.T) {
@@ -241,7 +283,7 @@ func TestListTableColumnSelection(t *testing.T) {
 			t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
 		}
 		assertListHeaders(t, stdout,
-			"DATE", "KIND", "TITLE", "SIZE", "SLUG", "PROFILE", "STATE",
+			"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "SLUG", "PROFILE", "STATE",
 			"DIR", "PAGE-SIZE", "FORMAT", "REPO", "BUCKET", "URL")
 	})
 
@@ -258,7 +300,7 @@ func TestListTableColumnSelection(t *testing.T) {
 		if err != nil || stderr != "" {
 			t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
 		}
-		assertListHeaders(t, stdout, "DATE", "KIND", "SIZE", "DIR", "URL")
+		assertListHeaders(t, stdout, "DATE", "KIND", "OBJECTS", "SIZE", "DIR", "URL")
 	})
 }
 
@@ -279,13 +321,13 @@ func TestListTableAutomaticColumns(t *testing.T) {
 			t.Fatal(err)
 		}
 		assertListHeaders(t, stdout,
-			"DATE", "KIND", "TITLE", "SIZE", "PROFILE", "URL")
+			"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "PROFILE", "URL")
 
 		stdout, _, err = executeList(t, "--profile", "work")
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertListHeaders(t, stdout, "DATE", "KIND", "TITLE", "SIZE", "URL")
+		assertListHeaders(t, stdout, "DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL")
 	})
 
 	t.Run("state fires only for legacy results", func(t *testing.T) {
@@ -299,7 +341,7 @@ func TestListTableAutomaticColumns(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		assertListHeaders(t, stdout, "DATE", "KIND", "TITLE", "SIZE", "URL")
+		assertListHeaders(t, stdout, "DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL")
 
 		writeManifest(t, path,
 			`{"type":"upload","time":"2026-07-08T14:03:11Z","key":"legacy.html",`+
@@ -310,7 +352,7 @@ func TestListTableAutomaticColumns(t *testing.T) {
 			t.Fatal(err)
 		}
 		assertListHeaders(t, stdout,
-			"DATE", "KIND", "TITLE", "SIZE", "STATE", "URL")
+			"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "STATE", "URL")
 	})
 
 	t.Run("dir fires only for a row without URL", func(t *testing.T) {
@@ -428,7 +470,6 @@ func TestListColumnValidationErrorsKeepStdoutPure(t *testing.T) {
 		want []string
 	}{
 		{"unknown", []string{"--columns", "date,nope"}, []string{"unknown column \"nope\"", "valid local columns"}},
-		{"wrong mode", []string{"--columns", "date,objects"}, []string{"column \"objects\" is not valid for local list", "valid local columns"}},
 		{"mixed syntax", []string{"--columns", "date,+dir"}, []string{"cannot mix absolute and additive"}},
 		{"wide conflict", []string{"--wide", "--columns", "date,url"}, []string{"--wide cannot be used with --columns"}},
 		{"json columns", []string{"--json", "--columns", "date,url"}, []string{"--columns cannot be used with --json"}},
@@ -472,7 +513,7 @@ func TestListFiltersLocalTableJSONParity(t *testing.T) {
 	if err != nil || stderr != "" {
 		t.Fatalf("table = %q, stderr = %q, error = %v", table, stderr, err)
 	}
-	assertListHeaders(t, table, "DATE", "KIND", "TITLE", "SIZE", "URL")
+	assertListHeaders(t, table, "DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL")
 	for _, want := range []string{"alpha-lower title", "alpha-middle title"} {
 		if !strings.Contains(table, want) {
 			t.Fatalf("table missing %q:\n%s", want, table)

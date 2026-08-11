@@ -9,7 +9,42 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestAirplanBackendSyncCarriesEnrichedRecordsAndTotals(t *testing.T) {
+	const token = "01234567890123456789012345678901"
+	when := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/sync" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"added_records": []any{},
+			"enriched_records": []any{map[string]any{
+				"type": "upload", "time": when, "key": "plan.html",
+				"bytes": 7, "objects": 2, "total_bytes": 123,
+			}},
+			"tombstone_records": []any{}, "unchanged": 0,
+			"incomplete": 0, "invalid": 0, "retained": 0,
+			"failures": []any{}, "warnings": []any{}, "complete": true,
+		})
+	}))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL, APIToken: token,
+		Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.SyncManifest(context.Background(), SyncManifestOptions{})
+	if err != nil || len(result.Enriched) != 1 ||
+		result.Enriched[0].Objects != 2 || result.Enriched[0].TotalBytes != 123 ||
+		result.Enriched[0].Bytes != 7 {
+		t.Fatalf("result = %+v, error = %v", result, err)
+	}
+}
 
 func TestAirplanBackendUsesHTTPWithoutS3Credentials(t *testing.T) {
 	const token = "01234567890123456789012345678901"

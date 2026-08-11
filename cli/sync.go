@@ -71,6 +71,9 @@ func runSync(cmd *cobra.Command, opts *syncOptions) error {
 	if result.Added == nil {
 		result.Added = []airplan.ManifestRecord{}
 	}
+	if result.Enriched == nil {
+		result.Enriched = []airplan.ManifestRecord{}
+	}
 	if result.Tombstoned == nil {
 		result.Tombstoned = []airplan.ManifestRecord{}
 	}
@@ -99,8 +102,9 @@ func runSync(cmd *cobra.Command, opts *syncOptions) error {
 		verb = "would sync"
 		tombstoneVerb = "would tombstone"
 	}
-	fmt.Fprintf(stderr, "%s %d uploads, %s %d\n",
-		verb, len(result.Added), tombstoneVerb, len(result.Tombstoned))
+	fmt.Fprintf(stderr, "%s %d uploads, enriched %d, %s %d\n",
+		verb, len(result.Added), len(result.Enriched), tombstoneVerb,
+		len(result.Tombstoned))
 	fmt.Fprintf(stderr,
 		"(%d unchanged, %d incomplete, %d invalid, %d retained, %d failed)\n",
 		result.Unchanged, result.Incomplete, result.Invalid,
@@ -110,6 +114,7 @@ func runSync(cmd *cobra.Command, opts *syncOptions) error {
 
 type syncJSONResult struct {
 	Added            int                      `json:"added"`
+	Enriched         int                      `json:"enriched"`
 	Tombstoned       int                      `json:"tombstoned"`
 	Unchanged        int                      `json:"unchanged"`
 	Incomplete       int                      `json:"incomplete"`
@@ -117,6 +122,7 @@ type syncJSONResult struct {
 	Retained         int                      `json:"retained"`
 	Failed           int                      `json:"failed"`
 	AddedRecords     []airplan.ManifestRecord `json:"added_records"`
+	EnrichedRecords  []airplan.ManifestRecord `json:"enriched_records"`
 	TombstoneRecords []airplan.ManifestRecord `json:"tombstone_records"`
 	Failures         []airplan.SyncFailure    `json:"failures"`
 	Warnings         []string                 `json:"warnings,omitempty"`
@@ -124,10 +130,12 @@ type syncJSONResult struct {
 
 func syncJSONFromResult(result *airplan.SyncManifestResult) syncJSONResult {
 	return syncJSONResult{
-		Added: len(result.Added), Tombstoned: len(result.Tombstoned),
-		Unchanged: result.Unchanged, Incomplete: result.Incomplete,
+		Added: len(result.Added), Enriched: len(result.Enriched),
+		Tombstoned: len(result.Tombstoned),
+		Unchanged:  result.Unchanged, Incomplete: result.Incomplete,
 		Invalid: result.Invalid, Retained: result.Retained,
 		Failed: len(result.Failures), AddedRecords: result.Added,
+		EnrichedRecords:  result.Enriched,
 		TombstoneRecords: result.Tombstoned, Failures: result.Failures,
 		Warnings: result.Warnings,
 	}

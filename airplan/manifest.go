@@ -49,8 +49,10 @@ type ManifestRecord struct {
 	Slug  string `json:"slug,omitempty"`
 	Title string `json:"title,omitempty"`
 	// Repo is the canonical repository URL when known.
-	Repo  string `json:"repo,omitempty"`
-	Bytes int64  `json:"bytes,omitempty"`
+	Repo       string `json:"repo,omitempty"`
+	Bytes      int64  `json:"bytes,omitempty"`
+	Objects    int    `json:"objects,omitempty"`
+	TotalBytes int64  `json:"total_bytes,omitempty"`
 	// Reason is "deleted" or "remote_missing" for modern tombstones.
 	Reason string `json:"reason,omitempty"`
 
@@ -267,6 +269,12 @@ func validateManifestRecord(rec ManifestRecord) error {
 	if rec.Key == "" {
 		return errors.New("key is required")
 	}
+	if rec.Objects < 0 {
+		return errors.New("objects must not be negative")
+	}
+	if rec.TotalBytes < 0 {
+		return errors.New("total_bytes must not be negative")
+	}
 
 	switch rec.Type {
 	case "upload":
@@ -346,7 +354,9 @@ func readManifestLine(r *bufio.Reader, max int) ([]byte, bool, error) {
 // recordUpload appends an upload record for res, best-effort: manifest
 // failures degrade to a warning on the result, never a failed upload
 // (SPEC.md §9 — the manifest is convenience, not a source of truth).
-func (c *Client) recordUpload(ctx context.Context, res *Result) {
+func (c *Client) recordUpload(
+	ctx context.Context, res *Result, objects int, totalBytes int64,
+) {
 	if c.cfg.DisableManifest {
 		return
 	}
@@ -377,12 +387,22 @@ func (c *Client) recordUpload(ctx context.Context, res *Result) {
 		Title:         res.Title,
 		Repo:          res.RepositoryURL,
 		Bytes:         res.Bytes,
+		Objects:       objects,
+		TotalBytes:    totalBytes,
 		MarkerVersion: res.MarkerVersion,
 	}
 	if err := appendManifestRecord(ctx, path, rec); err != nil {
 		res.Warnings = append(res.Warnings,
 			"manifest not recorded: "+err.Error())
 	}
+}
+
+func manifestUploadTotals(markerBody []byte, objects []MarkerObject) (int, int64) {
+	totalBytes := int64(len(markerBody))
+	for _, object := range objects {
+		totalBytes += object.Bytes
+	}
+	return 1 + len(objects), totalBytes
 }
 
 func markerKeyForManifestRecord(rec ManifestRecord) string {

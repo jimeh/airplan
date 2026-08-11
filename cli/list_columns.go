@@ -33,7 +33,7 @@ var listColumns = []listColumn{
 	{name: "date", header: "DATE", local: true, remote: true, localDefault: true, remoteDefault: true},
 	{name: "kind", header: "KIND", local: true, remote: true, localDefault: true, remoteDefault: true},
 	{name: "title", header: "TITLE", local: true, localDefault: true},
-	{name: "objects", header: "OBJECTS", remote: true, remoteDefault: true},
+	{name: "objects", header: "OBJECTS", local: true, remote: true, localDefault: true, remoteDefault: true},
 	{name: "size", header: "SIZE", local: true, remote: true, localDefault: true, remoteDefault: true},
 	{name: "slug", header: "SLUG", local: true, remote: true, remoteDefault: true},
 	{name: "profile", header: "PROFILE", local: true},
@@ -265,7 +265,8 @@ func localListRows(uploads []airplan.ManifestRecord) []listTableRow {
 				"date":      upload.Time.UTC().Format("2006-01-02 15:04"),
 				"kind":      kind,
 				"title":     listValue(upload.Title),
-				"size":      formatListBytes(upload.Bytes),
+				"objects":   formatOptionalListInt(upload.Objects),
+				"size":      formatOptionalListBytes(upload.TotalBytes),
 				"slug":      listValue(upload.Slug),
 				"profile":   displayProfile,
 				"state":     state,
@@ -321,6 +322,20 @@ func listValue(value string) string {
 		return "-"
 	}
 	return value
+}
+
+func formatOptionalListInt(value int) string {
+	if value == 0 {
+		return "-"
+	}
+	return fmt.Sprintf("%d", value)
+}
+
+func formatOptionalListBytes(value int64) string {
+	if value == 0 {
+		return "-"
+	}
+	return formatListBytes(value)
 }
 
 func printListTable(w io.Writer, rows []listTableRow, columns []listColumn) error {

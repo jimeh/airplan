@@ -65,7 +65,8 @@ func TestHTTPAPIManifestListScopesSharedManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(result.Records) != 2 || result.Records[0].Title != "a" ||
-		result.Records[1].Title != "e" {
+		result.Records[1].Title != "e" || result.Records[0].Objects != 2 ||
+		result.Records[0].TotalBytes != 42 {
 		t.Fatalf("records = %+v", result.Records)
 	}
 }
@@ -468,6 +469,7 @@ func manifestUploadRecord(
 		MarkerKey: BuildKey(prefix, dir, MarkerFilename),
 		URL:       "https://plans.example/" + key, Bucket: bucket,
 		Profile: profile, Format: "md", Kind: string(UploadKindDocument),
-		Slug: title, Title: title, Bytes: 10, MarkerVersion: MarkerVersion,
+		Slug: title, Title: title, Bytes: 10, Objects: 2, TotalBytes: 42,
+		MarkerVersion: MarkerVersion,
 	}
 }

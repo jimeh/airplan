@@ -3,6 +3,7 @@ package airplan
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -62,10 +63,25 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 			}
 			hasUploadFiles := false
 			uploadDocumentDescription := ""
+			listSchema := ""
 			for _, tool := range tools.Tools {
 				hasUploadFiles = hasUploadFiles || tool.Name == "upload_files"
 				if tool.Name == "upload_document" {
 					uploadDocumentDescription = tool.Description
+				}
+				if tool.Name == "list_uploads" {
+					encoded, marshalErr := json.Marshal(tool.InputSchema)
+					if marshalErr != nil {
+						t.Fatal(marshalErr)
+					}
+					listSchema = string(encoded)
+				}
+			}
+			for _, field := range []string{
+				"newer_than", "older_than", "limit", "kind", "slug",
+			} {
+				if !strings.Contains(listSchema, `"`+field+`"`) {
+					t.Errorf("list_uploads schema missing %q: %s", field, listSchema)
 				}
 			}
 			if hasUploadFiles != test.localFiles {
@@ -92,6 +108,168 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 				t.Fatalf("result = %+v", result)
 			}
 		})
+	}
+}
+
+func TestMCPListUploadsFiltersManifestAndStorage(t *testing.T) {
+	when := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	record := func(index int, kind UploadKind, slug string) ManifestRecord {
+		dir := strings.Repeat(string(rune('a'+index)), 26)
+		return ManifestRecord{
+			Type: "upload", Time: when.Add(time.Duration(index) * time.Hour),
+			Key: dir + "/plan.html", MarkerKey: dir + "/" + MarkerFilename,
+			URL:    "https://plans.example.com/" + dir + "/plan.html",
+			Bucket: "plans", Kind: string(kind), Slug: slug, Bytes: 4,
+			MarkerVersion: MarkerVersion,
+		}
+	}
+	records := []ManifestRecord{
+		record(0, UploadKindDocument, "doc-old"),
+		record(1, UploadKindCollection, ""),
+		record(2, UploadKindDocument, "doc-new"),
+	}
+	storage := []RemoteUpload{
+		{Dir: "old", Kind: UploadKindDocument, Slug: "doc-old", LastModified: when},
+		{Dir: "collection", Kind: UploadKindCollection, LastModified: when.Add(time.Hour)},
+		{Dir: "new", Kind: UploadKindDocument, Slug: "doc-new", LastModified: when.Add(2 * time.Hour)},
+		{Dir: "conflict", Conflict: true, Slug: "doc-conflict", LastModified: when.Add(3 * time.Hour)},
+	}
+	transport := &mcpTestTransport{
+		manifestResult: &ManifestList{Records: records}, remoteResult: storage,
+	}
+	client := &Client{cfg: &Config{}, remote: transport}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", true)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "test"}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	for _, source := range []string{"manifest", "storage"} {
+		result, callErr := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "list_uploads", Arguments: map[string]any{
+				"source": source, "newer_than": when.Format(time.RFC3339),
+				"older_than": when.Add(3 * time.Hour).Format(time.RFC3339),
+				"kind":       "document", "slug": "doc-*", "limit": 1,
+			},
+		})
+		if callErr != nil || result.IsError {
+			t.Fatalf("%s result = %+v, error = %v", source, result, callErr)
+		}
+		encoded, marshalErr := json.Marshal(result.StructuredContent)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		var output mcpListOutput
+		if err := json.Unmarshal(encoded, &output); err != nil {
+			t.Fatal(err)
+		}
+		if source == "manifest" {
+			if output.Manifest == nil || len(output.Manifest.Records) != 1 ||
+				output.Manifest.Records[0].Slug != "doc-new" {
+				t.Fatalf("manifest output = %+v", output)
+			}
+		} else if len(output.Storage) != 1 || output.Storage[0].Dir != "new" {
+			t.Fatalf("storage output = %+v", output)
+		}
+	}
+
+	for _, source := range []string{"manifest", "storage"} {
+		zero, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "list_uploads", Arguments: map[string]any{
+				"source": source, "limit": 0,
+			},
+		})
+		if err != nil || zero.IsError {
+			t.Fatalf("%s zero limit result = %+v, error = %v", source, zero, err)
+		}
+		encoded, _ := json.Marshal(zero.StructuredContent)
+		var zeroOutput mcpListOutput
+		if err := json.Unmarshal(encoded, &zeroOutput); err != nil ||
+			(zeroOutput.Manifest != nil && len(zeroOutput.Manifest.Records) != 0) ||
+			len(zeroOutput.Storage) != 0 {
+			t.Fatalf("%s zero limit output = %+v, error = %v", source, zeroOutput, err)
+		}
+	}
+
+	beforeCalls := transport.listCalls
+	for _, arguments := range []map[string]any{
+		{"source": "storage", "limit": -1},
+		{"source": "storage", "kind": "conflict"},
+		{"source": "storage", "slug": "["},
+		{"source": "storage", "older_than": "tomorrow"},
+	} {
+		result, callErr := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "list_uploads", Arguments: arguments,
+		})
+		if callErr != nil || !result.IsError {
+			t.Fatalf("invalid arguments result = %+v, error = %v", result, callErr)
+		}
+	}
+	if transport.listCalls != beforeCalls {
+		t.Fatalf("invalid filters performed %d list calls", transport.listCalls-beforeCalls)
+	}
+}
+
+func TestMCPListFilterSelectionBoundaries(t *testing.T) {
+	threshold := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	records := []ManifestRecord{
+		{Time: threshold.Add(-time.Second), Kind: "document", Slug: "before"},
+		{Time: threshold, Kind: "document", Slug: "exact"},
+		{Time: threshold.Add(time.Second), Kind: "collection", Slug: ""},
+	}
+	remote := []RemoteUpload{
+		{Dir: "before", LastModified: threshold.Add(-time.Second), Kind: UploadKindDocument, Slug: "before"},
+		{Dir: "exact", LastModified: threshold, Kind: UploadKindDocument, Slug: "exact"},
+		{Dir: "after", LastModified: threshold.Add(time.Second), Kind: UploadKindCollection},
+		{Dir: "conflict", LastModified: threshold.Add(2 * time.Second), Conflict: true, Slug: "exact"},
+	}
+	newer, err := parseMCPListFilters(mcpListInput{
+		NewerThan: threshold.Format(time.RFC3339),
+	}, threshold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := selectMCPManifestRecords(records, newer); len(got) != 2 ||
+		got[0].Slug != "exact" {
+		t.Fatalf("newer manifest = %+v", got)
+	}
+	if got := selectMCPRemoteUploads(remote, newer); len(got) != 3 ||
+		got[0].Dir != "exact" {
+		t.Fatalf("newer storage = %+v", got)
+	}
+	older, err := parseMCPListFilters(mcpListInput{
+		OlderThan: threshold.Format(time.RFC3339),
+	}, threshold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := selectMCPManifestRecords(records, older); len(got) != 1 ||
+		got[0].Slug != "before" {
+		t.Fatalf("older manifest = %+v", got)
+	}
+	if got := selectMCPRemoteUploads(remote, older); len(got) != 1 ||
+		got[0].Dir != "before" {
+		t.Fatalf("older storage = %+v", got)
+	}
+	slug, err := parseMCPListFilters(mcpListInput{Slug: "*"}, threshold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := selectMCPManifestRecords(records, slug); len(got) != 2 {
+		t.Fatalf("slug manifest = %+v", got)
+	}
+	if got := selectMCPRemoteUploads(remote, slug); len(got) != 2 {
+		t.Fatalf("slug storage = %+v", got)
 	}
 }
 
@@ -506,12 +684,27 @@ func TestMCPHostedDocumentLimitAndPerCallTimeout(t *testing.T) {
 
 type mcpTestTransport struct {
 	operationTransport
-	uploadResult *Result
-	uploadErr    error
-	syncResult   *SyncManifestResult
-	syncErr      error
-	purgeResult  *PurgeResult
-	purgeErr     error
+	uploadResult   *Result
+	uploadErr      error
+	syncResult     *SyncManifestResult
+	syncErr        error
+	purgeResult    *PurgeResult
+	purgeErr       error
+	manifestResult *ManifestList
+	remoteResult   []RemoteUpload
+	listCalls      int
+}
+
+func (t *mcpTestTransport) ListManifest(
+	context.Context, ListManifestOptions,
+) (*ManifestList, error) {
+	t.listCalls++
+	return t.manifestResult, nil
+}
+
+func (t *mcpTestTransport) ListRemote(context.Context) ([]RemoteUpload, error) {
+	t.listCalls++
+	return t.remoteResult, nil
 }
 
 func (t *mcpTestTransport) Upload(context.Context, Input) (*Result, error) {

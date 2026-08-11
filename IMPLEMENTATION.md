@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.29.0.
+may contradict it. Targets spec version 0.30.0.
 
 ---
 
@@ -256,10 +256,15 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   marker.
 - Manifest sync: `SyncManifest` reduces local history chronologically, compares
   the scoped active view to one remote LIST snapshot, and uses a shared bounded
-  worker pool for marker GETs and targeted absence confirmation. Imports and
-  tombstones are sorted, then the manifest is locked, reread, and rechecked
-  before whole-line appends. Definite object-not-found is the only pruning
-  signal; failures retain local state and return partial progress.
+  worker pool for imports, missing-total enrichment, and targeted absence
+  confirmation. Imports and enrichments derive marker-declared object/byte
+  totals from the exact fetched marker body and normalized complete payload
+  sizes, excluding directory extras. Imports, enrichments, and tombstones are
+  sorted, then the manifest is locked, reread, and rechecked before whole-line
+  appends. Enrichment copies the reread active record so concurrent metadata is
+  retained and tombstones cannot be resurrected. Definite object-not-found is
+  the only pruning signal; failures retain local state and return partial
+  progress.
 - Remote deletion: the marker must decode and authorize the supplied direct
   target. Payload objects are removed with batched `DeleteObjects`, then the
   marker is removed in a separate final `DeleteObject`. Invalid and markerless
@@ -270,8 +275,9 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
 - Manifest appends: `O_APPEND` open, whole line in one `Write` call,
   wrapped in context-aware `gofrs/flock` acquisition (flock on Unix,
   LockFileEx on Windows) per spec §9's concurrency and timeout rules.
-  Records carry kind, document-only slug/format, portable marker metadata, and
-  local connection context without duplicating collection inventories; readers
+  Records carry kind, document-only slug/format, portable marker metadata,
+  primary-page bytes, marker-declared object/total-byte counts, and local
+  connection context without duplicating collection inventories; readers
   discard malformed, oversized, and unsupported records completely and resume
   at the following newline. A latest-event state machine keyed by bucket and
   marker key makes tombstones reversible while retaining legacy key-only data.
@@ -558,6 +564,9 @@ and wide layouts are resolved before the shared table renderer writes stdout.
 One CLI selection model filters either local record time or remote marker time,
 applies document-only kind/slug semantics, and takes the most recent limit
 before presentation reversal and table/JSON encoding.
+Local table `SIZE` and `OBJECTS` use marker-declared manifest totals while
+`PAGE-SIZE` retains the primary-page byte count; absent legacy totals render as
+`-` without warnings.
 
 ### OpenAPI and REST adapter
 
@@ -649,6 +658,8 @@ Tool registration and handlers are shared. HTTP omits `upload_files` because
 server-local paths are not a portable file-transfer mechanism; stdio includes
 it because client and tool process share a filesystem. Tool result structs
 provide the generated JSON Schemas and keep warnings inside structured output.
+The manifest/storage list tool parses the same time, kind, document-slug, and
+newest-N filter semantics as the CLI, including an omitted-versus-zero limit.
 Partial sync and purge errors set `IsError` without returning a Go handler error
 so the SDK retains the structured progress result. Sync defaults to dry-run,
 purge preview has no mutation path, and purge execution accepts only explicit

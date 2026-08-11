@@ -313,6 +313,34 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		synced.Invalid != 1 {
 		t.Fatalf("initial sync = %+v, %v", synced, err)
 	}
+	wantTotals := map[string]struct {
+		objects int
+		bytes   int64
+	}{
+		res.MarkerKey: {
+			objects: 1 + len(marker.Objects),
+			bytes:   int64(len(markerObject.body)) + sumMarkerObjectBytes(marker.Objects),
+		},
+		collection.MarkerKey: {
+			objects: 1 + len(decodedCollection.Objects),
+			bytes: int64(len(collectionMarker.body)) +
+				sumMarkerObjectBytes(decodedCollection.Objects),
+		},
+	}
+	for _, record := range synced.Added {
+		want, ok := wantTotals[record.MarkerKey]
+		if !ok || record.Objects != want.objects || record.TotalBytes != want.bytes {
+			t.Fatalf("synced totals = %+v, want = %+v", record, want)
+		}
+	}
+	listedManifest, err := syncClient.ListManifest(ctx, ListManifestOptions{
+		Scope: ManifestScopeService,
+	})
+	if err != nil || len(listedManifest.Records) != 2 ||
+		listedManifest.Records[0].Objects == 0 ||
+		listedManifest.Records[0].TotalBytes == 0 {
+		t.Fatalf("listed synced manifest = %+v, %v", listedManifest, err)
+	}
 
 	deleted, err := client.DeleteUpload(ctx, res.URL)
 	if err != nil {
@@ -367,6 +395,14 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	}
 
 	testHTTPBackendRoundTrip(ctx, t, cfg)
+}
+
+func sumMarkerObjectBytes(objects []MarkerObject) int64 {
+	var total int64
+	for _, object := range objects {
+		total += object.Bytes
+	}
+	return total
 }
 
 func testHTTPBackendRoundTrip(

@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.29.0**
+**Spec version: 0.30.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -1260,13 +1260,14 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
- "bytes":18432,"marker_version":3}
+ "bytes":18432,"objects":3,"total_bytes":23001,"marker_version":3}
 {"type":"upload","time":"2026-07-21T12:03:00Z",
  "key":"gaj4.../index.html",
  "marker_key":"gaj4.../.airplan-collection.json",
  "url":"https://plans.example.com/gaj4.../index.html",
  "bucket":"plans","profile":"work","kind":"collection",
- "title":"login.png and 1 more","bytes":9216,"marker_version":3}
+ "title":"login.png and 1 more","bytes":9216,
+ "objects":4,"total_bytes":194201,"marker_version":3}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
@@ -1279,10 +1280,17 @@ conforming implementations can share a manifest:
   are present for documents and omitted for collections. `source_key` is
   document-only and omitted for HTML or under `--no-source`. `key` and `url`
   identify the primary page; `bytes` describes that page, not collection
-  payload bytes. `title` is omitted when empty; `profile` is omitted for
+  payload bytes. `objects` counts the ownership marker plus every object
+  declared by it. `total_bytes` is the exact serialized marker body size plus
+  the declared sizes of those objects; unrecognized directory extras are not
+  included. `title` is omitted when empty; `profile` is omitted for
   root-level settings. `marker_key` is the exact kind-specific ownership key.
   `repo` preserves canonical repository metadata. The full collection
   inventory remains only in the remote marker.
+- Current writers always include positive `objects` and `total_bytes`. Zero
+  means absent on read, so older or unenriched records omit both. `bytes`
+  remains independently available as the primary page size. Negative total
+  fields are invalid.
 - Current writers always include `marker_version: 3`; its absence identifies
   legacy pre-marker history. Readers infer `kind: document` and derive its
   slug from the page key for valid older records that omit those fields.
@@ -1326,14 +1334,15 @@ machine) and must be safe:
 
 - `airplan list`: past uploads from the manifest. Active rows sort by record
   time, then marker key, regardless of append order. The default table has
-  `DATE`, `KIND`, `TITLE`, `SIZE`, and `URL`. `PROFILE` is added when the
+  `DATE`, `KIND`, `TITLE`, `OBJECTS`, `SIZE`, and `URL`. `PROFILE` is added when the
   result contains more than one distinct recorded profile, with the root
   profile displayed as `<root>`. `STATE` is added when any result is legacy,
   and is `managed` for a supported `marker_version` or `legacy` when that
   field is absent. `DIR` is added when any row has no inferable URL. Legacy
   entries appear without warning and remain ineligible for delete
-  reconciliation and purge. In this spec phase local `SIZE` continues to be
-  the recorded page byte count.
+  reconciliation and purge. Local `OBJECTS` and `SIZE` show marker-declared
+  manifest totals, or `-` when the record predates them. `PAGE-SIZE` remains
+  the recorded primary-page `bytes` value.
 - With no resolvable configuration or backend selection, `list` assumes `s3`
   and reads the resolved local manifest without requiring storage credentials.
   Local S3 listing with no explicit profile shows every recorded profile; an
@@ -1373,7 +1382,7 @@ machine) and must be safe:
   absolute comma-separated order such as `date,title,url`, or comma-separated
   `+`/`-` modifiers applied to that mode's data-dependent default, such as
   `+dir,-title`; the forms cannot be mixed. Valid local names are `date`,
-  `kind`, `title`, `size`, `slug`, `profile`, `state`, `dir`, `page-size`,
+  `kind`, `title`, `objects`, `size`, `slug`, `profile`, `state`, `dir`, `page-size`,
   `format`, `repo`, `bucket`, and `url`. Valid remote names are `date`, `kind`,
   `objects`, `size`, `slug`, `dir`, and `url`. Unknown and wrong-mode names
   fail with the valid names for the selected mode. Explicit columns are never
@@ -1556,7 +1565,17 @@ machine) and must be safe:
   document slug/format/source where applicable, title, and repository, but do
   not duplicate collection inventories. Imported profile,
   bucket, and public URL values come from the receiving machine's resolved
-  connection, never the marker.
+  connection, never the marker. Imports set the same marker-declared
+  `objects` and `total_bytes` as a fresh upload, using the exact fetched marker
+  body size and complete normalized declared payload sizes rather than
+  whole-directory occupancy. Active scoped records with both total fields
+  absent are inspected through the same sorted job queue, worker pool, and
+  concurrency budget. A complete upload produces an enrichment record that
+  preserves the active record's identity and time while adding those totals;
+  a record with either field already set is unchanged. Invalid, incomplete,
+  conflicting, or failed inspection leaves the record untouched. Enrichment
+  is neither an import nor a tombstone, is reported during `--dry-run` without
+  writing, and is idempotent on the next sync.
   By default, active scoped local records absent from LIST are considered for
   pruning, but airplan performs a targeted marker GET before appending a
   `remote_missing` tombstone. Only a definite not-found response confirms
@@ -1568,11 +1587,15 @@ machine) and must be safe:
   validation without locking or writing the manifest. Network inspection does
   not hold the manifest lock; before appending, sync locks, rereads, reduces,
   and rechecks local state, then writes deterministic newline-terminated
-  records. Per-item failures do not discard successfully validated progress.
+  records. An enrichment appends only when the current identity remains active
+  and still has both totals absent, and is based on that reread record so it
+  cannot resurrect a tombstone or overwrite concurrent metadata. Per-item
+  failures do not discard successfully validated progress.
   Human output and warnings use stderr while stdout remains empty. `--json`
   emits exactly one object on stdout with deterministic `added_records`,
-  `tombstone_records`, and `failures` arrays plus `unchanged`, `incomplete`,
-  `invalid`, and `retained` counters. A partial failure exits nonzero after
+  `enriched_records`, `tombstone_records`, and `failures` arrays plus matching
+  added/enriched/tombstoned counts and `unchanged`, `incomplete`, `invalid`,
+  and `retained` counters. A partial failure exits nonzero after
   writing the result. Sync provides eventual active-inventory convergence;
   it neither uploads deletion history nor makes historical JSONL files
   identical across machines.
@@ -1802,6 +1825,9 @@ response with the stored object's content type. Capability URLs are not placed
 in query strings. Upload, list,
 inspection, and purge-preview results expose the randomized directory as an
 opaque `upload_id`.
+Manifest records expose optional marker-declared `objects` and `total_bytes`
+alongside primary-page `bytes`. Sync results always include
+`enriched_records` as a distinct array.
 
 Purge is two-phase. `/purge/preview` applies the source and filters without
 deleting and returns explicit `upload_id` candidates. The CLI displays them
@@ -1846,6 +1872,12 @@ The minimal tool set is:
 The `upload_document` tool description identifies GFM, highlighted code,
 Mermaid fences, GitHub-style alerts, frontmatter, footnotes, and responsive
 columns as optional Markdown affordances to use when they improve clarity.
+
+`list_uploads` accepts `newer_than`, `older_than`, `limit`, `kind`, and `slug`
+for both manifest and storage sources. Their threshold, newest-N ordering,
+document-only slug, conflict exclusion, validation, and time grammar match the
+CLI list filters; an explicit zero limit returns no records. Presentation-only
+reverse and column options are not MCP inputs.
 
 Hosted MCP omits file collection upload because MCP has no portable
 client-to-server file upload and server-local paths are unsafe. No transport

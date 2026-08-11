@@ -1,6 +1,7 @@
 package airplan
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,47 @@ import (
 
 	"github.com/gofrs/flock"
 )
+
+func TestManifestRecordUploadTotalsContract(t *testing.T) {
+	when := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	dir := strings.Repeat("u", 26)
+	record := ManifestRecord{
+		Type: "upload", Time: when, Key: dir + "/plan.html",
+		MarkerKey: dir + "/" + MarkerFilename,
+		URL:       "https://plans.example.com/" + dir + "/plan.html",
+		Bucket:    "plans", Bytes: 7, Objects: 2, TotalBytes: 123,
+		MarkerVersion: MarkerVersion,
+	}
+	path := filepath.Join(t.TempDir(), "manifest.jsonl")
+	if err := appendManifestRecord(context.Background(), path, record); err != nil {
+		t.Fatal(err)
+	}
+	records, warnings, err := ReadManifest(path)
+	if err != nil || len(warnings) != 0 || len(records) != 1 ||
+		records[0].Objects != 2 || records[0].TotalBytes != 123 ||
+		records[0].Bytes != 7 {
+		t.Fatalf("records = %+v, warnings = %v, error = %v", records, warnings, err)
+	}
+
+	legacy := record
+	legacy.Objects, legacy.TotalBytes = 0, 0
+	encoded, err := json.Marshal(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encoded, []byte(`"objects"`)) ||
+		bytes.Contains(encoded, []byte(`"total_bytes"`)) {
+		t.Fatalf("absent totals were encoded: %s", encoded)
+	}
+	for _, invalid := range []ManifestRecord{
+		func() ManifestRecord { value := record; value.Objects = -1; return value }(),
+		func() ManifestRecord { value := record; value.TotalBytes = -1; return value }(),
+	} {
+		if err := validateManifestRecord(invalid); err == nil {
+			t.Fatalf("negative totals accepted: %+v", invalid)
+		}
+	}
+}
 
 func TestDefaultManifestPathHonorsXDGStateHome(t *testing.T) {
 	stateHome := t.TempDir()

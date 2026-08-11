@@ -53,6 +53,8 @@ type UploadInspection struct {
 
 	// Error is set only for UploadInvalid and is stable for JSON output.
 	Error MarkerErrorCode `json:"error,omitempty"`
+
+	markerBodyBytes int64
 }
 
 // InspectUpload fetches and validates one marker, lists its directory, and
@@ -173,7 +175,7 @@ func (c *Client) inspectUploadSnapshot(
 ) (*UploadInspection, error) {
 	inspection := &UploadInspection{
 		Dir: upload.Dir, MarkerKey: upload.MarkerKey,
-		Objects: len(upload.objects),
+		Objects: len(upload.objects), markerBodyBytes: int64(len(markerBody)),
 	}
 	byKey := upload.objects
 	markerListed := false
@@ -253,6 +255,24 @@ func (c *Client) inspectUploadSnapshot(
 		}
 	}
 	return inspection, nil
+}
+
+func inspectionManifestTotals(inspection *UploadInspection) (int, int64) {
+	objects := 1
+	totalBytes := inspection.markerBodyBytes
+	if inspection.Page != nil {
+		objects++
+		totalBytes += inspection.Page.Bytes
+	}
+	if inspection.Source != nil {
+		objects++
+		totalBytes += inspection.Source.Bytes
+	}
+	for _, file := range inspection.Files {
+		objects++
+		totalBytes += file.Bytes
+	}
+	return objects, totalBytes
 }
 
 func (c *Client) inspectedObject(

@@ -127,6 +127,7 @@ func TestSyncManifestClassifiesInvalidAndIncomplete(t *testing.T) {
 	fake := newSyncStorage(t)
 	invalidDir := strings.Repeat("d", 26)
 	incompleteDir := strings.Repeat("e", 26)
+	conflictDir := strings.Repeat("v", 26)
 	fake.addObject(invalidDir+"/"+MarkerFilename, []byte(`{"schema":`), when)
 	fake.addMarker(t, UploadMarker{
 		Schema: MarkerSchema, Version: MarkerVersion, Directory: incompleteDir,
@@ -137,13 +138,258 @@ func TestSyncManifestClassifiesInvalidAndIncomplete(t *testing.T) {
 		}},
 	})
 	fake.addObject(incompleteDir+"/plan.html", []byte("short"), when)
-	client := newSyncClient(t, fake.server.URL,
-		filepath.Join(t.TempDir(), "manifest.jsonl"))
+	fake.addMarker(t, UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: conflictDir,
+		CreatedAt: when, Kind: UploadKindDocument, Slug: "plan", Format: "html",
+		Objects: []MarkerObject{{
+			Name: "plan.html", Role: MarkerRolePage,
+			Bytes: 4, ContentType: pageContentType,
+		}},
+	})
+	fake.addMarker(t, UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: conflictDir,
+		CreatedAt: when, Kind: UploadKindCollection,
+		Objects: []MarkerObject{{
+			Name: "index.html", Role: MarkerRolePage,
+			Bytes: 4, ContentType: pageContentType,
+		}, {
+			Name: "file.txt", Role: MarkerRoleFile,
+			Bytes: 1, ContentType: "text/plain",
+		}},
+	})
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	for _, record := range []ManifestRecord{
+		{
+			Type: "upload", Time: when, Key: invalidDir + "/plan.html",
+			MarkerKey: invalidDir + "/" + MarkerFilename,
+			URL:       "https://plans.example.com/" + invalidDir + "/plan.html",
+			Bucket:    "plans", Profile: "work", Bytes: 1, MarkerVersion: 1,
+		},
+		{
+			Type: "upload", Time: when, Key: conflictDir + "/plan.html",
+			MarkerKey: conflictDir + "/" + MarkerFilename,
+			URL:       "https://plans.example.com/" + conflictDir + "/plan.html",
+			Bucket:    "plans", Profile: "work", Bytes: 4,
+			MarkerVersion: MarkerVersion,
+		},
+		{
+			Type: "upload", Time: when, Key: incompleteDir + "/plan.html",
+			MarkerKey: incompleteDir + "/" + MarkerFilename,
+			URL:       "https://plans.example.com/" + incompleteDir + "/plan.html",
+			Bucket:    "plans", Profile: "work", Bytes: 5,
+			MarkerVersion: MarkerVersion,
+		},
+	} {
+		if err := appendManifestRecord(context.Background(), manifest, record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	client := newSyncClient(t, fake.server.URL, manifest)
 	result, err := client.SyncManifest(context.Background(),
 		SyncManifestOptions{Prune: true})
-	if err != nil || result.Invalid != 1 || result.Incomplete != 1 ||
-		len(result.Added) != 0 {
+	if err != nil || result.Invalid != 2 || result.Incomplete != 1 ||
+		len(result.Added) != 0 || len(result.Enriched) != 0 {
 		t.Fatalf("result = %+v, %v", result, err)
+	}
+	records, warnings, err := ReadManifest(manifest)
+	if err != nil || len(warnings) != 0 || len(records) != 3 {
+		t.Fatalf("manifest changed: records=%+v warnings=%v error=%v",
+			records, warnings, err)
+	}
+}
+
+func TestSyncManifestEnrichesLegacyTotalsAndIsIdempotent(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("q", 26)
+	marker := UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: when, Kind: UploadKindDocument, Slug: "plan", Format: "md",
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: 4, ContentType: pageContentType},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: 6, ContentType: sourceContentType},
+		},
+	}
+	fake.addUpload(t, marker, []byte("page"))
+	fake.addObject(dir+"/plan.md", []byte("source"), when)
+	fake.addObject(dir+"/unrecognized.tmp", []byte("extra"), when)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	initial := ManifestRecord{
+		Type: "upload", Time: when, Key: dir + "/plan.html",
+		SourceKey: dir + "/plan.md", MarkerKey: dir + "/" + MarkerFilename,
+		URL:    "https://plans.example.com/" + dir + "/plan.html",
+		Bucket: "plans", Profile: "work", Format: "md", Kind: "document",
+		Slug: "plan", Bytes: 4, MarkerVersion: MarkerVersion,
+	}
+	if err := appendManifestRecord(context.Background(), manifest, initial); err != nil {
+		t.Fatal(err)
+	}
+	client := newSyncClient(t, fake.server.URL, manifest)
+	dryRun, err := client.SyncManifest(context.Background(), SyncManifestOptions{DryRun: true})
+	if err != nil || len(dryRun.Enriched) != 1 {
+		t.Fatalf("dry run = %+v, %v", dryRun, err)
+	}
+	fake.mu.Lock()
+	markerBytes := len(fake.objects[initial.MarkerKey])
+	fake.mu.Unlock()
+	wantTotal := int64(markerBytes + len("page") + len("source"))
+	if got := dryRun.Enriched[0]; got.Time != when || got.Objects != 3 ||
+		got.TotalBytes != wantTotal || got.Bytes != 4 {
+		t.Fatalf("dry-run enriched = %+v, want objects=3 total_bytes=%d", got, wantTotal)
+	}
+	records, _, err := ReadManifest(manifest)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("dry run wrote manifest: records=%+v error=%v", records, err)
+	}
+
+	applied, err := client.SyncManifest(context.Background(), SyncManifestOptions{})
+	if err != nil || len(applied.Enriched) != 1 || len(applied.Added) != 0 {
+		t.Fatalf("applied = %+v, %v", applied, err)
+	}
+	records, _, err = ReadManifest(manifest)
+	active := ActiveUploads(records)
+	if err != nil || len(records) != 2 || len(active) != 1 ||
+		active[0].Objects != 3 || active[0].TotalBytes != wantTotal ||
+		active[0].Bytes != 4 || active[0].Time != when {
+		t.Fatalf("records = %+v, active = %+v, error = %v", records, active, err)
+	}
+	second, err := client.SyncManifest(context.Background(), SyncManifestOptions{})
+	if err != nil || len(second.Enriched) != 0 || second.Unchanged != 1 {
+		t.Fatalf("second sync = %+v, %v", second, err)
+	}
+}
+
+func TestSyncManifestDoesNotEnrichPartialTotals(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("p", 26)
+	fake.addUpload(t, UploadMarker{
+		Schema: MarkerSchema, Version: 1, Directory: dir,
+		CreatedAt: when, Format: "html", Page: "plan.html",
+	}, []byte("page"))
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	record := ManifestRecord{
+		Type: "upload", Time: when, Key: dir + "/plan.html",
+		MarkerKey: dir + "/" + MarkerFilename,
+		URL:       "https://plans.example.com/" + dir + "/plan.html",
+		Bucket:    "plans", Profile: "work", Format: "html", Kind: "document",
+		Bytes: 4, Objects: 2, MarkerVersion: 1,
+	}
+	if err := appendManifestRecord(context.Background(), manifest, record); err != nil {
+		t.Fatal(err)
+	}
+	result, err := newSyncClient(t, fake.server.URL, manifest).SyncManifest(
+		context.Background(), SyncManifestOptions{},
+	)
+	if err != nil || len(result.Enriched) != 0 || result.Unchanged != 1 {
+		t.Fatalf("result = %+v, %v", result, err)
+	}
+}
+
+func TestSyncManifestDoesNotEnrichTotalBytesOnly(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("o", 26)
+	fake.addUpload(t, UploadMarker{
+		Schema: MarkerSchema, Version: 1, Directory: dir,
+		CreatedAt: when, Format: "html", Page: "plan.html",
+	}, []byte("page"))
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	record := ManifestRecord{
+		Type: "upload", Time: when, Key: dir + "/plan.html",
+		MarkerKey: dir + "/" + MarkerFilename,
+		URL:       "https://plans.example.com/" + dir + "/plan.html",
+		Bucket:    "plans", Profile: "work", Format: "html", Kind: "document",
+		Bytes: 4, TotalBytes: 100, MarkerVersion: 1,
+	}
+	if err := appendManifestRecord(context.Background(), manifest, record); err != nil {
+		t.Fatal(err)
+	}
+	result, err := newSyncClient(t, fake.server.URL, manifest).SyncManifest(
+		context.Background(), SyncManifestOptions{},
+	)
+	if err != nil || len(result.Enriched) != 0 || result.Unchanged != 1 {
+		t.Fatalf("result = %+v, %v", result, err)
+	}
+}
+
+func TestCommitSyncManifestDoesNotResurrectTombstonedEnrichment(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	dir := strings.Repeat("n", 26)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	record := ManifestRecord{
+		Type: "upload", Time: when, Key: dir + "/plan.html",
+		MarkerKey: dir + "/" + MarkerFilename,
+		URL:       "https://plans.example.com/" + dir + "/plan.html",
+		Bucket:    "plans", Profile: "work", Bytes: 4, MarkerVersion: 1,
+	}
+	if err := appendManifestRecord(context.Background(), manifest, record); err != nil {
+		t.Fatal(err)
+	}
+	initial, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tombstone := ManifestRecord{
+		Type: "delete", Time: when.Add(time.Minute), Key: record.Key,
+		MarkerKey: record.MarkerKey, Bucket: record.Bucket, Profile: record.Profile,
+	}
+	if err := appendManifestRecord(context.Background(), manifest, tombstone); err != nil {
+		t.Fatal(err)
+	}
+	planned := record
+	planned.Objects, planned.TotalBytes = 2, 100
+	result := &SyncManifestResult{Enriched: []ManifestRecord{planned}}
+	client := &Client{cfg: &Config{Bucket: "plans", Profile: "work"}}
+	if err := client.commitSyncManifest(context.Background(), manifest, len(initial), result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Enriched) != 0 {
+		t.Fatalf("enrichment resurrected tombstone: %+v", result.Enriched)
+	}
+	records, _, _ := ReadManifest(manifest)
+	if active := ActiveUploads(records); len(active) != 0 {
+		t.Fatalf("active records = %+v", active)
+	}
+}
+
+func TestCommitSyncManifestEnrichmentPreservesConcurrentMetadata(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	dir := strings.Repeat("m", 26)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	record := ManifestRecord{
+		Type: "upload", Time: when, Key: dir + "/plan.html",
+		MarkerKey: dir + "/" + MarkerFilename,
+		URL:       "https://plans.example.com/" + dir + "/plan.html",
+		Bucket:    "plans", Profile: "work", Title: "old", Bytes: 4,
+		MarkerVersion: 1,
+	}
+	if err := appendManifestRecord(context.Background(), manifest, record); err != nil {
+		t.Fatal(err)
+	}
+	initial, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := record
+	current.Time = when.Add(time.Minute)
+	current.Title = "concurrent title"
+	current.Repo = "https://github.com/acme/repo"
+	if err := appendManifestRecord(context.Background(), manifest, current); err != nil {
+		t.Fatal(err)
+	}
+	planned := record
+	planned.Objects, planned.TotalBytes = 2, 100
+	result := &SyncManifestResult{Enriched: []ManifestRecord{planned}}
+	client := &Client{cfg: &Config{Bucket: "plans", Profile: "work"}}
+	if err := client.commitSyncManifest(context.Background(), manifest,
+		len(initial), result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Enriched) != 1 || result.Enriched[0].Title != current.Title ||
+		result.Enriched[0].Repo != current.Repo ||
+		result.Enriched[0].Time != current.Time {
+		t.Fatalf("enriched = %+v", result.Enriched)
 	}
 }
 

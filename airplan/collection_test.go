@@ -27,10 +27,11 @@ func TestUploadFilesStreamsOneCollection(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(server.Close)
+	manifestPath := filepath.Join(t.TempDir(), "manifest.jsonl")
 	c, err := New(context.Background(), &Config{
 		Endpoint: server.URL, Bucket: "plans", AccessKeyID: "test",
 		SecretAccessKey: "test", PublicBaseURL: "https://plans.example.com",
-		ManifestPath: filepath.Join(t.TempDir(), "manifest.jsonl"),
+		ManifestPath: manifestPath,
 		Repository:   "none",
 	})
 	if err != nil {
@@ -78,6 +79,19 @@ func TestUploadFilesStreamsOneCollection(t *testing.T) {
 	}
 	if len(puts[3].body) != 0 {
 		t.Fatalf("zero-byte member body = %q", puts[3].body)
+	}
+	records, warnings, err := ReadManifest(manifestPath)
+	wantObjects := 1 + len(marker.Objects)
+	wantTotalBytes := int64(len(puts[0].body))
+	for _, object := range marker.Objects {
+		wantTotalBytes += object.Bytes
+	}
+	if err != nil || len(warnings) != 0 || len(records) != 1 ||
+		records[0].Objects != wantObjects ||
+		records[0].TotalBytes != wantTotalBytes ||
+		records[0].Bytes != res.Bytes {
+		t.Fatalf("manifest records = %+v, warnings = %v, error = %v",
+			records, warnings, err)
 	}
 }
 

@@ -36,6 +36,8 @@ type SyncFailure struct {
 type SyncManifestResult struct {
 	// Added contains upload records planned or appended by this run.
 	Added []ManifestRecord `json:"added_records"`
+	// Enriched contains active records updated with declared upload totals.
+	Enriched []ManifestRecord `json:"enriched_records"`
 	// Tombstoned contains delete records planned or appended by this run.
 	Tombstoned []ManifestRecord `json:"tombstone_records"`
 	// Unchanged counts remote markers already active in the local manifest.
@@ -103,7 +105,8 @@ func (c *Client) SyncManifest(
 	remoteByMarker := make(map[string]RemoteUpload, len(remote))
 	for _, upload := range remote {
 		remoteByMarker[upload.MarkerKey] = upload
-		if _, ok := active[upload.MarkerKey]; ok {
+		if record, ok := active[upload.MarkerKey]; ok &&
+			(record.Objects != 0 || record.TotalBytes != 0) {
 			result.Unchanged++
 		}
 	}
@@ -111,9 +114,14 @@ func (c *Client) SyncManifest(
 	jobs := make([]syncJob, 0, len(remote)+len(active))
 	for index := range remote {
 		upload := remote[index]
-		if _, ok := active[upload.MarkerKey]; !ok {
+		record, ok := active[upload.MarkerKey]
+		if !ok {
 			jobs = append(jobs, syncJob{
 				markerKey: upload.MarkerKey, upload: &upload,
+			})
+		} else if record.Objects == 0 && record.TotalBytes == 0 {
+			jobs = append(jobs, syncJob{
+				markerKey: upload.MarkerKey, upload: &upload, local: &record,
 			})
 		}
 	}
@@ -146,7 +154,9 @@ func (c *Client) SyncManifest(
 			defer wg.Done()
 			for index := range jobCh {
 				job := jobs[index]
-				if job.upload != nil {
+				if job.upload != nil && job.local != nil {
+					jobResults[index] = c.syncEnrich(ctx, *job.upload, *job.local)
+				} else if job.upload != nil {
 					jobResults[index] = c.syncImport(ctx, *job.upload)
 				} else {
 					jobResults[index] = c.syncPrune(ctx, *job.local)
@@ -180,6 +190,9 @@ func (c *Client) SyncManifest(
 		if item.upload != nil {
 			result.Added = append(result.Added, *item.upload)
 		}
+		if item.enriched != nil {
+			result.Enriched = append(result.Enriched, *item.enriched)
+		}
 		if item.tombstone != nil {
 			result.Tombstoned = append(result.Tombstoned, *item.tombstone)
 		}
@@ -194,7 +207,8 @@ func (c *Client) SyncManifest(
 		}
 	}
 
-	if !opts.DryRun && (len(result.Added) > 0 || len(result.Tombstoned) > 0) {
+	if !opts.DryRun && (len(result.Added) > 0 || len(result.Enriched) > 0 ||
+		len(result.Tombstoned) > 0) {
 		initialLen := len(records)
 		if err := c.commitSyncManifest(
 			ctx, manifestPath, initialLen, result,
@@ -211,7 +225,7 @@ func (c *Client) SyncManifest(
 
 func syncFailureForContext(job syncJob, err error) *SyncFailure {
 	operation := "fetch"
-	if job.local != nil {
+	if job.upload == nil && job.local != nil {
 		operation = "confirm_absence"
 	}
 	return &SyncFailure{
@@ -257,6 +271,7 @@ func (c *Client) syncImport(
 		Title: inspection.Title, Repo: inspection.Repo,
 		Bytes: inspection.Page.Bytes, MarkerVersion: inspection.MarkerVersion,
 	}
+	record.Objects, record.TotalBytes = inspectionManifestTotals(inspection)
 	if inspection.Kind == UploadKindDocument {
 		record.Slug, _ = pageSlug(path.Base(inspection.Page.Key))
 	}
@@ -264,6 +279,27 @@ func (c *Client) syncImport(
 		record.SourceKey = inspection.Source.Key
 	}
 	result := syncJobResult{upload: &record}
+	if len(inspection.Warnings) > 0 {
+		result.warning = inspection.Warnings[0]
+	}
+	return result
+}
+
+func (c *Client) syncEnrich(
+	ctx context.Context, upload RemoteUpload, record ManifestRecord,
+) syncJobResult {
+	inspection, err := c.inspectListedUpload(ctx, upload)
+	if err != nil {
+		return syncJobResult{failure: &SyncFailure{
+			MarkerKey: upload.MarkerKey, Operation: "fetch", Error: err.Error(),
+		}}
+	}
+	if inspection.State != UploadComplete {
+		return syncJobResult{state: inspection.State}
+	}
+	updated := record
+	updated.Objects, updated.TotalBytes = inspectionManifestTotals(inspection)
+	result := syncJobResult{enriched: &updated}
 	if len(inspection.Warnings) > 0 {
 		result.warning = inspection.Warnings[0]
 	}
@@ -323,6 +359,18 @@ func (c *Client) commitSyncManifest(
 			appendedUploads = append(appendedUploads, rec)
 			active[markerKey] = rec
 		}
+		appendedEnriched := make([]ManifestRecord, 0, len(result.Enriched))
+		for _, planned := range result.Enriched {
+			markerKey := manifestMarkerKey(planned)
+			currentRecord, exists := active[markerKey]
+			if !exists || currentRecord.Objects != 0 || currentRecord.TotalBytes != 0 {
+				continue
+			}
+			currentRecord.Objects = planned.Objects
+			currentRecord.TotalBytes = planned.TotalBytes
+			appendedEnriched = append(appendedEnriched, currentRecord)
+			active[markerKey] = currentRecord
+		}
 		appendedTombstones := make([]ManifestRecord, 0,
 			len(result.Tombstoned))
 		for _, rec := range result.Tombstoned {
@@ -335,12 +383,14 @@ func (c *Client) commitSyncManifest(
 			appendedTombstones = append(appendedTombstones, rec)
 			delete(active, manifestMarkerKey(rec))
 		}
-		all := append(append([]ManifestRecord(nil), appendedUploads...),
-			appendedTombstones...)
+		all := append([]ManifestRecord(nil), appendedUploads...)
+		all = append(all, appendedEnriched...)
+		all = append(all, appendedTombstones...)
 		if err := appendManifestRecordsUnlocked(path, all); err != nil {
 			return err
 		}
 		result.Added = appendedUploads
+		result.Enriched = appendedEnriched
 		result.Tombstoned = appendedTombstones
 		return nil
 	})
@@ -400,6 +450,7 @@ func hasConcurrentDelete(
 
 type syncJobResult struct {
 	upload    *ManifestRecord
+	enriched  *ManifestRecord
 	tombstone *ManifestRecord
 	failure   *SyncFailure
 	warning   string
