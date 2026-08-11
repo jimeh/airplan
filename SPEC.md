@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.31.0**
+**Spec version: 0.30.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
