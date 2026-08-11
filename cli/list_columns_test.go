@@ -94,12 +94,15 @@ func TestListColumnsRenderDashForMissingValues(t *testing.T) {
 		Bytes: 42,
 	}
 	for _, name := range []string{
-		"kind", "title", "objects", "size", "slug", "dir", "format", "repo",
+		"title", "objects", "size", "slug", "dir", "format", "repo",
 		"bucket",
 	} {
 		if got := localListCell(name, record); got != "-" {
 			t.Errorf("localListCell(%q) = %q, want -", name, got)
 		}
+	}
+	if got := localListCell("kind", record); got != "document" {
+		t.Errorf("localListCell(kind) = %q, want document", got)
 	}
 	if got := localListCell("state", record); got != "legacy" {
 		t.Errorf("localListCell(state) = %q, want legacy", got)

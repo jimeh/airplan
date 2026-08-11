@@ -473,6 +473,19 @@ func ManifestRecordDir(rec ManifestRecord) string {
 	return uploadIDFromMarkerKey(manifestMarkerKey(rec))
 }
 
+// ManifestRecordKind returns a record's upload kind (SPEC.md §9). Conforming
+// legacy history omits both kind and marker_version and is inferred as a
+// document; managed records with a missing kind remain unknown.
+func ManifestRecordKind(rec ManifestRecord) UploadKind {
+	if rec.Kind != "" {
+		return UploadKind(rec.Kind)
+	}
+	if rec.MarkerVersion == 0 {
+		return UploadKindDocument
+	}
+	return ""
+}
+
 // ManifestRecordSlug returns a record's document slug (SPEC.md §9): the
 // recorded value, or the slug derived from its page key for valid older
 // records that omit one. Collections have no slug and return "".

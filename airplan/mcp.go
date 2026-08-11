@@ -79,9 +79,9 @@ func (in mcpListInput) listFilter(now time.Time) (ListFilter, error) {
 }
 
 type mcpListOutput struct {
-	Source   string         `json:"source"`
-	Manifest *ManifestList  `json:"manifest,omitempty"`
-	Storage  []RemoteUpload `json:"storage,omitempty"`
+	Source   string          `json:"source"`
+	Manifest *ManifestList   `json:"manifest,omitempty"`
+	Storage  *[]RemoteUpload `json:"storage,omitempty"`
 }
 
 type mcpTargetInput struct {
@@ -262,6 +262,7 @@ func NewMCPServerWithOptions(
 			}
 			if !localFiles {
 				listed.Warnings = serverSafeWarnings(listed.Warnings)
+				listed.Records = serverSafeManifestRecords(listed.Records)
 			}
 			listed.Records = filter.FilterManifestRecords(listed.Records)
 			output.Manifest = listed
@@ -276,7 +277,7 @@ func NewMCPServerWithOptions(
 			if uploads == nil {
 				uploads = []RemoteUpload{}
 			}
-			output.Storage = uploads
+			output.Storage = &uploads
 		default:
 			return nil, output, fmt.Errorf(
 				"airplan: source must be manifest or storage",
@@ -428,6 +429,15 @@ func NewMCPServerWithOptions(
 	})
 
 	return server
+}
+
+func serverSafeManifestRecords(records []ManifestRecord) []ManifestRecord {
+	safe := make([]ManifestRecord, len(records))
+	copy(safe, records)
+	for index := range safe {
+		safe[index].Profile = ""
+	}
+	return safe
 }
 
 func uploadToolContent(result *Result) *mcp.CallToolResult {

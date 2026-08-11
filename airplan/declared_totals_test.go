@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -190,6 +191,85 @@ func TestMarkerDeclaredTotalsVersionEligibility(t *testing.T) {
 			if ok != test.wantOK || objects != test.wantObjects || total != test.wantBytes {
 				t.Fatalf("MarkerDeclaredTotals = %d/%d/%t, want %d/%d/%t",
 					objects, total, ok, test.wantObjects, test.wantBytes, test.wantOK)
+			}
+		})
+	}
+}
+
+func TestMarkerDeclaredTotalsRejectsInvalidSizesAndOverflow(t *testing.T) {
+	tests := []struct {
+		name        string
+		marker      UploadMarker
+		markerBytes int
+	}{
+		{
+			name:        "v2 zero page size",
+			marker:      UploadMarker{Version: 2, Page: "page.html"},
+			markerBytes: 1,
+		},
+		{
+			name: "v2 negative page size",
+			marker: UploadMarker{
+				Version: 2, Page: "page.html", PageBytes: -1,
+			},
+			markerBytes: 10,
+		},
+		{
+			name:        "v2 overflow",
+			marker:      UploadMarker{Version: 2, Page: "page.html", PageBytes: math.MaxInt64},
+			markerBytes: 1,
+		},
+		{
+			name:        "v3 zero object size",
+			marker:      UploadMarker{Version: MarkerVersion, Objects: []MarkerObject{{Bytes: 0}}},
+			markerBytes: 1,
+		},
+		{
+			name:        "v3 negative object size",
+			marker:      UploadMarker{Version: MarkerVersion, Objects: []MarkerObject{{Bytes: -1}}},
+			markerBytes: 10,
+		},
+		{
+			name:        "v3 overflow",
+			marker:      UploadMarker{Version: MarkerVersion, Objects: []MarkerObject{{Bytes: math.MaxInt64}}},
+			markerBytes: 1,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			objects, total, ok := MarkerDeclaredTotals(test.marker, test.markerBytes)
+			if ok || objects != 0 || total != 0 {
+				t.Fatalf("MarkerDeclaredTotals = %d/%d/%t, want 0/0/false",
+					objects, total, ok)
+			}
+		})
+	}
+}
+
+func TestMarkerDeclaredTotalsAcceptsMaxInt64Boundary(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		marker UploadMarker
+	}{
+		{
+			name: "v2",
+			marker: UploadMarker{
+				Version: 2, Page: "page.html", PageBytes: math.MaxInt64 - 1,
+			},
+		},
+		{
+			name: "v3",
+			marker: UploadMarker{
+				Version: MarkerVersion,
+				Objects: []MarkerObject{{Bytes: math.MaxInt64 - 1}},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			objects, total, ok := MarkerDeclaredTotals(test.marker, 1)
+			if !ok || objects != 2 || total != math.MaxInt64 {
+				t.Fatalf("MarkerDeclaredTotals = %d/%d/%t, want 2/%d/true",
+					objects, total, ok, int64(math.MaxInt64))
 			}
 		})
 	}

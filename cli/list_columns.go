@@ -402,7 +402,7 @@ func localListCell(name string, record airplan.ManifestRecord) string {
 		}
 		return "legacy"
 	case "kind":
-		return listCellOrDash(record.Kind)
+		return listCellOrDash(string(airplan.ManifestRecordKind(record)))
 	case "title":
 		return listCellOrDash(record.Title)
 	case "objects":
@@ -411,9 +411,9 @@ func localListCell(name string, record airplan.ManifestRecord) string {
 		}
 		return strconv.Itoa(record.Objects)
 	case "size":
-		// SIZE reports the whole upload, matching remote listing; records
-		// written before airplan recorded it show a dash rather than a
-		// page-only number that would mean something different (SPEC.md §9).
+		// SIZE reports the marker-declared inventory. Records written before
+		// airplan recorded it show a dash rather than a page-only number that
+		// would mean something different (SPEC.md §9).
 		if record.TotalBytes == 0 {
 			return "-"
 		}

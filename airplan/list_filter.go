@@ -90,13 +90,7 @@ func (f ListFilter) matchesRecord(record ManifestRecord) bool {
 	if !f.matchesTime(record.Time) {
 		return false
 	}
-	kind := UploadKind(record.Kind)
-	if kind == "" && !IsSupportedMarkerVersion(record.MarkerVersion) {
-		// Pre-marker history predates the field, and readers infer document
-		// for it (SPEC.md §9). A managed record that declares no kind is not
-		// inferred: it renders as unknown, so it answers to neither filter.
-		kind = UploadKindDocument
-	}
+	kind := ManifestRecordKind(record)
 	if f.Kind != "" && kind != f.Kind {
 		return false
 	}

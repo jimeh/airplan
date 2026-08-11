@@ -61,6 +61,22 @@ func TestSyncCommandJSONAndConcurrencyValidation(t *testing.T) {
 	}
 }
 
+func TestSyncJSONIncludesDeferred(t *testing.T) {
+	encoded, err := json.Marshal(syncJSONFromResult(
+		&airplan.SyncManifestResult{Deferred: 3},
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result syncJSONResult
+	if err := json.Unmarshal(encoded, &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Deferred != 3 || !strings.Contains(string(encoded), `"deferred":3`) {
+		t.Fatalf("JSON = %s, result = %+v; want deferred 3", encoded, result)
+	}
+}
+
 // TestSyncCommandReportsEnrichedSeparately covers backfill reporting: records
 // completed with declared totals are counted apart from imports, in the human
 // summary and in --json (SPEC.md §9).

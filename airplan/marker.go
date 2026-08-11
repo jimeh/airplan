@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"strings"
 	"time"
@@ -83,7 +84,11 @@ func MarkerDeclaredTotals(
 		if marker.Source != "" || marker.PageBytes <= 0 {
 			return 0, 0, false
 		}
-		return 2, int64(markerBytes) + marker.PageBytes, true
+		total, ok := addDeclaredBytes(int64(markerBytes), marker.PageBytes)
+		if !ok {
+			return 0, 0, false
+		}
+		return 2, total, true
 	}
 	if marker.Version != MarkerVersion {
 		return 0, 0, false
@@ -91,10 +96,21 @@ func MarkerDeclaredTotals(
 	objects = 1
 	total = int64(markerBytes)
 	for _, object := range marker.Objects {
+		var added bool
+		total, added = addDeclaredBytes(total, object.Bytes)
+		if !added {
+			return 0, 0, false
+		}
 		objects++
-		total += object.Bytes
 	}
 	return objects, total, true
+}
+
+func addDeclaredBytes(total, value int64) (int64, bool) {
+	if total <= 0 || value <= 0 || total > math.MaxInt64-value {
+		return 0, false
+	}
+	return total + value, true
 }
 
 // MarkerFilenameForKind returns the exact marker basename for kind.

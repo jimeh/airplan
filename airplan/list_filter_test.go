@@ -159,6 +159,26 @@ func TestListFilterKind(t *testing.T) {
 	}
 }
 
+func TestManifestRecordKindInfersOnlyLegacyDocuments(t *testing.T) {
+	tests := []struct {
+		name   string
+		record ManifestRecord
+		want   UploadKind
+	}{
+		{"recorded document", ManifestRecord{Kind: "document", MarkerVersion: 3}, UploadKindDocument},
+		{"recorded collection", ManifestRecord{Kind: "collection", MarkerVersion: 3}, UploadKindCollection},
+		{"legacy omitted kind and version", ManifestRecord{}, UploadKindDocument},
+		{"managed omitted kind", ManifestRecord{MarkerVersion: 3}, ""},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := ManifestRecordKind(test.record); got != test.want {
+				t.Fatalf("ManifestRecordKind = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestListFilterSlug(t *testing.T) {
 	plan := manifestUploadRecord(filterTestTime(12), "work", "plans", "", "a")
 	plan.Slug = "plan-alpha"

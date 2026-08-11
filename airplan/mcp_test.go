@@ -148,6 +148,58 @@ func TestMCPListUploadsOrdersManifestByRecordTime(t *testing.T) {
 	assertRecordTitles(t, output.Manifest.Records, "a", "b", "c")
 }
 
+func TestMCPListManifestProfileVisibility(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		localFiles bool
+		want       string
+	}{
+		{"local retains profile", true, "private-profile"},
+		{"hosted blanks profile", false, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &mcpTestTransport{listResult: &ManifestList{
+				Records: []ManifestRecord{{
+					Type: "upload", Profile: "private-profile", Title: "plan",
+				}},
+			}}
+			client := &Client{cfg: &Config{}, remote: transport}
+			encoded := callMCPListUploads(t, client, test.localFiles,
+				map[string]any{"source": "manifest"})
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if _, exists := fields["storage"]; exists {
+				t.Fatalf("manifest output unexpectedly contains storage: %s", encoded)
+			}
+			var output mcpListOutput
+			if err := json.Unmarshal(encoded, &output); err != nil {
+				t.Fatal(err)
+			}
+			if output.Manifest == nil || len(output.Manifest.Records) != 1 ||
+				output.Manifest.Records[0].Profile != test.want {
+				t.Fatalf("output = %s, want profile %q", encoded, test.want)
+			}
+		})
+	}
+}
+
+func TestMCPListEmptyStorageSerializesArray(t *testing.T) {
+	transport := &mcpTestTransport{remoteResult: nil}
+	client := &Client{cfg: &Config{}, remote: transport}
+	encoded := callMCPListUploads(t, client, true,
+		map[string]any{"source": "storage"})
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	storage, ok := fields["storage"]
+	if !ok || string(storage) != "[]" {
+		t.Fatalf("output = %s, want storage: []", encoded)
+	}
+}
+
 // TestMCPListUploadsFilters covers filter parity with the CLI: the MCP tool
 // selects the same uploads from the same fixture (SPEC.md §9).
 func TestMCPListUploadsFilters(t *testing.T) {
@@ -782,6 +834,7 @@ type mcpTestTransport struct {
 	purgeErr     error
 	listResult   *ManifestList
 	listCalls    int
+	remoteResult []RemoteUpload
 }
 
 func (t *mcpTestTransport) ListManifest(
@@ -789,6 +842,47 @@ func (t *mcpTestTransport) ListManifest(
 ) (*ManifestList, error) {
 	t.listCalls++
 	return t.listResult, nil
+}
+
+func (t *mcpTestTransport) ListRemote(context.Context) ([]RemoteUpload, error) {
+	return t.remoteResult, nil
+}
+
+func callMCPListUploads(
+	t *testing.T, client *Client, localFiles bool, arguments map[string]any,
+) []byte {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", localFiles)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_uploads", Arguments: arguments,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("result = %+v", result)
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
 }
 
 func (t *mcpTestTransport) Upload(context.Context, Input) (*Result, error) {

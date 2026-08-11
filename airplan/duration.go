@@ -33,7 +33,7 @@ var timeFilterLayouts = []string{
 // rather than guessed, because this boundary also selects purge deletions.
 func ParseTimeFilter(s string, now time.Time) (time.Time, error) {
 	raw := strings.TrimSpace(s)
-	if IsAbsoluteTimeFilter(raw) {
+	if isAbsoluteTimeFilter(raw) {
 		if hasStrictRFC3339Syntax(raw) {
 			when, err := time.Parse(time.RFC3339, raw)
 			if err == nil {
@@ -121,15 +121,6 @@ func hasStrictRFC3339Syntax(raw string) bool {
 	hour := int(raw[zoneStart+1]-'0')*10 + int(raw[zoneStart+2]-'0')
 	minute := int(raw[zoneStart+4]-'0')*10 + int(raw[zoneStart+5]-'0')
 	return hour <= 23 && minute <= 59
-}
-
-// IsAbsoluteTimeFilter reports whether ParseTimeFilter reads s as an absolute
-// date rather than an age: it opens with a four-digit year that is either the
-// whole value or followed by a date separator (SPEC.md §9). Callers that treat
-// the two forms differently, such as purge refusing a degenerate age, use this
-// rather than inspecting the parsed result.
-func IsAbsoluteTimeFilter(s string) bool {
-	return isAbsoluteTimeFilter(strings.TrimSpace(s))
 }
 
 func isAbsoluteTimeFilter(s string) bool {

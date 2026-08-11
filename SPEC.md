@@ -1344,10 +1344,11 @@ machine) and must be safe:
   first, in the table and in `--json`. `KIND` is the record's kind, with
   legacy history reading as `document` under the record-schema inference above;
   it shows `-` only when no kind is known at all, as in a served record that
-  declares none. `OBJECTS` and `SIZE` report the upload's marker-declared
-  object count and total size, matching what remote listing reports for the
-  same upload; both read `-` for history that predates them, which `sync`
-  fills in. The wide `PAGE SIZE` column always reports the primary page alone,
+  declares none. `OBJECTS` and `SIZE` use the same column vocabulary as remote
+  listing but report the local upload's marker-declared object count and total
+  size; storage-observed remote values can differ as described below. Both
+  read `-` for history that predates them, which `sync` fills in. The wide
+  `PAGE SIZE` column always reports the primary page alone,
   and `bytes` keeps that meaning in `--json`. `STATE` is `managed` for the supported
   `marker_version` and `legacy` when the field is absent. Both appear in
   history without warning; legacy entries remain ineligible for delete

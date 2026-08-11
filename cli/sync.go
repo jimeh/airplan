@@ -136,8 +136,9 @@ func syncJSONFromResult(result *airplan.SyncManifestResult) syncJSONResult {
 	return syncJSONResult{
 		Added: len(result.Added), Enriched: len(result.Enriched),
 		Tombstoned: len(result.Tombstoned),
-		Unchanged:  result.Unchanged, Incomplete: result.Incomplete,
-		Invalid: result.Invalid, Retained: result.Retained,
+		Unchanged:  result.Unchanged, Deferred: result.Deferred,
+		Incomplete: result.Incomplete,
+		Invalid:    result.Invalid, Retained: result.Retained,
 		Failed: len(result.Failures), AddedRecords: result.Added,
 		EnrichedRecords:  result.Enriched,
 		TombstoneRecords: result.Tombstoned, Failures: result.Failures,
