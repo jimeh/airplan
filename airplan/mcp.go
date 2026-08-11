@@ -44,6 +44,26 @@ type mcpListInput struct {
 	Slug      *string `json:"slug,omitempty" jsonschema:"Glob matched against document slugs; collections never match."`
 }
 
+var errInvalidMCPListFilter = errors.New(
+	"airplan: invalid list filter arguments",
+)
+
+type mcpListFilterError struct {
+	cause error
+}
+
+func (e *mcpListFilterError) Error() string { return e.cause.Error() }
+func (e *mcpListFilterError) Unwrap() []error {
+	return []error{errInvalidMCPListFilter, e.cause}
+}
+
+func invalidMCPListFilter(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &mcpListFilterError{cause: err}
+}
+
 // listFilter resolves the tool's selection arguments (SPEC.md §9). It shares
 // the parser and the filter the CLI uses, so a listing selects the same
 // uploads through either surface.
@@ -52,30 +72,34 @@ func (in mcpListInput) listFilter(now time.Time) (ListFilter, error) {
 	if in.NewerThan != nil {
 		when, err := ParseTimeFilter(*in.NewerThan, now)
 		if err != nil {
-			return filter, err
+			return filter, invalidMCPListFilter(err)
 		}
 		filter.NewerThan = &when
 	}
 	if in.OlderThan != nil {
 		when, err := ParseTimeFilter(*in.OlderThan, now)
 		if err != nil {
-			return filter, err
+			return filter, invalidMCPListFilter(err)
 		}
 		filter.OlderThan = &when
 	}
 	if in.Kind != nil {
 		if strings.TrimSpace(*in.Kind) == "" {
-			return filter, errors.New("airplan: kind must not be empty")
+			return filter, invalidMCPListFilter(
+				errors.New("airplan: kind must not be empty"),
+			)
 		}
 		filter.Kind = UploadKind(*in.Kind)
 	}
 	if in.Slug != nil {
 		if *in.Slug == "" {
-			return filter, errors.New("airplan: slug must not be empty")
+			return filter, invalidMCPListFilter(
+				errors.New("airplan: slug must not be empty"),
+			)
 		}
 		filter.Slug = *in.Slug
 	}
-	return filter, filter.Validate()
+	return filter, invalidMCPListFilter(filter.Validate())
 }
 
 type mcpListOutput struct {
@@ -538,6 +562,8 @@ func mcpErrorClass(err error) string {
 		return "timeout"
 	case errors.Is(err, ErrInputTooLarge):
 		return "input_too_large"
+	case errors.Is(err, errInvalidMCPListFilter):
+		return "invalid_list_filter"
 	case errors.Is(err, ErrBinaryInput), errors.Is(err, ErrInvalidUTF8),
 		errors.Is(err, ErrEmptyInput):
 		return "invalid_input"
@@ -573,6 +599,8 @@ func mcpOperationError(
 		public = "airplan: the server operation timed out"
 	case errors.Is(err, ErrInputTooLarge):
 		public = "airplan: the upload exceeds the effective size limit"
+	case errors.Is(err, errInvalidMCPListFilter):
+		public = errInvalidMCPListFilter.Error()
 	case errors.Is(err, ErrBinaryInput), errors.Is(err, ErrInvalidUTF8),
 		errors.Is(err, ErrEmptyInput):
 		public = "airplan: the request is not a valid document upload"

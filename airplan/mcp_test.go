@@ -370,9 +370,13 @@ func TestHostedMCPListFilterErrorsAreSanitizedBeforeListing(t *testing.T) {
 	const sentinel = "private-filter-value-sentinel"
 	transport := &mcpTestTransport{listResult: &ManifestList{}}
 	client := &Client{cfg: &Config{}, remote: transport}
+	var logs bytes.Buffer
+	logger := serverlog.New(&logs, serverlog.LevelTrace)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	server := NewMCPServerWithOptions(client, "test", MCPServerOptions{})
+	server := NewMCPServerWithOptions(client, "test", MCPServerOptions{
+		Logger: logger,
+	})
 	clientTransport, serverTransport := mcp.NewInMemoryTransports()
 	serverSession, err := server.Connect(ctx, serverTransport, nil)
 	if err != nil {
@@ -400,11 +404,32 @@ func TestHostedMCPListFilterErrorsAreSanitizedBeforeListing(t *testing.T) {
 	}
 	visible := string(encoded)
 	if !result.IsError || strings.Contains(visible, sentinel) ||
-		!strings.Contains(visible, "server could not complete the operation") {
+		!strings.Contains(visible, "invalid list filter arguments") {
 		t.Fatalf("hosted result = %s, want sanitized tool error", visible)
+	}
+	if output := logs.String(); strings.Contains(output, sentinel) ||
+		!strings.Contains(output, "error_class=invalid_list_filter") {
+		t.Fatalf("hosted logs = %s, want safe invalid-list-filter class", output)
 	}
 	if transport.listCalls != 0 {
 		t.Fatalf("invalid filter performed %d list calls", transport.listCalls)
+	}
+	invalidSource, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_uploads", Arguments: map[string]any{
+			"source": "private-invalid-source-sentinel",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err = json.Marshal(invalidSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if visible := string(encoded); !invalidSource.IsError ||
+		!strings.Contains(visible, "source must be manifest or storage") ||
+		strings.Contains(visible, "private-invalid-source-sentinel") {
+		t.Fatalf("hosted source result = %s, want safe enumeration error", visible)
 	}
 	var localInput mcpListInput
 	if err := json.Unmarshal([]byte(`{"newer_than":"`+sentinel+`"}`), &localInput); err != nil {

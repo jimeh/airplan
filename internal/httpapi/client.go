@@ -250,7 +250,52 @@ func (c *Client) ListManifestUploads(ctx context.Context) (ManifestList, error) 
 	if err != nil {
 		return ManifestList{}, err
 	}
-	return decodeResponse[ManifestList](response, http.StatusOK)
+	wire, err := decodeResponse[manifestListWire](response, http.StatusOK)
+	if err != nil {
+		return ManifestList{}, err
+	}
+	result := ManifestList{
+		Records:  make([]ManifestRecord, 0, len(wire.Records)),
+		Warnings: wire.Warnings,
+	}
+	for index, raw := range wire.Records {
+		var record ManifestRecord
+		if err := json.Unmarshal(raw, &record); err != nil {
+			return ManifestList{}, fmt.Errorf(
+				"decode manifest record %d: %w", index+1, err,
+			)
+		}
+		if err := validateManifestInventoryEncoding(raw, record); err != nil {
+			return ManifestList{}, fmt.Errorf(
+				"decode manifest record %d: %w", index+1, err,
+			)
+		}
+		result.Records = append(result.Records, record)
+	}
+	return result, nil
+}
+
+type manifestListWire struct {
+	Records  []json.RawMessage `json:"records"`
+	Warnings []string          `json:"warnings"`
+}
+
+func validateManifestInventoryEncoding(
+	raw json.RawMessage, record ManifestRecord,
+) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	_, objectsPresent := fields["objects"]
+	_, totalPresent := fields["total_bytes"]
+	if objectsPresent != totalPresent {
+		return errors.New("objects and total_bytes must be set together")
+	}
+	if objectsPresent && (record.Objects <= 0 || record.TotalBytes <= 0) {
+		return errors.New("objects and total_bytes must be positive when present")
+	}
+	return nil
 }
 
 // ListStorageUploads lists direct storage candidates.

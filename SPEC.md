@@ -1885,7 +1885,10 @@ in query strings. Upload, list,
 inspection, and purge-preview results expose the randomized directory as an
 opaque `upload_id`. `GET /api/v1/uploads` returns service-scoped manifest
 records in the same order as local `list` (§9): record time, then ownership
-marker key. The MCP `list_uploads` tool uses that same order.
+marker key. Clients reject a manifest response whose `objects` and
+`total_bytes` fields are not absent together or positive together rather than
+rendering a non-conforming inventory pair. The MCP `list_uploads` tool uses the
+same order.
 
 Purge is two-phase. `/purge/preview` applies the source and filters without
 deleting and returns explicit `upload_id` candidates. The CLI displays them
@@ -1916,6 +1919,11 @@ so it works with either backend. MCP frames are its only stdout content;
 warnings and logs use stderr. `airplan serve` exposes the same tool
 implementation at `/mcp` using MCP Streamable HTTP. Deprecated HTTP+SSE is not
 supported.
+
+Stdio list-filter errors retain their detailed local diagnostics. Hosted MCP
+returns the stable `airplan: invalid list filter arguments` message instead,
+without echoing the supplied value; invalid `source` values use their separate
+safe enumeration error.
 
 The minimal tool set is:
 
