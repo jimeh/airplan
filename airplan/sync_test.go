@@ -13,6 +13,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 func TestSyncManifestImportsPrunesAndRestores(t *testing.T) {
@@ -485,5 +488,11 @@ func newSyncClient(t *testing.T, endpoint, manifest string) *Client {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := client.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	options := client.st.client.Options()
+	options.Retryer = aws.NopRetryer{}
+	client.st.client = s3.New(options)
 	return client
 }

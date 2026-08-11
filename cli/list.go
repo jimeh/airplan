@@ -250,7 +250,9 @@ func allowsConfigFreeLocalList(cmd *cobra.Command, allProfiles bool) bool {
 		// --all-profiles asks to ignore profile selection, so the variable it
 		// overrides cannot also block the config-free fallback (SPEC.md §9).
 		// The backend selectors still decide where listing reads from.
-		selectors = selectors[:len(selectors)-1]
+		selectors = slices.DeleteFunc(selectors, func(name string) bool {
+			return name == "AIRPLAN_PROFILE"
+		})
 	}
 	for _, name := range selectors {
 		if os.Getenv(name) != "" {

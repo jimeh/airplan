@@ -107,38 +107,8 @@ func TestMCPListUploadsOrdersManifestByRecordTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	server := NewMCPServer(client, "test", true)
-	clientTransport, serverTransport := mcp.NewInMemoryTransports()
-	serverSession, err := server.Connect(ctx, serverTransport, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = serverSession.Close() }()
-	protocolClient := mcp.NewClient(&mcp.Implementation{
-		Name: "test", Version: "test",
-	}, nil)
-	session, err := protocolClient.Connect(ctx, clientTransport, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = session.Close() }()
-
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "list_uploads",
-		Arguments: map[string]any{"source": "manifest"},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.IsError {
-		t.Fatalf("result = %+v", result)
-	}
-	encoded, err := json.Marshal(result.StructuredContent)
-	if err != nil {
-		t.Fatal(err)
-	}
+	encoded := callMCPListUploads(t, client, true,
+		map[string]any{"source": "manifest"})
 	var output struct {
 		Manifest ManifestList `json:"manifest"`
 	}
