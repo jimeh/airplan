@@ -70,8 +70,16 @@ func TestParseTimeFilterAbsolute(t *testing.T) {
 			time.Date(2026, 7, 1, 9, 30, 0, 0, time.UTC),
 		},
 		{
+			"2026-07-01T09:30:00.125Z",
+			time.Date(2026, 7, 1, 9, 30, 0, 125_000_000, time.UTC),
+		},
+		{
 			"2026-07-01T09:30:00+02:00",
 			time.Date(2026, 7, 1, 7, 30, 0, 0, time.UTC),
+		},
+		{
+			"2026-07-01T09:30:00.125+23:59",
+			time.Date(2026, 6, 30, 9, 31, 0, 125_000_000, time.UTC),
 		},
 	}
 	for _, tt := range tests {
@@ -155,6 +163,11 @@ func TestParseTimeFilterErrors(t *testing.T) {
 		{"impossible month", "2026-13-01", "invalid time"},
 		{"seconds without minutes", "2026-07-01T09", "invalid time"},
 		{"trailing text", "2026-07-01 09:30 sharp", "invalid time"},
+		{"comma RFC 3339 fraction", "2026-07-01T09:30:00,5Z", "invalid time"},
+		{"offset hour 24", "2026-07-01T09:30:00+24:00", "invalid time"},
+		{"offset minute 60", "2026-07-01T09:30:00+00:60", "invalid time"},
+		{"local dot fraction", "2026-07-01T09:30:00.5", "invalid time"},
+		{"local comma fraction", "2026-07-01T09:30:00,5", "invalid time"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

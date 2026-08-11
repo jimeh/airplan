@@ -315,10 +315,20 @@ func (c *Client) syncImport(
 // manifestRecordNeedsTotals reports whether a record predates declared totals
 // and could still gain them. Only records missing both fields qualify, so one
 // pass converges. Only a marker that declares every object's size can supply
-// them, so pre-v3 history is left alone rather than re-fetched by every run.
+// them. Marker v3 always qualifies; v2 qualifies only without a source, while
+// v1 and v2-with-source are left alone rather than re-fetched by every run.
 func manifestRecordNeedsTotals(rec ManifestRecord) bool {
-	return rec.Objects == 0 && rec.TotalBytes == 0 &&
-		rec.MarkerVersion == MarkerVersion
+	if rec.Objects != 0 || rec.TotalBytes != 0 {
+		return false
+	}
+	switch rec.MarkerVersion {
+	case MarkerVersion:
+		return true
+	case 2:
+		return rec.SourceKey == ""
+	default:
+		return false
+	}
 }
 
 // syncEnrich fills in declared totals for an active local record by inspecting
@@ -427,6 +437,12 @@ func (c *Client) commitSyncManifest(
 			markerKey := manifestMarkerKey(rec)
 			existing, exists := active[markerKey]
 			if !exists || !manifestRecordNeedsTotals(existing) {
+				continue
+			}
+			// A concurrent re-upload or replacement under the same marker key
+			// invalidates the inspection snapshot. Metadata-only edits retain
+			// these identity fields and are safe to merge into.
+			if !existing.Time.Equal(rec.Time) || existing.Key != rec.Key {
 				continue
 			}
 			// Enrichment adds two fields; it must not carry the rest of the

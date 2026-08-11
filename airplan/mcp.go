@@ -36,34 +36,44 @@ type mcpUploadFilesInput struct {
 }
 
 type mcpListInput struct {
-	Source    string `json:"source,omitempty" jsonschema:"Inventory source: manifest or storage."`
-	NewerThan string `json:"newer_than,omitempty" jsonschema:"Keep uploads at or after an age or date, such as 7d or 2026-07-01."`
-	OlderThan string `json:"older_than,omitempty" jsonschema:"Keep uploads before an age or date, such as 30d or 2026-07-01."`
-	Limit     *int   `json:"limit,omitempty" jsonschema:"Keep only the N most recent matches, still ordered oldest first."`
-	Kind      string `json:"kind,omitempty" jsonschema:"Keep only document or collection uploads."`
-	Slug      string `json:"slug,omitempty" jsonschema:"Glob matched against document slugs; collections never match."`
+	Source    string  `json:"source,omitempty" jsonschema:"Inventory source: manifest or storage."`
+	NewerThan *string `json:"newer_than,omitempty" jsonschema:"Keep uploads at or after an age or date, such as 7d or 2026-07-01."`
+	OlderThan *string `json:"older_than,omitempty" jsonschema:"Keep uploads before an age or date, such as 30d or 2026-07-01."`
+	Limit     *int    `json:"limit,omitempty" jsonschema:"Keep only the N most recent matches, still ordered oldest first."`
+	Kind      *string `json:"kind,omitempty" jsonschema:"Keep only document or collection uploads."`
+	Slug      *string `json:"slug,omitempty" jsonschema:"Glob matched against document slugs; collections never match."`
 }
 
 // listFilter resolves the tool's selection arguments (SPEC.md §9). It shares
 // the parser and the filter the CLI uses, so a listing selects the same
 // uploads through either surface.
 func (in mcpListInput) listFilter(now time.Time) (ListFilter, error) {
-	filter := ListFilter{
-		Kind: UploadKind(in.Kind), Slug: in.Slug, Limit: in.Limit,
-	}
-	if in.NewerThan != "" {
-		when, err := ParseTimeFilter(in.NewerThan, now)
+	filter := ListFilter{Limit: in.Limit}
+	if in.NewerThan != nil {
+		when, err := ParseTimeFilter(*in.NewerThan, now)
 		if err != nil {
 			return filter, err
 		}
 		filter.NewerThan = &when
 	}
-	if in.OlderThan != "" {
-		when, err := ParseTimeFilter(in.OlderThan, now)
+	if in.OlderThan != nil {
+		when, err := ParseTimeFilter(*in.OlderThan, now)
 		if err != nil {
 			return filter, err
 		}
 		filter.OlderThan = &when
+	}
+	if in.Kind != nil {
+		if strings.TrimSpace(*in.Kind) == "" {
+			return filter, errors.New("airplan: kind must not be empty")
+		}
+		filter.Kind = UploadKind(*in.Kind)
+	}
+	if in.Slug != nil {
+		if *in.Slug == "" {
+			return filter, errors.New("airplan: slug must not be empty")
+		}
+		filter.Slug = *in.Slug
 	}
 	return filter, filter.Validate()
 }
@@ -236,7 +246,9 @@ func NewMCPServerWithOptions(
 		output := mcpListOutput{Source: source}
 		filter, err := input.listFilter(time.Now())
 		if err != nil {
-			return nil, output, err
+			return nil, output, mcpOperationError(
+				ctx, err, !localFiles, options.Logger,
+			)
 		}
 		switch UploadSource(source) {
 		case UploadSourceManifest:

@@ -1000,13 +1000,67 @@ bucket = "plans"
 	}
 	parseListTable(t, stdout).assertColumn(t, "TITLE", "Work plan")
 
-	stdout, stderr, err = executeList(t, "--all-profiles")
+	stdout, stderr, err = executeList(t, "-A")
 	if err != nil || stderr != "" {
 		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
 	}
 	table := parseListTable(t, stdout)
 	table.assertColumn(t, "TITLE", "Work plan", "Home shots")
 	table.assertColumn(t, "PROFILE", "work", "home")
+}
+
+func TestListAllProfilesRejectsAirplanBackendBeforeRequest(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("AIRPLAN_ACCESS_KEY_ID", "")
+	t.Setenv("AIRPLAN_SECRET_ACCESS_KEY", "")
+	var mu sync.Mutex
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(
+		w http.ResponseWriter, _ *http.Request,
+	) {
+		mu.Lock()
+		requests++
+		mu.Unlock()
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	t.Cleanup(server.Close)
+	config := filepath.Join(t.TempDir(), "config.toml")
+	data := fmt.Sprintf(
+		"backend = \"airplan\"\napi_url = %q\n"+
+			"api_token = \"01234567890123456789012345678901\"\n",
+		server.URL,
+	)
+	if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, err := executeList(t, "--all-profiles", "--config", config)
+	if err == nil || !strings.Contains(err.Error(),
+		"--all-profiles cannot be used with the airplan backend") {
+		t.Fatalf("error = %v, want backend scope refusal", err)
+	}
+	if stdout != "" || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, want empty", stdout, stderr)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if requests != 0 {
+		t.Fatalf("HTTP requests = %d, want 0", requests)
+	}
+}
+
+func TestListExplicitEmptyFiltersFailBeforeListing(t *testing.T) {
+	setListState(t)
+	for _, flag := range []string{"--newer-than=", "--older-than=", "--kind=", "--slug="} {
+		t.Run(flag, func(t *testing.T) {
+			stdout, stderr, err := executeList(t, flag)
+			if err == nil {
+				t.Fatalf("error = nil, want explicit-empty error")
+			}
+			if stdout != "" || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, want empty", stdout, stderr)
+			}
+		})
+	}
 }
 
 func TestListJSONShowsActiveUploads(t *testing.T) {

@@ -288,6 +288,81 @@ func TestMCPListUploadsFilters(t *testing.T) {
 	}
 }
 
+func TestMCPListFilterPresence(t *testing.T) {
+	for _, field := range []string{"newer_than", "older_than", "kind", "slug"} {
+		t.Run("explicit empty "+field, func(t *testing.T) {
+			var input mcpListInput
+			if err := json.Unmarshal([]byte(`{"`+field+`":""}`), &input); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := input.listFilter(time.Now()); err == nil {
+				t.Fatalf("explicit empty %s was treated as omitted", field)
+			}
+		})
+	}
+	omitted, err := (mcpListInput{}).listFilter(time.Now())
+	if err != nil || omitted != (ListFilter{}) {
+		t.Fatalf("omitted filters = %+v, %v; want zero-value filter", omitted, err)
+	}
+	zero := 0
+	filter, err := (mcpListInput{Limit: &zero}).listFilter(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected := filter.FilterManifestRecords([]ManifestRecord{{Title: "one"}}); len(selected) != 0 {
+		t.Fatalf("explicit limit zero selected %+v", selected)
+	}
+}
+
+func TestHostedMCPListFilterErrorsAreSanitizedBeforeListing(t *testing.T) {
+	const sentinel = "private-filter-value-sentinel"
+	transport := &mcpTestTransport{listResult: &ManifestList{}}
+	client := &Client{cfg: &Config{}, remote: transport}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServerWithOptions(client, "test", MCPServerOptions{})
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "test"}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_uploads", Arguments: map[string]any{
+			"source": "manifest", "newer_than": sentinel,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := string(encoded)
+	if !result.IsError || strings.Contains(visible, sentinel) ||
+		!strings.Contains(visible, "server could not complete the operation") {
+		t.Fatalf("hosted result = %s, want sanitized tool error", visible)
+	}
+	if transport.listCalls != 0 {
+		t.Fatalf("invalid filter performed %d list calls", transport.listCalls)
+	}
+	var localInput mcpListInput
+	if err := json.Unmarshal([]byte(`{"newer_than":"`+sentinel+`"}`), &localInput); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := localInput.listFilter(time.Now()); err == nil || !strings.Contains(err.Error(), sentinel) {
+		t.Fatalf("local filter error = %v, want detailed request value", err)
+	}
+}
+
 func TestMCPHTTPOriginGuard(t *testing.T) {
 	const originSentinel = "https://private-origin-sentinel.example"
 	client, err := New(context.Background(), &Config{
@@ -705,6 +780,15 @@ type mcpTestTransport struct {
 	syncErr      error
 	purgeResult  *PurgeResult
 	purgeErr     error
+	listResult   *ManifestList
+	listCalls    int
+}
+
+func (t *mcpTestTransport) ListManifest(
+	context.Context, ListManifestOptions,
+) (*ManifestList, error) {
+	t.listCalls++
+	return t.listResult, nil
 }
 
 func (t *mcpTestTransport) Upload(context.Context, Input) (*Result, error) {

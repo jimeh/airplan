@@ -64,9 +64,17 @@ func (c *Client) ListManifest(
 				"airplan: remote manifest listing does not accept local profile filters",
 			)
 		}
-		return c.remote.ListManifest(ctx, ListManifestOptions{
+		listed, err := c.remote.ListManifest(ctx, ListManifestOptions{
 			Scope: ManifestScopeService,
 		})
+		if err != nil {
+			return nil, err
+		}
+		result := *listed
+		result.Records = make([]ManifestRecord, len(listed.Records))
+		copy(result.Records, listed.Records)
+		sortManifestUploads(result.Records)
+		return &result, nil
 	}
 	if opts.Scope == "" || opts.Scope == ManifestScopeAll {
 		return ListManifestHistory(c.cfg.ManifestPath, opts.Profile)

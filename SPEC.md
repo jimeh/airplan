@@ -660,7 +660,8 @@ one-off use.
 Frequent flags get short forms: `-p` (`--profile`), `-s` (`--slug`),
 `-t` (`--title`), `-j` (`--json`), and `-o` (`--open`). On subcommands,
 `-r` is `--remote` for `list` and `purge`, while `-o` is `--output` for
-`preview` and `get`. Connection overrides stay long-only, as do `list`'s
+`preview` and `get`, and `-A` is `list --all-profiles`. Connection overrides
+stay long-only, as do `list`'s
 table options `--columns`, `--wide`, and `--reverse` (§9); `-c` is already
 `--config`.
 `airplan completion bash|zsh|fish|powershell` emits shell completions.
@@ -785,7 +786,7 @@ airplan completion bash|zsh|fish|powershell
 airplan list|ls [--remote] [--json] [--columns SET] [--wide] [--reverse]
                 [--newer-than X] [--older-than X] [--limit N]
                 [--kind document|collection] [--slug PATTERN]
-                [--all-profiles]
+                [-A|--all-profiles]
 airplan show [--json] <url|key>
 airplan get [--output PATH] [--source] <url|key>
 airplan delete <url|key>
@@ -1283,9 +1284,12 @@ conforming implementations can share a manifest:
   payload bytes. `objects` counts the ownership marker plus every object the
   marker declares, and `total_bytes` sums their declared sizes; both are
   optional and absent together on history written before airplan recorded
-  them, and on uploads whose marker predates v3, which declares no size for
-  every object. They are additive: `bytes` keeps its own meaning and is never
-  repurposed. `title` is omitted when empty; `profile` is omitted for
+  them, and on uploads whose marker cannot declare every counted size. Marker
+  v3 always qualifies; marker v2 qualifies only when it declares no source;
+  marker v1 and v2-with-source do not. When present, both fields are positive;
+  a record with only one field or an explicit zero is invalid. They are
+  additive: `bytes` keeps its own meaning and is never repurposed. `title` is
+  omitted when empty; `profile` is omitted for
   root-level settings. `marker_key` is the exact kind-specific ownership key.
   `repo` preserves canonical repository metadata. The full collection
   inventory remains only in the remote marker.
@@ -1334,7 +1338,9 @@ machine) and must be safe:
   title, object count, human-readable binary size, and URL; `--json` for scripting with
   exact byte counts. Rows sort by record time, then ownership marker key, so
   local history reads in the same order as a remote listing even when `sync`
-  appended imported uploads after later local ones. `--reverse` prints newest
+  appended imported uploads after later local ones. Clients reapply this order
+  to manifest responses from older Airplan HTTP servers before filtering or
+  limiting them. `--reverse` prints newest
   first, in the table and in `--json`. `KIND` is the record's kind, with
   legacy history reading as `document` under the record-schema inference above;
   it shows `-` only when no kind is known at all, as in a served record that
@@ -1378,13 +1384,19 @@ machine) and must be safe:
   the same meaning as `purge --slug`: collections are excluded even from
   `--slug '*'`, an upload with no known slug never matches, and a local record
   that omits `slug` uses the one derived from its page key. Filters compose,
-  and `--reverse` reorders whatever they selected.
+  and `--reverse` reorders whatever they selected. Supplying any string filter
+  explicitly with an empty value is an error; omission alone means no filter.
+  MCP requests preserve the same distinction, while an explicit limit of zero
+  selects nothing.
 - `--newer-than` and `--older-than` accept exactly two forms. An age, as
   `purge --older-than` has always accepted, including `d` and `w` units:
   `7d`, `2w`, `36h`, `1h30m`. Or an absolute date: `2026`, `2026-07`,
   `2026-07-01`, `2026/07/01`, `2026-07-01 09:30`, `2026-07-01T09:30`,
-  `2026-07-01T09:30:00`, or
-  RFC 3339 with an offset. A value opening with four digits, alone or followed
+  `2026-07-01T09:30:00`, or strict RFC 3339 with `Z` or a numeric offset.
+  Zoned timestamps accept dot fractional seconds, reject comma fractions, and
+  require offset hours and minutes within `00..23` and `00..59`; offset-less
+  forms accept no fractional seconds beyond the exact layouts above. A value
+  opening with four digits, alone or followed
   by `-` or `/`, is a date; everything else is an age. Dates and times without
   an offset resolve at **local** midnight or local wall-clock time, matching
   `docker` and `journalctl`; an explicit offset is honored as written. The
@@ -1396,14 +1408,14 @@ machine) and must be safe:
   and reads the resolved local manifest without requiring storage credentials.
   Local S3 listing with no explicit profile shows every recorded profile; an
   explicit `--profile NAME` filters that exact profile, and `--profile=`
-  selects root-level history. `--all-profiles` asks for the cross-profile
+  selects root-level history. `-A`/`--all-profiles` asks for the cross-profile
   default explicitly, so it also overrides an `AIRPLAN_PROFILE` that would
   otherwise narrow local history; it cannot be combined with `--profile` or
   with `--remote`, whose scope is the selected profile's `key_prefix`. If
   configuration selects an `airplan` profile, `list` calls the server's
   manifest endpoint, which scopes records to the server's own identity;
-  neither `--profile` nor `--all-profiles` filters that listing, since the
-  server owns its scope.
+  `--all-profiles` is rejected before client construction because cross-profile
+  scope exists only for local S3 manifest history.
   `--config` is therefore valid
   for non-remote list because it can select the HTTP backend.
 - `airplan list --remote`: cheaply discovers marker directories made from any
@@ -1547,10 +1559,10 @@ machine) and must be safe:
   `--older-than 30d`, `--slug PATTERN`, `--profile P`. `--older-than` takes
   the same values as `list --older-than`, an age with `d`/`w` units or an
   absolute date, read by the same parser with the same refusal to guess at
-  ambiguous input. Purge additionally rejects an age of zero, which would
-  select every upload; that is what an unset script variable expands to, and
-  `--all` is how a caller asks to delete everything. An explicit absolute date
-  is accepted however broadly it selects, because a human wrote it.
+  ambiguous input. The flag must have a non-empty value and its resolved
+  boundary must be strictly in the past; zero ages, the present, and future
+  absolute dates are rejected even alongside `--all`. `--all` is the explicit
+  way to ask to delete everything.
   `--profile`/`-p` behaves as on every other
   command by selecting the connection profile. Local purge always
   considers only uploads recorded with the resolved active profile,
@@ -1596,21 +1608,26 @@ machine) and must be safe:
   marker candidates and object sizes. Missing local candidates have their
   markers fetched concurrently and are imported only when the supported
   marker validates and every declared object is present at its declared size.
-  Imported v3 records retain kind, exact marker identity, primary page,
+  Imported managed-marker records retain kind, exact marker identity, primary page,
   document slug/format/source where applicable, title, and repository, but do
   not duplicate collection inventories. Imported profile,
   bucket, and public URL values come from the receiving machine's resolved
   connection, never the marker.
   Sync also completes local history in place: for each active, scoped,
   marker-managed record that is missing both `objects` and `total_bytes` and
-  carries a v3 marker version, it fetches and inspects that marker and, only
+  carries a v3 marker version, or a v2 marker version without a source, it
+  fetches and inspects that marker and, only
   for a `complete` inspection, appends an enriched upload record carrying the
   record's original time and identity plus the declared totals. Append-only
   history holds and latest-wins reduction collapses the pair. An incomplete or
   invalid marker leaves both fields absent rather than guessing, and leaves the
   record untouched. Enrichment never resurrects a tombstoned identity: the
   record must still be active when sync locks, rereads, and reduces before
-  writing. It converges in one pass, shares the same `--concurrency` budget,
+  writing. Its time and primary key must still match the inspected snapshot;
+  metadata-only concurrent edits are preserved, while a replacement under the
+  same marker key is left for a later sync. Ineligible v1 and v2-with-source
+  records never schedule recurring marker fetches. It converges in one pass,
+  shares the same `--concurrency` budget,
   writes nothing under `--dry-run`, and is reported separately from imports.
   Enrichment completes metadata for an upload already in local history, so it
   never fails the run: a marker that cannot be fetched, or that is incomplete,

@@ -265,7 +265,10 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   marker is removed in a separate final `DeleteObject`. Invalid and markerless
   directories are outside airplan's remote management authority.
 - `--older-than` durations: small custom parser for `d`/`w` units —
-  Go's stdlib `time.ParseDuration` has no days.
+  Go's stdlib `time.ParseDuration` has no days. `ParseTimeFilter` first checks
+  strict zoned RFC 3339 syntax, including fraction and numeric-offset ranges,
+  then tries exact offset-less layouts in the caller's local zone; it rejects
+  the fractional-second extensions Go accepts for layouts that omit them.
 - Manifest appends: `O_APPEND` open, whole line in one `Write` call,
   wrapped in context-aware `gofrs/flock` acquisition (flock on Unix,
   LockFileEx on Windows) per spec §9's concurrency and timeout rules.

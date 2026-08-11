@@ -498,23 +498,26 @@ path, and ignores `AIRPLAN_MANIFEST`.
 `ls` aliases `list`, and `-r` aliases `--remote` for `list` and
 `purge`. An explicit `list --profile NAME` filters local history by its recorded
 profile; `--profile=` selects root-level history. Without that flag, local list
-shows every profile, and `--all-profiles` asks for that default explicitly even
+shows every profile, and `-A`/`--all-profiles` asks for that default explicitly even
 when `AIRPLAN_PROFILE` is set. Without resolvable configuration, local list assumes the
 `s3` backend and remains config-free. A config can also select an `airplan`
 profile, in which case list reads the server manifest and `--config` is useful
-without `--remote`.
+without `--remote`; `--all-profiles` is rejected because that backend exposes
+only its server-scoped manifest.
 
 `list` selects rows with `--newer-than`, `--older-than`, `--limit`, `--kind`,
 and `--slug`, in both listing modes and in `--json`, because filters are
 selection rather than presentation. The two time flags take either an age such
 as `7d`, `2w`, or `36h`, or an absolute date such as `2026-07-01`,
-`2026-07-01 09:30`, or an RFC 3339 timestamp; bare dates mean local midnight
+`2026-07-01 09:30`, or a strict RFC 3339 timestamp; bare dates mean local midnight
 while the manifest keeps recording UTC. A slash date that does not lead with a
 four-digit year, such as `03/04/2026`, is refused rather than guessed, because
 `purge --older-than` reads the same values. `--newer-than` includes uploads
 recorded exactly at the boundary and `--older-than` excludes them, and
 `--limit N` keeps the N most recent matches while still printing them oldest
-first.
+first. Explicit empty filter values are errors. Purge also requires its
+resolved `--older-than` boundary to lie strictly in the past; use `--all` to
+request deletion of everything.
 
 Table shape is controlled separately: `--columns date,title,url` selects an
 exact set, `--columns +dir,-title` adjusts the default one, `--wide` prints
@@ -546,7 +549,10 @@ a targeted request instead of trusting a bucket listing alone. It also completes
 older local records that predate the recorded `objects` and `total_bytes`
 totals, appending an enriched copy of each one with its original time and
 identity; those are reported separately from imports and never resurrect a
-deleted upload. `--concurrency`
+deleted upload. Marker v3 and v2-without-source records can supply exact totals;
+v1 and v2-with-source records stay absent without recurring marker fetches.
+Enrichment fetch or marker problems are warnings deferred to a later sync, not
+sync failures. `--concurrency`
 controls concurrent marker requests (default 8, range 1-64). It converges the
 active remote inventory, not the historical JSONL event stream; deletion
 history is not uploaded.

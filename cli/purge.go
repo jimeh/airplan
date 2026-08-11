@@ -85,7 +85,7 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 			return fmt.Errorf("--concurrency: %s",
 				strings.TrimPrefix(err.Error(), "airplan: "))
 		}
-		if !opts.all && opts.olderThan == "" && opts.slug == "" {
+		if !opts.all && !cmd.Flags().Changed("older-than") && opts.slug == "" {
 			return errors.New(
 				"purge requires at least one filter or explicit --all")
 		}
@@ -94,7 +94,7 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	// Purge shares the listing time parser (SPEC.md §9), so an age and an
 	// absolute date select the same boundary here and in list --older-than.
 	var createdBefore time.Time
-	if opts.olderThan != "" {
+	if cmd.Flags().Changed("older-than") {
 		now := time.Now()
 		var err error
 		createdBefore, err = airplan.ParseTimeFilter(opts.olderThan, now)
@@ -110,16 +110,12 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 				"--older-than: that boundary selects nothing; " +
 					"no upload is older than year one")
 		}
-		// An age of zero degenerates into "everything recorded before now",
-		// which is what an unset or miscomputed script variable expands to.
-		// Refuse it here rather than deleting every upload; --all is how a
-		// caller asks for that. An explicit absolute date selects broadly too,
-		// but a human typed it, so it stays allowed.
-		if !airplan.IsAbsoluteTimeFilter(opts.olderThan) &&
-			!createdBefore.Before(now) {
-			return errors.New(
-				"--older-than: an age of zero selects every upload; " +
-					"use --all to delete everything")
+		if !createdBefore.Before(now) {
+			message := "--older-than: must select a time in the past"
+			if !opts.all {
+				message += "; use --all to purge everything"
+			}
+			return errors.New(message)
 		}
 	}
 
@@ -129,9 +125,9 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	}
 	profileOnly := !opts.remote &&
 		cfg.EffectiveBackend() == airplan.BackendS3 &&
-		cmd.Flags().Changed("profile") && opts.olderThan == "" &&
+		cmd.Flags().Changed("profile") && !cmd.Flags().Changed("older-than") &&
 		opts.slug == "" && !opts.all
-	hasFilter := opts.all || opts.olderThan != "" || opts.slug != "" ||
+	hasFilter := opts.all || cmd.Flags().Changed("older-than") || opts.slug != "" ||
 		profileOnly
 	if !hasFilter {
 		return errors.New(

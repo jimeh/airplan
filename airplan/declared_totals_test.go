@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -151,6 +152,67 @@ func TestUploadRecordsDeclaredTotals(t *testing.T) {
 	}
 	if got := records[markers["collection"]].Objects; got != 4 {
 		t.Errorf("collection objects = %d, want 4", got)
+	}
+}
+
+func TestMarkerDeclaredTotalsVersionEligibility(t *testing.T) {
+	tests := []struct {
+		name        string
+		marker      UploadMarker
+		wantOK      bool
+		wantObjects int
+		wantBytes   int64
+	}{
+		{
+			name:   "v1",
+			marker: UploadMarker{Version: 1, Page: "page.html"},
+		},
+		{
+			name:   "v2 with source",
+			marker: UploadMarker{Version: 2, Page: "page.html", PageBytes: 20, Source: "page.md"},
+		},
+		{
+			name:   "v2 without source",
+			marker: UploadMarker{Version: 2, Page: "page.html", PageBytes: 20},
+			wantOK: true, wantObjects: 2, wantBytes: 120,
+		},
+		{
+			name: "v3",
+			marker: UploadMarker{Version: MarkerVersion, Objects: []MarkerObject{
+				{Name: "page.html", Role: MarkerRolePage, Bytes: 20},
+			}},
+			wantOK: true, wantObjects: 2, wantBytes: 120,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			objects, total, ok := MarkerDeclaredTotals(test.marker, 100)
+			if ok != test.wantOK || objects != test.wantObjects || total != test.wantBytes {
+				t.Fatalf("MarkerDeclaredTotals = %d/%d/%t, want %d/%d/%t",
+					objects, total, ok, test.wantObjects, test.wantBytes, test.wantOK)
+			}
+		})
+	}
+}
+
+func TestManifestRecordNeedsTotalsVersionEligibility(t *testing.T) {
+	tests := []struct {
+		name   string
+		record ManifestRecord
+		want   bool
+	}{
+		{"v1", ManifestRecord{MarkerVersion: 1}, false},
+		{"v2 with source", ManifestRecord{MarkerVersion: 2, SourceKey: "page.md"}, false},
+		{"v2 without source", ManifestRecord{MarkerVersion: 2}, true},
+		{"v3", ManifestRecord{MarkerVersion: MarkerVersion}, true},
+		{"already complete", ManifestRecord{MarkerVersion: MarkerVersion, Objects: 2, TotalBytes: 120}, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := manifestRecordNeedsTotals(test.record); got != test.want {
+				t.Fatalf("manifestRecordNeedsTotals = %t, want %t", got, test.want)
+			}
+		})
 	}
 }
 
@@ -458,9 +520,9 @@ func TestSyncBackfillFailureDoesNotFailTheRun(t *testing.T) {
 	}
 }
 
-// TestSyncBackfillSkipsPreV3History keeps sync from re-fetching markers that
-// can never supply declared totals.
-func TestSyncBackfillSkipsPreV3History(t *testing.T) {
+// TestSyncBackfillSkipsVersionOneHistory keeps sync from re-fetching v1
+// markers, which cannot declare the page size needed for exact totals.
+func TestSyncBackfillSkipsVersionOneHistory(t *testing.T) {
 	fake := newSyncStorage(t)
 	dir := strings.Repeat("d", 26)
 	fake.addUpload(t, UploadMarker{
@@ -498,8 +560,89 @@ func TestSyncBackfillSkipsPreV3History(t *testing.T) {
 	// The record's own marker_version rules enrichment out, so the second run
 	// spends no request discovering that again.
 	if got := fake.getCount(markerKey); got != fetches {
-		t.Fatalf("marker fetches = %d, want %d; pre-v3 history refetched",
+		t.Fatalf("marker fetches = %d, want %d; version-one history refetched",
 			got, fetches)
+	}
+}
+
+func TestSyncBackfillVersionTwoEligibility(t *testing.T) {
+	when := filterTestTime(12)
+	for _, test := range []struct {
+		name       string
+		source     string
+		wantEnrich bool
+	}{
+		{"without source", "", true},
+		{"with source", "page.md", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := newSyncStorage(t)
+			dir := strings.Repeat("v", 26)
+			format := "html"
+			if test.source != "" {
+				format = "md"
+			}
+			marker := UploadMarker{
+				Schema: MarkerSchema, Version: 2, Directory: dir,
+				CreatedAt: when, Format: format, Page: "page.html",
+				PageBytes: 9, Source: test.source,
+			}
+			fake.addUpload(t, marker, []byte("123456789"))
+			if test.source != "" {
+				fake.addObject(dir+"/"+test.source, []byte("source"), when)
+			}
+			markerKey := dir + "/" + MarkerFilename
+			manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+			sourceKey := ""
+			if test.source != "" {
+				sourceKey = dir + "/" + test.source
+			}
+			record := ManifestRecord{
+				Type: "upload", Time: when, Key: dir + "/page.html",
+				MarkerKey: markerKey, SourceKey: sourceKey,
+				URL:    "https://plans.example.com/" + dir + "/page.html",
+				Bucket: "plans", Profile: "work", Format: format,
+				Kind: string(UploadKindDocument), Slug: "page", Bytes: 9,
+				MarkerVersion: 2,
+			}
+			if err := appendManifestRecord(context.Background(), manifest, record); err != nil {
+				t.Fatal(err)
+			}
+			client := newSyncClient(t, fake.server.URL, manifest)
+			before := fake.getCount(markerKey)
+			result, err := client.SyncManifest(context.Background(), SyncManifestOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.wantEnrich {
+				body, err := EncodeUploadMarker(marker)
+				if err != nil {
+					t.Fatal(err)
+				}
+				wantTotal := int64(len(body)) + marker.PageBytes
+				if len(result.Enriched) != 1 || result.Enriched[0].Objects != 2 ||
+					result.Enriched[0].TotalBytes != wantTotal {
+					t.Fatalf("result = %+v, want v2 enrichment", result)
+				}
+				if fake.getCount(markerKey) <= before {
+					t.Fatal("eligible v2 marker was not fetched")
+				}
+				afterFirst := fake.getCount(markerKey)
+				second, err := client.SyncManifest(context.Background(), SyncManifestOptions{})
+				if err != nil || len(second.Enriched) != 0 {
+					t.Fatalf("second sync = %+v, %v; want convergence", second, err)
+				}
+				if fake.getCount(markerKey) != afterFirst {
+					t.Fatalf("converged marker fetched %d extra times",
+						fake.getCount(markerKey)-afterFirst)
+				}
+				return
+			}
+			if len(result.Enriched) != 0 || fake.getCount(markerKey) != before {
+				t.Fatalf("result = %+v, gets = %d, want ineligible v2 skipped",
+					result, fake.getCount(markerKey)-before)
+			}
+		})
 	}
 }
 
@@ -586,7 +729,6 @@ func TestSyncBackfillMergesIntoTheCurrentRecord(t *testing.T) {
 	// inspected.
 	updated := records[0]
 	updated.Title = "Retitled plan"
-	updated.Time = updated.Time.Add(time.Minute)
 	if err := appendManifestRecord(
 		context.Background(), manifest, updated,
 	); err != nil {
@@ -608,6 +750,51 @@ func TestSyncBackfillMergesIntoTheCurrentRecord(t *testing.T) {
 	}
 	if got.Objects != 3 || got.TotalBytes != 4096 {
 		t.Fatalf("totals = %d/%d, want 3/4096", got.Objects, got.TotalBytes)
+	}
+}
+
+func TestSyncBackfillRejectsStaleInspectionIdentity(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*ManifestRecord)
+	}{
+		{"changed time", func(record *ManifestRecord) {
+			record.Time = record.Time.Add(time.Minute)
+		}},
+		{"changed key", func(record *ManifestRecord) {
+			record.Key = strings.TrimSuffix(record.Key, ".html") + "-new.html"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fake := newSyncStorage(t)
+			manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+			client := newSyncClient(t, fake.server.URL, manifest)
+			if _, err := client.Upload(context.Background(), Input{
+				Reader: strings.NewReader("# Plan\n"), Name: "plan.md",
+			}); err != nil {
+				t.Fatal(err)
+			}
+			stripDeclaredTotals(t, manifest)
+			records, _, err := ReadManifest(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+			planned := records[0]
+			planned.Objects, planned.TotalBytes = 3, 4096
+			updated := records[0]
+			test.mutate(&updated)
+			if err := appendManifestRecord(context.Background(), manifest, updated); err != nil {
+				t.Fatal(err)
+			}
+			lines := manifestLineCount(t, manifest)
+			result := &SyncManifestResult{Enriched: []ManifestRecord{planned}}
+			if err := client.commitSyncManifest(context.Background(), manifest, len(records), result); err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Enriched) != 0 || manifestLineCount(t, manifest) != lines {
+				t.Fatalf("result = %+v, want stale enrichment skipped", result)
+			}
+		})
 	}
 }
 
@@ -847,6 +1034,31 @@ func TestManifestPartialDeclaredTotalsAreInvalid(t *testing.T) {
 	if len(warnings) != 1 ||
 		!strings.Contains(warnings[0], "must be set together") {
 		t.Fatalf("warnings = %q, want one explaining the pair", warnings)
+	}
+}
+
+func TestManifestExplicitZeroDeclaredTotalsAreInvalid(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "manifest.jsonl")
+	dir := strings.Repeat("z", 26)
+	line := fmt.Sprintf(
+		`{"type":"upload","time":"2026-07-08T12:00:00Z",`+
+			`"key":%q,"marker_key":%q,"url":%q,"bucket":"plans",`+
+			`"kind":"document","slug":"plan","bytes":10,`+
+			`"objects":0,"total_bytes":0,"marker_version":3}`+"\n",
+		dir+"/plan.html", dir+"/"+MarkerFilename,
+		"https://plans.example.com/"+dir+"/plan.html",
+	)
+	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	records, warnings, err := ReadManifest(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 || len(warnings) != 1 ||
+		!strings.Contains(warnings[0], "must be positive") {
+		t.Fatalf("records = %+v, warnings = %q; want explicit-zero refusal",
+			records, warnings)
 	}
 }
 

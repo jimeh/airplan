@@ -70,13 +70,22 @@ type MarkerObject struct {
 //
 // These are declared values, never a storage listing, so the same upload
 // reports the same totals whether they were recorded when it was uploaded or
-// derived later from its marker by sync. Only marker v3 declares a size for
-// every object; earlier versions report ok false because their totals would be
-// a guess.
+// derived later from its marker by sync. Marker v3 declares every object;
+// marker v2 declares the page and qualifies only when it has no source. Marker
+// v1 and v2-with-source report ok false because their totals would be a guess.
 func MarkerDeclaredTotals(
 	marker UploadMarker, markerBytes int,
 ) (objects int, total int64, ok bool) {
-	if marker.Version != MarkerVersion || markerBytes <= 0 {
+	if markerBytes <= 0 {
+		return 0, 0, false
+	}
+	if marker.Version == 2 {
+		if marker.Source != "" || marker.PageBytes <= 0 {
+			return 0, 0, false
+		}
+		return 2, int64(markerBytes) + marker.PageBytes, true
+	}
+	if marker.Version != MarkerVersion {
 		return 0, 0, false
 	}
 	objects = 1

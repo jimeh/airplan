@@ -2,9 +2,24 @@ package airplan
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
+
+type unorderedListTransport struct {
+	operationTransport
+	list *ManifestList
+}
+
+func (t *unorderedListTransport) ListManifest(
+	context.Context, ListManifestOptions,
+) (*ManifestList, error) {
+	if t.list == nil {
+		return nil, errors.New("missing fixture")
+	}
+	return t.list, nil
+}
 
 // writeUnorderedManifest appends three managed uploads whose file order
 // disagrees with their record time, as sync does when it imports remote
@@ -56,6 +71,27 @@ func TestListManifestHistoryOrdersByRecordTime(t *testing.T) {
 	}
 	assertRecordTitles(t, listed.Records, "a", "b", "c")
 }
+
+func TestListManifestSortsRemoteTransportBeforeLimit(t *testing.T) {
+	base := time.Date(2026, 7, 8, 12, 0, 0, 0, time.UTC)
+	client := &Client{
+		cfg: &Config{Backend: BackendAirplan},
+		remote: &unorderedListTransport{list: &ManifestList{Records: []ManifestRecord{
+			manifestUploadRecord(base.Add(2*time.Hour), "work", "plans", "", "c"),
+			manifestUploadRecord(base, "work", "plans", "", "a"),
+			manifestUploadRecord(base.Add(time.Hour), "work", "plans", "", "b"),
+		}}},
+	}
+	listed, err := client.ListManifest(context.Background(),
+		ListManifestOptions{Scope: ManifestScopeService})
+	if err != nil {
+		t.Fatal(err)
+	}
+	filtered := (ListFilter{Limit: intPointer(2)}).FilterManifestRecords(listed.Records)
+	assertRecordTitles(t, filtered, "b", "c")
+}
+
+func intPointer(value int) *int { return &value }
 
 // TestListManifestServiceScopeOrdersByRecordTime covers the scope used by the
 // HTTP API and MCP servers, which reduce the manifest independently of

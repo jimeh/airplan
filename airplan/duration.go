@@ -18,7 +18,6 @@ var timeFilterLayouts = []string{
 	"2006-01-02 15:04",
 	"2006-01-02T15:04",
 	"2006-01-02T15:04:05",
-	time.RFC3339,
 }
 
 // ParseTimeFilter parses a listing or cleanup time boundary (SPEC.md §9). It
@@ -35,15 +34,26 @@ var timeFilterLayouts = []string{
 func ParseTimeFilter(s string, now time.Time) (time.Time, error) {
 	raw := strings.TrimSpace(s)
 	if IsAbsoluteTimeFilter(raw) {
+		if hasStrictRFC3339Syntax(raw) {
+			when, err := time.Parse(time.RFC3339, raw)
+			if err == nil {
+				return when, nil
+			}
+		}
+		// time.Parse accepts fractional seconds even when the layout does
+		// not declare them. Offset-less forms deliberately support only the
+		// exact local layouts above, while zoned fractions must pass the
+		// strict RFC 3339 syntax check.
+		if strings.ContainsAny(raw, ".,") {
+			return invalidTimeFilter(s)
+		}
 		for _, layout := range timeFilterLayouts {
 			when, err := time.ParseInLocation(layout, raw, now.Location())
 			if err == nil {
 				return when, nil
 			}
 		}
-		return time.Time{}, fmt.Errorf(
-			"airplan: invalid time %q (want a date like 2026-07-01, "+
-				"2026-07-01 09:30, or 2026-07-01T09:30:00Z)", s)
+		return invalidTimeFilter(s)
 	}
 	if strings.Contains(raw, "/") {
 		return time.Time{}, fmt.Errorf(
@@ -66,6 +76,51 @@ func ParseTimeFilter(s string, now time.Time) (time.Time, error) {
 				"like 2026-07-01)", s)
 	}
 	return now.Add(-age), nil
+}
+
+func invalidTimeFilter(s string) (time.Time, error) {
+	return time.Time{}, fmt.Errorf(
+		"airplan: invalid time %q (want a date like 2026-07-01, "+
+			"2026-07-01 09:30, or 2026-07-01T09:30:00Z)", s)
+}
+
+// hasStrictRFC3339Syntax rejects extensions accepted by time.Parse but not
+// RFC 3339, including comma fractions and out-of-range numeric offsets.
+// Calendar and clock ranges remain time.Parse's responsibility.
+func hasStrictRFC3339Syntax(raw string) bool {
+	const dateTime = "2006-01-02T15:04:05"
+	if len(raw) < len(dateTime)+1 || raw[10] != 'T' {
+		return false
+	}
+	zoneStart := len(dateTime)
+	if raw[zoneStart] == '.' {
+		zoneStart++
+		fractionStart := zoneStart
+		for zoneStart < len(raw) && raw[zoneStart] >= '0' && raw[zoneStart] <= '9' {
+			zoneStart++
+		}
+		if zoneStart == fractionStart {
+			return false
+		}
+	}
+	if zoneStart == len(raw)-1 && raw[zoneStart] == 'Z' {
+		return true
+	}
+	if len(raw)-zoneStart != len("+00:00") ||
+		(raw[zoneStart] != '+' && raw[zoneStart] != '-') ||
+		raw[zoneStart+3] != ':' {
+		return false
+	}
+	for _, index := range []int{
+		zoneStart + 1, zoneStart + 2, zoneStart + 4, zoneStart + 5,
+	} {
+		if raw[index] < '0' || raw[index] > '9' {
+			return false
+		}
+	}
+	hour := int(raw[zoneStart+1]-'0')*10 + int(raw[zoneStart+2]-'0')
+	minute := int(raw[zoneStart+4]-'0')*10 + int(raw[zoneStart+5]-'0')
+	return hour <= 23 && minute <= 59
 }
 
 // IsAbsoluteTimeFilter reports whether ParseTimeFilter reads s as an absolute

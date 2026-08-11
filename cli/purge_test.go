@@ -612,8 +612,8 @@ func TestPurgeOlderThanRejectsZeroAge(t *testing.T) {
 				t.Fatalf("error = nil, want a refusal\nstderr:\n%s", stderr)
 			}
 			if !strings.Contains(err.Error(),
-				"--older-than: an age of zero selects every upload; "+
-					"use --all to delete everything") {
+				"--older-than: must select a time in the past; "+
+					"use --all to purge everything") {
 				t.Fatalf("error = %q", err)
 			}
 			if stdout != "" {
@@ -662,25 +662,47 @@ func TestPurgeOlderThanRejectsYearOneBoundary(t *testing.T) {
 	}
 }
 
-// TestPurgeOlderThanAcceptsExplicitFutureDate keeps a typed absolute boundary
-// working: it selects broadly, but deliberately, unlike a degenerate age.
-func TestPurgeOlderThanAcceptsExplicitFutureDate(t *testing.T) {
+// TestPurgeOlderThanRejectsExplicitFutureDate pins the destructive boundary:
+// a future absolute date selects every existing upload and remains invalid
+// even when --all is also present.
+func TestPurgeOlderThanRejectsExplicitFutureDate(t *testing.T) {
 	isolateEnv(t)
 	writeDefaultManifest(t, []airplan.ManifestRecord{
 		uploadRecord(deleteDirA, "alpha", "",
 			time.Now().Add(-60*24*time.Hour)),
 	})
 
-	stdout, stderr, err := executeCommand(t, "", "", "purge",
-		"--older-than", "2099-01-01", "--dry-run")
-	if err != nil {
-		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	for _, args := range [][]string{
+		{"purge", "--older-than", "2099-01-01", "--dry-run"},
+		{"purge", "--all", "--older-than", "2099-01-01", "--dry-run"},
+	} {
+		stdout, stderr, err := executeCommand(t, "", "", args...)
+		if err == nil || !strings.Contains(err.Error(),
+			"--older-than: must select a time in the past") {
+			t.Fatalf("args = %q, error = %v, want past-only refusal", args, err)
+		}
+		if stdout != "" || strings.Contains(stderr, "alpha.html") {
+			t.Fatalf("stdout = %q, stderr = %q, want no candidates", stdout, stderr)
+		}
 	}
-	if stdout != "" {
-		t.Fatalf("stdout = %q, want empty", stdout)
-	}
-	if !strings.Contains(stderr, "alpha.html") {
-		t.Fatalf("stderr = %q, want the upload listed", stderr)
+}
+
+func TestPurgeOlderThanRejectsExplicitEmpty(t *testing.T) {
+	for _, args := range [][]string{
+		{"purge", "--older-than=", "--yes"},
+		{"purge", "--remote", "--older-than=", "--yes"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			isolateEnv(t)
+			stdout, stderr, err := executeCommand(t, "", "", args...)
+			if err == nil || !strings.Contains(err.Error(),
+				`--older-than: invalid time ""`) {
+				t.Fatalf("error = %v, want explicit-empty parse error", err)
+			}
+			if stdout != "" || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, want empty", stdout, stderr)
+			}
+		})
 	}
 }
 

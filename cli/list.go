@@ -50,14 +50,14 @@ func (o *listOptions) listFilter(
 	filter := airplan.ListFilter{
 		Kind: airplan.UploadKind(o.kind), Slug: o.slug,
 	}
-	if o.newerThan != "" {
+	if cmd.Flags().Changed("newer-than") {
 		when, err := airplan.ParseTimeFilter(o.newerThan, now)
 		if err != nil {
 			return filter, flagError("--newer-than", err)
 		}
 		filter.NewerThan = &when
 	}
-	if o.olderThan != "" {
+	if cmd.Flags().Changed("older-than") {
 		when, err := airplan.ParseTimeFilter(o.olderThan, now)
 		if err != nil {
 			return filter, flagError("--older-than", err)
@@ -74,8 +74,14 @@ func (o *listOptions) listFilter(
 	if err := (airplan.ListFilter{Kind: filter.Kind}).Validate(); err != nil {
 		return filter, flagError("--kind", err)
 	}
+	if cmd.Flags().Changed("kind") && strings.TrimSpace(o.kind) == "" {
+		return filter, errors.New("--kind requires a non-empty value")
+	}
 	if err := (airplan.ListFilter{Slug: filter.Slug}).Validate(); err != nil {
 		return filter, flagError("--slug", err)
+	}
+	if cmd.Flags().Changed("slug") && o.slug == "" {
+		return filter, errors.New("--slug requires a non-empty value")
 	}
 	if err := (airplan.ListFilter{Limit: filter.Limit}).Validate(); err != nil {
 		return filter, fmt.Errorf("--limit %s",
@@ -141,7 +147,7 @@ func newListCmd() *cobra.Command {
 		"filter: document or collection")
 	f.StringVar(&opts.slug, "slug", "",
 		"filter: glob matched against document slugs; collections never match")
-	f.BoolVar(&opts.allProfiles, "all-profiles", false,
+	f.BoolVarP(&opts.allProfiles, "all-profiles", "A", false,
 		"list every recorded profile, even when AIRPLAN_PROFILE is set")
 
 	return cmd
@@ -201,6 +207,10 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 		profile = &cfg.Profile
 	}
 	if cfg.EffectiveBackend() == airplan.BackendAirplan {
+		if opts.allProfiles {
+			return errors.New(
+				"--all-profiles cannot be used with the airplan backend")
+		}
 		ctx, cancel := timeoutContext(cmd.Context(), cfg)
 		defer cancel()
 		client, err := airplan.New(ctx, cfg)

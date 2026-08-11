@@ -54,8 +54,9 @@ type ManifestRecord struct {
 
 	// Objects counts the ownership marker plus every object it declares, and
 	// TotalBytes sums their declared sizes (SPEC.md §9). Both are absent on
-	// records written before airplan recorded them, and on uploads whose
-	// marker predates v3; Bytes keeps its own meaning, the primary page.
+	// records written before airplan recorded them and when the marker cannot
+	// declare every counted size: v1, or v2 with a source. Bytes keeps its own
+	// meaning, the primary page.
 	Objects    int   `json:"objects,omitempty"`
 	TotalBytes int64 `json:"total_bytes,omitempty"`
 	// Reason is "deleted" or "remote_missing" for modern tombstones.
@@ -219,6 +220,10 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 					warnings = append(warnings, fmt.Sprintf(
 						"skipping invalid manifest line %d: %s", lineNo, err,
 					))
+				} else if err := validateManifestInventoryEncoding(line, rec); err != nil {
+					warnings = append(warnings, fmt.Sprintf(
+						"skipping invalid manifest line %d: %s", lineNo, err,
+					))
 				} else {
 					records = append(records, rec)
 				}
@@ -242,6 +247,29 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 	}
 
 	return records, warnings, nil
+}
+
+// validateManifestInventoryEncoding distinguishes an absent optional pair
+// from explicit JSON zeroes, which ordinary integer unmarshalling cannot do.
+// The public response schema and manifest contract require positive values
+// whenever either field is present.
+func validateManifestInventoryEncoding(line []byte, rec ManifestRecord) error {
+	var fields struct {
+		Objects    json.RawMessage `json:"objects"`
+		TotalBytes json.RawMessage `json:"total_bytes"`
+	}
+	if err := json.Unmarshal(line, &fields); err != nil {
+		return err
+	}
+	objectsPresent := len(fields.Objects) != 0
+	totalPresent := len(fields.TotalBytes) != 0
+	if objectsPresent != totalPresent {
+		return errors.New("objects and total_bytes must be set together")
+	}
+	if objectsPresent && (rec.Objects <= 0 || rec.TotalBytes <= 0) {
+		return errors.New("objects and total_bytes must be positive when present")
+	}
+	return nil
 }
 
 func normalizeManifestRecord(rec *ManifestRecord) {
@@ -362,7 +390,8 @@ func readManifestLine(r *bufio.Reader, max int) ([]byte, bool, error) {
 
 // declaredTotals carries an upload's marker-declared object count and byte
 // total from the writer that built the marker to the manifest record. A zero
-// value records neither field, which is what a pre-v3 marker warrants.
+// value records neither field when the marker cannot declare the full
+// inventory, as with v1 and v2-with-source markers.
 type declaredTotals struct {
 	objects int
 	bytes   int64
