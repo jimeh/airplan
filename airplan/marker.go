@@ -107,7 +107,7 @@ func MarkerDeclaredTotals(
 }
 
 func addDeclaredBytes(total, value int64) (int64, bool) {
-	if total <= 0 || value <= 0 || total > math.MaxInt64-value {
+	if total <= 0 || value < 0 || total > math.MaxInt64-value {
 		return 0, false
 	}
 	return total + value, true

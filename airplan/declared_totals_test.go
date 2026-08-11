@@ -220,11 +220,6 @@ func TestMarkerDeclaredTotalsRejectsInvalidSizesAndOverflow(t *testing.T) {
 			markerBytes: 1,
 		},
 		{
-			name:        "v3 zero object size",
-			marker:      UploadMarker{Version: MarkerVersion, Objects: []MarkerObject{{Bytes: 0}}},
-			markerBytes: 1,
-		},
-		{
 			name:        "v3 negative object size",
 			marker:      UploadMarker{Version: MarkerVersion, Objects: []MarkerObject{{Bytes: -1}}},
 			markerBytes: 10,
@@ -243,6 +238,22 @@ func TestMarkerDeclaredTotalsRejectsInvalidSizesAndOverflow(t *testing.T) {
 					objects, total, ok)
 			}
 		})
+	}
+}
+
+func TestMarkerDeclaredTotalsAllowsZeroByteCollectionFile(t *testing.T) {
+	marker := UploadMarker{
+		Version: MarkerVersion,
+		Kind:    UploadKindCollection,
+		Objects: []MarkerObject{
+			{Name: "index.html", Role: MarkerRolePage, Bytes: 20},
+			{Name: "empty.txt", Role: MarkerRoleFile, Bytes: 0},
+		},
+	}
+	objects, total, ok := MarkerDeclaredTotals(marker, 10)
+	if !ok || objects != 3 || total != 30 {
+		t.Fatalf("MarkerDeclaredTotals = %d/%d/%t, want 3/30/true",
+			objects, total, ok)
 	}
 }
 
