@@ -482,7 +482,7 @@ func TestListColumnValidationErrorsKeepStdoutPure(t *testing.T) {
 		{"remote wrong mode", []string{"--remote", "--columns", "title"}, []string{"column \"title\" is not valid for remote list", "valid remote columns"}},
 		{"all profiles with profile", []string{"--all-profiles", "--profile", "work"}, []string{"--all-profiles cannot be used with --profile"}},
 		{"all profiles remote", []string{"--remote", "--all-profiles"}, []string{"--all-profiles is only valid for local list"}},
-		{"all profiles long only", []string{"-a"}, []string{"unknown shorthand flag: 'a'"}},
+		{"lowercase all profiles remains unassigned", []string{"-a"}, []string{"unknown shorthand flag: 'a'"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1132,7 +1132,7 @@ bucket = "work"
 		t.Fatal(err)
 	}
 
-	stdout, stderr, err := executeList(t, "--all-profiles")
+	stdout, stderr, err := executeList(t, "-A")
 	if err != nil || stderr != "" {
 		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
 	}

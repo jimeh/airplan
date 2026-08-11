@@ -51,7 +51,7 @@ func newListCmd() *cobra.Command {
 		"config file path for --remote (default: XDG config dir)")
 	f.StringVarP(&opts.profile, "profile", "p", "",
 		"filter local history, or select config profile for --remote")
-	f.BoolVar(&opts.allProfiles, "all-profiles", false,
+	f.BoolVarP(&opts.allProfiles, "all-profiles", "A", false,
 		"list local S3 manifest history across every recorded profile")
 	f.BoolVarP(&opts.json, "json", "j", false,
 		"print a JSON array instead of a table")

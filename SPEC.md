@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.30.0**
+**Spec version: 0.31.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -659,10 +659,10 @@ one-off use.
 
 Frequent flags get short forms: `-p` (`--profile`), `-s` (`--slug`),
 `-t` (`--title`), `-j` (`--json`), and `-o` (`--open`). On subcommands,
-`-r` is `--remote` for `list` and `purge`, while `-o` is `--output` for
-`preview` and `get`. List's filter flags `--newer-than`, `--older-than`,
-`--limit`, `--kind`, and `--slug` are long-only. Connection overrides stay
-long-only.
+`-r` is `--remote` for `list` and `purge`, `-A` is `--all-profiles` for
+`list`, while `-o` is `--output` for `preview` and `get`. List's filter flags
+`--newer-than`, `--older-than`, `--limit`, `--kind`, and `--slug` are
+long-only. Connection overrides stay long-only.
 `airplan completion bash|zsh|fish|powershell` emits shell completions.
 
 If `--open` fails to launch a browser (common in headless/agent
@@ -782,7 +782,7 @@ airplan skill
 airplan template [document|collection]
 airplan preview [flags] [file ...]
 airplan completion bash|zsh|fish|powershell
-airplan list|ls [--remote] [--json] [--reverse] [--all-profiles]
+airplan list|ls [--remote] [--json] [--reverse] [-A|--all-profiles]
                 [--newer-than VALUE] [--older-than VALUE] [--limit N]
                 [--kind document|collection] [--slug PATTERN]
                 [--wide | --columns LIST]
@@ -1347,7 +1347,7 @@ machine) and must be safe:
   and reads the resolved local manifest without requiring storage credentials.
   Local S3 listing with no explicit profile shows every recorded profile; an
   explicit `--profile NAME` filters that exact profile, and `--profile=`
-  selects root-level history. Long-only `--all-profiles` explicitly selects
+  selects root-level history. `-A` / `--all-profiles` explicitly selects
   every recorded local profile even when ambient configuration or
   `AIRPLAN_PROFILE` would select one; it conflicts with an explicit
   `--profile` and is invalid with `--remote` or a resolved `airplan` backend,
