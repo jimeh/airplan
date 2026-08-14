@@ -786,7 +786,7 @@ airplan completion bash|zsh|fish|powershell
 airplan list|ls [--remote] [--json] [--columns SET] [--wide] [--reverse]
                 [--newer-than X] [--older-than X] [--limit N]
                 [--kind document|collection] [--slug PATTERN]
-                [-A|--all-profiles]
+                [-p NAME|--profile NAME|--profile=] [-A|--all-profiles]
 airplan show [--json] <url|key>
 airplan get [--output PATH] [--source] <url|key>
 airplan delete <url|key>
