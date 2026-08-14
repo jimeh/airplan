@@ -382,6 +382,7 @@ func (c *Client) syncEnrich(
 	enriched := record
 	enriched.Objects = declared.objects
 	enriched.TotalBytes = declared.bytes
+	clearDerivedProtection(&enriched)
 	return syncJobResult{enriched: &enriched}
 }
 
@@ -495,6 +496,7 @@ func (c *Client) commitSyncManifest(
 			merged := existing
 			merged.Objects = rec.Objects
 			merged.TotalBytes = rec.TotalBytes
+			clearDerivedProtection(&merged)
 			appendedEnriched = append(appendedEnriched, merged)
 			active[markerKey] = merged
 		}

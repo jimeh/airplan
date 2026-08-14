@@ -384,7 +384,8 @@ func wireManifestRecord(record ManifestRecord) httpapi.ManifestRecord {
 		RepositoryURL: record.Repo, Bytes: record.Bytes,
 		Objects: record.Objects, TotalBytes: record.TotalBytes,
 		Reason: record.Reason, MarkerVersion: record.MarkerVersion,
-		ProtectReason: record.ProtectReason, Protected: record.Protected,
+		ProtectReason: safeProtectReason(record.ProtectReason),
+		Protected:     record.Protected,
 	}
 	if !record.ProtectedAt.IsZero() {
 		protectedAt := record.ProtectedAt
@@ -402,7 +403,8 @@ func coreManifestRecord(record httpapi.ManifestRecord) ManifestRecord {
 		Repo: record.RepositoryURL, Bytes: record.Bytes,
 		Objects: record.Objects, TotalBytes: record.TotalBytes,
 		Reason: record.Reason, MarkerVersion: record.MarkerVersion,
-		ProtectReason: record.ProtectReason, Protected: record.Protected,
+		ProtectReason: safeProtectReason(record.ProtectReason),
+		Protected:     record.Protected,
 	}
 	if record.ProtectedAt != nil {
 		core.ProtectedAt = *record.ProtectedAt
@@ -606,6 +608,13 @@ func apiOperationError(err error) error {
 			http.StatusUnprocessableEntity, "invalid_target",
 			"Invalid upload target",
 			"The target is not a valid marker-managed Airplan upload.",
+		)
+	}
+	if errors.Is(err, errInvalidProtectReason) {
+		return httpapi.NewProblemError(
+			http.StatusUnprocessableEntity, "invalid_protect_reason",
+			"Invalid protection reason",
+			"The protection reason is not valid UTF-8, is too long, or contains control characters.",
 		)
 	}
 	var protectedErr *UploadProtectedError

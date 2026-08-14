@@ -564,9 +564,7 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 		case "upload":
 			// Derived fields are recomputed below; stale values on a read
 			// line never survive reduction.
-			rec.Protected = false
-			rec.ProtectedAt = time.Time{}
-			rec.ProtectReason = ""
+			clearDerivedProtection(&rec)
 			active[manifestRecordIdentity(rec)] = activeRecord{rec, index}
 		case "delete":
 			if rec.MarkerKey != "" && rec.Bucket != "" {
@@ -608,6 +606,18 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 		uploads = append(uploads, rec)
 	}
 	return uploads
+}
+
+// clearDerivedProtection keeps protection state out of raw upload records.
+// The projection is rebuilt exclusively from protect/unprotect events during
+// manifest reduction (SPEC.md §9).
+func clearDerivedProtection(rec *ManifestRecord) {
+	if rec == nil {
+		return
+	}
+	rec.Protected = false
+	rec.ProtectedAt = time.Time{}
+	rec.ProtectReason = ""
 }
 
 // sortManifestUploads orders reduced manifest uploads by record time

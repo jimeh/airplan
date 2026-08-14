@@ -173,7 +173,7 @@ func coreInspection(result httpapi.UploadInspection) *UploadInspection {
 		Page:          coreInspectedObject(result.Page),
 		Source:        coreInspectedObject(result.Source),
 		Protected:     result.Protected,
-		ProtectReason: result.ProtectReason,
+		ProtectReason: safeProtectReason(result.ProtectReason),
 		Warnings:      append([]string(nil), result.Warnings...),
 		Error:         MarkerErrorCode(result.Error),
 	}
@@ -325,7 +325,7 @@ func coreProtectionResult(result httpapi.ProtectionResult) *ProtectionResult {
 		ID: result.ID, MarkerKey: result.MarkerKey,
 		SentinelKey: result.SentinelKey, PageKey: result.PageKey,
 		Kind: UploadKind(result.Kind), Protected: result.Protected,
-		Reason:   result.Reason,
+		Reason:   safeProtectReason(result.Reason),
 		Warnings: append([]string(nil), result.Warnings...),
 	}
 	if result.ProtectedAt != nil {
@@ -397,8 +397,10 @@ func (t *httpTransport) PlanPurge(
 		return nil, transportError(err)
 	}
 	core := &PurgePlan{
-		Invalid:  result.Invalid,
-		Warnings: append([]string(nil), result.Warnings...),
+		Candidates: []PurgeCandidate{},
+		Protected:  []PurgeCandidate{},
+		Invalid:    result.Invalid,
+		Warnings:   append([]string(nil), result.Warnings...),
 	}
 	coreCandidate := func(candidate httpapi.PurgeCandidate) PurgeCandidate {
 		item := PurgeCandidate{

@@ -316,6 +316,24 @@ func TestAPIOperationErrorClassifiesProtectedUpload(t *testing.T) {
 	}
 }
 
+func TestAPIOperationErrorClassifiesInvalidProtectReason(t *testing.T) {
+	fake := newProtectStorage(t)
+	client := newProtectTestClient(
+		t, fake.server.URL, t.TempDir()+"/manifest.jsonl",
+	)
+	_, err := client.ProtectUpload(
+		context.Background(), testDir,
+		strings.Repeat("x", MaxProtectReasonRunes+1),
+	)
+	got := apiOperationError(err)
+	var problem *httpapi.ProblemError
+	if !errors.As(got, &problem) ||
+		problem.Problem.Status != http.StatusUnprocessableEntity ||
+		problem.Problem.Code != "invalid_protect_reason" {
+		t.Fatalf("problem = %+v, error = %v", problem, got)
+	}
+}
+
 func TestWireProtectionResultRequiredArrays(t *testing.T) {
 	wire := wireProtectionResult(&ProtectionResult{
 		ID: "dir", Protected: true,

@@ -663,6 +663,49 @@ func TestHostedMCPHidesServerPaths(t *testing.T) {
 	}
 }
 
+func TestHostedMCPHidesProtectedPurgeWarnings(t *testing.T) {
+	const privatePath = "/private/airplan/manifest.jsonl"
+	client := &Client{cfg: &Config{}, remote: &mcpTestTransport{
+		planResult: &PurgePlan{
+			Candidates: []PurgeCandidate{},
+			Protected: []PurgeCandidate{{
+				UploadID: "aaaaaaaaaaaaaaaaaaaaaaaaaa",
+				Warnings: []string{"read " + privatePath + ": denied"},
+			}},
+		},
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", false)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "preview_purge", Arguments: map[string]any{"all": true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), privatePath) {
+		t.Fatalf("server path leaked in protected warning: %s", encoded)
+	}
+}
+
 func TestHostedMCPLogsSafeToolOutcome(t *testing.T) {
 	const (
 		contentSentinel  = "private-upload-content-sentinel"
@@ -894,6 +937,8 @@ type mcpTestTransport struct {
 	syncErr      error
 	purgeResult  *PurgeResult
 	purgeErr     error
+	planResult   *PurgePlan
+	planErr      error
 	listResult   *ManifestList
 	listCalls    int
 	remoteResult []RemoteUpload
@@ -993,6 +1038,12 @@ func (t *mcpTestTransport) Purge(
 	context.Context, PurgeRequest,
 ) (*PurgeResult, error) {
 	return t.purgeResult, t.purgeErr
+}
+
+func (t *mcpTestTransport) PlanPurge(
+	context.Context, PurgePlanOptions,
+) (*PurgePlan, error) {
+	return t.planResult, t.planErr
 }
 
 type bearerRoundTripper struct {

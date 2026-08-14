@@ -610,11 +610,15 @@ already is the original file.
 
   The body is advisory context only. `reason` is optional, at most 256
   Unicode characters, valid UTF-8, and free of control characters; readers
-  drop reasons that violate any of these while the upload stays protected. `.airplan-protected.json` is a reserved basename alongside
-  both marker basenames: collection member filenames and marker-declared
-  object names must not use it, or a member could forge protection for its
-  own upload. The sentinel is an ordinary extra object — it counts toward
-  listed object and byte totals and never affects upload completeness.
+  drop reasons that violate any of these while the upload stays protected.
+  `.airplan-protected.json` is a reserved basename alongside both marker
+  basenames: collection member filenames and marker-declared object names must
+  not use it, or a member could forge protection for its own upload. An upload
+  created by an older build whose collection already declares this basename is
+  invalid to protection-aware builds; it must be removed with the older client
+  or directly through storage tooling after its ownership is verified. The
+  sentinel is an ordinary extra object — it counts toward listed object and
+  byte totals and never affects upload completeness.
 
 - Every payload uses `Cache-Control: no-store`. Primary pages use
   `Content-Type: text/html; charset=utf-8`; collection members use their
@@ -1589,13 +1593,13 @@ machine) and must be safe:
   random directory, including incomplete-upload remnants and
   unrecognized extra siblings. Deletion removes every non-marker,
   non-sentinel object first. A forced delete then removes the protection
-  sentinel in its own request, so protection outlives every payload and an
-  interrupted forced delete leaves a still-marked, still-protected remnant.
-  Only after those deletions succeed is the marker
-  deleted in a separate final operation. Any payload or marker failure
-  leaves the local upload untombstoned so retry can resume while the
-  marker still establishes ownership. A successful marker deletion is
-  followed by the append-only local tombstone.
+  sentinel in its own request, so protection outlives every payload. Only after
+  those deletions succeed is the marker deleted in a separate final operation.
+  An interruption after sentinel removal can therefore leave only the
+  ownership marker as an unprotected remnant; all payloads are already gone.
+  Any payload or marker failure leaves the local upload untombstoned so retry
+  can resume while the marker still establishes ownership. A successful marker
+  deletion is followed by the append-only local tombstone.
 - `airplan protect [--reason TEXT] <url|key>` marks one marker-managed
   upload as purge-protected by writing its sentinel (§5);
   `airplan unprotect <url|key>` removes it. Both accept the same targets as
@@ -2018,7 +2022,8 @@ purge-protected upload fails with problem code `upload_protected` (409),
 whose problem object carries the advisory `protect_reason` when the sentinel
 body could be read — so both backends surface the same delete error text.
 Protect accepts an optional advisory `reason` of at most 256 characters and
-returns the resulting protection state; unprotect returns the cleared state.
+returns the resulting protection state; an invalid reason fails with problem
+code `invalid_protect_reason` (422). Unprotect returns the cleared state.
 Inspection, manifest, and storage listings expose `protected` (with advisory
 `protected_at` and `protect_reason` where known), purge previews report
 protected exclusions in a separate `protected` array, purge items report a

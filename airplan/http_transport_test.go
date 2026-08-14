@@ -10,6 +10,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/jimeh/airplan/internal/httpapi"
 )
 
 func TestAirplanBackendUsesHTTPWithoutS3Credentials(t *testing.T) {
@@ -174,6 +176,65 @@ func TestAirplanBackendMapsProtectedProblemToTypedError(t *testing.T) {
 	if !errors.As(err, &protectedErr) ||
 		protectedErr.Target != "dir/plan.html" {
 		t.Fatalf("error = %v, want UploadProtectedError", err)
+	}
+}
+
+func TestAirplanBackendDropsInvalidProtectionReasons(t *testing.T) {
+	const invalid = "keep\n\x1b[31mPROTECTED no"
+	inspection := coreInspection(httpapi.UploadInspection{
+		ProtectReason: invalid,
+	})
+	protection := coreProtectionResult(httpapi.ProtectionResult{
+		Reason: invalid,
+	})
+	record := coreManifestRecord(httpapi.ManifestRecord{
+		ProtectReason: invalid,
+	})
+	if inspection.ProtectReason != "" || protection.Reason != "" ||
+		record.ProtectReason != "" {
+		t.Fatalf("invalid reasons survived: inspection=%q protection=%q record=%q",
+			inspection.ProtectReason, protection.Reason, record.ProtectReason)
+	}
+
+	const valid = "README demo link"
+	if got := coreInspection(httpapi.UploadInspection{
+		ProtectReason: valid,
+	}).ProtectReason; got != valid {
+		t.Fatalf("valid reason = %q, want %q", got, valid)
+	}
+}
+
+func TestAirplanBackendNormalizesEmptyPurgeArrays(t *testing.T) {
+	const token = "01234567890123456789012345678901"
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v1/purge/preview" {
+				t.Fatalf("path = %q", r.URL.Path)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"candidates": []any{}, "protected": []any{},
+				"invalid": 0, "warnings": []any{},
+			})
+		},
+	))
+	defer server.Close()
+
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL, APIToken: token,
+		Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := client.PlanPurge(context.Background(), PurgePlanOptions{
+		Source: UploadSourceStorage, All: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Candidates == nil || plan.Protected == nil {
+		t.Fatalf("required arrays are nil: %+v", plan)
 	}
 }
 

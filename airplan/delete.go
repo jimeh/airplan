@@ -67,8 +67,8 @@ func (c *Client) DeleteUpload(
 // DeleteUploadWithOptions is DeleteUpload with explicit options. Without
 // Force, a purge-protected upload fails with *UploadProtectedError. With
 // Force, deletion removes payloads first, then the protection sentinel, and
-// the ownership marker last, so an interrupted forced delete leaves a
-// still-marked, still-protected remnant (SPEC.md §9).
+// the ownership marker last, so protection persists until every payload is
+// gone (SPEC.md §9).
 func (c *Client) DeleteUploadWithOptions(
 	ctx context.Context, urlOrKey string, opts DeleteOptions,
 ) (*DeleteResult, error) {
@@ -144,8 +144,8 @@ func (c *Client) DeleteUploadWithOptions(
 		return nil, err
 	}
 	deletedKeys := payloadKeys
-	// The sentinel outlives every payload so an interrupted forced delete
-	// leaves a protected remnant rather than an unprotected one (SPEC.md §9).
+	// The sentinel outlives every payload. If marker deletion later fails, the
+	// only unprotected remnant is the ownership marker itself (SPEC.md §9).
 	if protected {
 		if err := c.st.deleteObject(ctx, sentinelKey); err != nil {
 			return nil, err

@@ -471,6 +471,11 @@ func NewMCPServerWithOptions(
 					result.Candidates[index].Warnings,
 				)
 			}
+			for index := range result.Protected {
+				result.Protected[index].Warnings = serverSafeWarnings(
+					result.Protected[index].Warnings,
+				)
+			}
 		}
 		return nil, *result, nil
 	})

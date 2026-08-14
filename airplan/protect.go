@@ -140,6 +140,31 @@ func validateProtectReason(reason string) error {
 	return nil
 }
 
+var errInvalidProtectReason = errors.New("airplan: invalid protect reason")
+
+type invalidProtectReasonError struct {
+	err error
+}
+
+func (e *invalidProtectReasonError) Error() string {
+	return "airplan: " + e.err.Error()
+}
+
+func (e *invalidProtectReasonError) Unwrap() error {
+	return e.err
+}
+
+func (e *invalidProtectReasonError) Is(target error) bool {
+	return target == errInvalidProtectReason
+}
+
+func safeProtectReason(reason string) string {
+	if validateProtectReason(reason) != nil {
+		return ""
+	}
+	return reason
+}
+
 // ProtectUpload marks one marker-managed upload as purge-protected by writing
 // its protection sentinel object (SPEC.md §9). It is idempotent: protecting an
 // already protected upload rewrites the sentinel. The optional reason is
@@ -151,7 +176,7 @@ func (c *Client) ProtectUpload(
 		return nil, err
 	}
 	if err := validateProtectReason(reason); err != nil {
-		return nil, fmt.Errorf("airplan: %s", err)
+		return nil, &invalidProtectReasonError{err: err}
 	}
 	if c.remote != nil {
 		return c.remote.ProtectUpload(ctx, urlOrKey, reason)

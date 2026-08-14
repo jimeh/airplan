@@ -844,7 +844,9 @@ Purge skips protected uploads with a stderr note and no failure, and
 mark again. Protection lives in the bucket as a small
 `.airplan-protected.json` sentinel object, so it follows the upload across
 machines; note that older airplan builds do not know about the sentinel and
-will purge straight through it. For large remote inventories,
+will purge straight through it. Protection-aware builds also reject older
+collections that already used that now-reserved basename; remove those with the
+older client or verified storage tooling. For large remote inventories,
 `purge --remote --concurrency N`
 changes only parallel marker inspection (default 8, range 1-64); destructive
 deletions stay sequential after confirmation. For defense in depth on

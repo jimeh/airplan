@@ -793,10 +793,10 @@ func TestSyncBackfillNeverResurrectsTombstonedIdentity(t *testing.T) {
 	}
 }
 
-// TestSyncBackfillMergesIntoTheCurrentRecord covers a concurrent update: a
-// newer record for the same identity was appended while the marker was being
-// inspected, so enrichment must add its two fields to that record rather than
-// re-appending the snapshot it planned from, which would revert the update.
+// TestSyncBackfillMergesIntoTheCurrentRecord covers concurrent metadata and
+// protection updates: enrichment must add only its two fields to the current
+// raw upload record. Protection stays a reduction-only projection rather than
+// leaking into the appended upload line.
 func TestSyncBackfillMergesIntoTheCurrentRecord(t *testing.T) {
 	fake := newSyncStorage(t)
 	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
@@ -816,8 +816,18 @@ func TestSyncBackfillMergesIntoTheCurrentRecord(t *testing.T) {
 	planned.TotalBytes = 4096
 	initialLen := len(records)
 
-	// A concurrent writer re-titles the same upload while the marker is being
-	// inspected.
+	// Concurrent writers protect and re-title the same upload while the marker
+	// is being inspected. A later upload record does not clear protection.
+	protectedAt := records[0].Time.Add(time.Second)
+	if err := appendManifestRecord(
+		context.Background(), manifest, ManifestRecord{
+			Type: "protect", Time: protectedAt, Key: records[0].Key,
+			MarkerKey: records[0].MarkerKey, Bucket: records[0].Bucket,
+			Profile: records[0].Profile, ProtectReason: "keep",
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
 	updated := records[0]
 	updated.Title = "Retitled plan"
 	if err := appendManifestRecord(
@@ -835,12 +845,37 @@ func TestSyncBackfillMergesIntoTheCurrentRecord(t *testing.T) {
 	if len(result.Enriched) != 1 {
 		t.Fatalf("enriched = %+v, want one record", result.Enriched)
 	}
+	if result.Enriched[0].Protected ||
+		!result.Enriched[0].ProtectedAt.IsZero() ||
+		result.Enriched[0].ProtectReason != "" {
+		t.Fatalf("enriched record persisted derived protection: %+v",
+			result.Enriched[0])
+	}
+	raw, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	var appended map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &appended); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"protected", "protected_at", "protect_reason"} {
+		if _, ok := appended[field]; ok {
+			t.Fatalf("enrichment line emitted derived field %q: %s",
+				field, lines[len(lines)-1])
+		}
+	}
 	got := manifestRecordsByMarker(t, manifest)[planned.MarkerKey]
 	if got.Title != "Retitled plan" {
 		t.Fatalf("title = %q, want the concurrent update preserved", got.Title)
 	}
 	if got.Objects != 3 || got.TotalBytes != 4096 {
 		t.Fatalf("totals = %d/%d, want 3/4096", got.Objects, got.TotalBytes)
+	}
+	if !got.Protected || got.ProtectReason != "keep" ||
+		!got.ProtectedAt.Equal(protectedAt) {
+		t.Fatalf("reduced protection = %+v", got)
 	}
 }
 
