@@ -493,12 +493,16 @@ func (c *Client) commitSyncManifest(
 			// Enrichment adds two fields; it must not carry the rest of the
 			// pre-lock snapshot forward, or a record updated concurrently
 			// would be reverted by latest-wins reduction.
-			merged := existing
-			merged.Objects = rec.Objects
-			merged.TotalBytes = rec.TotalBytes
-			clearDerivedProtection(&merged)
-			appendedEnriched = append(appendedEnriched, merged)
-			active[markerKey] = merged
+			projected := existing
+			projected.Objects = rec.Objects
+			projected.TotalBytes = rec.TotalBytes
+			appendable := projected
+			clearDerivedProtection(&appendable)
+			appendedEnriched = append(appendedEnriched, appendable)
+			// Keep the reduced projection in memory. Protection fields are not
+			// persisted on the upload line, but a protection reconciliation
+			// planned in the same sync must still compare against them below.
+			active[markerKey] = projected
 		}
 		appendedTombstones := make([]ManifestRecord, 0,
 			len(result.Tombstoned))

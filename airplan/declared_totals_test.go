@@ -879,6 +879,79 @@ func TestSyncBackfillMergesIntoTheCurrentRecord(t *testing.T) {
 	}
 }
 
+// TestSyncBackfillAndUnprotectConvergeTogether covers a single sync planning
+// both metadata enrichment and protection reconciliation for the same upload.
+// The appendable enrichment record omits reduction-only protection fields, but
+// the commit-time projection must retain them long enough to append unprotect.
+func TestSyncBackfillAndUnprotectConvergeTogether(t *testing.T) {
+	fake := newSyncStorage(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := newSyncClient(t, fake.server.URL, manifest)
+	if _, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n"), Name: "plan.md",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stripDeclaredTotals(t, manifest)
+	records, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload := records[0]
+	if err := appendManifestRecord(
+		context.Background(), manifest, ManifestRecord{
+			Type: "protect", Time: upload.Time.Add(time.Second),
+			Key: upload.Key, MarkerKey: upload.MarkerKey,
+			Bucket: upload.Bucket, Profile: upload.Profile,
+			ProtectReason: "keep",
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dry, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dry.Enriched) != 1 || len(dry.Protection) != 1 ||
+		dry.Protection[0].Type != "unprotect" {
+		t.Fatalf("dry run = %+v, want enrichment and unprotect", dry)
+	}
+	afterDryRun, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(afterDryRun, before) {
+		t.Fatal("manifest changed during dry run")
+	}
+
+	applied, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applied.Enriched) != 1 || len(applied.Protection) != 1 ||
+		applied.Protection[0].Type != "unprotect" {
+		t.Fatalf("applied sync = %+v, want enrichment and unprotect", applied)
+	}
+	active := mustActiveUploads(t, manifest)
+	if len(active) != 1 || active[0].Protected ||
+		active[0].Objects == 0 || active[0].TotalBytes == 0 {
+		t.Fatalf("active uploads = %+v, want enriched and unprotected", active)
+	}
+	second, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{})
+	if err != nil || len(second.Enriched) != 0 ||
+		len(second.Protection) != 0 || second.Unchanged != 1 {
+		t.Fatalf("second sync = %+v, %v; want converged", second, err)
+	}
+}
+
 func TestSyncBackfillRejectsStaleInspectionIdentity(t *testing.T) {
 	for _, test := range []struct {
 		name   string
