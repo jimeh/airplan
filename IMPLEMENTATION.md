@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.29.0.
+may contradict it. Targets spec version 0.31.0.
 
 ---
 
@@ -265,7 +265,10 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   marker is removed in a separate final `DeleteObject`. Invalid and markerless
   directories are outside airplan's remote management authority.
 - `--older-than` durations: small custom parser for `d`/`w` units —
-  Go's stdlib `time.ParseDuration` has no days.
+  Go's stdlib `time.ParseDuration` has no days. `ParseTimeFilter` first checks
+  strict zoned RFC 3339 syntax, including fraction and numeric-offset ranges,
+  then tries exact offset-less layouts in the caller's local zone; it rejects
+  the fractional-second extensions Go accepts for layouts that omit them.
 - Manifest appends: `O_APPEND` open, whole line in one `Write` call,
   wrapped in context-aware `gofrs/flock` acquisition (flock on Unix,
   LockFileEx on Windows) per spec §9's concurrency and timeout rules.
@@ -548,8 +551,8 @@ The service owns its manifest. A local S3 client and `serve` use the same
 platform default or global override and coordinate appends with the existing
 cross-platform file lock. HTTP clients do not write a second local manifest.
 Service-scope list and purge operations filter the shared file by resolved
-profile, bucket, and key prefix; the direct local all-profile list remains a
-separate scope.
+profile, bucket, and key prefix. Direct local list filters by resolved profile
+unless `--all-profiles` requests the separate all-history scope.
 
 ### OpenAPI and REST adapter
 

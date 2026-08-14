@@ -328,6 +328,7 @@ func wireManifestRecord(record ManifestRecord) httpapi.ManifestRecord {
 		Kind: httpapi.ManifestRecordKind(record.Kind),
 		Slug: record.Slug, Title: record.Title,
 		RepositoryURL: record.Repo, Bytes: record.Bytes,
+		Objects: record.Objects, TotalBytes: record.TotalBytes,
 		Reason: record.Reason, MarkerVersion: record.MarkerVersion,
 	}
 }
@@ -339,6 +340,7 @@ func coreManifestRecord(record httpapi.ManifestRecord) ManifestRecord {
 		URL: record.URL, Bucket: record.Bucket, Format: record.Format,
 		Kind: string(record.Kind), Slug: record.Slug, Title: record.Title,
 		Repo: record.RepositoryURL, Bytes: record.Bytes,
+		Objects: record.Objects, TotalBytes: record.TotalBytes,
 		Reason: record.Reason, MarkerVersion: record.MarkerVersion,
 	}
 }
@@ -385,17 +387,24 @@ func (o *HTTPOperations) SyncManifest(
 		return httpapi.SyncResult{}, apiOperationError(syncErr)
 	}
 	wire := httpapi.SyncResult{
-		Unchanged: result.Unchanged, Incomplete: result.Incomplete,
-		Invalid: result.Invalid, Retained: result.Retained,
+		Unchanged: result.Unchanged, Deferred: result.Deferred,
+		Incomplete: result.Incomplete,
+		Invalid:    result.Invalid, Retained: result.Retained,
 		Warnings:         serverSafeWarnings(result.Warnings),
 		Complete:         len(result.Failures) == 0,
 		AddedRecords:     []httpapi.ManifestRecord{},
+		EnrichedRecords:  []httpapi.ManifestRecord{},
 		TombstoneRecords: []httpapi.ManifestRecord{},
 		Failures:         []httpapi.SyncFailure{},
 	}
 	for _, record := range result.Added {
 		wire.AddedRecords = append(
 			wire.AddedRecords, wireManifestRecord(record),
+		)
+	}
+	for _, record := range result.Enriched {
+		wire.EnrichedRecords = append(
+			wire.EnrichedRecords, wireManifestRecord(record),
 		)
 	}
 	for _, record := range result.Tombstoned {

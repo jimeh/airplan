@@ -45,6 +45,92 @@ func TestAirplanBackendUsesHTTPWithoutS3Credentials(t *testing.T) {
 	}
 }
 
+func TestAirplanBackendValidatesManifestInventoryEncoding(t *testing.T) {
+	tests := []struct {
+		name        string
+		inventory   map[string]any
+		wantError   bool
+		wantObjects int
+		wantBytes   int64
+	}{
+		{name: "omitted inventory"},
+		{
+			name: "positive inventory",
+			inventory: map[string]any{
+				"objects": 3, "total_bytes": 42,
+			},
+			wantObjects: 3, wantBytes: 42,
+		},
+		{
+			name:      "partial inventory",
+			inventory: map[string]any{"objects": 3},
+			wantError: true,
+		},
+		{
+			name: "explicit zero inventory",
+			inventory: map[string]any{
+				"objects": 0, "total_bytes": 0,
+			},
+			wantError: true,
+		},
+		{
+			name: "null inventory",
+			inventory: map[string]any{
+				"objects": nil, "total_bytes": nil,
+			},
+			wantError: true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(
+				func(w http.ResponseWriter, _ *http.Request) {
+					record := map[string]any{
+						"type": "upload", "time": "2026-08-11T00:00:00Z",
+						"key": "aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html",
+						"url": "https://plans.example/plan", "bucket": "plans",
+						"bytes": 12,
+					}
+					for name, value := range test.inventory {
+						record[name] = value
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{
+						"records": []any{record}, "warnings": []string{},
+					})
+				},
+			))
+			t.Cleanup(server.Close)
+			client, err := New(context.Background(), &Config{
+				Backend: BackendAirplan, APIURL: server.URL,
+				APIToken:   "01234567890123456789012345678901",
+				Repository: "none",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			listed, err := client.ListManifest(context.Background(),
+				ListManifestOptions{Scope: ManifestScopeService})
+			if test.wantError {
+				if err == nil || !strings.Contains(
+					err.Error(), "objects and total_bytes",
+				) {
+					t.Fatalf("error = %v, want invalid inventory pair", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(listed.Records) != 1 ||
+				listed.Records[0].Objects != test.wantObjects ||
+				listed.Records[0].TotalBytes != test.wantBytes {
+				t.Fatalf("records = %+v, want inventory %d/%d",
+					listed.Records, test.wantObjects, test.wantBytes)
+			}
+		})
+	}
+}
+
 func TestAirplanBackendStreamsDocumentMultipart(t *testing.T) {
 	const token = "01234567890123456789012345678901"
 	server := httptest.NewServer(http.HandlerFunc(

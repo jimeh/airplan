@@ -71,6 +71,9 @@ func runSync(cmd *cobra.Command, opts *syncOptions) error {
 	if result.Added == nil {
 		result.Added = []airplan.ManifestRecord{}
 	}
+	if result.Enriched == nil {
+		result.Enriched = []airplan.ManifestRecord{}
+	}
 	if result.Tombstoned == nil {
 		result.Tombstoned = []airplan.ManifestRecord{}
 	}
@@ -94,29 +97,36 @@ func runSync(cmd *cobra.Command, opts *syncOptions) error {
 			failure.Operation, failure.MarkerKey, failure.Error)
 	}
 	verb := "synced"
+	enrichVerb := "enriched"
 	tombstoneVerb := "tombstoned"
 	if opts.dryRun {
 		verb = "would sync"
+		enrichVerb = "would enrich"
 		tombstoneVerb = "would tombstone"
 	}
-	fmt.Fprintf(stderr, "%s %d uploads, %s %d\n",
-		verb, len(result.Added), tombstoneVerb, len(result.Tombstoned))
+	fmt.Fprintf(stderr, "%s %d uploads, %s %d, %s %d\n",
+		verb, len(result.Added), enrichVerb, len(result.Enriched),
+		tombstoneVerb, len(result.Tombstoned))
 	fmt.Fprintf(stderr,
-		"(%d unchanged, %d incomplete, %d invalid, %d retained, %d failed)\n",
-		result.Unchanged, result.Incomplete, result.Invalid,
+		"(%d unchanged, %d deferred, %d incomplete, %d invalid, "+
+			"%d retained, %d failed)\n",
+		result.Unchanged, result.Deferred, result.Incomplete, result.Invalid,
 		result.Retained, len(result.Failures))
 	return syncErr
 }
 
 type syncJSONResult struct {
 	Added            int                      `json:"added"`
+	Enriched         int                      `json:"enriched"`
 	Tombstoned       int                      `json:"tombstoned"`
 	Unchanged        int                      `json:"unchanged"`
+	Deferred         int                      `json:"deferred"`
 	Incomplete       int                      `json:"incomplete"`
 	Invalid          int                      `json:"invalid"`
 	Retained         int                      `json:"retained"`
 	Failed           int                      `json:"failed"`
 	AddedRecords     []airplan.ManifestRecord `json:"added_records"`
+	EnrichedRecords  []airplan.ManifestRecord `json:"enriched_records"`
 	TombstoneRecords []airplan.ManifestRecord `json:"tombstone_records"`
 	Failures         []airplan.SyncFailure    `json:"failures"`
 	Warnings         []string                 `json:"warnings,omitempty"`
@@ -124,10 +134,13 @@ type syncJSONResult struct {
 
 func syncJSONFromResult(result *airplan.SyncManifestResult) syncJSONResult {
 	return syncJSONResult{
-		Added: len(result.Added), Tombstoned: len(result.Tombstoned),
-		Unchanged: result.Unchanged, Incomplete: result.Incomplete,
-		Invalid: result.Invalid, Retained: result.Retained,
+		Added: len(result.Added), Enriched: len(result.Enriched),
+		Tombstoned: len(result.Tombstoned),
+		Unchanged:  result.Unchanged, Deferred: result.Deferred,
+		Incomplete: result.Incomplete,
+		Invalid:    result.Invalid, Retained: result.Retained,
 		Failed: len(result.Failures), AddedRecords: result.Added,
+		EnrichedRecords:  result.Enriched,
 		TombstoneRecords: result.Tombstoned, Failures: result.Failures,
 		Warnings: result.Warnings,
 	}

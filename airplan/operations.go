@@ -50,7 +50,8 @@ type ManifestList struct {
 	Warnings []string         `json:"warnings,omitempty"`
 }
 
-// ListManifest lists active uploads through the selected backend.
+// ListManifest lists active uploads through the selected backend. Records are
+// ordered by record time, then ownership marker key (SPEC.md §9).
 func (c *Client) ListManifest(
 	ctx context.Context, opts ListManifestOptions,
 ) (*ManifestList, error) {
@@ -63,9 +64,17 @@ func (c *Client) ListManifest(
 				"airplan: remote manifest listing does not accept local profile filters",
 			)
 		}
-		return c.remote.ListManifest(ctx, ListManifestOptions{
+		listed, err := c.remote.ListManifest(ctx, ListManifestOptions{
 			Scope: ManifestScopeService,
 		})
+		if err != nil {
+			return nil, err
+		}
+		result := *listed
+		result.Records = make([]ManifestRecord, len(listed.Records))
+		copy(result.Records, listed.Records)
+		sortManifestUploads(result.Records)
+		return &result, nil
 	}
 	if opts.Scope == "" || opts.Scope == ManifestScopeAll {
 		return ListManifestHistory(c.cfg.ManifestPath, opts.Profile)
@@ -98,11 +107,13 @@ func (c *Client) ListManifest(
 		}
 		filtered = append(filtered, rec)
 	}
+	sortManifestUploads(filtered)
 	return &ManifestList{Records: filtered, Warnings: warnings}, nil
 }
 
 // ListManifestHistory reads active local manifest history without validating
 // inactive storage settings. Profile nil returns all recorded profiles.
+// Records are ordered by record time, then ownership marker key (SPEC.md §9).
 func ListManifestHistory(
 	path string, profile *string,
 ) (*ManifestList, error) {
@@ -118,6 +129,7 @@ func ListManifestHistory(
 		}
 		filtered = append(filtered, record)
 	}
+	sortManifestUploads(filtered)
 	return &ManifestList{Records: filtered, Warnings: warnings}, nil
 }
 
@@ -295,12 +307,9 @@ func purgeRecordMatches(rec ManifestRecord, opts PurgePlanOptions) bool {
 	if rec.Kind == string(UploadKindCollection) {
 		return false
 	}
-	slug := rec.Slug
-	if slug == "" {
-		slug, _ = pageSlug(path.Base(rec.Key))
-	}
-	matched, _ := path.Match(opts.Slug, slug)
-	return matched
+	// Shared with list --slug so both mean the same thing, including that an
+	// upload with no derivable slug never matches (SPEC.md §9).
+	return matchesSlugPattern(opts.Slug, ManifestRecordSlug(rec))
 }
 
 func manifestRecordFromInspection(

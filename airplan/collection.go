@@ -241,7 +241,7 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 	if err != nil {
 		return nil, err
 	}
-	c.recordUpload(ctx, &res.Result)
+	c.recordUpload(ctx, &res.Result, markerDeclaredTotals(marker, markerBody))
 	return res, nil
 }
 

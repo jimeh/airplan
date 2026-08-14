@@ -105,6 +105,7 @@ func TestCommandAliasesAndQoLShorthands(t *testing.T) {
 		shorthand string
 	}{
 		{"list", "remote", "r"},
+		{"list", "all-profiles", "A"},
 		{"purge", "remote", "r"},
 		{"preview", "output", "o"},
 		{"get", "output", "o"},

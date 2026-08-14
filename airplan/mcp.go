@@ -36,13 +36,76 @@ type mcpUploadFilesInput struct {
 }
 
 type mcpListInput struct {
-	Source string `json:"source,omitempty" jsonschema:"Inventory source: manifest or storage."`
+	Source    string  `json:"source,omitempty" jsonschema:"Inventory source: manifest or storage."`
+	NewerThan *string `json:"newer_than,omitempty" jsonschema:"Keep uploads at or after an age or date, such as 7d or 2026-07-01."`
+	OlderThan *string `json:"older_than,omitempty" jsonschema:"Keep uploads before an age or date, such as 30d or 2026-07-01."`
+	Limit     *int    `json:"limit,omitempty" jsonschema:"Keep only the N most recent matches, still ordered oldest first."`
+	Kind      *string `json:"kind,omitempty" jsonschema:"Keep only document or collection uploads."`
+	Slug      *string `json:"slug,omitempty" jsonschema:"Glob matched against document slugs; collections never match."`
+}
+
+var errInvalidMCPListFilter = errors.New(
+	"airplan: invalid list filter arguments",
+)
+
+type mcpListFilterError struct {
+	cause error
+}
+
+func (e *mcpListFilterError) Error() string { return e.cause.Error() }
+func (e *mcpListFilterError) Unwrap() []error {
+	return []error{errInvalidMCPListFilter, e.cause}
+}
+
+func invalidMCPListFilter(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &mcpListFilterError{cause: err}
+}
+
+// listFilter resolves the tool's selection arguments (SPEC.md §9). It shares
+// the parser and the filter the CLI uses, so a listing selects the same
+// uploads through either surface.
+func (in mcpListInput) listFilter(now time.Time) (ListFilter, error) {
+	filter := ListFilter{Limit: in.Limit}
+	if in.NewerThan != nil {
+		when, err := ParseTimeFilter(*in.NewerThan, now)
+		if err != nil {
+			return filter, invalidMCPListFilter(err)
+		}
+		filter.NewerThan = &when
+	}
+	if in.OlderThan != nil {
+		when, err := ParseTimeFilter(*in.OlderThan, now)
+		if err != nil {
+			return filter, invalidMCPListFilter(err)
+		}
+		filter.OlderThan = &when
+	}
+	if in.Kind != nil {
+		if strings.TrimSpace(*in.Kind) == "" {
+			return filter, invalidMCPListFilter(
+				errors.New("airplan: kind must not be empty"),
+			)
+		}
+		filter.Kind = UploadKind(*in.Kind)
+	}
+	if in.Slug != nil {
+		if *in.Slug == "" {
+			return filter, invalidMCPListFilter(
+				errors.New("airplan: slug must not be empty"),
+			)
+		}
+		filter.Slug = *in.Slug
+	}
+	return filter, invalidMCPListFilter(filter.Validate())
 }
 
 type mcpListOutput struct {
-	Source   string         `json:"source"`
-	Manifest *ManifestList  `json:"manifest,omitempty"`
-	Storage  []RemoteUpload `json:"storage,omitempty"`
+	Source   string          `json:"source"`
+	Manifest *ManifestList   `json:"manifest,omitempty"`
+	Storage  *[]RemoteUpload `json:"storage,omitempty"`
 }
 
 type mcpTargetInput struct {
@@ -205,6 +268,12 @@ func NewMCPServerWithOptions(
 			source = string(UploadSourceManifest)
 		}
 		output := mcpListOutput{Source: source}
+		filter, err := input.listFilter(time.Now())
+		if err != nil {
+			return nil, output, mcpOperationError(
+				ctx, err, !localFiles, options.Logger,
+			)
+		}
 		switch UploadSource(source) {
 		case UploadSourceManifest:
 			listed, err := client.ListManifest(ctx, ListManifestOptions{
@@ -217,7 +286,9 @@ func NewMCPServerWithOptions(
 			}
 			if !localFiles {
 				listed.Warnings = serverSafeWarnings(listed.Warnings)
+				listed.Records = serverSafeManifestRecords(listed.Records)
 			}
+			listed.Records = filter.FilterManifestRecords(listed.Records)
 			output.Manifest = listed
 		case UploadSourceStorage:
 			uploads, err := client.ListRemote(ctx)
@@ -226,10 +297,11 @@ func NewMCPServerWithOptions(
 					ctx, err, !localFiles, options.Logger,
 				)
 			}
+			uploads = filter.FilterRemoteUploads(uploads)
 			if uploads == nil {
 				uploads = []RemoteUpload{}
 			}
-			output.Storage = uploads
+			output.Storage = &uploads
 		default:
 			return nil, output, fmt.Errorf(
 				"airplan: source must be manifest or storage",
@@ -383,6 +455,15 @@ func NewMCPServerWithOptions(
 	return server
 }
 
+func serverSafeManifestRecords(records []ManifestRecord) []ManifestRecord {
+	safe := make([]ManifestRecord, len(records))
+	copy(safe, records)
+	for index := range safe {
+		safe[index].Profile = ""
+	}
+	return safe
+}
+
 func uploadToolContent(result *Result) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{
 		&mcp.TextContent{Text: result.URL},
@@ -481,6 +562,8 @@ func mcpErrorClass(err error) string {
 		return "timeout"
 	case errors.Is(err, ErrInputTooLarge):
 		return "input_too_large"
+	case errors.Is(err, errInvalidMCPListFilter):
+		return "invalid_list_filter"
 	case errors.Is(err, ErrBinaryInput), errors.Is(err, ErrInvalidUTF8),
 		errors.Is(err, ErrEmptyInput):
 		return "invalid_input"
@@ -516,6 +599,8 @@ func mcpOperationError(
 		public = "airplan: the server operation timed out"
 	case errors.Is(err, ErrInputTooLarge):
 		public = "airplan: the upload exceeds the effective size limit"
+	case errors.Is(err, errInvalidMCPListFilter):
+		public = errInvalidMCPListFilter.Error()
 	case errors.Is(err, ErrBinaryInput), errors.Is(err, ErrInvalidUTF8),
 		errors.Is(err, ErrEmptyInput):
 		public = "airplan: the request is not a valid document upload"

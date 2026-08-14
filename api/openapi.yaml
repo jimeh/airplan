@@ -659,6 +659,13 @@ components:
         bytes:
           type: integer
           format: int64
+        objects:
+          type: integer
+          minimum: 1
+        total_bytes:
+          type: integer
+          format: int64
+          minimum: 1
         reason:
           type: string
         marker_version:
@@ -763,8 +770,10 @@ components:
       additionalProperties: false
       required:
         - added_records
+        - enriched_records
         - tombstone_records
         - unchanged
+        - deferred
         - incomplete
         - invalid
         - retained
@@ -776,11 +785,18 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ManifestRecord"
+        enriched_records:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestRecord"
         tombstone_records:
           type: array
           items:
             $ref: "#/components/schemas/ManifestRecord"
         unchanged:
+          type: integer
+          minimum: 0
+        deferred:
           type: integer
           minimum: 0
         incomplete:

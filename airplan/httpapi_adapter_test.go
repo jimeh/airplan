@@ -70,6 +70,46 @@ func TestHTTPAPIManifestListScopesSharedManifest(t *testing.T) {
 	}
 }
 
+// TestHTTPAPIManifestListOrdersByRecordTime covers the REST manifest endpoint,
+// which lists through the service scope (SPEC.md §9).
+func TestHTTPAPIManifestListOrdersByRecordTime(t *testing.T) {
+	client, err := New(context.Background(), &Config{
+		Backend: BackendS3, Endpoint: "http://127.0.0.1",
+		Bucket: "plans", Profile: "work",
+		ManifestPath: writeUnorderedManifest(t), Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const token = "01234567890123456789012345678901"
+	handler, err := httpapi.NewHandler(&HTTPOperations{
+		Client: client, ServerVersion: "test",
+	}, httpapi.Options{Token: token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/uploads", nil)
+	request.Header.Set("Authorization", "Bearer "+token)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	var result httpapi.ManifestList
+	if err := json.NewDecoder(recorder.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	titles := make([]string, 0, len(result.Records))
+	for _, record := range result.Records {
+		titles = append(titles, record.Title)
+	}
+	if len(titles) != 3 || titles[0] != "a" || titles[1] != "b" ||
+		titles[2] != "c" {
+		t.Fatalf("titles = %q, want oldest first", titles)
+	}
+}
+
 func TestPlanPurgeScopesPrefixWithoutStorageConfig(t *testing.T) {
 	manifestPath := t.TempDir() + "/manifest.jsonl"
 	now := time.Now().UTC().Truncate(time.Second)

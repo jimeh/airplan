@@ -47,7 +47,7 @@ func newPurgeCmd() *cobra.Command {
 	f.StringVar(&opts.config, "config", "",
 		"config file path (default: XDG config dir)")
 	f.StringVar(&opts.olderThan, "older-than", "",
-		"filter: uploads older than this age, e.g. 30d, 2w, 36h")
+		"filter: uploads before this age or date, e.g. 30d, 2w, 2026-07-01")
 	f.StringVar(&opts.slug, "slug", "",
 		"filter: glob pattern matched against the page slug")
 	// Local manifest semantics (SPEC.md §9): every resolved connection
@@ -85,19 +85,37 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 			return fmt.Errorf("--concurrency: %s",
 				strings.TrimPrefix(err.Error(), "airplan: "))
 		}
-		if !opts.all && opts.olderThan == "" && opts.slug == "" {
+		if !opts.all && !cmd.Flags().Changed("older-than") && opts.slug == "" {
 			return errors.New(
 				"purge requires at least one filter or explicit --all")
 		}
 	}
 
-	var olderThan time.Duration
-	if opts.olderThan != "" {
+	// Purge shares the listing time parser (SPEC.md §9), so an age and an
+	// absolute date select the same boundary here and in list --older-than.
+	var createdBefore time.Time
+	if cmd.Flags().Changed("older-than") {
+		now := time.Now()
 		var err error
-		olderThan, err = airplan.ParseAge(opts.olderThan)
+		createdBefore, err = airplan.ParseTimeFilter(opts.olderThan, now)
 		if err != nil {
-			return fmt.Errorf("--older-than: %s",
-				strings.TrimPrefix(err.Error(), "airplan: "))
+			return flagError("--older-than", err)
+		}
+		// PurgePlanOptions reads a zero CreatedBefore as "no age filter", so a
+		// year-one boundary would widen the selection to everything instead
+		// of the nothing it selects in list --older-than. Refuse it rather
+		// than diverge on a destructive command.
+		if createdBefore.IsZero() {
+			return errors.New(
+				"--older-than: that boundary selects nothing; " +
+					"no upload is older than year one")
+		}
+		if !createdBefore.Before(now) {
+			message := "--older-than: must select a time in the past"
+			if !opts.all {
+				message += "; use --all to purge everything"
+			}
+			return errors.New(message)
 		}
 	}
 
@@ -107,9 +125,9 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	}
 	profileOnly := !opts.remote &&
 		cfg.EffectiveBackend() == airplan.BackendS3 &&
-		cmd.Flags().Changed("profile") && opts.olderThan == "" &&
+		cmd.Flags().Changed("profile") && !cmd.Flags().Changed("older-than") &&
 		opts.slug == "" && !opts.all
-	hasFilter := opts.all || opts.olderThan != "" || opts.slug != "" ||
+	hasFilter := opts.all || cmd.Flags().Changed("older-than") || opts.slug != "" ||
 		profileOnly
 	if !hasFilter {
 		return errors.New(
@@ -130,10 +148,6 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 		planCtx, planCancel = timeoutContext(planCtx, cfg)
 	}
 	defer planCancel()
-	var createdBefore time.Time
-	if olderThan > 0 {
-		createdBefore = time.Now().Add(-olderThan)
-	}
 	plan, err := client.PlanPurge(planCtx, airplan.PurgePlanOptions{
 		Source: source, CreatedBefore: createdBefore,
 		Slug: opts.slug, All: opts.all || profileOnly,

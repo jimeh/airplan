@@ -51,6 +51,14 @@ type ManifestRecord struct {
 	// Repo is the canonical repository URL when known.
 	Repo  string `json:"repo,omitempty"`
 	Bytes int64  `json:"bytes,omitempty"`
+
+	// Objects counts the ownership marker plus every object it declares, and
+	// TotalBytes sums their declared sizes (SPEC.md §9). Both are absent on
+	// records written before airplan recorded them and when the marker cannot
+	// declare every counted size: v1, or v2 with a source. Bytes keeps its own
+	// meaning, the primary page.
+	Objects    int   `json:"objects,omitempty"`
+	TotalBytes int64 `json:"total_bytes,omitempty"`
 	// Reason is "deleted" or "remote_missing" for modern tombstones.
 	Reason string `json:"reason,omitempty"`
 
@@ -212,6 +220,10 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 					warnings = append(warnings, fmt.Sprintf(
 						"skipping invalid manifest line %d: %s", lineNo, err,
 					))
+				} else if err := validateManifestInventoryEncoding(line, rec); err != nil {
+					warnings = append(warnings, fmt.Sprintf(
+						"skipping invalid manifest line %d: %s", lineNo, err,
+					))
 				} else {
 					records = append(records, rec)
 				}
@@ -235,6 +247,29 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 	}
 
 	return records, warnings, nil
+}
+
+// validateManifestInventoryEncoding distinguishes an absent optional pair
+// from explicit JSON zeroes, which ordinary integer unmarshalling cannot do.
+// The public response schema and manifest contract require positive values
+// whenever either field is present.
+func validateManifestInventoryEncoding(line []byte, rec ManifestRecord) error {
+	var fields struct {
+		Objects    json.RawMessage `json:"objects"`
+		TotalBytes json.RawMessage `json:"total_bytes"`
+	}
+	if err := json.Unmarshal(line, &fields); err != nil {
+		return err
+	}
+	objectsPresent := len(fields.Objects) != 0
+	totalPresent := len(fields.TotalBytes) != 0
+	if objectsPresent != totalPresent {
+		return errors.New("objects and total_bytes must be set together")
+	}
+	if objectsPresent && (rec.Objects <= 0 || rec.TotalBytes <= 0) {
+		return errors.New("objects and total_bytes must be positive when present")
+	}
+	return nil
 }
 
 func normalizeManifestRecord(rec *ManifestRecord) {
@@ -278,6 +313,16 @@ func validateManifestRecord(rec ManifestRecord) error {
 		}
 		if rec.Bytes <= 0 {
 			return errors.New("bytes must be positive")
+		}
+		// Both totals are optional, but they describe one measurement: a
+		// negative or half-present pair is corrupt rather than absent, and
+		// would otherwise render inconsistently forever, since backfill only
+		// completes records missing both.
+		if rec.Objects < 0 || rec.TotalBytes < 0 {
+			return errors.New("objects and total_bytes must not be negative")
+		}
+		if (rec.Objects == 0) != (rec.TotalBytes == 0) {
+			return errors.New("objects and total_bytes must be set together")
 		}
 		if rec.MarkerKey != "" {
 			expected := markerKeyForManifestRecord(rec)
@@ -343,10 +388,32 @@ func readManifestLine(r *bufio.Reader, max int) ([]byte, bool, error) {
 	}
 }
 
+// declaredTotals carries an upload's marker-declared object count and byte
+// total from the writer that built the marker to the manifest record. A zero
+// value records neither field when the marker cannot declare the full
+// inventory, as with v1 and v2-with-source markers.
+type declaredTotals struct {
+	objects int
+	bytes   int64
+}
+
+// markerDeclaredTotals derives the totals for a marker about to be written.
+func markerDeclaredTotals(
+	marker UploadMarker, markerBody []byte,
+) declaredTotals {
+	objects, total, ok := MarkerDeclaredTotals(marker, len(markerBody))
+	if !ok {
+		return declaredTotals{}
+	}
+	return declaredTotals{objects: objects, bytes: total}
+}
+
 // recordUpload appends an upload record for res, best-effort: manifest
 // failures degrade to a warning on the result, never a failed upload
 // (SPEC.md §9 — the manifest is convenience, not a source of truth).
-func (c *Client) recordUpload(ctx context.Context, res *Result) {
+func (c *Client) recordUpload(
+	ctx context.Context, res *Result, declared declaredTotals,
+) {
 	if c.cfg.DisableManifest {
 		return
 	}
@@ -377,6 +444,8 @@ func (c *Client) recordUpload(ctx context.Context, res *Result) {
 		Title:         res.Title,
 		Repo:          res.RepositoryURL,
 		Bytes:         res.Bytes,
+		Objects:       declared.objects,
+		TotalBytes:    declared.bytes,
 		MarkerVersion: res.MarkerVersion,
 	}
 	if err := appendManifestRecord(ctx, path, rec); err != nil {
@@ -394,6 +463,41 @@ func markerKeyForManifestRecord(rec ManifestRecord) string {
 		return dirPrefix + CollectionMarkerFilename
 	}
 	return dirPrefix + MarkerFilename
+}
+
+// ManifestRecordDir returns a record's 26-character random upload directory
+// without key_prefix (SPEC.md §9), derived from its ownership marker key or,
+// for records that omit one, from its page key. It returns "" when neither
+// key contains a random directory segment, as in pre-marker legacy history.
+func ManifestRecordDir(rec ManifestRecord) string {
+	return uploadIDFromMarkerKey(manifestMarkerKey(rec))
+}
+
+// ManifestRecordKind returns a record's upload kind (SPEC.md §9). Conforming
+// legacy history omits both kind and marker_version and is inferred as a
+// document; managed records with a missing kind remain unknown.
+func ManifestRecordKind(rec ManifestRecord) UploadKind {
+	if rec.Kind != "" {
+		return UploadKind(rec.Kind)
+	}
+	if rec.MarkerVersion == 0 {
+		return UploadKindDocument
+	}
+	return ""
+}
+
+// ManifestRecordSlug returns a record's document slug (SPEC.md §9): the
+// recorded value, or the slug derived from its page key for valid older
+// records that omit one. Collections have no slug and return "".
+func ManifestRecordSlug(rec ManifestRecord) string {
+	if rec.Kind == string(UploadKindCollection) {
+		return ""
+	}
+	if rec.Slug != "" {
+		return rec.Slug
+	}
+	slug, _ := pageSlug(path.Base(rec.Key))
+	return slug
 }
 
 // ReadManifest loads the manifest at path ("" = platform default),
@@ -445,6 +549,24 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 		uploads = append(uploads, record.record)
 	}
 	return uploads
+}
+
+// sortManifestUploads orders reduced manifest uploads by record time
+// ascending, tie-breaking on ownership marker key. This mirrors remote listing
+// order (SPEC.md §9) so both views describe history the same way, including
+// after sync appends imported records out of chronological order.
+//
+// ManifestUploads deliberately keeps its positional reduction order: callers
+// such as delete reconciliation and profile inference depend on it. Listing
+// paths sort the records they are about to return instead.
+func sortManifestUploads(records []ManifestRecord) {
+	sort.SliceStable(records, func(i, j int) bool {
+		if records[i].Time.Equal(records[j].Time) {
+			return manifestMarkerKey(records[i]) <
+				manifestMarkerKey(records[j])
+		}
+		return records[i].Time.Before(records[j].Time)
+	})
 }
 
 // ActiveUploads returns marker-managed manifest uploads that have no matching

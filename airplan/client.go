@@ -343,7 +343,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		}
 	}
 
-	c.recordUpload(ctx, res)
+	c.recordUpload(ctx, res, markerDeclaredTotals(marker, markerBody))
 
 	return res, nil
 }

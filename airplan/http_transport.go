@@ -289,12 +289,16 @@ func (t *httpTransport) SyncManifest(
 		return nil, transportError(err)
 	}
 	core := &SyncManifestResult{
-		Unchanged: result.Unchanged, Incomplete: result.Incomplete,
-		Invalid: result.Invalid, Retained: result.Retained,
+		Unchanged: result.Unchanged, Deferred: result.Deferred,
+		Incomplete: result.Incomplete,
+		Invalid:    result.Invalid, Retained: result.Retained,
 		Warnings: append([]string(nil), result.Warnings...),
 	}
 	for _, record := range result.AddedRecords {
 		core.Added = append(core.Added, coreManifestRecord(record))
+	}
+	for _, record := range result.EnrichedRecords {
+		core.Enriched = append(core.Enriched, coreManifestRecord(record))
 	}
 	for _, record := range result.TombstoneRecords {
 		core.Tombstoned = append(

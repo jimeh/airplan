@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"mime"
 	"strings"
 	"time"
@@ -62,6 +63,54 @@ type MarkerObject struct {
 	Role        MarkerRole `json:"role"`
 	Bytes       int64      `json:"bytes"`
 	ContentType string     `json:"content_type"`
+}
+
+// MarkerDeclaredTotals returns the object count and byte total an upload
+// declares (SPEC.md §9): its ownership marker plus every object the marker
+// lists, with markerBytes the exact serialized marker body written to storage.
+//
+// These are declared values, never a storage listing, so the same upload
+// reports the same totals whether they were recorded when it was uploaded or
+// derived later from its marker by sync. Marker v3 declares every object;
+// marker v2 declares the page and qualifies only when it has no source. Marker
+// v1 and v2-with-source report ok false because their totals would be a guess.
+func MarkerDeclaredTotals(
+	marker UploadMarker, markerBytes int,
+) (objects int, total int64, ok bool) {
+	if markerBytes <= 0 {
+		return 0, 0, false
+	}
+	if marker.Version == 2 {
+		if marker.Source != "" || marker.PageBytes <= 0 {
+			return 0, 0, false
+		}
+		total, ok := addDeclaredBytes(int64(markerBytes), marker.PageBytes)
+		if !ok {
+			return 0, 0, false
+		}
+		return 2, total, true
+	}
+	if marker.Version != MarkerVersion {
+		return 0, 0, false
+	}
+	objects = 1
+	total = int64(markerBytes)
+	for _, object := range marker.Objects {
+		var added bool
+		total, added = addDeclaredBytes(total, object.Bytes)
+		if !added {
+			return 0, 0, false
+		}
+		objects++
+	}
+	return objects, total, true
+}
+
+func addDeclaredBytes(total, value int64) (int64, bool) {
+	if total <= 0 || value < 0 || total > math.MaxInt64-value {
+		return 0, false
+	}
+	return total + value, true
 }
 
 // MarkerFilenameForKind returns the exact marker basename for kind.

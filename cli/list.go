@@ -2,10 +2,12 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
 	"os"
+	"slices"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -15,10 +17,83 @@ import (
 )
 
 type listOptions struct {
-	config  string
-	profile string
-	json    bool
-	remote  bool
+	config      string
+	profile     string
+	json        bool
+	remote      bool
+	columns     string
+	wide        bool
+	reverse     bool
+	newerThan   string
+	olderThan   string
+	limit       int
+	kind        string
+	slug        string
+	allProfiles bool
+}
+
+// columnRequest returns the table column selection given on the command line.
+func (o *listOptions) columnRequest(cmd *cobra.Command) listColumnRequest {
+	return listColumnRequest{
+		spec:    o.columns,
+		changed: cmd.Flags().Changed("columns"),
+		wide:    o.wide,
+	}
+}
+
+// listFilter resolves the selection flags into a library filter (SPEC.md §9).
+// Times are interpreted relative to now, so ages and local dates resolve once
+// per invocation.
+func (o *listOptions) listFilter(
+	cmd *cobra.Command, now time.Time,
+) (airplan.ListFilter, error) {
+	filter := airplan.ListFilter{
+		Kind: airplan.UploadKind(o.kind), Slug: o.slug,
+	}
+	if cmd.Flags().Changed("newer-than") {
+		when, err := airplan.ParseTimeFilter(o.newerThan, now)
+		if err != nil {
+			return filter, flagError("--newer-than", err)
+		}
+		filter.NewerThan = &when
+	}
+	if cmd.Flags().Changed("older-than") {
+		when, err := airplan.ParseTimeFilter(o.olderThan, now)
+		if err != nil {
+			return filter, flagError("--older-than", err)
+		}
+		filter.OlderThan = &when
+	}
+	if cmd.Flags().Changed("limit") {
+		limit := o.limit
+		filter.Limit = &limit
+	}
+
+	// Validating one field at a time keeps the library's rules authoritative
+	// while still naming the flag that carried the bad value.
+	if err := (airplan.ListFilter{Kind: filter.Kind}).Validate(); err != nil {
+		return filter, flagError("--kind", err)
+	}
+	if cmd.Flags().Changed("kind") && strings.TrimSpace(o.kind) == "" {
+		return filter, errors.New("--kind requires a non-empty value")
+	}
+	if err := (airplan.ListFilter{Slug: filter.Slug}).Validate(); err != nil {
+		return filter, flagError("--slug", err)
+	}
+	if cmd.Flags().Changed("slug") && o.slug == "" {
+		return filter, errors.New("--slug requires a non-empty value")
+	}
+	if err := (airplan.ListFilter{Limit: filter.Limit}).Validate(); err != nil {
+		return filter, fmt.Errorf("--limit %s",
+			strings.TrimPrefix(err.Error(), "airplan: limit "))
+	}
+	return filter, filter.Validate()
+}
+
+// flagError restates a library error as a flag-scoped command-line error.
+func flagError(flag string, err error) error {
+	return fmt.Errorf("%s: %s", flag,
+		strings.TrimPrefix(err.Error(), "airplan: "))
 }
 
 func newListCmd() *cobra.Command {
@@ -29,7 +104,10 @@ func newListCmd() *cobra.Command {
 		Aliases: []string{"ls"},
 		Short:   "List uploads from the local manifest",
 		Long: "List uploads from the local manifest, or with --remote, " +
-			"from a live bucket listing using the selected config profile.",
+			"from a live bucket listing using the selected config profile.\n\n" +
+			"Local listing uses the resolved config profile by default. " +
+			"--profile NAME selects another profile, --profile= selects " +
+			"root-level history, and --all-profiles lists every profile.",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -48,22 +126,67 @@ func newListCmd() *cobra.Command {
 	// SPEC.md §6 defines -r as the list --remote shorthand.
 	f.BoolVarP(&opts.remote, "remote", "r", false,
 		"list uploads from a live bucket listing instead of the manifest")
+	// Column selection is long-only: -c already means --config (SPEC.md §6).
+	f.StringVar(&opts.columns, "columns", "",
+		"table columns: an absolute set (date,title,url) or adjustments "+
+			"to the default set (+dir,-title)")
+	f.BoolVar(&opts.wide, "wide", false,
+		"show every table column available for this listing")
+	f.BoolVar(&opts.reverse, "reverse", false,
+		"print newest uploads first")
+	// Selection flags (SPEC.md §9) apply to the table and to --json alike.
+	f.StringVar(&opts.newerThan, "newer-than", "",
+		"filter: uploads at or after an age or date, e.g. 7d or 2026-07-01")
+	f.StringVar(&opts.olderThan, "older-than", "",
+		"filter: uploads before an age or date, e.g. 30d or 2026-07-01")
+	f.IntVar(&opts.limit, "limit", 0,
+		"filter: keep only the N most recent matches, still printed "+
+			"oldest first")
+	f.StringVar(&opts.kind, "kind", "",
+		"filter: document or collection")
+	f.StringVar(&opts.slug, "slug", "",
+		"filter: glob matched against document slugs; collections never match")
+	f.BoolVarP(&opts.allProfiles, "all-profiles", "A", false,
+		"list every recorded profile")
 
 	return cmd
 }
 
 func runList(cmd *cobra.Command, opts *listOptions) error {
+	mode := listModeLocal
 	if opts.remote {
-		return runRemoteList(cmd, opts)
+		mode = listModeRemote
+	}
+	if err := opts.columnRequest(cmd).validate(mode, opts.json); err != nil {
+		return err
+	}
+	if opts.allProfiles {
+		if cmd.Flags().Changed("profile") {
+			return errors.New(
+				"--all-profiles cannot be combined with --profile")
+		}
+		// Remote listing is scoped to the selected profile's key_prefix by
+		// storage layout, not by choice (SPEC.md §9).
+		if opts.remote {
+			return errors.New(
+				"--all-profiles cannot be combined with --remote")
+		}
+	}
+	filter, err := opts.listFilter(cmd, time.Now())
+	if err != nil {
+		return err
+	}
+	if opts.remote {
+		return runRemoteList(cmd, opts, filter)
 	}
 
 	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
 	if err != nil {
-		// Preserve config-free local history when the default config cannot
-		// select one of several profiles, and preserve the historical use of
-		// --profile as a local-manifest filter. Explicit config/backend
-		// selectors remain authoritative and surface their errors.
-		if !allowsConfigFreeLocalList(cmd) {
+		// --all-profiles needs no active connection profile, so it can preserve
+		// config-free local history. Ordinary list resolves one profile and
+		// surfaces ambiguity instead. Explicit config/backend selectors remain
+		// authoritative and surface their errors.
+		if !opts.allProfiles || !allowsConfigFreeAllProfilesList(cmd) {
 			return err
 		}
 		cfg = &airplan.Config{
@@ -74,12 +197,19 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 		}
 	}
 	var profile *string
-	if cmd.Flags().Changed("profile") {
+	switch {
+	case opts.allProfiles:
+		profile = nil
+	case cmd.Flags().Changed("profile"):
 		profile = &opts.profile
-	} else if os.Getenv("AIRPLAN_PROFILE") != "" {
+	default:
 		profile = &cfg.Profile
 	}
 	if cfg.EffectiveBackend() == airplan.BackendAirplan {
+		if opts.allProfiles {
+			return errors.New(
+				"--all-profiles cannot be used with the airplan backend")
+		}
 		ctx, cancel := timeoutContext(cmd.Context(), cfg)
 		defer cancel()
 		client, err := airplan.New(ctx, cfg)
@@ -91,28 +221,31 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 		if err != nil {
 			return err
 		}
-		return outputManifestList(cmd, listed.Records, listed.Warnings, opts.json)
+		return outputManifestList(
+			cmd, opts, filter, listed.Records, listed.Warnings,
+		)
 	}
 	listed, err := airplan.ListManifestHistory(cfg.ManifestPath, profile)
 	if err != nil {
 		return err
 	}
 	return outputManifestList(
-		cmd, listed.Records, listed.Warnings, opts.json,
+		cmd, opts, filter, listed.Records, listed.Warnings,
 	)
 }
 
-func allowsConfigFreeLocalList(cmd *cobra.Command) bool {
+func allowsConfigFreeAllProfilesList(cmd *cobra.Command) bool {
 	if cmd.Flags().Changed("config") {
 		return false
 	}
 	if _, explicit := selectedManifestPath(cmd); explicit {
 		return false
 	}
-	for _, name := range []string{
+	selectors := []string{
 		"AIRPLAN_CONFIG", "AIRPLAN_BACKEND", "AIRPLAN_API_URL",
-		"AIRPLAN_API_TOKEN", "AIRPLAN_PROFILE",
-	} {
+		"AIRPLAN_API_TOKEN",
+	}
+	for _, name := range selectors {
 		if os.Getenv(name) != "" {
 			return false
 		}
@@ -121,24 +254,36 @@ func allowsConfigFreeLocalList(cmd *cobra.Command) bool {
 }
 
 func outputManifestList(
-	cmd *cobra.Command, uploads []airplan.ManifestRecord,
-	warnings []string, jsonOutput bool,
+	cmd *cobra.Command, opts *listOptions, filter airplan.ListFilter,
+	uploads []airplan.ManifestRecord, warnings []string,
 ) error {
 	stderr := cmd.ErrOrStderr()
 	for _, warning := range warnings {
 		fmt.Fprintf(stderr, "airplan: warning: %s\n", warning)
 	}
-	if jsonOutput {
+	uploads = filter.FilterManifestRecords(uploads)
+	if opts.reverse {
+		slices.Reverse(uploads)
+	}
+	if opts.json {
 		if uploads == nil {
 			uploads = []airplan.ManifestRecord{}
 		}
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(uploads)
 	}
 
-	return printUploadTable(cmd.OutOrStdout(), uploads)
+	columns, err := selectListColumns(
+		listModeLocal, opts.columnRequest(cmd), autoLocalListColumns(uploads),
+	)
+	if err != nil {
+		return err
+	}
+	return printUploadTable(cmd.OutOrStdout(), uploads, columns)
 }
 
-func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
+func runRemoteList(
+	cmd *cobra.Command, opts *listOptions, filter airplan.ListFilter,
+) error {
 	client, cfg, ctx, cancel, err := setupClient(
 		cmd, opts.config, opts.profile)
 	if err != nil {
@@ -150,6 +295,7 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 	if err != nil {
 		return err
 	}
+	uploads = filter.FilterRemoteUploads(uploads)
 	if cfg.EffectiveBackend() == airplan.BackendS3 && cfg.PublicBaseURL == "" {
 		for _, upload := range uploads {
 			if upload.URL != "" {
@@ -158,6 +304,9 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 				break
 			}
 		}
+	}
+	if opts.reverse {
+		slices.Reverse(uploads)
 	}
 
 	if opts.json {
@@ -169,7 +318,14 @@ func runRemoteList(cmd *cobra.Command, opts *listOptions) error {
 		)
 	}
 
-	return printRemoteUploadTable(cmd.OutOrStdout(), uploads)
+	columns, err := selectListColumns(
+		listModeRemote, opts.columnRequest(cmd),
+		autoRemoteListColumns(uploads),
+	)
+	if err != nil {
+		return err
+	}
+	return printRemoteUploadTable(cmd.OutOrStdout(), uploads, columns)
 }
 
 type remoteListJSONRecord struct {
@@ -206,84 +362,53 @@ func remoteListJSONRecords(
 	return records
 }
 
-func printRemoteUploadTable(w io.Writer, uploads []airplan.RemoteUpload) error {
-	if len(uploads) == 0 {
-		return nil
-	}
-
-	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(
-		tw, "DATE\tKIND\tOBJECTS\tSIZE\tSLUG\tDIRECTORY\tURL",
-	); err != nil {
-		return err
-	}
+func printRemoteUploadTable(
+	w io.Writer, uploads []airplan.RemoteUpload, columns []listColumn,
+) error {
+	rows := make([][]string, 0, len(uploads))
 	for _, upload := range uploads {
-		slug := upload.Slug
-		if slug == "" {
-			slug = "-"
+		row := make([]string, 0, len(columns))
+		for _, column := range columns {
+			row = append(row, remoteListCell(column.name, upload))
 		}
-		url := upload.URL
-		if url == "" {
-			url = "-"
-		}
-		kind := string(upload.Kind)
-		if upload.Conflict {
-			kind = "conflict"
-		}
-		if kind == "" {
-			kind = "-"
-		}
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%d\t%s\t%s\t%s\t%s\n",
-			upload.LastModified.UTC().Format("2006-01-02 15:04"),
-			kind,
-			upload.Objects,
-			formatListBytes(upload.Bytes),
-			slug,
-			upload.Dir,
-			url,
-		); err != nil {
-			return err
-		}
+		rows = append(rows, row)
 	}
-	return tw.Flush()
+	return printListTable(w, columns, rows)
 }
 
 func printUploadTable(
-	w io.Writer,
-	uploads []airplan.ManifestRecord,
+	w io.Writer, uploads []airplan.ManifestRecord, columns []listColumn,
 ) error {
-	if len(uploads) == 0 {
+	rows := make([][]string, 0, len(uploads))
+	for _, upload := range uploads {
+		row := make([]string, 0, len(columns))
+		for _, column := range columns {
+			row = append(row, localListCell(column.name, upload))
+		}
+		rows = append(rows, row)
+	}
+	return printListTable(w, columns, rows)
+}
+
+// printListTable writes an aligned table, or nothing at all when there are no
+// rows, so an empty listing keeps stdout empty (SPEC.md §1).
+func printListTable(
+	w io.Writer, columns []listColumn, rows [][]string,
+) error {
+	if len(rows) == 0 {
 		return nil
 	}
 
+	headers := make([]string, 0, len(columns))
+	for _, column := range columns {
+		headers = append(headers, column.header)
+	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(
-		tw, "DATE\tPROFILE\tSTATE\tTITLE\tSIZE\tURL",
-	); err != nil {
+	if _, err := fmt.Fprintln(tw, strings.Join(headers, "\t")); err != nil {
 		return err
 	}
-	for _, upload := range uploads {
-		title := upload.Title
-		if title == "" {
-			title = "-"
-		}
-		profile := upload.Profile
-		if profile == "" {
-			profile = "<root>"
-		}
-		state := "legacy"
-		if airplan.IsSupportedMarkerVersion(upload.MarkerVersion) {
-			state = "managed"
-		}
-
-		if _, err := fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%s\t%s\n",
-			upload.Time.UTC().Format("2006-01-02 15:04"),
-			profile,
-			state,
-			title,
-			formatListBytes(upload.Bytes),
-			upload.URL,
-		); err != nil {
+	for _, row := range rows {
+		if _, err := fmt.Fprintln(tw, strings.Join(row, "\t")); err != nil {
 			return err
 		}
 	}

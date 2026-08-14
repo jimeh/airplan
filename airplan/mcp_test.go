@@ -3,6 +3,7 @@ package airplan
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -92,6 +93,320 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 				t.Fatalf("result = %+v", result)
 			}
 		})
+	}
+}
+
+// TestMCPListUploadsOrdersManifestByRecordTime covers the MCP tool's manifest
+// listing, which reduces the manifest through the service scope rather than
+// through ListManifestHistory (SPEC.md §9).
+func TestMCPListUploadsOrdersManifestByRecordTime(t *testing.T) {
+	client, err := New(context.Background(), &Config{
+		Backend: BackendS3, Bucket: "plans", Profile: "work",
+		ManifestPath: writeUnorderedManifest(t), Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded := callMCPListUploads(t, client, true,
+		map[string]any{"source": "manifest"})
+	var output struct {
+		Manifest ManifestList `json:"manifest"`
+	}
+	if err := json.Unmarshal(encoded, &output); err != nil {
+		t.Fatalf("json.Unmarshal %s: %v", encoded, err)
+	}
+	assertRecordTitles(t, output.Manifest.Records, "a", "b", "c")
+}
+
+func TestMCPListManifestProfileVisibility(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		localFiles bool
+		want       string
+	}{
+		{"local retains profile", true, "private-profile"},
+		{"hosted blanks profile", false, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			transport := &mcpTestTransport{listResult: &ManifestList{
+				Records: []ManifestRecord{{
+					Type: "upload", Profile: "private-profile", Title: "plan",
+				}},
+			}}
+			client := &Client{cfg: &Config{}, remote: transport}
+			encoded := callMCPListUploads(t, client, test.localFiles,
+				map[string]any{"source": "manifest"})
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(encoded, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if _, exists := fields["storage"]; exists {
+				t.Fatalf("manifest output unexpectedly contains storage: %s", encoded)
+			}
+			var output mcpListOutput
+			if err := json.Unmarshal(encoded, &output); err != nil {
+				t.Fatal(err)
+			}
+			if output.Manifest == nil || len(output.Manifest.Records) != 1 ||
+				output.Manifest.Records[0].Profile != test.want {
+				t.Fatalf("output = %s, want profile %q", encoded, test.want)
+			}
+		})
+	}
+}
+
+func TestMCPListEmptyStorageSerializesArray(t *testing.T) {
+	transport := &mcpTestTransport{remoteResult: nil}
+	client := &Client{cfg: &Config{}, remote: transport}
+	encoded := callMCPListUploads(t, client, true,
+		map[string]any{"source": "storage"})
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		t.Fatal(err)
+	}
+	storage, ok := fields["storage"]
+	if !ok || string(storage) != "[]" {
+		t.Fatalf("output = %s, want storage: []", encoded)
+	}
+}
+
+// TestMCPListUploadsFilters covers filter parity with the CLI: the MCP tool
+// selects the same uploads from the same fixture (SPEC.md §9).
+func TestMCPListUploadsFilters(t *testing.T) {
+	path := writeUnorderedManifest(t)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendS3, Bucket: "plans", Profile: "work",
+		ManifestPath: path, Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", true)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	listTitles := func(t *testing.T, args map[string]any) []string {
+		t.Helper()
+		result, err := session.CallTool(ctx, &mcp.CallToolParams{
+			Name: "list_uploads", Arguments: args,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.IsError {
+			t.Fatalf("result = %+v", result)
+		}
+		encoded, err := json.Marshal(result.StructuredContent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var output struct {
+			Manifest ManifestList `json:"manifest"`
+		}
+		if err := json.Unmarshal(encoded, &output); err != nil {
+			t.Fatalf("json.Unmarshal %s: %v", encoded, err)
+		}
+		titles := make([]string, 0, len(output.Manifest.Records))
+		for _, record := range output.Manifest.Records {
+			titles = append(titles, record.Title)
+		}
+		return titles
+	}
+
+	// writeUnorderedManifest records three uploads an hour apart at 12:00,
+	// 13:00, and 14:00 UTC on 2026-07-08.
+	tests := []struct {
+		name string
+		args map[string]any
+		want []string
+	}{
+		{
+			"unfiltered",
+			map[string]any{"source": "manifest"},
+			[]string{"a", "b", "c"},
+		},
+		{
+			"newer than keeps the threshold",
+			map[string]any{
+				"source": "manifest", "newer_than": "2026-07-08T13:00:00Z",
+			},
+			[]string{"b", "c"},
+		},
+		{
+			"older than excludes the threshold",
+			map[string]any{
+				"source": "manifest", "older_than": "2026-07-08T13:00:00Z",
+			},
+			[]string{"a"},
+		},
+		{
+			// Year one is a boundary, not an absent argument.
+			"older than year one selects nothing",
+			map[string]any{
+				"source": "manifest", "older_than": "0001-01-01T00:00:00Z",
+			},
+			nil,
+		},
+		{
+			"limit keeps the most recent",
+			map[string]any{"source": "manifest", "limit": 1},
+			[]string{"c"},
+		},
+		{
+			"limit zero selects nothing",
+			map[string]any{"source": "manifest", "limit": 0},
+			nil,
+		},
+		{
+			"kind",
+			map[string]any{"source": "manifest", "kind": "collection"},
+			nil,
+		},
+		{
+			"slug glob",
+			map[string]any{"source": "manifest", "slug": "b"},
+			[]string{"b"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := listTitles(t, tt.args)
+			if len(got) != len(tt.want) {
+				t.Fatalf("titles = %q, want %q", got, tt.want)
+			}
+			for index := range tt.want {
+				if got[index] != tt.want[index] {
+					t.Fatalf("titles = %q, want %q", got, tt.want)
+				}
+			}
+		})
+	}
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_uploads",
+		Arguments: map[string]any{
+			"source": "manifest", "kind": "page",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatalf("result = %+v, want an invalid-kind error", result)
+	}
+}
+
+func TestMCPListFilterPresence(t *testing.T) {
+	for _, field := range []string{"newer_than", "older_than", "kind", "slug"} {
+		t.Run("explicit empty "+field, func(t *testing.T) {
+			var input mcpListInput
+			if err := json.Unmarshal([]byte(`{"`+field+`":""}`), &input); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := input.listFilter(time.Now()); err == nil {
+				t.Fatalf("explicit empty %s was treated as omitted", field)
+			}
+		})
+	}
+	omitted, err := (mcpListInput{}).listFilter(time.Now())
+	if err != nil || omitted != (ListFilter{}) {
+		t.Fatalf("omitted filters = %+v, %v; want zero-value filter", omitted, err)
+	}
+	zero := 0
+	filter, err := (mcpListInput{Limit: &zero}).listFilter(time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected := filter.FilterManifestRecords([]ManifestRecord{{Title: "one"}}); len(selected) != 0 {
+		t.Fatalf("explicit limit zero selected %+v", selected)
+	}
+}
+
+func TestHostedMCPListFilterErrorsAreSanitizedBeforeListing(t *testing.T) {
+	const sentinel = "private-filter-value-sentinel"
+	transport := &mcpTestTransport{listResult: &ManifestList{}}
+	client := &Client{cfg: &Config{}, remote: transport}
+	var logs bytes.Buffer
+	logger := serverlog.New(&logs, serverlog.LevelTrace)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServerWithOptions(client, "test", MCPServerOptions{
+		Logger: logger,
+	})
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "test"}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_uploads", Arguments: map[string]any{
+			"source": "manifest", "newer_than": sentinel,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visible := string(encoded)
+	if !result.IsError || strings.Contains(visible, sentinel) ||
+		!strings.Contains(visible, "invalid list filter arguments") {
+		t.Fatalf("hosted result = %s, want sanitized tool error", visible)
+	}
+	if output := logs.String(); strings.Contains(output, sentinel) ||
+		!strings.Contains(output, "error_class=invalid_list_filter") {
+		t.Fatalf("hosted logs = %s, want safe invalid-list-filter class", output)
+	}
+	if transport.listCalls != 0 {
+		t.Fatalf("invalid filter performed %d list calls", transport.listCalls)
+	}
+	invalidSource, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_uploads", Arguments: map[string]any{
+			"source": "private-invalid-source-sentinel",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err = json.Marshal(invalidSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if visible := string(encoded); !invalidSource.IsError ||
+		!strings.Contains(visible, "source must be manifest or storage") ||
+		strings.Contains(visible, "private-invalid-source-sentinel") {
+		t.Fatalf("hosted source result = %s, want safe enumeration error", visible)
+	}
+	var localInput mcpListInput
+	if err := json.Unmarshal([]byte(`{"newer_than":"`+sentinel+`"}`), &localInput); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := localInput.listFilter(time.Now()); err == nil || !strings.Contains(err.Error(), sentinel) {
+		t.Fatalf("local filter error = %v, want detailed request value", err)
 	}
 }
 
@@ -512,6 +827,57 @@ type mcpTestTransport struct {
 	syncErr      error
 	purgeResult  *PurgeResult
 	purgeErr     error
+	listResult   *ManifestList
+	listCalls    int
+	remoteResult []RemoteUpload
+}
+
+func (t *mcpTestTransport) ListManifest(
+	context.Context, ListManifestOptions,
+) (*ManifestList, error) {
+	t.listCalls++
+	return t.listResult, nil
+}
+
+func (t *mcpTestTransport) ListRemote(context.Context) ([]RemoteUpload, error) {
+	return t.remoteResult, nil
+}
+
+func callMCPListUploads(
+	t *testing.T, client *Client, localFiles bool, arguments map[string]any,
+) []byte {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", localFiles)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "list_uploads", Arguments: arguments,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("result = %+v", result)
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return encoded
 }
 
 func (t *mcpTestTransport) Upload(context.Context, Input) (*Result, error) {

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -530,6 +531,212 @@ func TestPurgeDryRunDeletesNothing(t *testing.T) {
 	}
 	if got := airplan.ActiveUploads(records); len(got) != 1 {
 		t.Fatalf("active uploads = %d, want 1", len(got))
+	}
+}
+
+// TestPurgeOlderThanAcceptsAbsoluteDates covers purge adopting the shared
+// time-filter parser: an absolute boundary selects the same way an age does,
+// and an ambiguous slash date is refused rather than guessed.
+func TestPurgeOlderThanAcceptsAbsoluteDates(t *testing.T) {
+	records := []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "ancient", "",
+			time.Date(2024, 5, 1, 12, 0, 0, 0, time.UTC)),
+		uploadRecord(deleteDirB, "recent", "",
+			time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)),
+	}
+
+	t.Run("absolute date", func(t *testing.T) {
+		isolateEnv(t)
+		writeDefaultManifest(t, records)
+
+		stdout, stderr, err := executeCommand(t, "", "",
+			"purge", "--older-than", "2026-01-01", "--dry-run")
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		if stdout != "" {
+			t.Fatalf("stdout = %q, want empty", stdout)
+		}
+		if !strings.Contains(stderr, "ancient.html") {
+			t.Fatalf("stderr = %q, want the 2024 upload", stderr)
+		}
+		if strings.Contains(stderr, "recent.html") {
+			t.Fatalf("stderr = %q, did not want the 2026 upload", stderr)
+		}
+	})
+
+	t.Run("ambiguous slash date", func(t *testing.T) {
+		isolateEnv(t)
+		writeDefaultManifest(t, records)
+
+		stdout, stderr, err := executeCommand(t, "", "",
+			"purge", "--older-than", "03/04/2026", "--dry-run")
+		if err == nil {
+			t.Fatalf("error = nil, want a parse error\nstderr: %s", stderr)
+		}
+		if !strings.Contains(err.Error(),
+			`--older-than: invalid time "03/04/2026" (ambiguous date; `+
+				`write the year first, as 2026-03-04)`) {
+			t.Fatalf("error = %q", err)
+		}
+		if stdout != "" || strings.Contains(stderr, ".html") {
+			t.Fatalf("stdout = %q, stderr = %q, want no candidates",
+				stdout, stderr)
+		}
+	})
+}
+
+// TestPurgeOlderThanRejectsZeroAge covers the degenerate-filter guard. An age
+// of zero resolves to "everything recorded before now", which is what a
+// script's unset or miscomputed age variable expands to, so purge must refuse
+// it instead of emptying the bucket.
+func TestPurgeOlderThanRejectsZeroAge(t *testing.T) {
+	for _, age := range []string{"0d", "0s", "0h0m", "0w"} {
+		t.Run(age, func(t *testing.T) {
+			isolateEnv(t)
+			writeDefaultManifest(t, []airplan.ManifestRecord{
+				uploadRecord(deleteDirA, "alpha", "",
+					time.Now().Add(-60*24*time.Hour)),
+				uploadRecord(deleteDirB, "beta", "",
+					time.Now().Add(-time.Hour)),
+			})
+			fake := newFakeDeleteS3(t, map[string][]string{
+				deleteDirA + "/": {deleteDirA + "/alpha.html"},
+				deleteDirB + "/": {deleteDirB + "/beta.html"},
+			}, nil)
+
+			stdout, stderr, err := executeCommand(t, "", "", "purge",
+				"--older-than", age, "--yes",
+				"--config", writeCLIConfig(t, fake.server.URL))
+			if err == nil {
+				t.Fatalf("error = nil, want a refusal\nstderr:\n%s", stderr)
+			}
+			if !strings.Contains(err.Error(),
+				"--older-than: must select a time in the past; "+
+					"use --all to purge everything") {
+				t.Fatalf("error = %q", err)
+			}
+			if stdout != "" {
+				t.Fatalf("stdout = %q, want empty", stdout)
+			}
+			if fake.deleteCalls() != 0 || fake.markerDeleteCalls() != 0 {
+				t.Fatalf("delete calls = %d, marker deletes = %d; want none",
+					fake.deleteCalls(), fake.markerDeleteCalls())
+			}
+
+			records, warnings, err := airplan.ReadManifest("")
+			if err != nil || len(warnings) != 0 {
+				t.Fatalf("ReadManifest: %v %v", err, warnings)
+			}
+			if got := airplan.ActiveUploads(records); len(got) != 2 {
+				t.Fatalf("active uploads = %d, want 2 untouched", len(got))
+			}
+		})
+	}
+}
+
+// TestPurgeOlderThanRejectsYearOneBoundary covers the other degenerate
+// boundary: purge's library option treats a zero time as "no age filter", so a
+// year-one date would silently widen --all to every upload instead of matching
+// the nothing that `list --older-than` selects for the same value.
+func TestPurgeOlderThanRejectsYearOneBoundary(t *testing.T) {
+	isolateEnv(t)
+	writeDefaultManifest(t, []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "alpha", "",
+			time.Now().Add(-60*24*time.Hour)),
+	})
+
+	stdout, stderr, err := executeCommand(t, "", "", "purge", "--all",
+		"--older-than", "0001-01-01T00:00:00Z", "--dry-run")
+	if err == nil {
+		t.Fatalf("error = nil, want a refusal\nstderr: %s", stderr)
+	}
+	if !strings.Contains(err.Error(),
+		"--older-than: that boundary selects nothing; "+
+			"no upload is older than year one") {
+		t.Fatalf("error = %q", err)
+	}
+	if stdout != "" || strings.Contains(stderr, "alpha.html") {
+		t.Fatalf("stdout = %q, stderr = %q, want no candidates",
+			stdout, stderr)
+	}
+}
+
+// TestPurgeOlderThanRejectsExplicitFutureDate pins the destructive boundary:
+// a future absolute date selects every existing upload and remains invalid
+// even when --all is also present.
+func TestPurgeOlderThanRejectsExplicitFutureDate(t *testing.T) {
+	isolateEnv(t)
+	writeDefaultManifest(t, []airplan.ManifestRecord{
+		uploadRecord(deleteDirA, "alpha", "",
+			time.Now().Add(-60*24*time.Hour)),
+	})
+
+	for _, args := range [][]string{
+		{"purge", "--older-than", "2099-01-01", "--dry-run"},
+		{"purge", "--all", "--older-than", "2099-01-01", "--dry-run"},
+	} {
+		stdout, stderr, err := executeCommand(t, "", "", args...)
+		if err == nil || !strings.Contains(err.Error(),
+			"--older-than: must select a time in the past") {
+			t.Fatalf("args = %q, error = %v, want past-only refusal", args, err)
+		}
+		if stdout != "" || strings.Contains(stderr, "alpha.html") {
+			t.Fatalf("stdout = %q, stderr = %q, want no candidates", stdout, stderr)
+		}
+	}
+}
+
+func TestPurgeOlderThanRejectsExplicitEmpty(t *testing.T) {
+	for _, args := range [][]string{
+		{"purge", "--older-than=", "--yes"},
+		{"purge", "--remote", "--older-than=", "--yes"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			isolateEnv(t)
+			stdout, stderr, err := executeCommand(t, "", "", args...)
+			if err == nil || !strings.Contains(err.Error(),
+				`--older-than: invalid time ""`) {
+				t.Fatalf("error = %v, want explicit-empty parse error", err)
+			}
+			if stdout != "" || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, want empty", stdout, stderr)
+			}
+		})
+	}
+}
+
+// TestPurgeDryRunListsCandidatesOldestFirst pins purge candidate order to
+// manifest listing order (SPEC.md §9), including when manifest file order
+// disagrees with record time as it does after a sync import.
+func TestPurgeDryRunListsCandidatesOldestFirst(t *testing.T) {
+	isolateEnv(t)
+	now := time.Now()
+	writeDefaultManifest(t, []airplan.ManifestRecord{
+		uploadRecord(deleteDirC, "newest", "", now.Add(-10*24*time.Hour)),
+		uploadRecord(deleteDirA, "oldest", "", now.Add(-30*24*time.Hour)),
+		uploadRecord(deleteDirB, "middle", "", now.Add(-20*24*time.Hour)),
+	})
+
+	stdout, stderr, err := executeCommand(t, "", "", "purge", "--all",
+		"--dry-run")
+	if err != nil {
+		t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q, want empty", stdout)
+	}
+	var slugs []string
+	for _, line := range strings.Split(strings.TrimSpace(stderr), "\n") {
+		for _, slug := range []string{"oldest", "middle", "newest"} {
+			if strings.Contains(line, "/"+slug+".html") {
+				slugs = append(slugs, slug)
+			}
+		}
+	}
+	if !slices.Equal(slugs, []string{"oldest", "middle", "newest"}) {
+		t.Fatalf("candidates = %q, want oldest first\nstderr:\n%s",
+			slugs, stderr)
 	}
 }
 

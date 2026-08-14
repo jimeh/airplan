@@ -36,10 +36,22 @@ type SyncFailure struct {
 type SyncManifestResult struct {
 	// Added contains upload records planned or appended by this run.
 	Added []ManifestRecord `json:"added_records"`
+	// Enriched contains records already in local history that this run
+	// completed with declared totals. They are appends of existing uploads,
+	// never new ones, so they are counted apart from Added (SPEC.md §9).
+	Enriched []ManifestRecord `json:"enriched_records"`
 	// Tombstoned contains delete records planned or appended by this run.
 	Tombstoned []ManifestRecord `json:"tombstone_records"`
-	// Unchanged counts remote markers already active in the local manifest.
+	// Unchanged counts remote markers already active and complete in the
+	// local manifest. A record selected for enrichment is reported as
+	// enriched or deferred instead, never as unchanged.
 	Unchanged int `json:"unchanged"`
+	// Deferred counts active records whose declared totals could not be
+	// completed this run, because their marker could not be fetched or is not
+	// currently usable. Enrichment is metadata completion for uploads already
+	// in history, so a deferred one warns and retries on a later run rather
+	// than failing the sync (SPEC.md §9).
+	Deferred int `json:"deferred"`
 	// Incomplete counts valid markers whose declared payload is incomplete.
 	Incomplete int `json:"incomplete"`
 	// Invalid counts marker bodies that fail marker validation.
@@ -103,19 +115,32 @@ func (c *Client) SyncManifest(
 	remoteByMarker := make(map[string]RemoteUpload, len(remote))
 	for _, upload := range remote {
 		remoteByMarker[upload.MarkerKey] = upload
-		if _, ok := active[upload.MarkerKey]; ok {
-			result.Unchanged++
-		}
 	}
 
 	jobs := make([]syncJob, 0, len(remote)+len(active))
 	for index := range remote {
 		upload := remote[index]
-		if _, ok := active[upload.MarkerKey]; !ok {
+		local, known := active[upload.MarkerKey]
+		if !known {
 			jobs = append(jobs, syncJob{
-				markerKey: upload.MarkerKey, upload: &upload,
+				kind: syncJobImport, markerKey: upload.MarkerKey,
+				upload: &upload,
 			})
+			continue
 		}
+		// An already-active record still needs its marker inspected when it
+		// predates declared totals, so history converges in one pass without
+		// re-importing anything (SPEC.md §9). Such a record is reported by its
+		// outcome, so it is not also counted as unchanged.
+		if manifestRecordNeedsTotals(local) {
+			record := local
+			jobs = append(jobs, syncJob{
+				kind: syncJobEnrich, markerKey: upload.MarkerKey,
+				upload: &upload, local: &record,
+			})
+			continue
+		}
+		result.Unchanged++
 	}
 	if opts.Prune {
 		markerKeys := make([]string, 0, len(active))
@@ -129,7 +154,7 @@ func (c *Client) SyncManifest(
 			}
 			record := active[markerKey]
 			jobs = append(jobs, syncJob{
-				markerKey: markerKey, local: &record,
+				kind: syncJobPrune, markerKey: markerKey, local: &record,
 			})
 		}
 	}
@@ -146,9 +171,14 @@ func (c *Client) SyncManifest(
 			defer wg.Done()
 			for index := range jobCh {
 				job := jobs[index]
-				if job.upload != nil {
+				switch job.kind {
+				case syncJobImport:
 					jobResults[index] = c.syncImport(ctx, *job.upload)
-				} else {
+				case syncJobEnrich:
+					jobResults[index] = c.syncEnrich(
+						ctx, *job.upload, *job.local,
+					)
+				case syncJobPrune:
 					jobResults[index] = c.syncPrune(ctx, *job.local)
 				}
 			}
@@ -180,11 +210,17 @@ func (c *Client) SyncManifest(
 		if item.upload != nil {
 			result.Added = append(result.Added, *item.upload)
 		}
+		if item.enriched != nil {
+			result.Enriched = append(result.Enriched, *item.enriched)
+		}
 		if item.tombstone != nil {
 			result.Tombstoned = append(result.Tombstoned, *item.tombstone)
 		}
 		if item.retained {
 			result.Retained++
+		}
+		if item.deferred {
+			result.Deferred++
 		}
 		if item.failure != nil {
 			result.Failures = append(result.Failures, *item.failure)
@@ -194,7 +230,8 @@ func (c *Client) SyncManifest(
 		}
 	}
 
-	if !opts.DryRun && (len(result.Added) > 0 || len(result.Tombstoned) > 0) {
+	if !opts.DryRun && (len(result.Added) > 0 || len(result.Enriched) > 0 ||
+		len(result.Tombstoned) > 0) {
 		initialLen := len(records)
 		if err := c.commitSyncManifest(
 			ctx, manifestPath, initialLen, result,
@@ -211,7 +248,7 @@ func (c *Client) SyncManifest(
 
 func syncFailureForContext(job syncJob, err error) *SyncFailure {
 	operation := "fetch"
-	if job.local != nil {
+	if job.kind == syncJobPrune {
 		operation = "confirm_absence"
 	}
 	return &SyncFailure{
@@ -248,6 +285,7 @@ func (c *Client) syncImport(
 	if inspection.Page.Bytes <= 0 {
 		return syncJobResult{state: UploadIncomplete}
 	}
+	declared := declaredTotalsFromInspection(inspection)
 	record := ManifestRecord{
 		Type: "upload", Time: inspection.CreatedAt.UTC(),
 		Key: inspection.Page.Key, MarkerKey: inspection.MarkerKey,
@@ -255,7 +293,11 @@ func (c *Client) syncImport(
 		Profile: c.cfg.Profile, Format: inspection.Format,
 		Kind:  string(inspection.Kind),
 		Title: inspection.Title, Repo: inspection.Repo,
-		Bytes: inspection.Page.Bytes, MarkerVersion: inspection.MarkerVersion,
+		Bytes:      inspection.Page.Bytes,
+		Objects:    declared.objects,
+		TotalBytes: declared.bytes,
+
+		MarkerVersion: inspection.MarkerVersion,
 	}
 	if inspection.Kind == UploadKindDocument {
 		record.Slug, _ = pageSlug(path.Base(inspection.Page.Key))
@@ -268,6 +310,68 @@ func (c *Client) syncImport(
 		result.warning = inspection.Warnings[0]
 	}
 	return result
+}
+
+// manifestRecordNeedsTotals reports whether a record predates declared totals
+// and could still gain them. Only records missing both fields qualify, so one
+// pass converges. Only a marker that declares every object's size can supply
+// them. Marker v3 always qualifies; v2 qualifies only without a source, while
+// v1 and v2-with-source are left alone rather than re-fetched by every run.
+func manifestRecordNeedsTotals(rec ManifestRecord) bool {
+	if rec.Objects != 0 || rec.TotalBytes != 0 {
+		return false
+	}
+	switch rec.MarkerVersion {
+	case MarkerVersion:
+		return true
+	case 2:
+		return rec.SourceKey == ""
+	default:
+		return false
+	}
+}
+
+// syncEnrich fills in declared totals for an active local record by inspecting
+// its existing marker (SPEC.md §9). It appends an enriched copy of the record,
+// preserving its original time and identity, so append-only history holds and
+// latest-wins reduction collapses the pair.
+func (c *Client) syncEnrich(
+	ctx context.Context, upload RemoteUpload, record ManifestRecord,
+) syncJobResult {
+	inspection, err := c.inspectListedUpload(ctx, upload)
+	if err != nil {
+		return deferredEnrichment(upload.MarkerKey, err.Error())
+	}
+	// An incomplete or invalid marker leaves the fields absent rather than
+	// guessing, and leaves the record itself untouched. These states describe
+	// an upload already in local history, so they do not join the incomplete
+	// and invalid counters, which report on import candidates.
+	if inspection.State != UploadComplete {
+		return deferredEnrichment(upload.MarkerKey,
+			fmt.Sprintf("marker is %s", inspection.State))
+	}
+	declared := declaredTotalsFromInspection(inspection)
+	if declared.objects == 0 {
+		return deferredEnrichment(upload.MarkerKey,
+			"marker declares no object sizes")
+	}
+	enriched := record
+	enriched.Objects = declared.objects
+	enriched.TotalBytes = declared.bytes
+	return syncJobResult{enriched: &enriched}
+}
+
+// deferredEnrichment reports one record whose declared totals could not be
+// completed. It is a warning and a counter, never a sync failure: the upload
+// is already in local history and only its metadata is missing, so failing the
+// run would make an unreadable marker fail every later run too.
+func deferredEnrichment(markerKey, reason string) syncJobResult {
+	return syncJobResult{
+		deferred: true,
+		warning: fmt.Sprintf(
+			"declared totals deferred for marker %q: %s", markerKey, reason,
+		),
+	}
 }
 
 func (c *Client) syncPrune(
@@ -323,6 +427,33 @@ func (c *Client) commitSyncManifest(
 			appendedUploads = append(appendedUploads, rec)
 			active[markerKey] = rec
 		}
+		// An enriched record re-states an upload that must still be active in
+		// the manifest as just reread under the lock. A concurrent tombstone
+		// removes its identity from that snapshot, so appending it here can
+		// never resurrect a deleted upload; a concurrent enrichment leaves the
+		// identity no longer missing its totals, so this run adds nothing.
+		appendedEnriched := make([]ManifestRecord, 0, len(result.Enriched))
+		for _, rec := range result.Enriched {
+			markerKey := manifestMarkerKey(rec)
+			existing, exists := active[markerKey]
+			if !exists || !manifestRecordNeedsTotals(existing) {
+				continue
+			}
+			// A concurrent re-upload or replacement under the same marker key
+			// invalidates the inspection snapshot. Metadata-only edits retain
+			// these identity fields and are safe to merge into.
+			if !existing.Time.Equal(rec.Time) || existing.Key != rec.Key {
+				continue
+			}
+			// Enrichment adds two fields; it must not carry the rest of the
+			// pre-lock snapshot forward, or a record updated concurrently
+			// would be reverted by latest-wins reduction.
+			merged := existing
+			merged.Objects = rec.Objects
+			merged.TotalBytes = rec.TotalBytes
+			appendedEnriched = append(appendedEnriched, merged)
+			active[markerKey] = merged
+		}
 		appendedTombstones := make([]ManifestRecord, 0,
 			len(result.Tombstoned))
 		for _, rec := range result.Tombstoned {
@@ -335,12 +466,14 @@ func (c *Client) commitSyncManifest(
 			appendedTombstones = append(appendedTombstones, rec)
 			delete(active, manifestMarkerKey(rec))
 		}
-		all := append(append([]ManifestRecord(nil), appendedUploads...),
-			appendedTombstones...)
+		all := append([]ManifestRecord(nil), appendedUploads...)
+		all = append(all, appendedEnriched...)
+		all = append(all, appendedTombstones...)
 		if err := appendManifestRecordsUnlocked(path, all); err != nil {
 			return err
 		}
 		result.Added = appendedUploads
+		result.Enriched = appendedEnriched
 		result.Tombstoned = appendedTombstones
 		return nil
 	})
@@ -400,14 +533,30 @@ func hasConcurrentDelete(
 
 type syncJobResult struct {
 	upload    *ManifestRecord
+	enriched  *ManifestRecord
 	tombstone *ManifestRecord
 	failure   *SyncFailure
 	warning   string
 	state     UploadState
 	retained  bool
+	deferred  bool
 }
 
+// syncJobKind selects what a sync worker does with one marker key.
+type syncJobKind int
+
+const (
+	// syncJobImport validates a remote marker missing from local history.
+	syncJobImport syncJobKind = iota
+	// syncJobPrune confirms a local record's marker is really absent.
+	syncJobPrune
+	// syncJobEnrich fills in declared totals for an active local record that
+	// predates them (SPEC.md §9).
+	syncJobEnrich
+)
+
 type syncJob struct {
+	kind      syncJobKind
 	markerKey string
 	upload    *RemoteUpload
 	local     *ManifestRecord

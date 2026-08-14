@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.29.0**
+**Spec version: 0.31.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -660,7 +660,10 @@ one-off use.
 Frequent flags get short forms: `-p` (`--profile`), `-s` (`--slug`),
 `-t` (`--title`), `-j` (`--json`), and `-o` (`--open`). On subcommands,
 `-r` is `--remote` for `list` and `purge`, while `-o` is `--output` for
-`preview` and `get`. Connection overrides stay long-only.
+`preview` and `get`, and `-A` is `list --all-profiles`. Connection overrides
+stay long-only, as do `list`'s
+table options `--columns`, `--wide`, and `--reverse` (§9); `-c` is already
+`--config`.
 `airplan completion bash|zsh|fish|powershell` emits shell completions.
 
 If `--open` fails to launch a browser (common in headless/agent
@@ -780,11 +783,14 @@ airplan skill
 airplan template [document|collection]
 airplan preview [flags] [file ...]
 airplan completion bash|zsh|fish|powershell
-airplan list|ls [--remote] [--json]
+airplan list|ls [--remote] [--json] [--columns SET] [--wide] [--reverse]
+                [--newer-than X] [--older-than X] [--limit N]
+                [--kind document|collection] [--slug PATTERN]
+                [-p NAME|--profile NAME|--profile=] [-A|--all-profiles]
 airplan show [--json] <url|key>
 airplan get [--output PATH] [--source] <url|key>
 airplan delete <url|key>
-airplan purge [--remote] [--older-than 30d]
+airplan purge [--remote] [--older-than 30d|2026-01-01]
               [--all] [--dry-run] [--yes] [--concurrency N]
 airplan sync [--config PATH] [--profile NAME] [--concurrency N]
              [--no-prune] [--dry-run] [--json]
@@ -1255,13 +1261,14 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
- "bytes":18432,"marker_version":3}
+ "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":3}
 {"type":"upload","time":"2026-07-21T12:03:00Z",
  "key":"gaj4.../index.html",
  "marker_key":"gaj4.../.airplan-collection.json",
  "url":"https://plans.example.com/gaj4.../index.html",
  "bucket":"plans","profile":"work","kind":"collection",
- "title":"login.png and 1 more","bytes":9216,"marker_version":3}
+ "title":"login.png and 1 more","bytes":9216,"objects":4,
+ "total_bytes":203512,"marker_version":3}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
@@ -1274,7 +1281,15 @@ conforming implementations can share a manifest:
   are present for documents and omitted for collections. `source_key` is
   document-only and omitted for HTML or under `--no-source`. `key` and `url`
   identify the primary page; `bytes` describes that page, not collection
-  payload bytes. `title` is omitted when empty; `profile` is omitted for
+  payload bytes. `objects` counts the ownership marker plus every object the
+  marker declares, and `total_bytes` sums their declared sizes; both are
+  optional and absent together on history written before airplan recorded
+  them, and on uploads whose marker cannot declare every counted size. Marker
+  v3 always qualifies; marker v2 qualifies only when it declares no source;
+  marker v1 and v2-with-source do not. When present, both fields are positive;
+  a record with only one field or an explicit zero is invalid. They are
+  additive: `bytes` keeps its own meaning and is never repurposed. `title` is
+  omitted when empty; `profile` is omitted for
   root-level settings. `marker_key` is the exact kind-specific ownership key.
   `repo` preserves canonical repository metadata. The full collection
   inventory remains only in the remote marker.
@@ -1319,18 +1334,91 @@ machine) and must be safe:
 
 ### Commands
 
-- `airplan list`: past uploads from the manifest (date, profile,
-  management state, title, human-readable binary size, URL); `--json`
-  for scripting with exact byte counts. Table state is `managed` for
-  the supported `marker_version` and `legacy` when the field is absent.
-  Both appear in history without warning; legacy entries remain
-  ineligible for delete reconciliation and purge.
-- With no resolvable configuration or backend selection, `list` assumes `s3`
-  and reads the resolved local manifest without requiring storage credentials.
-  Local S3 listing with no explicit profile shows every recorded profile; an
-  explicit `--profile NAME` filters that exact profile, and `--profile=`
-  selects root-level history. If configuration selects an `airplan` profile,
-  `list` calls the server's manifest endpoint. `--config` is therefore valid
+- `airplan list`: past uploads from the manifest, by default date, kind,
+  title, object count, human-readable binary size, and URL; `--json` for scripting with
+  exact byte counts. Rows sort by record time, then ownership marker key, so
+  local history reads in the same order as a remote listing even when `sync`
+  appended imported uploads after later local ones. Clients reapply this order
+  to manifest responses from older Airplan HTTP servers before filtering or
+  limiting them. `--reverse` prints newest
+  first, in the table and in `--json`. `KIND` is the record's kind, with
+  legacy history reading as `document` under the record-schema inference above;
+  it shows `-` only when no kind is known at all, as in a served record that
+  declares none. `OBJECTS` and `SIZE` use the same column vocabulary as remote
+  listing but report the local upload's marker-declared object count and total
+  size; storage-observed remote values can differ as described below. Both
+  read `-` for history that predates them, which `sync` fills in. The wide
+  `PAGE SIZE` column always reports the primary page alone,
+  and `bytes` keeps that meaning in `--json`. `STATE` is `managed` for the supported
+  `marker_version` and `legacy` when the field is absent. Both appear in
+  history without warning; legacy entries remain ineligible for delete
+  reconciliation and purge.
+- Table columns are one vocabulary shared by local and remote listing, and
+  always print in the canonical order `date`, `profile`, `state`, `kind`,
+  `title`, `slug`, `objects`, `size`, `page-size`, `dir`, `format`, `repo`,
+  `bucket`, `url`. Local listing offers every one of them; remote
+  listing offers `date`, `kind`, `slug`, `objects`, `size`, `dir`, and `url`.
+  Three columns are automatic: `profile` when the printed rows span more than
+  one profile, `state` when any row is legacy history, and `dir` when any row
+  has no URL to identify it by. They appear in the default set only when their
+  rule holds, so a column never occupies width without carrying information.
+  `--columns date,title,url` selects an absolute set and suppresses automatic
+  columns; `--columns +dir,-title` adjusts the mode's default set instead. The
+  two forms do not mix, requested order does not change the canonical order,
+  and repeated names collapse. An unknown name is an error listing the mode's
+  valid names; a name valid only in the other mode is an error naming that
+  mode rather than a silently blank column; so is a selection that leaves no
+  columns at all. `--wide` prints every column the mode offers and combines
+  with neither `--columns` nor `--json`. Column selection is presentation, so
+  `--columns` and `--wide` are rejected with `--json`, while `--reverse`
+  reorders both outputs.
+- `list` filters are selection, not presentation, so they apply to both listing
+  modes and to the table and `--json` alike. `--newer-than X` keeps uploads
+  recorded at or after `X`; `--older-than X` keeps uploads recorded strictly
+  before it, the same boundary `purge --older-than` uses, so the two bounds
+  partition a timeline without overlap or gap. `--limit N` keeps the **N most
+  recent** matches and still prints them oldest first; it applies after the
+  other filters, `--limit 0` selects nothing, and a negative value is an error.
+  `--kind document|collection` selects one kind, counting legacy history that
+  omits `kind` as a document and never matching a remote dual-marker conflict,
+  which declares no kind. `--slug PATTERN` is a glob over document slugs with
+  the same meaning as `purge --slug`: collections are excluded even from
+  `--slug '*'`, an upload with no known slug never matches, and a local record
+  that omits `slug` uses the one derived from its page key. Filters compose,
+  and `--reverse` reorders whatever they selected. Supplying any string filter
+  explicitly with an empty value is an error; omission alone means no filter.
+  MCP requests preserve the same distinction, while an explicit limit of zero
+  selects nothing.
+- `--newer-than` and `--older-than` accept exactly two forms. An age, as
+  `purge --older-than` has always accepted, including `d` and `w` units:
+  `7d`, `2w`, `36h`, `1h30m`. Or an absolute date: `2026`, `2026-07`,
+  `2026-07-01`, `2026/07/01`, `2026-07-01 09:30`, `2026-07-01T09:30`,
+  `2026-07-01T09:30:00`, or strict RFC 3339 with `Z` or a numeric offset.
+  Zoned timestamps accept dot fractional seconds, reject comma fractions, and
+  require offset hours and minutes within `00..23` and `00..59`; offset-less
+  forms accept no fractional seconds beyond the exact layouts above. A value
+  opening with four digits, alone or followed
+  by `-` or `/`, is a date; everything else is an age. Dates and times without
+  an offset resolve at **local** midnight or local wall-clock time, matching
+  `docker` and `journalctl`; an explicit offset is honored as written. The
+  manifest continues to record UTC — only the flag value is local. Because the
+  same parser selects purge deletions, ambiguous input is refused rather than
+  guessed: a slash date that does not lead with a four-digit year, such as
+  `03/04/2026`, is an error naming the year-first form.
+- Local S3 `list` defaults to the resolved active profile: an explicit
+  `--profile` or `AIRPLAN_PROFILE`, `default_profile`, single-profile
+  inference, or root-level configuration. It filters local history by that
+  recorded profile without requiring storage credentials. `--profile NAME`
+  selects that exact profile, while `--profile=` selects root-level history.
+  `-A`/`--all-profiles` instead lists every recorded profile and can read local
+  history without resolving an ambiguous or missing configuration profile. It
+  cannot be combined with `--profile` or with `--remote`, whose scope is the
+  selected profile's `key_prefix`. If configuration selects an `airplan`
+  profile, `list` calls the server's manifest endpoint, which scopes records to
+  the server's own identity; `--all-profiles` is rejected before client
+  construction because cross-profile scope exists only for local S3 manifest
+  history.
+  `--config` is therefore valid
   for non-remote list because it can select the HTTP backend.
 - `airplan list --remote`: cheaply discovers marker directories made from any
   machine. It performs only paginated bucket LIST operations beneath the
@@ -1339,8 +1427,9 @@ machine) and must be safe:
   `[key_prefix/]<26-char lowercase base32>/` directory, then emits groups
   containing `.airplan.json`, `.airplan-collection.json`, or both. Payload
   filename shape without either marker is never evidence of visibility.
-- Remote list rows have `DATE`, `KIND`, `OBJECTS`, `SIZE`, `SLUG`, `DIRECTORY`,
-  and `URL` columns. `DATE` is the selected marker object's storage
+- Remote list rows have `DATE`, `KIND`, `SLUG`, `OBJECTS`, `SIZE`, and `URL`
+  columns by default, plus `DIRECTORY` when a row has no inferable URL or under
+  `--wide`. `DATE` is the selected marker object's storage
   last-modified time. `OBJECTS` and `SIZE` count every object and byte
   recursively beneath the random directory, including the marker,
   nested keys, and unrecognized extras. `KIND` is `document` or `collection`
@@ -1353,7 +1442,15 @@ machine) and must be safe:
   URL fallback without `public_base_url` emits the normal warning once.
   `DIRECTORY` is the 26-character random directory without
   `key_prefix`. Rows sort by marker last-modified time, then marker
-  key.
+  key; `--reverse` prints newest first.
+- Local and remote `OBJECTS` and `SIZE` are counted differently on purpose.
+  Local values are **marker-declared**: the marker plus exactly the objects it
+  lists, at the sizes it declares. Remote values are **storage-observed**:
+  every object and byte beneath the random directory, including unrecognized
+  extras. The same upload can therefore report different numbers in the two
+  listings, and that divergence is diagnostic signal rather than an error —
+  `show` inspects one directory and reports declared and actual sizes side by
+  side, which is where the two are reconciled.
 - `list --remote --json` prints an array with one object per row. Its stable
   fields are `time`, `dir`, `marker_key`, `objects`, `bytes`, and `kind` when
   one marker kind is implied. `conflict` is true for dual-marker directories;
@@ -1461,8 +1558,14 @@ machine) and must be safe:
   deletion fails. This exception repairs local history; it never grants
   authority to delete unmarked bucket objects.
 - `airplan purge`: bulk delete driven by the manifest with filters —
-  `--older-than 30d`, `--slug PATTERN`, `--profile P`. Durations
-  accept `d`/`w` units. `--profile`/`-p` behaves as on every other
+  `--older-than 30d`, `--slug PATTERN`, `--profile P`. `--older-than` takes
+  the same values as `list --older-than`, an age with `d`/`w` units or an
+  absolute date, read by the same parser with the same refusal to guess at
+  ambiguous input. The flag must have a non-empty value and its resolved
+  boundary must be strictly in the past; zero ages, the present, and future
+  absolute dates are rejected even alongside `--all`. `--all` is the explicit
+  way to ask to delete everything.
+  `--profile`/`-p` behaves as on every other
   command by selecting the connection profile. Local purge always
   considers only uploads recorded with the resolved active profile,
   whether it came from `--profile`, `AIRPLAN_PROFILE`,
@@ -1481,6 +1584,8 @@ machine) and must be safe:
   re-run retries them. Purge only considers records with a supported
   `marker_version` under the active bucket and `key_prefix`;
   other-bucket and other-prefix records are skipped with a note.
+  Manifest-sourced candidates are previewed and deleted in manifest listing
+  order — record time, then ownership marker key.
   Every selected deletion still requires the marker, except for the
   local-only ensure-gone reconciliation above. Suitable for cron
   (`purge --older-than 30d --yes`).
@@ -1505,11 +1610,32 @@ machine) and must be safe:
   marker candidates and object sizes. Missing local candidates have their
   markers fetched concurrently and are imported only when the supported
   marker validates and every declared object is present at its declared size.
-  Imported v3 records retain kind, exact marker identity, primary page,
+  Imported managed-marker records retain kind, exact marker identity, primary page,
   document slug/format/source where applicable, title, and repository, but do
   not duplicate collection inventories. Imported profile,
   bucket, and public URL values come from the receiving machine's resolved
   connection, never the marker.
+  Sync also completes local history in place: for each active, scoped,
+  marker-managed record that is missing both `objects` and `total_bytes` and
+  carries a v3 marker version, or a v2 marker version without a source, it
+  fetches and inspects that marker and, only
+  for a `complete` inspection, appends an enriched upload record carrying the
+  record's original time and identity plus the declared totals. Append-only
+  history holds and latest-wins reduction collapses the pair. An incomplete or
+  invalid marker leaves both fields absent rather than guessing, and leaves the
+  record untouched. Enrichment never resurrects a tombstoned identity: the
+  record must still be active when sync locks, rereads, and reduces before
+  writing. Its time and primary key must still match the inspected snapshot;
+  metadata-only concurrent edits are preserved, while a replacement under the
+  same marker key is left for a later sync. Ineligible v1 and v2-with-source
+  records never schedule recurring marker fetches. It converges in one pass,
+  shares the same `--concurrency` budget,
+  writes nothing under `--dry-run`, and is reported separately from imports.
+  Enrichment completes metadata for an upload already in local history, so it
+  never fails the run: a marker that cannot be fetched, or that is incomplete,
+  invalid, or without declared sizes, is counted as deferred and named in a
+  warning, and a later sync retries it. Otherwise one unreadable marker would
+  fail every later run, because the record keeps qualifying.
   By default, active scoped local records absent from LIST are considered for
   pruning, but airplan performs a targeted marker GET before appending a
   `remote_missing` tombstone. Only a definite not-found response confirms
@@ -1524,8 +1650,12 @@ machine) and must be safe:
   records. Per-item failures do not discard successfully validated progress.
   Human output and warnings use stderr while stdout remains empty. `--json`
   emits exactly one object on stdout with deterministic `added_records`,
-  `tombstone_records`, and `failures` arrays plus `unchanged`, `incomplete`,
-  `invalid`, and `retained` counters. A partial failure exits nonzero after
+  `enriched_records`, `tombstone_records`, and `failures` arrays plus
+  `unchanged`, `deferred`, `incomplete`, `invalid`, and `retained` counters.
+  Enriched records complete uploads already in history, so they are never
+  counted as additions. `unchanged` counts scoped records already complete
+  locally; a record selected for enrichment is reported by its outcome,
+  enriched or deferred, and never also as unchanged. A partial failure exits nonzero after
   writing the result. Sync provides eventual active-inventory convergence;
   it neither uploads deletion history nor makes historical JSONL files
   identical across machines.
@@ -1603,9 +1733,9 @@ Document names are optional for stdin-style REST clients and contain at most
 
 The server's manifest listing is scoped to its resolved S3 profile, bucket,
 and key prefix even when its file also contains records for other local
-profiles. The ordinary local S3 `list` without a profile remains an
-all-profile view. `serve` requires an `s3` profile and rejects an `airplan`
-profile, preventing proxy chains and loops.
+profiles. Direct local S3 `list` uses its resolved profile by default and
+requires `--all-profiles` for an all-history view. `serve` requires an `s3`
+profile and rejects an `airplan` profile, preventing proxy chains and loops.
 
 ### Server process
 
@@ -1754,7 +1884,12 @@ declared by exactly one valid Airplan ownership marker. Get streams its
 response with the stored object's content type. Capability URLs are not placed
 in query strings. Upload, list,
 inspection, and purge-preview results expose the randomized directory as an
-opaque `upload_id`.
+opaque `upload_id`. `GET /api/v1/uploads` returns service-scoped manifest
+records in the same order as local `list` (§9): record time, then ownership
+marker key. Clients reject a manifest response whose `objects` and
+`total_bytes` fields are not absent together or positive together rather than
+rendering a non-conforming inventory pair. The MCP `list_uploads` tool uses the
+same order.
 
 Purge is two-phase. `/purge/preview` applies the source and filters without
 deleting and returns explicit `upload_id` candidates. The CLI displays them
@@ -1777,11 +1912,19 @@ commit is ambiguous without persistent idempotency state.
 
 ### MCP servers
 
-`airplan mcp` is a stdio MCP server. It constructs the normal public client,
+`airplan mcp` is a stdio MCP server. Its upload listing tool accepts the same
+selection arguments as `list` — `newer_than`, `older_than`, `limit`, `kind`,
+and `slug`, with the same meanings and the same time parser (§9). It
+constructs the normal public client,
 so it works with either backend. MCP frames are its only stdout content;
 warnings and logs use stderr. `airplan serve` exposes the same tool
 implementation at `/mcp` using MCP Streamable HTTP. Deprecated HTTP+SSE is not
 supported.
+
+Stdio list-filter errors retain their detailed local diagnostics. Hosted MCP
+returns the stable `airplan: invalid list filter arguments` message instead,
+without echoing the supplied value; invalid `source` values use their separate
+safe enumeration error.
 
 The minimal tool set is:
 
