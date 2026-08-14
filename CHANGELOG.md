@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.0](https://github.com/jimeh/airplan/compare/v0.5.0...v0.6.0) (2026-08-14)
+
+
+### Features
+
+* **list:** make upload listings consistent and filterable ([#74](https://github.com/jimeh/airplan/issues/74)) ([854594c](https://github.com/jimeh/airplan/commit/854594c9ee88e26bffc0d03281942186a3168e96))
+* publish official multi-platform server image ([#66](https://github.com/jimeh/airplan/issues/66)) ([2f041b0](https://github.com/jimeh/airplan/commit/2f041b03fe49976e90d3ea2a6754dc445e511dc8))
+
 ## [0.5.0](https://github.com/jimeh/airplan/compare/v0.4.1...v0.5.0) (2026-07-23)
 
 

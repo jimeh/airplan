@@ -146,13 +146,13 @@ sha256sum --ignore-missing --check checksums.txt
 # macOS
 shasum --ignore-missing --algorithm 256 --check checksums.txt
 
-gh release verify v0.5.0 --repo jimeh/airplan
+gh release verify v0.6.0 --repo jimeh/airplan
 
-gh attestation verify airplan_0.5.0_darwin_arm64.tar.gz \
+gh attestation verify airplan_0.6.0_darwin_arm64.tar.gz \
   --repo jimeh/airplan
 
-docker pull ghcr.io/jimeh/airplan:0.5.0
-gh attestation verify oci://ghcr.io/jimeh/airplan:0.5.0 \
+docker pull ghcr.io/jimeh/airplan:0.6.0
+gh attestation verify oci://ghcr.io/jimeh/airplan:0.6.0 \
   --repo jimeh/airplan \
   --signer-workflow jimeh/airplan/.github/workflows/release.yml
 ```
