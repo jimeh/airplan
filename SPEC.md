@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.30.0**
+**Spec version: 0.31.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -1405,18 +1405,19 @@ machine) and must be safe:
   same parser selects purge deletions, ambiguous input is refused rather than
   guessed: a slash date that does not lead with a four-digit year, such as
   `03/04/2026`, is an error naming the year-first form.
-- With no resolvable configuration or backend selection, `list` assumes `s3`
-  and reads the resolved local manifest without requiring storage credentials.
-  Local S3 listing with no explicit profile shows every recorded profile; an
-  explicit `--profile NAME` filters that exact profile, and `--profile=`
-  selects root-level history. `-A`/`--all-profiles` asks for the cross-profile
-  default explicitly, so it also overrides an `AIRPLAN_PROFILE` that would
-  otherwise narrow local history; it cannot be combined with `--profile` or
-  with `--remote`, whose scope is the selected profile's `key_prefix`. If
-  configuration selects an `airplan` profile, `list` calls the server's
-  manifest endpoint, which scopes records to the server's own identity;
-  `--all-profiles` is rejected before client construction because cross-profile
-  scope exists only for local S3 manifest history.
+- Local S3 `list` defaults to the resolved active profile: an explicit
+  `--profile` or `AIRPLAN_PROFILE`, `default_profile`, single-profile
+  inference, or root-level configuration. It filters local history by that
+  recorded profile without requiring storage credentials. `--profile NAME`
+  selects that exact profile, while `--profile=` selects root-level history.
+  `-A`/`--all-profiles` instead lists every recorded profile and can read local
+  history without resolving an ambiguous or missing configuration profile. It
+  cannot be combined with `--profile` or with `--remote`, whose scope is the
+  selected profile's `key_prefix`. If configuration selects an `airplan`
+  profile, `list` calls the server's manifest endpoint, which scopes records to
+  the server's own identity; `--all-profiles` is rejected before client
+  construction because cross-profile scope exists only for local S3 manifest
+  history.
   `--config` is therefore valid
   for non-remote list because it can select the HTTP backend.
 - `airplan list --remote`: cheaply discovers marker directories made from any
@@ -1732,9 +1733,9 @@ Document names are optional for stdin-style REST clients and contain at most
 
 The server's manifest listing is scoped to its resolved S3 profile, bucket,
 and key prefix even when its file also contains records for other local
-profiles. The ordinary local S3 `list` without a profile remains an
-all-profile view. `serve` requires an `s3` profile and rejects an `airplan`
-profile, preventing proxy chains and loops.
+profiles. Direct local S3 `list` uses its resolved profile by default and
+requires `--all-profiles` for an all-history view. `serve` requires an `s3`
+profile and rejects an `airplan` profile, preventing proxy chains and loops.
 
 ### Server process
 

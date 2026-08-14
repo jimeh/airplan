@@ -483,6 +483,7 @@ airplan show <url-or-key>         # validate and inspect one remote upload
 airplan get [--source] <url-or-key>  # raw page or source bytes
 airplan delete <url-or-key>      # delete one upload
 airplan list --newer-than 7d     # only recent uploads (also --kind, --slug)
+airplan list --all-profiles      # uploads recorded under every profile
 airplan purge --older-than 30d   # review and delete older uploads
 airplan sync                     # reconcile remote uploads into local history
 ```
@@ -496,14 +497,14 @@ an explicit `--manifest` because only the server may choose its filesystem
 path, and ignores `AIRPLAN_MANIFEST`.
 
 `ls` aliases `list`, and `-r` aliases `--remote` for `list` and
-`purge`. An explicit `list --profile NAME` filters local history by its recorded
-profile; `--profile=` selects root-level history. Without that flag, local list
-shows every profile, and `-A`/`--all-profiles` asks for that default explicitly even
-when `AIRPLAN_PROFILE` is set. Without resolvable configuration, local list assumes the
-`s3` backend and remains config-free. A config can also select an `airplan`
-profile, in which case list reads the server manifest and `--config` is useful
-without `--remote`; `--all-profiles` is rejected because that backend exposes
-only its server-scoped manifest.
+`purge`. Local `list` filters history to the resolved active profile by default.
+An explicit `--profile NAME` selects another recorded profile, while
+`--profile=` selects root-level history. `-A`/`--all-profiles` lists every
+recorded profile and works even when local configuration cannot resolve one
+active profile. A config can also select an `airplan` profile, in which case
+list reads the server manifest and `--config` is useful without `--remote`;
+`--all-profiles` is rejected because that backend exposes only its
+server-scoped manifest.
 
 `list` selects rows with `--newer-than`, `--older-than`, `--limit`, `--kind`,
 and `--slug`, in both listing modes and in `--json`, because filters are

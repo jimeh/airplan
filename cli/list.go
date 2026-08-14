@@ -105,10 +105,9 @@ func newListCmd() *cobra.Command {
 		Short:   "List uploads from the local manifest",
 		Long: "List uploads from the local manifest, or with --remote, " +
 			"from a live bucket listing using the selected config profile.\n\n" +
-			"Local listing spans every recorded profile by default. " +
-			"--profile NAME limits it to that profile, --profile= selects " +
-			"root-level history, and --all-profiles asks for the default " +
-			"explicitly even when AIRPLAN_PROFILE is set.",
+			"Local listing uses the resolved config profile by default. " +
+			"--profile NAME selects another profile, --profile= selects " +
+			"root-level history, and --all-profiles lists every profile.",
 		Args:          cobra.NoArgs,
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -148,7 +147,7 @@ func newListCmd() *cobra.Command {
 	f.StringVar(&opts.slug, "slug", "",
 		"filter: glob matched against document slugs; collections never match")
 	f.BoolVarP(&opts.allProfiles, "all-profiles", "A", false,
-		"list every recorded profile, even when AIRPLAN_PROFILE is set")
+		"list every recorded profile")
 
 	return cmd
 }
@@ -183,11 +182,11 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 
 	cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
 	if err != nil {
-		// Preserve config-free local history when the default config cannot
-		// select one of several profiles, and preserve the historical use of
-		// --profile as a local-manifest filter. Explicit config/backend
-		// selectors remain authoritative and surface their errors.
-		if !allowsConfigFreeLocalList(cmd, opts.allProfiles) {
+		// --all-profiles needs no active connection profile, so it can preserve
+		// config-free local history. Ordinary list resolves one profile and
+		// surfaces ambiguity instead. Explicit config/backend selectors remain
+		// authoritative and surface their errors.
+		if !opts.allProfiles || !allowsConfigFreeAllProfilesList(cmd) {
 			return err
 		}
 		cfg = &airplan.Config{
@@ -203,7 +202,7 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 		profile = nil
 	case cmd.Flags().Changed("profile"):
 		profile = &opts.profile
-	case os.Getenv("AIRPLAN_PROFILE") != "":
+	default:
 		profile = &cfg.Profile
 	}
 	if cfg.EffectiveBackend() == airplan.BackendAirplan {
@@ -235,7 +234,7 @@ func runList(cmd *cobra.Command, opts *listOptions) error {
 	)
 }
 
-func allowsConfigFreeLocalList(cmd *cobra.Command, allProfiles bool) bool {
+func allowsConfigFreeAllProfilesList(cmd *cobra.Command) bool {
 	if cmd.Flags().Changed("config") {
 		return false
 	}
@@ -244,15 +243,7 @@ func allowsConfigFreeLocalList(cmd *cobra.Command, allProfiles bool) bool {
 	}
 	selectors := []string{
 		"AIRPLAN_CONFIG", "AIRPLAN_BACKEND", "AIRPLAN_API_URL",
-		"AIRPLAN_API_TOKEN", "AIRPLAN_PROFILE",
-	}
-	if allProfiles {
-		// --all-profiles asks to ignore profile selection, so the variable it
-		// overrides cannot also block the config-free fallback (SPEC.md §9).
-		// The backend selectors still decide where listing reads from.
-		selectors = slices.DeleteFunc(selectors, func(name string) bool {
-			return name == "AIRPLAN_PROFILE"
-		})
+		"AIRPLAN_API_TOKEN",
 	}
 	for _, name := range selectors {
 		if os.Getenv(name) != "" {

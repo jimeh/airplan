@@ -214,7 +214,7 @@ func TestListTableAutoProfileColumn(t *testing.T) {
 		path := setListState(t)
 		writeTwoProfileManifest(t, path)
 
-		stdout, stderr, err := executeList(t)
+		stdout, stderr, err := executeList(t, "--all-profiles")
 		if err != nil || stderr != "" {
 			t.Fatalf("stdout = %q, stderr = %q, error = %v",
 				stdout, stderr, err)
@@ -236,7 +236,7 @@ func TestListTableAutoProfileColumn(t *testing.T) {
 			`"bytes":10`, `"marker_version":3`,
 		)+"\n")
 
-		stdout, stderr, err := executeList(t)
+		stdout, stderr, err := executeList(t, "--all-profiles")
 		if err != nil || stderr != "" {
 			t.Fatalf("stdout = %q, stderr = %q, error = %v",
 				stdout, stderr, err)
@@ -268,7 +268,7 @@ func TestListTableAutoProfileColumn(t *testing.T) {
 			),
 		}, "\n")+"\n")
 
-		stdout, stderr, err := executeList(t)
+		stdout, stderr, err := executeList(t, "--all-profiles")
 		if err != nil || stderr != "" {
 			t.Fatalf("stdout = %q, stderr = %q, error = %v",
 				stdout, stderr, err)
@@ -388,7 +388,7 @@ func TestListTableWideShowsEveryLocalColumn(t *testing.T) {
 	path := setListState(t)
 	writeTwoProfileManifest(t, path)
 
-	stdout, stderr, err := executeList(t, "--wide")
+	stdout, stderr, err := executeList(t, "--all-profiles", "--wide")
 	if err != nil || stderr != "" {
 		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
 	}
@@ -460,7 +460,8 @@ func TestListTableColumnSelection(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			stdout, stderr, err := executeList(t, tt.args...)
+			args := append([]string{"--all-profiles"}, tt.args...)
+			stdout, stderr, err := executeList(t, args...)
 			if err != nil || stderr != "" {
 				t.Fatalf("stdout = %q, stderr = %q, error = %v",
 					stdout, stderr, err)
@@ -977,18 +978,23 @@ func TestListFilterFlagErrors(t *testing.T) {
 	}
 }
 
-func TestListAllProfilesOverridesProfileSelection(t *testing.T) {
+func TestListAllProfilesOverridesResolvedProfile(t *testing.T) {
 	path := setListState(t)
 	writeTwoProfileManifest(t, path)
-	t.Setenv("AIRPLAN_PROFILE", "work")
 	config := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "airplan",
 		"config.toml")
 	if err := os.MkdirAll(filepath.Dir(config), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(config, []byte(`
+default_profile = "work"
+
 [profiles.work]
 endpoint = "https://work.invalid"
+bucket = "plans"
+
+[profiles.home]
+endpoint = "https://home.invalid"
 bucket = "plans"
 `), 0o600); err != nil {
 		t.Fatal(err)
@@ -1129,7 +1135,8 @@ func TestListWarnsForTornLine(t *testing.T) {
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
 			`"key":"active/plan.html",` +
 			`"url":"https://plans.example.com/active/plan.html",` +
-			`"bucket":"plans","title":"Active plan","bytes":18432,` +
+			`"bucket":"plans","profile":"work",` +
+			`"title":"Active plan","bytes":18432,` +
 			`"marker_version":1}`,
 		`{"type":"upload","time":"2026-07-08T15:04:12Z",`,
 	}, "\n")+"\n")
@@ -1557,7 +1564,11 @@ func TestListLocalExplicitProfileFilter(t *testing.T) {
 		want []string
 		not  []string
 	}{
-		{"no filter", nil, []string{"Work", "Root", "Home"}, nil},
+		{
+			"resolved default", nil,
+			[]string{"Work"},
+			[]string{"Root", "Home"},
+		},
 		{
 			"named table",
 			[]string{"--profile", "work"},
@@ -1604,6 +1615,10 @@ func TestListLocalExplicitProfileFilter(t *testing.T) {
 // local history instead of failing to resolve the named profile.
 func TestListAllProfilesWorksWithoutConfig(t *testing.T) {
 	path := setListState(t)
+	config := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "airplan", "config.toml")
+	if err := os.Remove(config); err != nil {
+		t.Fatal(err)
+	}
 	writeTwoProfileManifest(t, path)
 	t.Setenv("AIRPLAN_PROFILE", "airplan-dev")
 
@@ -1624,7 +1639,7 @@ func TestListLocalNamedMissingConfig(t *testing.T) {
 	}
 }
 
-func TestListLocalFallsBackWhenDefaultConfigIsAmbiguous(t *testing.T) {
+func TestListLocalAmbiguousConfigRequiresProfileOrAllProfiles(t *testing.T) {
 	isolateEnv(t)
 	manifest := filepath.Join(
 		os.Getenv("XDG_STATE_HOME"), "airplan", "manifest.jsonl",
@@ -1658,11 +1673,17 @@ bucket = "home"
 	}
 
 	stdout, stderr, err := executeList(t)
+	if err == nil || !strings.Contains(err.Error(), "no profile selected") {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	if stdout != "" || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, want empty", stdout, stderr)
+	}
+
+	stdout, stderr, err = executeList(t, "--all-profiles")
 	if err != nil || stderr != "" {
 		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
 	}
-	// Config-free fallback lists both profiles, so the automatic PROFILE
-	// column applies and names them.
 	table := parseListTable(t, stdout)
 	table.assertHeader(t,
 		"DATE", "PROFILE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL")
@@ -1873,21 +1894,38 @@ func executeList(t *testing.T, args ...string) (string, string, error) {
 	return stdout.String(), stderr.String(), err
 }
 
-// setListState points the default manifest at a temporary state directory and
-// isolates the selectors local listing consults, so a developer's exported
-// AIRPLAN_* variables or real config file cannot filter or redirect the
-// history under test.
+// setListState points the default manifest and config at temporary directories,
+// selects work as the default profile, and isolates the selectors local listing
+// consults so developer configuration cannot filter or redirect the history.
 func setListState(t *testing.T) string {
 	t.Helper()
 
 	stateHome := t.TempDir()
+	configHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", configHome)
 	for _, name := range []string{
 		"AIRPLAN_CONFIG", "AIRPLAN_BACKEND", "AIRPLAN_API_URL",
 		"AIRPLAN_API_TOKEN", "AIRPLAN_PROFILE", "AIRPLAN_MANIFEST",
 	} {
 		t.Setenv(name, "")
+	}
+	configPath := filepath.Join(configHome, "airplan", "config.toml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`
+default_profile = "work"
+
+[profiles.work]
+endpoint = "https://work.invalid"
+bucket = "plans"
+
+[profiles.home]
+endpoint = "https://home.invalid"
+bucket = "plans"
+`), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	return filepath.Join(stateHome, "airplan", "manifest.jsonl")
 }

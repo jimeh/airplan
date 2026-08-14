@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.30.0.
+may contradict it. Targets spec version 0.31.0.
 
 ---
 
@@ -551,8 +551,8 @@ The service owns its manifest. A local S3 client and `serve` use the same
 platform default or global override and coordinate appends with the existing
 cross-platform file lock. HTTP clients do not write a second local manifest.
 Service-scope list and purge operations filter the shared file by resolved
-profile, bucket, and key prefix; the direct local all-profile list remains a
-separate scope.
+profile, bucket, and key prefix. Direct local list filters by resolved profile
+unless `--all-profiles` requests the separate all-history scope.
 
 ### OpenAPI and REST adapter
 
