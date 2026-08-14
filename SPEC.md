@@ -1355,9 +1355,9 @@ machine) and must be safe:
   reconciliation and purge.
 - Table columns are one vocabulary shared by local and remote listing, and
   always print in the canonical order `date`, `profile`, `state`, `kind`,
-  `title`, `objects`, `size`, `page-size`, `slug`, `dir`, `format`, `repo`,
+  `title`, `slug`, `objects`, `size`, `page-size`, `dir`, `format`, `repo`,
   `bucket`, `url`. Local listing offers every one of them; remote
-  listing offers `date`, `kind`, `objects`, `size`, `slug`, `dir`, and `url`.
+  listing offers `date`, `kind`, `slug`, `objects`, `size`, `dir`, and `url`.
   Three columns are automatic: `profile` when the printed rows span more than
   one profile, `state` when any row is legacy history, and `dir` when any row
   has no URL to identify it by. They appear in the default set only when their
@@ -1427,7 +1427,7 @@ machine) and must be safe:
   `[key_prefix/]<26-char lowercase base32>/` directory, then emits groups
   containing `.airplan.json`, `.airplan-collection.json`, or both. Payload
   filename shape without either marker is never evidence of visibility.
-- Remote list rows have `DATE`, `KIND`, `OBJECTS`, `SIZE`, `SLUG`, and `URL`
+- Remote list rows have `DATE`, `KIND`, `SLUG`, `OBJECTS`, `SIZE`, and `URL`
   columns by default, plus `DIRECTORY` when a row has no inferable URL or under
   `--wide`. `DATE` is the selected marker object's storage
   last-modified time. `OBJECTS` and `SIZE` count every object and byte

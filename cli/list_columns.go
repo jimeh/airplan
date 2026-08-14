@@ -80,6 +80,10 @@ var listColumnRegistry = []listColumn{
 		local: listColumnDefault, remote: listColumnUnavailable,
 	},
 	{
+		name: "slug", header: "SLUG",
+		local: listColumnWide, remote: listColumnDefault,
+	},
+	{
 		name: "objects", header: "OBJECTS",
 		local: listColumnDefault, remote: listColumnDefault,
 	},
@@ -90,10 +94,6 @@ var listColumnRegistry = []listColumn{
 	{
 		name: "page-size", header: "PAGE SIZE",
 		local: listColumnWide, remote: listColumnUnavailable,
-	},
-	{
-		name: "slug", header: "SLUG",
-		local: listColumnWide, remote: listColumnDefault,
 	},
 	{
 		name: "dir", header: "DIRECTORY",

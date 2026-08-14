@@ -394,8 +394,8 @@ func TestListTableWideShowsEveryLocalColumn(t *testing.T) {
 	}
 	table := parseListTable(t, stdout)
 	table.assertHeader(t,
-		"DATE", "PROFILE", "STATE", "KIND", "TITLE", "OBJECTS", "SIZE",
-		"PAGE SIZE", "SLUG", "DIRECTORY", "FORMAT", "REPO", "BUCKET", "URL",
+		"DATE", "PROFILE", "STATE", "KIND", "TITLE", "SLUG", "OBJECTS",
+		"SIZE", "PAGE SIZE", "DIRECTORY", "FORMAT", "REPO", "BUCKET", "URL",
 	)
 	table.assertColumn(t, "KIND", "document", "collection")
 	table.assertColumn(t, "SLUG", "plan", "-")
@@ -488,8 +488,8 @@ func TestListColumnFlagErrors(t *testing.T) {
 		{
 			"unknown name lists valid columns",
 			[]string{"--columns", "nope"},
-			"valid columns: date, profile, state, kind, title, objects, " +
-				"size, page-size, slug, dir, format, repo, bucket, url",
+			"valid columns: date, profile, state, kind, title, slug, " +
+				"objects, size, page-size, dir, format, repo, bucket, url",
 		},
 		{
 			"mixed absolute and additive syntax",
@@ -599,7 +599,7 @@ func TestListRemoteColumnFlagErrors(t *testing.T) {
 		{
 			"unknown name lists remote columns",
 			[]string{"--columns", "nope"},
-			"valid columns: date, kind, objects, size, slug, dir, url",
+			"valid columns: date, kind, slug, objects, size, dir, url",
 		},
 	}
 	for _, tt := range tests {
@@ -1216,7 +1216,7 @@ func TestListRemoteTableAndJSON(t *testing.T) {
 		}
 		table := parseListTable(t, stdout)
 		table.assertHeader(t,
-			"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "URL")
+			"DATE", "KIND", "SLUG", "OBJECTS", "SIZE", "URL")
 		table.assertColumn(t, "DATE", "2026-07-08 14:03")
 		table.assertColumn(t, "KIND", "document")
 		table.assertColumn(t, "OBJECTS", "3")
@@ -1300,14 +1300,14 @@ func TestListRemoteTableColumns(t *testing.T) {
 		{
 			"default",
 			nil,
-			[]string{"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "URL"},
+			[]string{"DATE", "KIND", "SLUG", "OBJECTS", "SIZE", "URL"},
 			[]string{"2026-07-08 14:03", "2026-07-08 16:03"},
 		},
 		{
 			"wide",
 			[]string{"--wide"},
 			[]string{
-				"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "DIRECTORY", "URL",
+				"DATE", "KIND", "SLUG", "OBJECTS", "SIZE", "DIRECTORY", "URL",
 			},
 			[]string{"2026-07-08 14:03", "2026-07-08 16:03"},
 		},
@@ -1326,7 +1326,7 @@ func TestListRemoteTableColumns(t *testing.T) {
 		{
 			"reverse",
 			[]string{"--reverse"},
-			[]string{"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "URL"},
+			[]string{"DATE", "KIND", "SLUG", "OBJECTS", "SIZE", "URL"},
 			[]string{"2026-07-08 16:03", "2026-07-08 14:03"},
 		},
 	}
@@ -1375,7 +1375,7 @@ func TestListRemoteAutoDirColumnForUninferableURL(t *testing.T) {
 	}
 	table := parseListTable(t, stdout)
 	table.assertHeader(t,
-		"DATE", "KIND", "OBJECTS", "SIZE", "SLUG", "DIRECTORY", "URL")
+		"DATE", "KIND", "SLUG", "OBJECTS", "SIZE", "DIRECTORY", "URL")
 	table.assertColumn(t, "DIRECTORY", deleteDirA, deleteDirB, deleteDirC)
 	table.assertColumn(t, "KIND", "document", "conflict", "collection")
 	table.assertColumn(t, "SLUG", "plan", "-", "-")
