@@ -3,7 +3,7 @@
 package airplan
 
 // MermaidVersion is the exact Mermaid release used by built-in pages.
-const MermaidVersion = "11.16.0"
+const MermaidVersion = "11.16.1"
 
 // DefaultMermaidURL is the exact pinned module URL used by built-in pages.
 const DefaultMermaidURL = "https://cdn.jsdelivr.net/npm/mermaid@" +
