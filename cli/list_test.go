@@ -54,8 +54,7 @@ func TestListTableShowsActiveUploads(t *testing.T) {
 
 	table := parseListTable(t, stdout)
 	table.assertHeader(t,
-		"DATE", "PROTECTED", "KIND", "TITLE", "OBJECTS", "SIZE", "URL")
-	table.assertColumn(t, "PROTECTED", "no", "no")
+		"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL")
 	table.assertColumn(t, "DATE", "2026-07-08 14:03", "2026-07-08 16:05")
 	table.assertColumn(t, "TITLE", "Active plan", "-")
 	table.assertColumn(t, "OBJECTS", "3", "2")
@@ -221,8 +220,8 @@ func TestListTableAutoProfileColumn(t *testing.T) {
 				stdout, stderr, err)
 		}
 		table := parseListTable(t, stdout)
-		table.assertHeader(t, "DATE", "PROFILE", "PROTECTED", "KIND", "TITLE",
-			"OBJECTS", "SIZE", "URL")
+		table.assertHeader(t, "DATE", "PROFILE", "KIND", "TITLE", "OBJECTS",
+			"SIZE", "URL")
 		table.assertColumn(t, "PROFILE", "work", "home")
 	})
 
@@ -244,7 +243,7 @@ func TestListTableAutoProfileColumn(t *testing.T) {
 		}
 		table := parseListTable(t, stdout)
 		table.assertHeader(t,
-			"DATE", "PROTECTED", "KIND", "TITLE", "OBJECTS", "SIZE", "URL")
+			"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL")
 		if strings.Contains(stdout, "work") {
 			t.Fatalf("stdout names the only profile:\n%s", stdout)
 		}
@@ -305,8 +304,8 @@ func TestListTableAutoStateColumn(t *testing.T) {
 				stdout, stderr, err)
 		}
 		table := parseListTable(t, stdout)
-		table.assertHeader(t, "DATE", "STATE", "PROTECTED", "KIND", "TITLE",
-			"OBJECTS", "SIZE", "URL")
+		table.assertHeader(t, "DATE", "STATE", "KIND", "TITLE", "OBJECTS",
+			"SIZE", "URL")
 		table.assertColumn(t, "STATE", "managed", "legacy")
 	})
 
@@ -363,8 +362,7 @@ func TestListTableAutoDirColumn(t *testing.T) {
 		}
 		table := parseListTable(t, stdout)
 		table.assertHeader(t,
-			"DATE", "PROTECTED", "KIND", "TITLE", "OBJECTS", "SIZE",
-			"DIRECTORY", "URL")
+			"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "DIRECTORY", "URL")
 		table.assertColumn(t, "DIRECTORY", deleteDirA, deleteDirB)
 		table.assertColumn(t, "URL",
 			"https://plans.example.com/"+deleteDirA+"/plan.html", "-")
@@ -443,23 +441,21 @@ func TestListTableColumnSelection(t *testing.T) {
 			"additive adjustments",
 			[]string{"--columns", "+dir,-title"},
 			[]string{
-				"DATE", "PROFILE", "PROTECTED", "KIND", "OBJECTS", "SIZE",
+				"DATE", "PROFILE", "KIND", "OBJECTS", "SIZE",
 				"DIRECTORY", "URL",
 			},
 		},
 		{
 			"additive removal of an auto column",
 			[]string{"--columns", "-profile"},
-			[]string{
-				"DATE", "PROTECTED", "KIND", "TITLE", "OBJECTS", "SIZE", "URL",
-			},
+			[]string{"DATE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL"},
 		},
 		{
 			"additive addition already present",
 			[]string{"--columns", "+date"},
 			[]string{
-				"DATE", "PROFILE", "PROTECTED", "KIND", "TITLE", "OBJECTS",
-				"SIZE", "URL",
+				"DATE", "PROFILE", "KIND", "TITLE", "OBJECTS", "SIZE",
+				"URL",
 			},
 		},
 	}
@@ -891,6 +887,31 @@ func TestListFiltersSelectRecords(t *testing.T) {
 					t.Fatalf("json titles = %q, want %q", got, tt.want)
 				}
 			}
+		})
+	}
+}
+
+func TestListProtectionFiltersForceColumn(t *testing.T) {
+	path := setListState(t)
+	writeFilterManifest(t, path)
+
+	for _, test := range []struct {
+		name string
+		flag string
+		want []string
+	}{
+		{name: "protected", flag: "--protected", want: []string{"yes"}},
+		{name: "unprotected", flag: "--no-protected", want: []string{"no", "no"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, stderr, err := executeList(t, test.flag)
+			if err != nil || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, error = %v",
+					stdout, stderr, err)
+			}
+			parseListTable(t, stdout).assertColumn(
+				t, "PROTECTED", test.want...,
+			)
 		})
 	}
 }
@@ -1334,8 +1355,7 @@ func TestListRemoteTableAndJSON(t *testing.T) {
 		}
 		table := parseListTable(t, stdout)
 		table.assertHeader(t,
-			"DATE", "PROTECTED", "KIND", "SLUG", "OBJECTS", "SIZE", "URL")
-		table.assertColumn(t, "PROTECTED", "no")
+			"DATE", "KIND", "SLUG", "OBJECTS", "SIZE", "URL")
 		table.assertColumn(t, "DATE", "2026-07-08 14:03")
 		table.assertColumn(t, "KIND", "document")
 		table.assertColumn(t, "OBJECTS", "3")
@@ -1625,6 +1645,18 @@ func TestListRemoteFilters(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestListRemoteProtectionFilterForcesColumn(t *testing.T) {
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, remoteListFixture(), nil, nil)
+	stdout, stderr, err := executeList(t,
+		"--remote", "--no-protected",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	parseListTable(t, stdout).assertColumn(t, "PROTECTED", "no")
 }
 
 func TestListRemoteRejectsAllProfiles(t *testing.T) {
@@ -1917,8 +1949,7 @@ bucket = "home"
 	}
 	table := parseListTable(t, stdout)
 	table.assertHeader(t,
-		"DATE", "PROFILE", "PROTECTED", "KIND", "TITLE", "OBJECTS",
-		"SIZE", "URL")
+		"DATE", "PROFILE", "KIND", "TITLE", "OBJECTS", "SIZE", "URL")
 	table.assertColumn(t, "TITLE", "Work", "Home")
 	table.assertColumn(t, "PROFILE", "work", "home")
 }

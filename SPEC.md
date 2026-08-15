@@ -1390,10 +1390,10 @@ machine) and must be safe:
 
 ### Commands
 
-- `airplan list`: past uploads from the manifest, by default date, protection
-  state, kind, title, object count, human-readable binary size, and URL;
-  `--json` for scripting with exact byte counts. Rows sort by record time, then
-  ownership marker key, so
+- `airplan list`: past uploads from the manifest, by default date, kind, title,
+  object count, human-readable binary size, and URL, plus protection state when
+  relevant; `--json` for scripting with exact byte counts. Rows sort by record
+  time, then ownership marker key, so
   local history reads in the same order as a remote listing even when `sync`
   appended imported uploads after later local ones. Clients reapply this order
   to manifest responses from older Airplan HTTP servers before filtering or
@@ -1415,12 +1415,13 @@ machine) and must be safe:
   `kind`, `title`, `slug`, `objects`, `size`, `page-size`, `dir`, `format`,
   `repo`, `bucket`, `url`. Local listing offers every one of them; remote
   listing offers `date`, `protected`, `kind`, `slug`, `objects`, `size`, `dir`,
-  and `url`. `PROTECTED` is in both default column sets and renders `yes` or
-  `no` from the listing's protection projection.
-  Three columns are automatic: `profile` when the printed rows span more than
-  one profile, `state` when any row is legacy history, and `dir` when any row
-  has no URL to identify it by. They appear in the default set only when their
-  rule holds, so a column never occupies width without carrying information.
+  and `url`. `PROTECTED` renders `yes` or `no` from the listing's protection
+  projection. Four columns are automatic: `profile` when the printed rows span
+  more than one profile, `state` when any row is legacy history, `protected`
+  when any row is protected or either protection filter was used, and `dir`
+  when any row has no URL to identify it by. They appear in the default set
+  only when their rule holds, so a column never occupies width without carrying
+  information or confirming an explicit protection selection.
   `--columns date,title,url` selects an absolute set and suppresses automatic
   columns; `--columns +dir,-title` adjusts the mode's default set instead. The
   two forms do not mix, requested order does not change the canonical order,
@@ -1522,7 +1523,8 @@ machine) and must be safe:
   sentinel presence is the whole contract;
   `slug`, `key`, and `url` appear only when inferred. These entries describe
   marker-key presence and occupancy, not validated uploads. Both human tables
-  expose the same state through their `PROTECTED` column.
+  expose the same state through their automatic `PROTECTED` column when any
+  displayed row is protected or a protection filter was used.
   A malformed, oversized, or unsupported marker remains visible here
   because ordinary remote listing never reads it.
 - `airplan show <url|key>` performs targeted inspection of one remote marker

@@ -286,8 +286,12 @@ func outputManifestList(
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(uploads)
 	}
 
+	autoColumns := autoLocalListColumns(uploads)
+	if filter.Protected != nil {
+		autoColumns["protected"] = true
+	}
 	columns, err := selectListColumns(
-		listModeLocal, opts.columnRequest(cmd), autoLocalListColumns(uploads),
+		listModeLocal, opts.columnRequest(cmd), autoColumns,
 	)
 	if err != nil {
 		return err
@@ -332,9 +336,12 @@ func runRemoteList(
 		)
 	}
 
+	autoColumns := autoRemoteListColumns(uploads)
+	if filter.Protected != nil {
+		autoColumns["protected"] = true
+	}
 	columns, err := selectListColumns(
-		listModeRemote, opts.columnRequest(cmd),
-		autoRemoteListColumns(uploads),
+		listModeRemote, opts.columnRequest(cmd), autoColumns,
 	)
 	if err != nil {
 		return err

@@ -127,6 +127,21 @@ func TestListProtectedColumnRendersBothStates(t *testing.T) {
 	}
 }
 
+func TestProtectedColumnAutoSelectionFollowsRows(t *testing.T) {
+	if autoLocalListColumns([]airplan.ManifestRecord{{}})["protected"] {
+		t.Fatal("local protected column enabled for unprotected rows")
+	}
+	if !autoLocalListColumns([]airplan.ManifestRecord{{Protected: true}})["protected"] {
+		t.Fatal("local protected column not enabled for a protected row")
+	}
+	if autoRemoteListColumns([]airplan.RemoteUpload{{}})["protected"] {
+		t.Fatal("remote protected column enabled for unprotected rows")
+	}
+	if !autoRemoteListColumns([]airplan.RemoteUpload{{Protected: true}})["protected"] {
+		t.Fatal("remote protected column not enabled for a protected row")
+	}
+}
+
 func TestSelectListColumnsRejectsUnknownAndWrongMode(t *testing.T) {
 	tests := []struct {
 		name string
