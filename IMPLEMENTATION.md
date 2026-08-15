@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.33.0.
+may contradict it. Targets spec version 0.34.0.
 
 ---
 
@@ -232,15 +232,28 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   CSPRNG).
 - Public URL assembly percent-encodes each object-key path segment;
   delete parsing uses `net/url` to recover the original UTF-8 key.
-- Ownership markers: writers emit one v3 schema for all uploads. Documents use
+- Ownership markers: writers emit one v4 schema for all uploads. Documents use
   `.airplan.json`; collections use `.airplan-collection.json`. `kind` plus a
   normalized declared-object array describes pages, sources, and files;
-  document slug/format fields remain conditional. Version-specific decoding
-  normalizes v1/v2 into the same internal object model. A centralized
+  document slug/format fields remain conditional. Every v4 marker records
+  producer provenance. Generated document and collection pages additionally
+  record the renderer generation and either the built-in template identity or
+  a SHA-256 digest of the custom template; the digest is computed from the same
+  single file read that is parsed for rendering. Every v4 page object also
+  records the SHA-256 of its exact uploaded bytes. Authored HTML omits render
+  provenance. Version-specific decoding normalizes v1-v3 into the same
+  internal object model. Authored object names beginning `.airplan-` are
+  reserved for Airplan control objects and rejected before upload. A centralized
   concurrent two-key resolver proves exactly one marker exists without adding
   LIST permission to targeted reads. Kind/name mismatches and dual markers
   fail closed. Marker-first upload and marker-last deletion preserve the
   remote ownership boundary.
+- Built-in Markdown pages contain a dormant revision-discovery bootstrap. It
+  fetches `.airplan-versions.json` relative to the page with `no-store` cache
+  semantics and a fresh per-load query nonce. A 404 is the expected standalone
+  case. Ordinary uploads therefore gain revision readiness without uploading a
+  versions object; revision linkage can add that object later without replacing
+  the page.
 - Collection storage: `UploadFiles` accepts known-size `io.ReadSeeker` members,
   keeps inputs stable through preflight and sequential retryable PUTs, limits
   each reader to its declaration, and uploads the overview last. `GetUploadTo`
@@ -456,12 +469,13 @@ outside the project's signing and notarization pipeline.
    config-dependent storage work.
 2. Render a document in memory, or preflight every open collection file and
    render its overview, before generating a random directory.
-3. Resolve repository context, build the complete normalized v3 object set, and
+3. Resolve repository context, build the complete normalized v4 object set with
+   producer and applicable render provenance, and
    encode the kind-specific marker.
 4. Put the marker first. Documents then put optional source and page;
    collections stream files in argument order and put `index.html` last.
 5. Print no URL until all declared PUTs succeed. Then emit the document URL or
-   ordered direct collection URLs plus overview, and best-effort append one v3
+   ordered direct collection URLs plus overview, and best-effort append one v4
    manifest record.
 6. Discover both marker names through one LIST snapshot. The basename supplies
    only a kind hint; `show` validates content and every declared size.
@@ -471,7 +485,14 @@ outside the project's signing and notarization pipeline.
    marker, then appends a tombstone. Protect/unprotect resolve the marker the
    same way, then PUT or DELETE the sentinel and append the matching manifest
    record.
-8. Sync complete normalized uploads into compact local history. Confirm every
+8. Upgrade source-backed Markdown pages with marker-first/page-last conditional
+   writes. Planning records the observed marker and page entity tags plus the
+   declared v4 page digest without rendering. Execution replans live state even
+   for a submitted current plan, fails on drift, verifies the new marker and
+   page bytes, and appends an
+   `upgrade` manifest event while leaving source, protection, and revision
+   control objects untouched.
+9. Sync complete normalized uploads into compact local history. Confirm every
    LIST-absent active marker with a targeted GET before local tombstoning.
 
 Manifest reads retain pre-marker upload records as read-only legacy history.
@@ -536,7 +557,8 @@ Client
 
 The operation boundary is upload, inspect, get, delete, protect/unprotect,
 manifest list, storage
-list, purge planning/execution, and sync—not S3 object primitives. The local
+list, purge planning/execution, document-upgrade planning/execution, bulk
+upgrade preview/execution, and sync—not S3 object primitives. The local
 transport calls the S3-backed service in memory. The HTTP transport wraps the
 generated OpenAPI client and maps wire results and problems back to public
 Airplan types. REST handlers and hosted MCP receive the same service directly;
@@ -558,6 +580,20 @@ cross-platform file lock. HTTP clients do not write a second local manifest.
 Service-scope list and purge operations filter the shared file by resolved
 profile, bucket, and key prefix. Direct local list filters by resolved profile
 unless `--all-profiles` requests the separate all-history scope.
+Bulk upgrade follows the same service scope. CLI `--all-profiles` explicitly
+constructs one client per configured profile, merges plans by bucket and marker
+key, then routes each selected item back to its owning profile; it is never an
+implicit expansion performed by one client or by the server. Profile inventory
+is independent of the active selector/default, and mixed S3/hosted inventories
+are rejected before any remote mutation. Its planning timeout ends before
+confirmation and execution receives a fresh timeout context afterward.
+
+Upgrade planning compares reproducible v4 template recipes without parsing or
+rendering. A forced template mismatch records the currently configured recipe;
+execution surfaces deferred template load/parse errors before its marker-first
+write. Raw manifest upgrade events retain their append time, while reduction
+projects required `created_at` into the active record's time so list and purge
+age semantics remain tied to original creation.
 
 ### OpenAPI and REST adapter
 
@@ -594,7 +630,10 @@ The REST adapter:
   HTTP client never reconstructs capability keys with incomplete knowledge;
 - exposes manifest and storage listing as distinct generated operations; and
 - implements purge as a stateless preview followed by explicit upload-ID
-  execution with fresh ownership-marker validation.
+  execution with fresh ownership-marker validation; and
+- implements upgrade as an entity-tag-bound plan followed by marker-first and
+  page-last conditional execution, plus a bulk preview whose apply request must
+  contain the exact reviewed plan items.
 
 `airplan serve` constructs one operation service, readiness-checks storage,
 mounts REST and hosted MCP on one `net/http.Server`, and handles SIGINT/SIGTERM
@@ -628,8 +667,8 @@ the AWS credential chain. Upload bodies are produced with `io.Pipe` and
 `multipart.Writer`, and get responses stream into the caller's writer. It adds
 the configured bearer token to every authenticated request, does not retry
 ambiguous upload POSTs, and converts problem codes into typed public failures.
-Partial sync and purge results survive error mapping so the CLI preserves its
-existing output and exit behavior.
+Partial sync, purge, and bulk-upgrade results survive error mapping so the CLI
+preserves its existing output and exit behavior.
 
 Global `--manifest` resolution happens before client construction. Local S3
 and server construction receive that path; the HTTP transport rejects an
@@ -649,10 +688,12 @@ Tool registration and handlers are shared. HTTP omits `upload_files` because
 server-local paths are not a portable file-transfer mechanism; stdio includes
 it because client and tool process share a filesystem. Tool result structs
 provide the generated JSON Schemas and keep warnings inside structured output.
-Partial sync and purge errors set `IsError` without returning a Go handler error
-so the SDK retains the structured progress result. Sync defaults to dry-run,
+Partial sync, purge, and bulk-upgrade errors set `IsError` without returning a
+Go handler error so the SDK retains the structured progress result. Sync defaults to dry-run,
 purge preview has no mutation path, and purge execution accepts only explicit
-upload IDs. Each handler derives a fresh configured-timeout context from the
+upload IDs. Document and bulk upgrade tools likewise preview by default;
+mutation requires `apply: true`, and bulk mutation accepts only the exact
+previewed plan items. Each handler derives a fresh configured-timeout context from the
 long-lived MCP session context.
 
 Hosted MCP is wrapped by the REST bearer middleware. A dedicated Origin

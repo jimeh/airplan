@@ -10,7 +10,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -91,27 +90,20 @@ func BuiltinCollectionTemplate() string { return builtinCollectionTemplate }
 
 // LoadCollectionTemplate parses a custom collection overview template.
 func LoadCollectionTemplate(path string) (*template.Template, error) {
-	return loadTemplateWithFuncs(path, collectionTemplateFuncs())
+	tmpl, _, err := loadCollectionTemplate(path)
+	return tmpl, err
 }
 
-func loadTemplateWithFuncs(path string, funcs template.FuncMap) (*template.Template, error) {
-	resolved := path
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("airplan: resolve template path %q: %w", path, err)
-		}
-		resolved = filepath.Join(home, strings.TrimPrefix(path, "~/"))
-	}
-	src, err := os.ReadFile(resolved)
+func loadCollectionTemplate(path string) (*template.Template, string, error) {
+	src, err := readTemplateSource(path, "collection template")
 	if err != nil {
-		return nil, fmt.Errorf("airplan: read collection template %q: %w", path, err)
+		return nil, "", err
 	}
-	tmpl, err := template.New(filepath.Base(path)).Funcs(funcs).Parse(string(src))
+	tmpl, err := template.New(filepath.Base(path)).Funcs(collectionTemplateFuncs()).Parse(string(src))
 	if err != nil {
-		return nil, fmt.Errorf("airplan: parse collection template %q: %w", path, err)
+		return nil, "", fmt.Errorf("airplan: parse collection template %q: %w", path, err)
 	}
-	return tmpl, nil
+	return tmpl, contentSHA256(src), nil
 }
 
 func collectionTemplateFuncs() template.FuncMap {
@@ -185,8 +177,9 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 		return nil, err
 	}
 	tmpl, err := parseBuiltinCollectionTemplate()
+	templateSHA := ""
 	if c.cfg.CollectionTemplate != "" {
-		tmpl, err = LoadCollectionTemplate(c.cfg.CollectionTemplate)
+		tmpl, templateSHA, err = loadCollectionTemplate(c.cfg.CollectionTemplate)
 	}
 	if err != nil {
 		return nil, err
@@ -200,11 +193,11 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 		return nil, fmt.Errorf("airplan: generate key: %w", err)
 	}
 	createdAt := time.Now().UTC().Truncate(time.Second)
-	objects := []MarkerObject{{Name: "index.html", Role: MarkerRolePage, Bytes: int64(len(overview)), ContentType: pageContentType}}
+	objects := []MarkerObject{{Name: "index.html", Role: MarkerRolePage, Bytes: int64(len(overview)), ContentType: pageContentType, SHA256: contentSHA256(overview)}}
 	for _, f := range files {
 		objects = append(objects, MarkerObject{Name: f.Name, Role: MarkerRoleFile, Bytes: f.Size, ContentType: f.ContentType})
 	}
-	marker := UploadMarker{Schema: MarkerSchema, Version: MarkerVersion, Directory: dir, CreatedAt: createdAt, Kind: UploadKindCollection, Objects: objects, Title: title, Repo: repo}
+	marker := UploadMarker{Schema: MarkerSchema, Version: MarkerVersion, Directory: dir, CreatedAt: createdAt, Kind: UploadKindCollection, Objects: objects, Title: title, Repo: repo, Producer: Producer{Name: "airplan", Version: producerVersion(c.cfg.ProducerVersion)}, Render: collectionRenderRecipe(c.cfg, templateSHA)}
 	markerBody, err := EncodeUploadMarker(marker)
 	if err != nil {
 		return nil, err
@@ -321,7 +314,9 @@ func prepareCollection(ctx context.Context, in FilesInput, repository string) ([
 const mathMaxInt64 = int64(^uint64(0) >> 1)
 
 func validateCollectionName(name string) error {
-	if name == "" || name == "." || name == ".." || name == MarkerFilename || name == CollectionMarkerFilename || name == ProtectedFilename || name == "index.html" {
+	if name == "" || name == "." || name == ".." ||
+		strings.HasPrefix(name, ".airplan-") || name == MarkerFilename ||
+		name == "index.html" {
 		return fmt.Errorf("airplan: invalid collection filename %q", name)
 	}
 	if !utf8.ValidString(name) || strings.ContainsAny(name, "/\\\x00") {

@@ -1,6 +1,7 @@
 package airplan
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,102 @@ import (
 
 	"github.com/jimeh/airplan/internal/httpapi"
 )
+
+func TestHTTPAPIPlansDocumentUpgradeThroughOperationFacade(t *testing.T) {
+	store := newUpgradeStore(t)
+	dir := strings.Repeat("r", 26)
+	page, source := []byte("old"), []byte("# Plan\n")
+	marker, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: 3, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+		Kind:      UploadKindDocument, Slug: "plan", Format: "md",
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(dir+"/"+MarkerFilename, marker)
+	store.set(dir+"/plan.html", page)
+	store.set(dir+"/plan.md", source)
+	client := store.client(t, "")
+	const token = "01234567890123456789012345678901"
+	handler, err := httpapi.NewHandler(&HTTPOperations{
+		Client: client, ServerVersion: "test",
+	}, httpapi.Options{Token: token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/upgrades/plan",
+		bytes.NewBufferString(`{"target":"`+dir+`/plan.html"}`))
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var result httpapi.UpgradeDocumentPlan
+	if err := json.NewDecoder(recorder.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if string(result.State) != "upgradeable" || result.CurrentMarkerVersion != 3 || store.puts != 0 {
+		t.Fatalf("result = %+v, puts = %d", result, store.puts)
+	}
+}
+
+func TestHTTPAPIExecuteUpgradeReplansFabricatedCurrentState(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	const token = "01234567890123456789012345678901"
+	handler, err := httpapi.NewHandler(&HTTPOperations{
+		Client: client, ServerVersion: "test",
+	}, httpapi.Options{Token: token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"target":"` + strings.Repeat("m", 26) +
+		`","state":"current","target_marker_version":4,` +
+		`"target_producer_version":"0.8.0","target_renderer_generation":1}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/upgrades/execute",
+		bytes.NewBufferString(body))
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound || store.getAttempts == 0 || store.puts != 0 {
+		t.Fatalf("status = %d, gets = %d, puts = %d, body = %s",
+			recorder.Code, store.getAttempts, store.puts, recorder.Body.String())
+	}
+	var problem httpapi.Problem
+	if err := json.NewDecoder(recorder.Body).Decode(&problem); err != nil {
+		t.Fatal(err)
+	}
+	if problem.Code != "upload_not_found" {
+		t.Fatalf("problem = %+v", problem)
+	}
+}
+
+func TestWireBulkUpgradeFailedItemOmitsResult(t *testing.T) {
+	wire := httpapi.BulkUpgradeItemResult{
+		Plan: wireUpgradePlan(UpgradeDocumentPlan{
+			Target: "dir/plan.html", State: UpgradeStateUpgradeable,
+			TargetMarkerVersion:      MarkerVersion,
+			TargetProducerVersion:    "0.8.0",
+			TargetRendererGeneration: RendererGeneration,
+		}),
+		Error: "upgrade failed",
+	}
+	body, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `"result"`) {
+		t.Fatalf("failed item emitted a zero result: %s", body)
+	}
+}
 
 func TestHTTPAPIManifestListScopesSharedManifest(t *testing.T) {
 	manifestPath := t.TempDir() + "/manifest.jsonl"
@@ -144,7 +241,7 @@ func TestPlanPurgeScopesPrefixWithoutStorageConfig(t *testing.T) {
 func TestHTTPOperationsGetUploadStreamsStorageBody(t *testing.T) {
 	dir := "aaaaaaaaaaaaaaaaaaaaaaaaaa"
 	marker, err := EncodeUploadMarker(UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion,
+		Schema: MarkerSchema, Version: 3,
 		Directory: dir, CreatedAt: time.Now().UTC(),
 		Kind: UploadKindDocument, Slug: "plan", Format: "md",
 		Objects: []MarkerObject{{
@@ -367,10 +464,44 @@ func TestAPIOperationErrorClassifiesInvalidTarget(t *testing.T) {
 	}
 }
 
+func TestAPIOperationErrorClassifiesUpgradeConflict(t *testing.T) {
+	got := apiOperationError(ErrConflict)
+	var problem *httpapi.ProblemError
+	if !errors.As(got, &problem) ||
+		problem.Problem.Status != http.StatusConflict ||
+		problem.Problem.Code != "upgrade_conflict" {
+		t.Fatalf("problem = %+v, error = %v", problem, got)
+	}
+}
+
+func TestAPIOperationErrorClassifiesUpgradeRefusals(t *testing.T) {
+	for _, test := range []struct {
+		state  UpgradeState
+		status int
+		code   string
+	}{
+		{UpgradeStateMissing, http.StatusNotFound, "upload_not_found"},
+		{UpgradeStateInvalid, http.StatusUnprocessableEntity, "invalid_upload"},
+		{UpgradeStateIneligible, http.StatusUnprocessableEntity, "invalid_target"},
+	} {
+		t.Run(string(test.state), func(t *testing.T) {
+			got := apiOperationError(&upgradeRefusalError{
+				state: test.state, reason: "test refusal",
+			})
+			var problem *httpapi.ProblemError
+			if !errors.As(got, &problem) ||
+				problem.Problem.Status != test.status ||
+				problem.Problem.Code != test.code {
+				t.Fatalf("problem = %+v, error = %v", problem, got)
+			}
+		})
+	}
+}
+
 func TestHostedEndpointsRejectSemanticInvalidTargets(t *testing.T) {
 	const dir = "aaaaaaaaaaaaaaaaaaaaaaaaaa"
 	marker, err := EncodeUploadMarker(UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion,
+		Schema: MarkerSchema, Version: 3,
 		Directory: dir, CreatedAt: time.Now().UTC(),
 		Kind: UploadKindDocument, Slug: "plan", Format: "md",
 		Objects: []MarkerObject{{

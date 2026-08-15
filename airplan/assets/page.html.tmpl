@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
+{{- if eq .Format "md"}}
+<meta name="airplan-versions" content=".airplan-versions.json">
+{{- end}}
 {{- if not .Indexable}}
 <meta name="robots" content="noindex, nofollow">
 {{- end}}

@@ -34,6 +34,15 @@ type (
 	PurgeRequest              = generated.PurgeRequest
 	PurgeItemResult           = generated.PurgeItemResult
 	PurgeResult               = generated.PurgeResult
+	UpgradePlanRequest        = generated.UpgradePlanRequest
+	UpgradeDocumentPlan       = generated.UpgradeDocumentPlan
+	UpgradeDocumentResult     = generated.UpgradeDocumentResult
+	BulkUpgradeOptions        = generated.BulkUpgradeOptions
+	BulkUpgradePlan           = generated.BulkUpgradePlan
+	BulkUpgradeRequest        = generated.BulkUpgradeRequest
+	BulkUpgradeItemResult     = generated.BulkUpgradeItemResult
+	BulkUpgradeResult         = generated.BulkUpgradeResult
+	UpgradeState              = generated.UpgradeState
 	Problem                   = generated.Problem
 	HealthStatus              = generated.HealthStatus
 	CapabilitiesUploadFormats = generated.CapabilitiesUploadFormats

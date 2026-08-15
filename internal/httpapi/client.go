@@ -192,6 +192,46 @@ func (c *Client) UploadCollection(
 	return decodeResponse[UploadResult](response, http.StatusCreated)
 }
 
+func (c *Client) PlanDocumentUpgrade(
+	ctx context.Context, request UpgradePlanRequest,
+) (UpgradeDocumentPlan, error) {
+	response, err := c.generated.PlanDocumentUpgrade(ctx, request)
+	if err != nil {
+		return UpgradeDocumentPlan{}, err
+	}
+	return decodeResponse[UpgradeDocumentPlan](response, http.StatusOK)
+}
+
+func (c *Client) ExecuteDocumentUpgrade(
+	ctx context.Context, request UpgradeDocumentPlan,
+) (UpgradeDocumentResult, error) {
+	response, err := c.generated.ExecuteDocumentUpgrade(ctx, request)
+	if err != nil {
+		return UpgradeDocumentResult{}, err
+	}
+	return decodeResponse[UpgradeDocumentResult](response, http.StatusOK)
+}
+
+func (c *Client) PlanBulkUpgrade(
+	ctx context.Context, request BulkUpgradeOptions,
+) (BulkUpgradePlan, error) {
+	response, err := c.generated.PlanBulkUpgrade(ctx, request)
+	if err != nil {
+		return BulkUpgradePlan{}, err
+	}
+	return decodeResponse[BulkUpgradePlan](response, http.StatusOK)
+}
+
+func (c *Client) ExecuteBulkUpgrade(
+	ctx context.Context, request BulkUpgradeRequest,
+) (BulkUpgradeResult, error) {
+	response, err := c.generated.ExecuteBulkUpgrade(ctx, request)
+	if err != nil {
+		return BulkUpgradeResult{}, err
+	}
+	return decodeResponse[BulkUpgradeResult](response, http.StatusOK)
+}
+
 // InspectUpload validates and describes one marker-managed upload.
 func (c *Client) InspectUpload(
 	ctx context.Context,

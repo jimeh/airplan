@@ -321,6 +321,10 @@ func TestUploadTextInput(t *testing.T) {
 		marker.Format != "txt" {
 		t.Fatalf("marker = %+v", marker)
 	}
+	if marker.PageSHA256 != contentSHA256(puts[2].body) {
+		t.Fatalf("marker page digest = %q, want digest of uploaded page",
+			marker.PageSHA256)
+	}
 	records, warnings, err := ReadManifest(cfg.ManifestPath)
 	if err != nil || len(warnings) != 0 || len(records) != 1 {
 		t.Fatalf("manifest records = %+v, warnings = %v, error = %v",
@@ -355,6 +359,45 @@ func TestUploadTextInput(t *testing.T) {
 	}
 	if _, err := os.Stat(manifest); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("default manifest was touched: %v", err)
+	}
+}
+
+func TestUploadMarkerRecordsResolvedDefaultMermaidURL(t *testing.T) {
+	var markerBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.HasSuffix(r.URL.Path, "/"+MarkerFilename) {
+			markerBody = body
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Endpoint: server.URL, Bucket: "plans", AccessKeyID: "test",
+		SecretAccessKey: "test", PublicBaseURL: "https://plans.example.com",
+		DisableManifest: true, ProducerVersion: "0.8.0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n\n```mermaid\ngraph TD\n```\n"),
+		Name:   "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirPrefix, err := uploadDirPrefix(result.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.TrimSuffix(dirPrefix, "/")
+	marker, err := DecodeUploadMarker(markerBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marker.Render == nil || marker.Render.MermaidURL != DefaultMermaidURL {
+		t.Fatalf("render recipe = %+v, want default Mermaid URL", marker.Render)
 	}
 }
 

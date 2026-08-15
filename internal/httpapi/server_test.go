@@ -62,6 +62,30 @@ func (s *stubOperations) UploadCollection(
 	return s.uploadCollection(ctx, request)
 }
 
+func (s *stubOperations) PlanDocumentUpgrade(
+	context.Context, UpgradePlanRequest,
+) (UpgradeDocumentPlan, error) {
+	return UpgradeDocumentPlan{}, nil
+}
+
+func (s *stubOperations) ExecuteDocumentUpgrade(
+	context.Context, UpgradeDocumentPlan,
+) (UpgradeDocumentResult, error) {
+	return UpgradeDocumentResult{}, nil
+}
+
+func (s *stubOperations) PlanBulkUpgrade(
+	context.Context, BulkUpgradeOptions,
+) (BulkUpgradePlan, error) {
+	return BulkUpgradePlan{Items: []UpgradeDocumentPlan{}, Counts: map[string]int{}}, nil
+}
+
+func (s *stubOperations) ExecuteBulkUpgrade(
+	context.Context, BulkUpgradeRequest,
+) (BulkUpgradeResult, error) {
+	return BulkUpgradeResult{Items: []BulkUpgradeItemResult{}}, nil
+}
+
 func (s *stubOperations) InspectUpload(
 	context.Context,
 	TargetRequest,

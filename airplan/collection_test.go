@@ -73,6 +73,10 @@ func TestUploadFilesStreamsOneCollection(t *testing.T) {
 	if marker.Kind != UploadKindCollection || marker.Slug != "" || len(marker.Objects) != 4 {
 		t.Fatalf("marker = %+v", marker)
 	}
+	if marker.PageSHA256 != contentSHA256(puts[4].body) {
+		t.Fatalf("marker page digest = %q, want digest of uploaded overview",
+			marker.PageSHA256)
+	}
 	if !bytes.Equal(puts[1].body, image) || !bytes.Equal(puts[2].body, video) {
 		t.Fatal("collection bytes changed")
 	}
@@ -167,6 +171,33 @@ func TestRenderCollectionCustomTemplateAndValidation(t *testing.T) {
 	}}, CollectionRenderOptions{Repository: "none"})
 	if err == nil || !strings.Contains(err.Error(), "duplicate") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestLoadCollectionTemplateDigestMatchesParsedBytes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "collection.html")
+	original := []byte(`title={{.Title}}|original`)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tmpl, digest, err := loadCollectionTemplate(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`title={{.Title}}|replacement`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := executeCollectionTemplate(tmpl, CollectionTemplateData{Title: "hello"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(body); got != "title=hello|original" {
+		t.Fatalf("rendered output = %q, want original template bytes", got)
+	}
+	if digest != contentSHA256(original) {
+		t.Fatalf("digest = %q, want digest of parsed template bytes", digest)
 	}
 }
 

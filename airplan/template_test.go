@@ -34,6 +34,33 @@ func TestLoadTemplate(t *testing.T) {
 	}
 }
 
+func TestLoadDocumentTemplateDigestMatchesParsedBytes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "page.html")
+	original := []byte(`title={{.Title}}|original`)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tmpl, digest, err := loadDocumentTemplate(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`title={{.Title}}|replacement`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if err := tmpl.Execute(&out, TemplateData{Title: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := out.String(); got != "title=hello|original" {
+		t.Fatalf("rendered output = %q, want original template bytes", got)
+	}
+	if digest != contentSHA256(original) {
+		t.Fatalf("digest = %q, want digest of parsed template bytes", digest)
+	}
+}
+
 func TestCustomTemplateReceivesMermaidPolicyDataWithoutInjection(t *testing.T) {
 	tmpl, err := template.New("custom").Parse(
 		`{{.HasMermaid}}|{{.NoExternalAssets}}|{{.MermaidURL}}|` +

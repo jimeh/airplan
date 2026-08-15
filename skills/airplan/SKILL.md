@@ -54,6 +54,28 @@ first; use these features when they materially improve clarity:
 Airplan adds light/dark themes, heading navigation, rendered/source views, and
 copy controls automatically.
 
+### Upgrade rendered documents
+
+When the user explicitly asks to refresh an existing Airplan document's
+rendering, preview the upgrade first and apply only after the target and change
+are clear:
+
+```sh
+airplan upgrade --check <airplan-url>
+airplan upgrade <airplan-url>
+```
+
+Use `airplan upgrade --all --dry-run` to inspect eligible records in the active
+local manifest. Bulk mutation requires explicit authorization and confirmation;
+never run `--all --yes` opportunistically. Use `--all-profiles` only when the
+user explicitly wants every configured profile included.
+
+An upgrade re-renders a source-backed Markdown upload in place. It is not a new
+document revision and does not create revision history or
+`.airplan-versions.json`. If the harness provides MCP tools, use
+`upgrade_document` or `upgrade_documents`; both preview by default and require
+`apply: true` to mutate.
+
 Markdown preserves authored raw HTML and link destinations, while HTML is
 uploaded as authored. Both may execute active content when opened, so upload
 only trusted documents. Repository discovery is local and uses the input

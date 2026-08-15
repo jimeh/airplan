@@ -169,6 +169,11 @@ type Config struct {
 	MermaidURL         string
 	Repository         string
 
+	// ProducerVersion identifies the embedding Airplan release in ownership
+	// marker provenance. Empty derives it from Go build information or "dev".
+	// It is code-only and never read from configuration files.
+	ProducerVersion string
+
 	// Timeout bounds one context-aware operation or phase (SPEC.md §6):
 	// default 30 seconds, 0 means no timeout. The CLI applies it to its
 	// contexts; library consumers manage their own contexts and may

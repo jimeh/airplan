@@ -88,9 +88,11 @@ func TestSyncCommandReportsEnrichedSeparately(t *testing.T) {
 		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
 		Directory: deleteDirA, CreatedAt: when,
 		Kind: airplan.UploadKindDocument, Slug: "plan", Format: "html",
+		Producer: airplan.Producer{Name: "airplan", Version: "test"},
 		Objects: []airplan.MarkerObject{{
 			Name: "plan.html", Role: airplan.MarkerRolePage,
 			Bytes: int64(len(page)), ContentType: "text/html; charset=utf-8",
+			SHA256: sha256Hex(page),
 		}},
 	})
 	if err != nil {

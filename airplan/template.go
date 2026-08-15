@@ -105,6 +105,23 @@ type TemplateData struct {
 // takes full responsibility for the page: styles, noindex meta, and
 // any interactivity (SPEC.md §3). It executes against TemplateData.
 func LoadTemplate(path string) (*template.Template, error) {
+	tmpl, _, err := loadDocumentTemplate(path)
+	return tmpl, err
+}
+
+func loadDocumentTemplate(path string) (*template.Template, string, error) {
+	src, err := readTemplateSource(path, "template")
+	if err != nil {
+		return nil, "", err
+	}
+	tmpl, err := template.New(filepath.Base(path)).Parse(string(src))
+	if err != nil {
+		return nil, "", fmt.Errorf("airplan: parse template %q: %w", path, err)
+	}
+	return tmpl, contentSHA256(src), nil
+}
+
+func readTemplateSource(path, label string) ([]byte, error) {
 	resolved := path
 	if strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
@@ -118,13 +135,9 @@ func LoadTemplate(path string) (*template.Template, error) {
 
 	src, err := os.ReadFile(resolved)
 	if err != nil {
-		return nil, fmt.Errorf("airplan: read template %q: %w", path, err)
+		return nil, fmt.Errorf("airplan: read %s %q: %w", label, path, err)
 	}
-	tmpl, err := template.New(filepath.Base(path)).Parse(string(src))
-	if err != nil {
-		return nil, fmt.Errorf("airplan: parse template %q: %w", path, err)
-	}
-	return tmpl, nil
+	return src, nil
 }
 
 // BuiltinTemplate returns the built-in page template source, for

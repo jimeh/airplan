@@ -27,6 +27,7 @@ func loadCommandConfig(
 	if err := applyManifestSelection(cmd, cfg); err != nil {
 		return nil, err
 	}
+	cfg.ProducerVersion = buildVersion()
 	for _, w := range cfg.Warnings {
 		fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", w)
 	}
@@ -118,7 +119,7 @@ func validatePersistentOptions(cmd *cobra.Command, _ []string) error {
 	switch cmd.CommandPath() {
 	case "airplan", "airplan list", "airplan show", "airplan get",
 		"airplan delete", "airplan protect", "airplan unprotect",
-		"airplan purge", "airplan sync", "airplan serve",
+		"airplan purge", "airplan sync", "airplan upgrade", "airplan serve",
 		"airplan mcp":
 		return nil
 	default:

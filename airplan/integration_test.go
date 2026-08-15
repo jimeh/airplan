@@ -234,6 +234,64 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		t.Fatalf("complete inspection = %+v", inspection)
 	}
 
+	// Exercise real S3-compatible conditional upgrade writes. First prove a
+	// stale marker ETag fails closed without touching the page, then re-plan and
+	// migrate the same source-backed document from marker v3 to v4.
+	legacyMarker := *marker
+	legacyMarker.Version = 3
+	legacyMarker.Producer = Producer{}
+	legacyMarker.Render = nil
+	legacyBody, err := EncodeUploadMarker(legacyMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putIntegrationObject(ctx, t, st, object{
+		Key: markerKey, Body: legacyBody, ContentType: markerContentType,
+	})
+	stalePlan, err := client.PlanUpgradeDocument(ctx, res.URL, UpgradeDocumentOptions{})
+	if err != nil || stalePlan.State != UpgradeStateUpgradeable {
+		t.Fatalf("stale upgrade plan = %+v, %v", stalePlan, err)
+	}
+	concurrentMarker := legacyMarker
+	concurrentMarker.Title = "Concurrent change"
+	concurrentBody, err := EncodeUploadMarker(concurrentMarker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	putIntegrationObject(ctx, t, st, object{
+		Key: markerKey, Body: concurrentBody, ContentType: markerContentType,
+	})
+	if _, err := client.UpgradeDocument(ctx, *stalePlan); !errors.Is(err, ErrConflict) {
+		t.Fatalf("stale upgrade error = %v, want conflict", err)
+	}
+	if got := getObject(ctx, t, st, res.Key); !bytes.Equal(got.body, page.body) {
+		t.Fatal("stale upgrade changed the page")
+	}
+	putIntegrationObject(ctx, t, st, object{
+		Key: markerKey, Body: legacyBody, ContentType: markerContentType,
+	})
+	upgradePlan, err := client.PlanUpgradeDocument(ctx, res.URL, UpgradeDocumentOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upgraded, err := client.UpgradeDocument(ctx, *upgradePlan)
+	if err != nil || !upgraded.Upgraded || upgraded.Result.URL != res.URL {
+		t.Fatalf("upgrade = %+v, %v", upgraded, err)
+	}
+	markerObject = getObject(ctx, t, st, markerKey)
+	marker, err = DecodeUploadMarker(markerObject.body, dir)
+	if err != nil || marker.Version != MarkerVersion ||
+		marker.Producer.Name != "airplan" || marker.Render == nil {
+		t.Fatalf("upgraded marker = %+v, %v", marker, err)
+	}
+	page = getObject(ctx, t, st, res.Key)
+	if got := getObject(ctx, t, st, res.SourceKey); !bytes.Equal(got.body, source.body) {
+		t.Fatal("upgrade changed source bytes")
+	}
+	if _, err := st.getBytes(ctx, dirPrefix+".airplan-versions.json", MaxMarkerSize); !errors.Is(err, errObjectNotFound) {
+		t.Fatalf("standalone upgrade versions metadata error = %v", err)
+	}
+
 	collection, err := client.UploadFiles(ctx, FilesInput{Files: []FileInput{
 		{Name: "shot.png", Reader: bytes.NewReader([]byte("png")), Size: 3},
 		{Name: "demo.webm", Reader: bytes.NewReader([]byte("video")), Size: 5},

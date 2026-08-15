@@ -140,6 +140,7 @@ const (
 	Delete    ManifestRecordType = "delete"
 	Protect   ManifestRecordType = "protect"
 	Unprotect ManifestRecordType = "unprotect"
+	Upgrade   ManifestRecordType = "upgrade"
 	Upload    ManifestRecordType = "upload"
 )
 
@@ -151,6 +152,8 @@ func (e ManifestRecordType) Valid() bool {
 	case Protect:
 		return true
 	case Unprotect:
+		return true
+	case Upgrade:
 		return true
 	case Upload:
 		return true
@@ -231,6 +234,33 @@ func (e SyncFailureOperation) Valid() bool {
 	}
 }
 
+// Defines values for UpgradeState.
+const (
+	UpgradeStateCurrent     UpgradeState = "current"
+	UpgradeStateIneligible  UpgradeState = "ineligible"
+	UpgradeStateInvalid     UpgradeState = "invalid"
+	UpgradeStateMissing     UpgradeState = "missing"
+	UpgradeStateUpgradeable UpgradeState = "upgradeable"
+)
+
+// Valid indicates whether the value is a known member of the UpgradeState enum.
+func (e UpgradeState) Valid() bool {
+	switch e {
+	case UpgradeStateCurrent:
+		return true
+	case UpgradeStateIneligible:
+		return true
+	case UpgradeStateInvalid:
+		return true
+	case UpgradeStateMissing:
+		return true
+	case UpgradeStateUpgradeable:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UploadInspectionKind.
 const (
 	UploadInspectionKindCollection UploadInspectionKind = "collection"
@@ -251,19 +281,19 @@ func (e UploadInspectionKind) Valid() bool {
 
 // Defines values for UploadInspectionState.
 const (
-	Complete   UploadInspectionState = "complete"
-	Incomplete UploadInspectionState = "incomplete"
-	Invalid    UploadInspectionState = "invalid"
+	UploadInspectionStateComplete   UploadInspectionState = "complete"
+	UploadInspectionStateIncomplete UploadInspectionState = "incomplete"
+	UploadInspectionStateInvalid    UploadInspectionState = "invalid"
 )
 
 // Valid indicates whether the value is a known member of the UploadInspectionState enum.
 func (e UploadInspectionState) Valid() bool {
 	switch e {
-	case Complete:
+	case UploadInspectionStateComplete:
 		return true
-	case Incomplete:
+	case UploadInspectionStateIncomplete:
 		return true
-	case Invalid:
+	case UploadInspectionStateInvalid:
 		return true
 	default:
 		return false
@@ -286,6 +316,38 @@ func (e UploadResultKind) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// BulkUpgradeItemResult defines model for BulkUpgradeItemResult.
+type BulkUpgradeItemResult struct {
+	Error  string                 `json:"error,omitempty"`
+	Plan   UpgradeDocumentPlan    `json:"plan"`
+	Result *UpgradeDocumentResult `json:"result,omitempty"`
+}
+
+// BulkUpgradeOptions defines model for BulkUpgradeOptions.
+type BulkUpgradeOptions struct {
+	Concurrency int `json:"concurrency,omitempty"`
+}
+
+// BulkUpgradePlan defines model for BulkUpgradePlan.
+type BulkUpgradePlan struct {
+	Counts   map[string]int        `json:"counts"`
+	Items    []UpgradeDocumentPlan `json:"items"`
+	Warnings []string              `json:"warnings,omitempty"`
+}
+
+// BulkUpgradeRequest defines model for BulkUpgradeRequest.
+type BulkUpgradeRequest struct {
+	Concurrency int                   `json:"concurrency,omitempty"`
+	Items       []UpgradeDocumentPlan `json:"items"`
+}
+
+// BulkUpgradeResult defines model for BulkUpgradeResult.
+type BulkUpgradeResult struct {
+	Failed   int                     `json:"failed"`
+	Items    []BulkUpgradeItemResult `json:"items"`
+	Upgraded int                     `json:"upgraded"`
 }
 
 // Capabilities defines model for Capabilities.
@@ -386,26 +448,29 @@ type ManifestList struct {
 
 // ManifestRecord defines model for ManifestRecord.
 type ManifestRecord struct {
-	Bucket        string             `json:"bucket,omitempty"`
-	Bytes         int64              `json:"bytes,omitempty"`
-	Format        string             `json:"format,omitempty"`
-	Key           string             `json:"key"`
-	Kind          ManifestRecordKind `json:"kind,omitempty"`
-	MarkerKey     string             `json:"marker_key,omitempty"`
-	MarkerVersion int                `json:"marker_version,omitempty"`
-	Objects       int                `json:"objects,omitempty"`
-	ProtectReason string             `json:"protect_reason,omitempty"`
-	Protected     bool               `json:"protected,omitempty"`
-	ProtectedAt   *time.Time         `json:"protected_at,omitempty"`
-	Reason        string             `json:"reason,omitempty"`
-	RepositoryURL string             `json:"repository_url,omitempty"`
-	Slug          string             `json:"slug,omitempty"`
-	SourceKey     string             `json:"source_key,omitempty"`
-	Time          time.Time          `json:"time"`
-	Title         string             `json:"title,omitempty"`
-	TotalBytes    int64              `json:"total_bytes,omitempty"`
-	Type          ManifestRecordType `json:"type"`
-	URL           string             `json:"url,omitempty"`
+	Bucket          string             `json:"bucket,omitempty"`
+	Bytes           int64              `json:"bytes,omitempty"`
+	CreatedAt       *time.Time         `json:"created_at,omitempty"`
+	Format          string             `json:"format,omitempty"`
+	Key             string             `json:"key"`
+	Kind            ManifestRecordKind `json:"kind,omitempty"`
+	MarkerKey       string             `json:"marker_key,omitempty"`
+	MarkerVersion   int                `json:"marker_version,omitempty"`
+	Objects         int                `json:"objects,omitempty"`
+	ProducerVersion string             `json:"producer_version,omitempty"`
+	ProtectReason   string             `json:"protect_reason,omitempty"`
+	Protected       bool               `json:"protected,omitempty"`
+	ProtectedAt     *time.Time         `json:"protected_at,omitempty"`
+	Reason          string             `json:"reason,omitempty"`
+	RendererVersion int                `json:"renderer_version,omitempty"`
+	RepositoryURL   string             `json:"repository_url,omitempty"`
+	Slug            string             `json:"slug,omitempty"`
+	SourceKey       string             `json:"source_key,omitempty"`
+	Time            time.Time          `json:"time"`
+	Title           string             `json:"title,omitempty"`
+	TotalBytes      int64              `json:"total_bytes,omitempty"`
+	Type            ManifestRecordType `json:"type"`
+	URL             string             `json:"url,omitempty"`
 }
 
 // ManifestRecordKind defines model for ManifestRecord.Kind.
@@ -559,27 +624,68 @@ type TargetRequest struct {
 	URLOrKey string `json:"url_or_key"`
 }
 
+// UpgradeDocumentPlan defines model for UpgradeDocumentPlan.
+type UpgradeDocumentPlan struct {
+	Bucket                    string       `json:"bucket,omitempty"`
+	CurrentMarkerVersion      int          `json:"current_marker_version,omitempty"`
+	CurrentProducerVersion    string       `json:"current_producer_version,omitempty"`
+	CurrentRendererGeneration int          `json:"current_renderer_generation,omitempty"`
+	Force                     bool         `json:"force,omitempty"`
+	MarkerEtag                string       `json:"marker_etag,omitempty"`
+	MarkerKey                 string       `json:"marker_key,omitempty"`
+	PageEtag                  string       `json:"page_etag,omitempty"`
+	PageKey                   string       `json:"page_key,omitempty"`
+	Reason                    string       `json:"reason,omitempty"`
+	SourceEtag                string       `json:"source_etag,omitempty"`
+	SourceKey                 string       `json:"source_key,omitempty"`
+	State                     UpgradeState `json:"state"`
+	Target                    string       `json:"target"`
+	TargetMarkerVersion       int          `json:"target_marker_version"`
+	TargetProducerVersion     string       `json:"target_producer_version"`
+	TargetRendererGeneration  int          `json:"target_renderer_generation"`
+	URL                       string       `json:"url,omitempty"`
+}
+
+// UpgradeDocumentResult defines model for UpgradeDocumentResult.
+type UpgradeDocumentResult struct {
+	Reason   string       `json:"reason,omitempty"`
+	Result   UploadResult `json:"result"`
+	State    UpgradeState `json:"state"`
+	Upgraded bool         `json:"upgraded"`
+}
+
+// UpgradePlanRequest defines model for UpgradePlanRequest.
+type UpgradePlanRequest struct {
+	Force  bool   `json:"force,omitempty"`
+	Target string `json:"target"`
+}
+
+// UpgradeState defines model for UpgradeState.
+type UpgradeState string
+
 // UploadInspection defines model for UploadInspection.
 type UploadInspection struct {
-	Bytes         int64                 `json:"bytes"`
-	CreatedAt     *time.Time            `json:"created_at,omitempty"`
-	Error         string                `json:"error,omitempty"`
-	Files         []InspectedObject     `json:"files"`
-	Format        string                `json:"format,omitempty"`
-	ID            string                `json:"id"`
-	Kind          UploadInspectionKind  `json:"kind,omitempty"`
-	MarkerKey     string                `json:"marker_key"`
-	MarkerVersion int                   `json:"marker_version,omitempty"`
-	Objects       int                   `json:"objects"`
-	Page          *InspectedObject      `json:"page,omitempty"`
-	ProtectReason string                `json:"protect_reason,omitempty"`
-	Protected     bool                  `json:"protected,omitempty"`
-	ProtectedAt   *time.Time            `json:"protected_at,omitempty"`
-	RepositoryURL string                `json:"repository_url,omitempty"`
-	Source        *InspectedObject      `json:"source,omitempty"`
-	State         UploadInspectionState `json:"state"`
-	Title         string                `json:"title,omitempty"`
-	Warnings      []string              `json:"warnings"`
+	Bytes           int64                 `json:"bytes"`
+	CreatedAt       *time.Time            `json:"created_at,omitempty"`
+	Error           string                `json:"error,omitempty"`
+	Files           []InspectedObject     `json:"files"`
+	Format          string                `json:"format,omitempty"`
+	ID              string                `json:"id"`
+	Kind            UploadInspectionKind  `json:"kind,omitempty"`
+	MarkerKey       string                `json:"marker_key"`
+	MarkerVersion   int                   `json:"marker_version,omitempty"`
+	Objects         int                   `json:"objects"`
+	Page            *InspectedObject      `json:"page,omitempty"`
+	ProducerVersion string                `json:"producer_version,omitempty"`
+	ProtectReason   string                `json:"protect_reason,omitempty"`
+	Protected       bool                  `json:"protected,omitempty"`
+	ProtectedAt     *time.Time            `json:"protected_at,omitempty"`
+	RendererVersion int                   `json:"renderer_version,omitempty"`
+	RepositoryURL   string                `json:"repository_url,omitempty"`
+	Source          *InspectedObject      `json:"source,omitempty"`
+	State           UploadInspectionState `json:"state"`
+	Title           string                `json:"title,omitempty"`
+	Warnings        []string              `json:"warnings"`
 }
 
 // UploadInspectionKind defines model for UploadInspection.Kind.
@@ -640,6 +746,18 @@ type PreviewPurgeJSONRequestBody = PurgePreviewRequest
 
 // SyncManifestJSONRequestBody defines body for SyncManifest for application/json ContentType.
 type SyncManifestJSONRequestBody = SyncRequest
+
+// ExecuteBulkUpgradeJSONRequestBody defines body for ExecuteBulkUpgrade for application/json ContentType.
+type ExecuteBulkUpgradeJSONRequestBody = BulkUpgradeRequest
+
+// ExecuteDocumentUpgradeJSONRequestBody defines body for ExecuteDocumentUpgrade for application/json ContentType.
+type ExecuteDocumentUpgradeJSONRequestBody = UpgradeDocumentPlan
+
+// PlanDocumentUpgradeJSONRequestBody defines body for PlanDocumentUpgrade for application/json ContentType.
+type PlanDocumentUpgradeJSONRequestBody = UpgradePlanRequest
+
+// PlanBulkUpgradeJSONRequestBody defines body for PlanBulkUpgrade for application/json ContentType.
+type PlanBulkUpgradeJSONRequestBody = BulkUpgradeOptions
 
 // UploadCollectionMultipartRequestBody defines body for UploadCollection for multipart/form-data ContentType.
 type UploadCollectionMultipartRequestBody UploadCollectionMultipartBody
@@ -777,6 +895,54 @@ type ClientInterface interface {
 	// SyncManifest performs a POST /api/v1/sync (the `SyncManifest` operationId) request.
 	// Takes a body of the `application/json` content type.
 	SyncManifest(ctx context.Context, body SyncManifestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExecuteBulkUpgradeWithBody performs a POST /api/v1/upgrades (the `ExecuteBulkUpgrade` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Applies only the exact upgradeable plans supplied by preview.
+	ExecuteBulkUpgradeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExecuteBulkUpgrade performs a POST /api/v1/upgrades (the `ExecuteBulkUpgrade` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Applies only the exact upgradeable plans supplied by preview.
+	ExecuteBulkUpgrade(ctx context.Context, body ExecuteBulkUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExecuteDocumentUpgradeWithBody performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
+	ExecuteDocumentUpgradeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ExecuteDocumentUpgrade performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
+	ExecuteDocumentUpgrade(ctx context.Context, body ExecuteDocumentUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PlanDocumentUpgradeWithBody performs a POST /api/v1/upgrades/plan (the `PlanDocumentUpgrade` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Classifies one source-backed Markdown upload without writing.
+	PlanDocumentUpgradeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PlanDocumentUpgrade performs a POST /api/v1/upgrades/plan (the `PlanDocumentUpgrade` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Classifies one source-backed Markdown upload without writing.
+	PlanDocumentUpgrade(ctx context.Context, body PlanDocumentUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PlanBulkUpgradeWithBody performs a POST /api/v1/upgrades/preview (the `PlanBulkUpgrade` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Classifies active server-manifest records without writing.
+	PlanBulkUpgradeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PlanBulkUpgrade performs a POST /api/v1/upgrades/preview (the `PlanBulkUpgrade` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Classifies active server-manifest records without writing.
+	PlanBulkUpgrade(ctx context.Context, body PlanBulkUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListManifestUploads performs a GET /api/v1/uploads (the `ListManifestUploads` operationId) request.
 	//
@@ -975,6 +1141,134 @@ func (c *Client) SyncManifestWithBody(ctx context.Context, contentType string, b
 // Takes a body of the `application/json` content type.
 func (c *Client) SyncManifest(ctx context.Context, body SyncManifestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSyncManifestRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExecuteBulkUpgradeWithBody performs a POST /api/v1/upgrades (the `ExecuteBulkUpgrade` operationId) request,
+// with any type of body and a specified content type.
+//
+// Applies only the exact upgradeable plans supplied by preview.
+func (c *Client) ExecuteBulkUpgradeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExecuteBulkUpgradeRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExecuteBulkUpgrade performs a POST /api/v1/upgrades (the `ExecuteBulkUpgrade` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Applies only the exact upgradeable plans supplied by preview.
+func (c *Client) ExecuteBulkUpgrade(ctx context.Context, body ExecuteBulkUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExecuteBulkUpgradeRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExecuteDocumentUpgradeWithBody performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request,
+// with any type of body and a specified content type.
+//
+// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
+func (c *Client) ExecuteDocumentUpgradeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExecuteDocumentUpgradeRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ExecuteDocumentUpgrade performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
+func (c *Client) ExecuteDocumentUpgrade(ctx context.Context, body ExecuteDocumentUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewExecuteDocumentUpgradeRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PlanDocumentUpgradeWithBody performs a POST /api/v1/upgrades/plan (the `PlanDocumentUpgrade` operationId) request,
+// with any type of body and a specified content type.
+//
+// Classifies one source-backed Markdown upload without writing.
+func (c *Client) PlanDocumentUpgradeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPlanDocumentUpgradeRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PlanDocumentUpgrade performs a POST /api/v1/upgrades/plan (the `PlanDocumentUpgrade` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Classifies one source-backed Markdown upload without writing.
+func (c *Client) PlanDocumentUpgrade(ctx context.Context, body PlanDocumentUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPlanDocumentUpgradeRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PlanBulkUpgradeWithBody performs a POST /api/v1/upgrades/preview (the `PlanBulkUpgrade` operationId) request,
+// with any type of body and a specified content type.
+//
+// Classifies active server-manifest records without writing.
+func (c *Client) PlanBulkUpgradeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPlanBulkUpgradeRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PlanBulkUpgrade performs a POST /api/v1/upgrades/preview (the `PlanBulkUpgrade` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Classifies active server-manifest records without writing.
+func (c *Client) PlanBulkUpgrade(ctx context.Context, body PlanBulkUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPlanBulkUpgradeRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1374,6 +1668,166 @@ func NewSyncManifestRequestWithBody(server string, contentType string, body io.R
 	}
 
 	operationPath := fmt.Sprintf("/api/v1/sync")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewExecuteBulkUpgradeRequest calls the generic ExecuteBulkUpgrade builder with application/json body
+func NewExecuteBulkUpgradeRequest(server string, body ExecuteBulkUpgradeJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewExecuteBulkUpgradeRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewExecuteBulkUpgradeRequestWithBody constructs an http.Request for the ExecuteBulkUpgrade method, with any body, and a specified content type
+func NewExecuteBulkUpgradeRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/upgrades")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewExecuteDocumentUpgradeRequest calls the generic ExecuteDocumentUpgrade builder with application/json body
+func NewExecuteDocumentUpgradeRequest(server string, body ExecuteDocumentUpgradeJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewExecuteDocumentUpgradeRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewExecuteDocumentUpgradeRequestWithBody constructs an http.Request for the ExecuteDocumentUpgrade method, with any body, and a specified content type
+func NewExecuteDocumentUpgradeRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/upgrades/execute")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPlanDocumentUpgradeRequest calls the generic PlanDocumentUpgrade builder with application/json body
+func NewPlanDocumentUpgradeRequest(server string, body PlanDocumentUpgradeJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPlanDocumentUpgradeRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPlanDocumentUpgradeRequestWithBody constructs an http.Request for the PlanDocumentUpgrade method, with any body, and a specified content type
+func NewPlanDocumentUpgradeRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/upgrades/plan")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPlanBulkUpgradeRequest calls the generic PlanBulkUpgrade builder with application/json body
+func NewPlanBulkUpgradeRequest(server string, body PlanBulkUpgradeJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPlanBulkUpgradeRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPlanBulkUpgradeRequestWithBody constructs an http.Request for the PlanBulkUpgrade method, with any body, and a specified content type
+func NewPlanBulkUpgradeRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/upgrades/preview")
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -1828,6 +2282,62 @@ type ClientWithResponsesInterface interface {
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	SyncManifestWithResponse(ctx context.Context, body SyncManifestJSONRequestBody, reqEditors ...RequestEditorFn) (*SyncManifestResponse, error)
 
+	// ExecuteBulkUpgradeWithBodyWithResponse performs a POST /api/v1/upgrades (the `ExecuteBulkUpgrade` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Applies only the exact upgradeable plans supplied by preview.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ExecuteBulkUpgradeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExecuteBulkUpgradeResponse, error)
+
+	// ExecuteBulkUpgradeWithResponse performs a POST /api/v1/upgrades (the `ExecuteBulkUpgrade` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Applies only the exact upgradeable plans supplied by preview.
+	ExecuteBulkUpgradeWithResponse(ctx context.Context, body ExecuteBulkUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*ExecuteBulkUpgradeResponse, error)
+
+	// ExecuteDocumentUpgradeWithBodyWithResponse performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ExecuteDocumentUpgradeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExecuteDocumentUpgradeResponse, error)
+
+	// ExecuteDocumentUpgradeWithResponse performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
+	ExecuteDocumentUpgradeWithResponse(ctx context.Context, body ExecuteDocumentUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*ExecuteDocumentUpgradeResponse, error)
+
+	// PlanDocumentUpgradeWithBodyWithResponse performs a POST /api/v1/upgrades/plan (the `PlanDocumentUpgrade` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Classifies one source-backed Markdown upload without writing.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	PlanDocumentUpgradeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PlanDocumentUpgradeResponse, error)
+
+	// PlanDocumentUpgradeWithResponse performs a POST /api/v1/upgrades/plan (the `PlanDocumentUpgrade` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Classifies one source-backed Markdown upload without writing.
+	PlanDocumentUpgradeWithResponse(ctx context.Context, body PlanDocumentUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*PlanDocumentUpgradeResponse, error)
+
+	// PlanBulkUpgradeWithBodyWithResponse performs a POST /api/v1/upgrades/preview (the `PlanBulkUpgrade` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Classifies active server-manifest records without writing.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	PlanBulkUpgradeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PlanBulkUpgradeResponse, error)
+
+	// PlanBulkUpgradeWithResponse performs a POST /api/v1/upgrades/preview (the `PlanBulkUpgrade` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Classifies active server-manifest records without writing.
+	PlanBulkUpgradeWithResponse(ctx context.Context, body PlanBulkUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*PlanBulkUpgradeResponse, error)
+
 	// ListManifestUploadsWithResponse performs a GET /api/v1/uploads (the `ListManifestUploads` operationId) request.
 	//
 	// Reads the server manifest without contacting storage. Results are
@@ -2167,6 +2677,198 @@ func (r SyncManifestResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SyncManifestResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ExecuteBulkUpgradeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *BulkUpgradeResult
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ExecuteBulkUpgradeResponse) GetJSON200() *BulkUpgradeResult {
+	return r.JSON200
+}
+
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ExecuteBulkUpgradeResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ExecuteBulkUpgradeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ExecuteBulkUpgradeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ExecuteBulkUpgradeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ExecuteBulkUpgradeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ExecuteDocumentUpgradeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *UpgradeDocumentResult
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ExecuteDocumentUpgradeResponse) GetJSON200() *UpgradeDocumentResult {
+	return r.JSON200
+}
+
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r ExecuteDocumentUpgradeResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ExecuteDocumentUpgradeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ExecuteDocumentUpgradeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ExecuteDocumentUpgradeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ExecuteDocumentUpgradeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PlanDocumentUpgradeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *UpgradeDocumentPlan
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PlanDocumentUpgradeResponse) GetJSON200() *UpgradeDocumentPlan {
+	return r.JSON200
+}
+
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r PlanDocumentUpgradeResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PlanDocumentUpgradeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PlanDocumentUpgradeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PlanDocumentUpgradeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PlanDocumentUpgradeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PlanBulkUpgradeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *BulkUpgradePlan
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PlanBulkUpgradeResponse) GetJSON200() *BulkUpgradePlan {
+	return r.JSON200
+}
+
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r PlanBulkUpgradeResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PlanBulkUpgradeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PlanBulkUpgradeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PlanBulkUpgradeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PlanBulkUpgradeResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -2755,6 +3457,110 @@ func (c *ClientWithResponses) SyncManifestWithResponse(ctx context.Context, body
 	return ParseSyncManifestResponse(rsp)
 }
 
+// ExecuteBulkUpgradeWithBodyWithResponse performs a POST /api/v1/upgrades (the `ExecuteBulkUpgrade` operationId) request,
+// with any type of body and a specified content type.
+//
+// Applies only the exact upgradeable plans supplied by preview.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ExecuteBulkUpgradeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExecuteBulkUpgradeResponse, error) {
+	rsp, err := c.ExecuteBulkUpgradeWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExecuteBulkUpgradeResponse(rsp)
+}
+
+// ExecuteBulkUpgradeWithResponse performs a POST /api/v1/upgrades (the `ExecuteBulkUpgrade` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Applies only the exact upgradeable plans supplied by preview.
+func (c *ClientWithResponses) ExecuteBulkUpgradeWithResponse(ctx context.Context, body ExecuteBulkUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*ExecuteBulkUpgradeResponse, error) {
+	rsp, err := c.ExecuteBulkUpgrade(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExecuteBulkUpgradeResponse(rsp)
+}
+
+// ExecuteDocumentUpgradeWithBodyWithResponse performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request,
+// with any type of body and a specified content type.
+//
+// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ExecuteDocumentUpgradeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExecuteDocumentUpgradeResponse, error) {
+	rsp, err := c.ExecuteDocumentUpgradeWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExecuteDocumentUpgradeResponse(rsp)
+}
+
+// ExecuteDocumentUpgradeWithResponse performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
+func (c *ClientWithResponses) ExecuteDocumentUpgradeWithResponse(ctx context.Context, body ExecuteDocumentUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*ExecuteDocumentUpgradeResponse, error) {
+	rsp, err := c.ExecuteDocumentUpgrade(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseExecuteDocumentUpgradeResponse(rsp)
+}
+
+// PlanDocumentUpgradeWithBodyWithResponse performs a POST /api/v1/upgrades/plan (the `PlanDocumentUpgrade` operationId) request,
+// with any type of body and a specified content type.
+//
+// Classifies one source-backed Markdown upload without writing.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) PlanDocumentUpgradeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PlanDocumentUpgradeResponse, error) {
+	rsp, err := c.PlanDocumentUpgradeWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePlanDocumentUpgradeResponse(rsp)
+}
+
+// PlanDocumentUpgradeWithResponse performs a POST /api/v1/upgrades/plan (the `PlanDocumentUpgrade` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Classifies one source-backed Markdown upload without writing.
+func (c *ClientWithResponses) PlanDocumentUpgradeWithResponse(ctx context.Context, body PlanDocumentUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*PlanDocumentUpgradeResponse, error) {
+	rsp, err := c.PlanDocumentUpgrade(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePlanDocumentUpgradeResponse(rsp)
+}
+
+// PlanBulkUpgradeWithBodyWithResponse performs a POST /api/v1/upgrades/preview (the `PlanBulkUpgrade` operationId) request,
+// with any type of body and a specified content type.
+//
+// Classifies active server-manifest records without writing.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) PlanBulkUpgradeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PlanBulkUpgradeResponse, error) {
+	rsp, err := c.PlanBulkUpgradeWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePlanBulkUpgradeResponse(rsp)
+}
+
+// PlanBulkUpgradeWithResponse performs a POST /api/v1/upgrades/preview (the `PlanBulkUpgrade` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Classifies active server-manifest records without writing.
+func (c *ClientWithResponses) PlanBulkUpgradeWithResponse(ctx context.Context, body PlanBulkUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*PlanBulkUpgradeResponse, error) {
+	rsp, err := c.PlanBulkUpgrade(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePlanBulkUpgradeResponse(rsp)
+}
+
 // ListManifestUploadsWithResponse performs a GET /api/v1/uploads (the `ListManifestUploads` operationId) request.
 //
 // Reads the server manifest without contacting storage. Results are
@@ -3097,6 +3903,138 @@ func ParseSyncManifestResponse(rsp *http.Response) (*SyncManifestResponse, error
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest SyncResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationProblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseExecuteBulkUpgradeResponse parses an HTTP response from a ExecuteBulkUpgradeWithResponse call
+func ParseExecuteBulkUpgradeResponse(rsp *http.Response) (*ExecuteBulkUpgradeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ExecuteBulkUpgradeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BulkUpgradeResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationProblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseExecuteDocumentUpgradeResponse parses an HTTP response from a ExecuteDocumentUpgradeWithResponse call
+func ParseExecuteDocumentUpgradeResponse(rsp *http.Response) (*ExecuteDocumentUpgradeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ExecuteDocumentUpgradeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest UpgradeDocumentResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationProblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePlanDocumentUpgradeResponse parses an HTTP response from a PlanDocumentUpgradeWithResponse call
+func ParsePlanDocumentUpgradeResponse(rsp *http.Response) (*PlanDocumentUpgradeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PlanDocumentUpgradeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest UpgradeDocumentPlan
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationProblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePlanBulkUpgradeResponse parses an HTTP response from a PlanBulkUpgradeWithResponse call
+func ParsePlanBulkUpgradeResponse(rsp *http.Response) (*PlanBulkUpgradeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PlanBulkUpgradeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BulkUpgradePlan
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -3482,6 +4420,18 @@ type ServerInterface interface {
 	// (POST /api/v1/sync)
 	SyncManifest(w http.ResponseWriter, r *http.Request)
 
+	// (POST /api/v1/upgrades)
+	ExecuteBulkUpgrade(w http.ResponseWriter, r *http.Request)
+
+	// (POST /api/v1/upgrades/execute)
+	ExecuteDocumentUpgrade(w http.ResponseWriter, r *http.Request)
+
+	// (POST /api/v1/upgrades/plan)
+	PlanDocumentUpgrade(w http.ResponseWriter, r *http.Request)
+
+	// (POST /api/v1/upgrades/preview)
+	PlanBulkUpgrade(w http.ResponseWriter, r *http.Request)
+
 	// (GET /api/v1/uploads)
 	ListManifestUploads(w http.ResponseWriter, r *http.Request)
 
@@ -3583,6 +4533,62 @@ func (siw *ServerInterfaceWrapper) SyncManifest(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SyncManifest(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ExecuteBulkUpgrade operation middleware
+func (siw *ServerInterfaceWrapper) ExecuteBulkUpgrade(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExecuteBulkUpgrade(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ExecuteDocumentUpgrade operation middleware
+func (siw *ServerInterfaceWrapper) ExecuteDocumentUpgrade(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ExecuteDocumentUpgrade(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PlanDocumentUpgrade operation middleware
+func (siw *ServerInterfaceWrapper) PlanDocumentUpgrade(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PlanDocumentUpgrade(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PlanBulkUpgrade operation middleware
+func (siw *ServerInterfaceWrapper) PlanBulkUpgrade(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PlanBulkUpgrade(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -3862,6 +4868,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/delete", wrapper.DeleteUpload)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/protect", wrapper.ProtectUpload)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/unprotect", wrapper.UnprotectUpload)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/upgrades/plan", wrapper.PlanDocumentUpgrade)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/upgrades/execute", wrapper.ExecuteDocumentUpgrade)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/upgrades/preview", wrapper.PlanBulkUpgrade)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/upgrades", wrapper.ExecuteBulkUpgrade)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/uploads", wrapper.ListManifestUploads)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/storage/uploads", wrapper.ListStorageUploads)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/sync", wrapper.SyncManifest)
@@ -4055,6 +5065,162 @@ type SyncManifestdefaultApplicationProblemPlusJSONResponse struct {
 }
 
 func (response SyncManifestdefaultApplicationProblemPlusJSONResponse) VisitSyncManifestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExecuteBulkUpgradeRequestObject struct {
+	Body *ExecuteBulkUpgradeJSONRequestBody
+}
+
+type ExecuteBulkUpgradeResponseObject interface {
+	VisitExecuteBulkUpgradeResponse(w http.ResponseWriter) error
+}
+
+type ExecuteBulkUpgrade200JSONResponse BulkUpgradeResult
+
+func (response ExecuteBulkUpgrade200JSONResponse) VisitExecuteBulkUpgradeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExecuteBulkUpgradedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ExecuteBulkUpgradedefaultApplicationProblemPlusJSONResponse) VisitExecuteBulkUpgradeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExecuteDocumentUpgradeRequestObject struct {
+	Body *ExecuteDocumentUpgradeJSONRequestBody
+}
+
+type ExecuteDocumentUpgradeResponseObject interface {
+	VisitExecuteDocumentUpgradeResponse(w http.ResponseWriter) error
+}
+
+type ExecuteDocumentUpgrade200JSONResponse UpgradeDocumentResult
+
+func (response ExecuteDocumentUpgrade200JSONResponse) VisitExecuteDocumentUpgradeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ExecuteDocumentUpgradedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response ExecuteDocumentUpgradedefaultApplicationProblemPlusJSONResponse) VisitExecuteDocumentUpgradeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PlanDocumentUpgradeRequestObject struct {
+	Body *PlanDocumentUpgradeJSONRequestBody
+}
+
+type PlanDocumentUpgradeResponseObject interface {
+	VisitPlanDocumentUpgradeResponse(w http.ResponseWriter) error
+}
+
+type PlanDocumentUpgrade200JSONResponse UpgradeDocumentPlan
+
+func (response PlanDocumentUpgrade200JSONResponse) VisitPlanDocumentUpgradeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PlanDocumentUpgradedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response PlanDocumentUpgradedefaultApplicationProblemPlusJSONResponse) VisitPlanDocumentUpgradeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PlanBulkUpgradeRequestObject struct {
+	Body *PlanBulkUpgradeJSONRequestBody
+}
+
+type PlanBulkUpgradeResponseObject interface {
+	VisitPlanBulkUpgradeResponse(w http.ResponseWriter) error
+}
+
+type PlanBulkUpgrade200JSONResponse BulkUpgradePlan
+
+func (response PlanBulkUpgrade200JSONResponse) VisitPlanBulkUpgradeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PlanBulkUpgradedefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response PlanBulkUpgradedefaultApplicationProblemPlusJSONResponse) VisitPlanBulkUpgradeResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -4493,6 +5659,18 @@ type StrictServerInterface interface {
 	// (POST /api/v1/sync)
 	SyncManifest(ctx context.Context, request SyncManifestRequestObject) (SyncManifestResponseObject, error)
 
+	// (POST /api/v1/upgrades)
+	ExecuteBulkUpgrade(ctx context.Context, request ExecuteBulkUpgradeRequestObject) (ExecuteBulkUpgradeResponseObject, error)
+
+	// (POST /api/v1/upgrades/execute)
+	ExecuteDocumentUpgrade(ctx context.Context, request ExecuteDocumentUpgradeRequestObject) (ExecuteDocumentUpgradeResponseObject, error)
+
+	// (POST /api/v1/upgrades/plan)
+	PlanDocumentUpgrade(ctx context.Context, request PlanDocumentUpgradeRequestObject) (PlanDocumentUpgradeResponseObject, error)
+
+	// (POST /api/v1/upgrades/preview)
+	PlanBulkUpgrade(ctx context.Context, request PlanBulkUpgradeRequestObject) (PlanBulkUpgradeResponseObject, error)
+
 	// (GET /api/v1/uploads)
 	ListManifestUploads(ctx context.Context, request ListManifestUploadsRequestObject) (ListManifestUploadsResponseObject, error)
 
@@ -4697,6 +5875,130 @@ func (sh *strictHandler) SyncManifest(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SyncManifestResponseObject); ok {
 		if err := validResponse.VisitSyncManifestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ExecuteBulkUpgrade operation middleware
+func (sh *strictHandler) ExecuteBulkUpgrade(w http.ResponseWriter, r *http.Request) {
+	var request ExecuteBulkUpgradeRequestObject
+
+	var body ExecuteBulkUpgradeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ExecuteBulkUpgrade(ctx, request.(ExecuteBulkUpgradeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ExecuteBulkUpgrade")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ExecuteBulkUpgradeResponseObject); ok {
+		if err := validResponse.VisitExecuteBulkUpgradeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ExecuteDocumentUpgrade operation middleware
+func (sh *strictHandler) ExecuteDocumentUpgrade(w http.ResponseWriter, r *http.Request) {
+	var request ExecuteDocumentUpgradeRequestObject
+
+	var body ExecuteDocumentUpgradeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ExecuteDocumentUpgrade(ctx, request.(ExecuteDocumentUpgradeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ExecuteDocumentUpgrade")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ExecuteDocumentUpgradeResponseObject); ok {
+		if err := validResponse.VisitExecuteDocumentUpgradeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PlanDocumentUpgrade operation middleware
+func (sh *strictHandler) PlanDocumentUpgrade(w http.ResponseWriter, r *http.Request) {
+	var request PlanDocumentUpgradeRequestObject
+
+	var body PlanDocumentUpgradeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PlanDocumentUpgrade(ctx, request.(PlanDocumentUpgradeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PlanDocumentUpgrade")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PlanDocumentUpgradeResponseObject); ok {
+		if err := validResponse.VisitPlanDocumentUpgradeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PlanBulkUpgrade operation middleware
+func (sh *strictHandler) PlanBulkUpgrade(w http.ResponseWriter, r *http.Request) {
+	var request PlanBulkUpgradeRequestObject
+
+	var body PlanBulkUpgradeJSONRequestBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PlanBulkUpgrade(ctx, request.(PlanBulkUpgradeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PlanBulkUpgrade")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PlanBulkUpgradeResponseObject); ok {
+		if err := validResponse.VisitPlanBulkUpgradeResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -4998,61 +6300,71 @@ func (sh *strictHandler) GetOpenAPI(w http.ResponseWriter, r *http.Request) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"XMf1lQqQrUt1M6x1rWpvru/X/wkAAP//",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

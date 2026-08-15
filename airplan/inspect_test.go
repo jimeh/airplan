@@ -173,7 +173,7 @@ func TestInspectUploadWarnsForFallbackPublicURL(t *testing.T) {
 func TestInspectUploadCollectionChecksEveryDeclaredFile(t *testing.T) {
 	dir := strings.Repeat("k", 26)
 	markerBody, err := EncodeUploadMarker(UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		Schema: MarkerSchema, Version: 3, Directory: dir,
 		CreatedAt: time.Now().UTC(), Kind: UploadKindCollection,
 		Objects: []MarkerObject{
 			{Name: "index.html", Role: MarkerRolePage, Bytes: 5, ContentType: pageContentType},

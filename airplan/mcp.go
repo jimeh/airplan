@@ -141,6 +141,18 @@ type mcpPurgeExecuteInput struct {
 	UploadIDs []string `json:"upload_ids" jsonschema:"Exact upload_id values returned by preview_purge."`
 }
 
+type mcpUpgradeDocumentInput struct {
+	URLOrKey string `json:"url_or_key" jsonschema:"Airplan public URL or object key."`
+	Apply    bool   `json:"apply,omitempty" jsonschema:"Apply the planned upgrade. Defaults to preview only."`
+	Force    bool   `json:"force,omitempty"`
+}
+
+type mcpUpgradeDocumentsInput struct {
+	Apply       bool                  `json:"apply,omitempty" jsonschema:"Apply exact preview items. Defaults to preview only."`
+	Items       []UpgradeDocumentPlan `json:"items,omitempty" jsonschema:"Exact upgradeable items returned by a prior preview."`
+	Concurrency int                   `json:"concurrency,omitempty"`
+}
+
 // MCPServerOptions configures an MCP server without changing its tool surface.
 type MCPServerOptions struct {
 	LocalFiles bool
@@ -339,6 +351,75 @@ func NewMCPServerWithOptions(
 			result.Warnings = serverSafeWarnings(result.Warnings)
 		}
 		return nil, *result, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "upgrade_document",
+		Description: "Preview or apply an in-place renderer upgrade for one " +
+			"source-backed Markdown upload. Defaults to preview; set apply=true " +
+			"to preserve its URL and source while updating its page and marker.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest,
+		input mcpUpgradeDocumentInput,
+	) (*mcp.CallToolResult, any, error) {
+		ctx, cancel := mcpOperationContext(ctx, client)
+		defer cancel()
+		plan, err := client.PlanUpgradeDocument(ctx, input.URLOrKey,
+			UpgradeDocumentOptions{Force: input.Force})
+		if err != nil {
+			return nil, nil, mcpOperationError(ctx, err, !localFiles, options.Logger)
+		}
+		if !input.Apply || plan.State != UpgradeStateUpgradeable {
+			if !localFiles {
+				plan.Profile = ""
+			}
+			return nil, *plan, nil
+		}
+		result, err := client.UpgradeDocument(ctx, *plan)
+		if err != nil {
+			return nil, nil, mcpOperationError(ctx, err, !localFiles, options.Logger)
+		}
+		return uploadToolContent(&result.Result), *result, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "upgrade_documents",
+		Description: "Preview manifest-backed document upgrades, or apply only " +
+			"the exact preview items supplied with apply=true.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest,
+		input mcpUpgradeDocumentsInput,
+	) (*mcp.CallToolResult, any, error) {
+		ctx, cancel := mcpOperationContext(ctx, client)
+		defer cancel()
+		if !input.Apply {
+			result, err := client.PlanBulkUpgrade(ctx,
+				BulkUpgradeOptions{Concurrency: input.Concurrency})
+			if err != nil {
+				return nil, nil, mcpOperationError(ctx, err, !localFiles, options.Logger)
+			}
+			if !localFiles {
+				result.Warnings = serverSafeWarnings(result.Warnings)
+				for index := range result.Items {
+					result.Items[index].Profile = ""
+				}
+			}
+			return nil, *result, nil
+		}
+		if len(input.Items) == 0 {
+			return nil, nil, errors.New("airplan: apply requires exact preview items")
+		}
+		result, err := client.ExecuteBulkUpgrade(ctx, BulkUpgradeRequest{
+			Items: input.Items, Concurrency: input.Concurrency,
+		})
+		if result == nil {
+			return nil, nil, mcpOperationError(ctx, err, !localFiles, options.Logger)
+		}
+		if !localFiles {
+			for index := range result.Items {
+				result.Items[index].Plan.Profile = ""
+				result.Items[index].Error = serverSafeItemError(result.Items[index].Error)
+			}
+		}
+		return partialToolResult(mcpOperationError(ctx, err, !localFiles, options.Logger)), *result, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -607,7 +688,8 @@ func safeMCPToolName(request mcp.Request) string {
 	switch call.Params.Name {
 	case "upload_document", "upload_files", "list_uploads", "inspect_upload",
 		"delete_upload", "protect_upload", "unprotect_upload",
-		"sync_manifest", "preview_purge", "execute_purge":
+		"sync_manifest", "preview_purge", "execute_purge",
+		"upgrade_document", "upgrade_documents":
 		return call.Params.Name
 	default:
 		return "unknown"

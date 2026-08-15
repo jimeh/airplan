@@ -77,11 +77,12 @@ var ErrUninitializedClient = errors.New(
 // Client uploads documents and file collections per the pipelines in
 // SPEC.md §1. Construct clients with New before use.
 type Client struct {
-	cfg       *Config
-	st        *storage
-	template  *template.Template
-	remote    operationTransport
-	storageMu sync.Mutex
+	cfg            *Config
+	st             *storage
+	template       *template.Template
+	remote         operationTransport
+	storageMu      sync.Mutex
+	templateDigest string
 
 	// templateErr is a deferred custom-template load failure: fatal
 	// for markdown/text uploads, a warning for HTML input.
@@ -117,6 +118,12 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 		}
 		return &Client{cfg: cfg, remote: transport}, nil
 	}
+	// RenderMarkdown resolves an empty Mermaid URL to this default. Store the
+	// same effective value on the local client so v4 render provenance records
+	// the exact URL used rather than an instruction to consult a future default.
+	if cfg.MermaidURL == "" {
+		cfg.MermaidURL = DefaultMermaidURL
+	}
 	if err := validatePartialS3Config(cfg); err != nil {
 		return nil, err
 	}
@@ -127,14 +134,16 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 	// markdown/text uploads still fail before anything is uploaded.
 	var tmpl *template.Template
 	var tmplErr error
+	templateSHA := ""
 	if cfg.Template != "" {
-		tmpl, tmplErr = LoadTemplate(cfg.Template)
+		tmpl, templateSHA, tmplErr = loadDocumentTemplate(cfg.Template)
 	}
 
 	return &Client{
-		cfg:         cfg,
-		template:    tmpl,
-		templateErr: tmplErr,
+		cfg:            cfg,
+		template:       tmpl,
+		templateErr:    tmplErr,
+		templateDigest: templateSHA,
 	}, nil
 }
 
@@ -257,10 +266,14 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		Format:    doc.Format.String(),
 		Title:     doc.Title,
 		Repo:      doc.RepositoryURL,
+		Producer:  Producer{Name: "airplan", Version: producerVersion(c.cfg.ProducerVersion)},
+	}
+	if doc.Format != FormatHTML {
+		marker.Render = documentRenderRecipe(c.cfg, c.templateDigest)
 	}
 	marker.Objects = append(marker.Objects, MarkerObject{
 		Name: pageName, Role: MarkerRolePage, Bytes: int64(len(doc.HTML)),
-		ContentType: pageContentType,
+		ContentType: pageContentType, SHA256: contentSHA256(doc.HTML),
 	})
 	if sourceName != "" {
 		marker.Objects = append(marker.Objects, MarkerObject{

@@ -52,6 +52,15 @@ let server;
 let sourceURL;
 let tempRoot;
 let collectionHTML;
+const versionRequests = [];
+
+function isVersionManifestURL(url) {
+  try {
+    return new URL(url).pathname.endsWith('/.airplan-versions.json');
+  } catch {
+    return false;
+  }
+}
 
 const test = base.extend({
   page: async ({ page }, use) => {
@@ -63,8 +72,17 @@ const test = base.extend({
     page.on('pageerror', (error) => {
       errors.push(`page error: ${error.message}`);
     });
+    page.on('response', (response) => {
+      if (response.status() !== 404) return;
+      if (isVersionManifestURL(response.url())) return;
+      errors.push(`response error: 404 ${response.url()}`);
+    });
     page.on('console', (message) => {
       if (message.type() === 'error') {
+        if (message.text() ===
+            'Failed to load resource: the server responded with a status of 404 (Not Found)') {
+          return;
+        }
         errors.push(`console error: ${message.text()}`);
       }
     });
@@ -149,6 +167,10 @@ test.beforeAll(async () => {
       body = collectionMembers.get(request.url);
       response.writeHead(200, { 'Content-Type': 'application/octet-stream' });
       response.end(body);
+      return;
+    } else if (request.url.startsWith('/.airplan-versions.json?')) {
+      versionRequests.push({ url: request.url, headers: request.headers });
+      response.writeHead(404).end();
       return;
     } else {
       response.writeHead(404).end();
@@ -349,6 +371,26 @@ test.afterAll(async () => {
   }
   if (tempRoot) await rm(tempRoot, { recursive: true, force: true });
 });
+
+test('standalone Markdown performs cache-busted dormant revision discovery',
+  async ({ page }) => {
+    const start = versionRequests.length;
+    await page.goto(baseURL);
+    await expect.poll(() => versionRequests.length).toBe(start + 1);
+    await page.reload();
+    await expect.poll(() => versionRequests.length).toBe(start + 2);
+
+    const requests = versionRequests.slice(start);
+    const nonces = requests.map(({ url }) => (
+      new URL(url, baseURL).searchParams.get('_airplan')
+    ));
+    expect(nonces[0]).toBeTruthy();
+    expect(nonces[1]).toBeTruthy();
+    expect(nonces[1]).not.toBe(nonces[0]);
+    for (const request of requests) {
+      expect(request.headers['cache-control']).toContain('no-cache');
+    }
+  });
 
 test('rendered page controls work', async ({ context, page }, testInfo) => {
   await context.grantPermissions(
@@ -558,6 +600,18 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
   await copyCode.click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe(expectedCode);
+});
+
+test('revision 404 filtering does not match unrelated resources', () => {
+  expect(isVersionManifestURL(
+    'https://plans.example.com/id/.airplan-versions.json?nonce=1',
+  )).toBe(true);
+  expect(isVersionManifestURL(
+    'https://plans.example.com/id/missing.png',
+  )).toBe(false);
+  expect(isVersionManifestURL(
+    'https://plans.example.com/id/missing.png?redirect=/.airplan-versions.json?nonce=1',
+  )).toBe(false);
 });
 
 test('uploaded source controls share the first row on narrow screens',

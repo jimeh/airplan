@@ -72,24 +72,26 @@ type showJSONObject struct {
 }
 
 type showJSONRecord struct {
-	State         airplan.UploadState     `json:"state"`
-	Dir           string                  `json:"dir"`
-	MarkerKey     string                  `json:"marker_key"`
-	Objects       int                     `json:"objects"`
-	Bytes         int64                   `json:"bytes"`
-	Time          *time.Time              `json:"time,omitempty"`
-	Format        string                  `json:"format,omitempty"`
-	Kind          airplan.UploadKind      `json:"kind,omitempty"`
-	Version       int                     `json:"marker_version,omitempty"`
-	Title         string                  `json:"title,omitempty"`
-	Repo          string                  `json:"repo,omitempty"`
-	Protected     bool                    `json:"protected,omitempty"`
-	ProtectedAt   *time.Time              `json:"protected_at,omitempty"`
-	ProtectReason string                  `json:"protect_reason,omitempty"`
-	Page          *showJSONObject         `json:"page,omitempty"`
-	Source        *showJSONObject         `json:"source,omitempty"`
-	Files         []*showJSONObject       `json:"files,omitempty"`
-	Error         airplan.MarkerErrorCode `json:"error,omitempty"`
+	State           airplan.UploadState     `json:"state"`
+	Dir             string                  `json:"dir"`
+	MarkerKey       string                  `json:"marker_key"`
+	Objects         int                     `json:"objects"`
+	Bytes           int64                   `json:"bytes"`
+	Time            *time.Time              `json:"time,omitempty"`
+	Format          string                  `json:"format,omitempty"`
+	Kind            airplan.UploadKind      `json:"kind,omitempty"`
+	Version         int                     `json:"marker_version,omitempty"`
+	ProducerVersion string                  `json:"producer_version,omitempty"`
+	RendererVersion int                     `json:"renderer_version,omitempty"`
+	Title           string                  `json:"title,omitempty"`
+	Repo            string                  `json:"repo,omitempty"`
+	Protected       bool                    `json:"protected,omitempty"`
+	ProtectedAt     *time.Time              `json:"protected_at,omitempty"`
+	ProtectReason   string                  `json:"protect_reason,omitempty"`
+	Page            *showJSONObject         `json:"page,omitempty"`
+	Source          *showJSONObject         `json:"source,omitempty"`
+	Files           []*showJSONObject       `json:"files,omitempty"`
+	Error           airplan.MarkerErrorCode `json:"error,omitempty"`
 }
 
 func showJSONFromInspection(in *airplan.UploadInspection) showJSONRecord {
@@ -103,6 +105,8 @@ func showJSONFromInspection(in *airplan.UploadInspection) showJSONRecord {
 		out.Format = in.Format
 		out.Kind = in.Kind
 		out.Version = in.MarkerVersion
+		out.ProducerVersion = in.ProducerVersion
+		out.RendererVersion = in.RendererGeneration
 		out.Title = in.Title
 		out.Repo = in.Repo
 		out.Protected = in.Protected
@@ -178,6 +182,16 @@ func printInspection(w io.Writer, in *airplan.UploadInspection) error {
 	}
 	if err := write("MARKER VERSION", in.MarkerVersion); err != nil {
 		return err
+	}
+	if in.ProducerVersion != "" {
+		if err := write("AIRPLAN VERSION", in.ProducerVersion); err != nil {
+			return err
+		}
+	}
+	if in.RendererGeneration > 0 {
+		if err := write("RENDERER VERSION", in.RendererGeneration); err != nil {
+			return err
+		}
 	}
 	title := in.Title
 	if title == "" {

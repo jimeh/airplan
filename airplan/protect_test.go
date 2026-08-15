@@ -205,7 +205,7 @@ func TestProtectUploadCollection(t *testing.T) {
 	fake := newProtectStorage(t)
 	when := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)
 	marker, err := EncodeUploadMarker(UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion, Directory: testDir,
+		Schema: MarkerSchema, Version: 3, Directory: testDir,
 		CreatedAt: when, Kind: UploadKindCollection,
 		Objects: []MarkerObject{
 			{
@@ -653,6 +653,62 @@ func TestPlanPurgeManifestSourceFiltersProtected(t *testing.T) {
 	if len(plan.Protected) != 1 || plan.Protected[0].UploadID != testDir ||
 		!plan.Protected[0].Record.Protected {
 		t.Fatalf("protected = %+v", plan.Protected)
+	}
+}
+
+func TestPlanPurgeUsesOriginalAgeAfterProtectedUploadUpgrade(t *testing.T) {
+	created := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	upgradedAt := created.Add(30 * 24 * time.Hour)
+	boundary := created.Add(7 * 24 * time.Hour)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	pageKey := testDir + "/plan.html"
+	markerKey := testDir + "/" + MarkerFilename
+	upload := ManifestRecord{
+		Type: "upload", Time: created, CreatedAt: created, Key: pageKey,
+		MarkerKey: markerKey, URL: "https://plans.example.com/" + pageKey,
+		Bucket: "plans", Profile: "work", Format: "md",
+		Kind: string(UploadKindDocument), Slug: "plan", Bytes: 1,
+		MarkerVersion: 3,
+	}
+	upgrade := upload
+	upgrade.Type = "upgrade"
+	upgrade.Time = upgradedAt
+	upgrade.MarkerVersion = MarkerVersion
+	upgrade.ProducerVersion = "0.8.0"
+	upgrade.RendererVersion = RendererGeneration
+	for _, record := range []ManifestRecord{
+		upload,
+		{
+			Type: "protect", Time: created.Add(time.Hour), Key: pageKey,
+			MarkerKey: markerKey, Bucket: "plans", Profile: "work",
+			ProtectReason: "keep",
+		},
+		upgrade,
+	} {
+		if err := appendManifestRecord(context.Background(), manifest, record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	client := newProtectTestClient(t, "https://unused.example.com", manifest)
+	listed, err := client.ListManifest(context.Background(), ListManifestOptions{
+		Scope: ManifestScopeService,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	older := ListFilter{OlderThan: &boundary}.FilterManifestRecords(listed.Records)
+	if len(older) != 1 || !older[0].Protected || !older[0].Time.Equal(created) {
+		t.Fatalf("older records = %+v", older)
+	}
+	plan, err := client.PlanPurge(context.Background(), PurgePlanOptions{
+		Source: UploadSourceManifest, All: true, CreatedBefore: boundary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Candidates) != 0 || len(plan.Protected) != 1 ||
+		!plan.Protected[0].Record.Time.Equal(created) {
+		t.Fatalf("purge plan = %+v", plan)
 	}
 }
 

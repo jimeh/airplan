@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 )
 
 // storage wraps the S3-compatible client used for uploads (SPEC.md §5).
@@ -26,6 +27,10 @@ type storage struct {
 }
 
 var errObjectNotFound = errors.New("object not found")
+
+// ErrConflict reports that remote state changed after a mutation plan was
+// created. Callers must plan again rather than overwriting the newer state.
+var ErrConflict = errors.New("airplan: remote object changed; plan again")
 
 // newStorage builds the S3 client from cfg: custom endpoint support,
 // path-style addressing when a custom endpoint is set (R2, MinIO),
@@ -117,15 +122,31 @@ type streamObject struct {
 
 // put uploads one object with Cache-Control: no-store (SPEC.md §5).
 func (s *storage) put(ctx context.Context, obj object) error {
-	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+	return s.putConditional(ctx, obj, "")
+}
+
+func (s *storage) putConditional(
+	ctx context.Context, obj object, ifMatch string,
+) error {
+	input := &s3.PutObjectInput{
 		Bucket:       aws.String(s.bucket),
 		Key:          aws.String(obj.Key),
 		Body:         bytes.NewReader(obj.Body),
 		ContentType:  aws.String(obj.ContentType),
 		CacheControl: aws.String("no-store"),
 		Metadata:     obj.Metadata,
-	})
+	}
+	if ifMatch != "" {
+		input.IfMatch = aws.String(ifMatch)
+	}
+	_, err := s.client.PutObject(ctx, input)
 	if err != nil {
+		var responseErr *smithyhttp.ResponseError
+		if errors.As(err, &responseErr) &&
+			(responseErr.HTTPStatusCode() == 409 ||
+				responseErr.HTTPStatusCode() == 412) {
+			return fmt.Errorf("%w: %q", ErrConflict, obj.Key)
+		}
 		return fmt.Errorf("airplan: put object %q: %w", obj.Key, err)
 	}
 	return nil
@@ -235,6 +256,32 @@ func (s *storage) getBytes(
 	return body, nil
 }
 
+func (s *storage) getBytesWithETag(
+	ctx context.Context, key string, limit int64,
+) ([]byte, string, string, error) {
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.bucket), Key: aws.String(key),
+	})
+	if err != nil {
+		if storageNotFound(err) {
+			return nil, "", "", fmt.Errorf(
+				"airplan: get object %q: %w", key, errObjectNotFound,
+			)
+		}
+		return nil, "", "", fmt.Errorf("airplan: get object %q: %w", key, err)
+	}
+	defer func() { _ = out.Body.Close() }()
+	var reader io.Reader = out.Body
+	if limit > 0 {
+		reader = io.LimitReader(reader, limit+1)
+	}
+	body, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, "", "", fmt.Errorf("airplan: read object %q: %w", key, err)
+	}
+	return body, aws.ToString(out.ETag), aws.ToString(out.ContentType), nil
+}
+
 func (s *storage) getTo(ctx context.Context, key string, dst io.Writer) error {
 	body, _, err := s.open(ctx, key)
 	if err != nil {
@@ -254,8 +301,7 @@ func (s *storage) open(
 		Bucket: aws.String(s.bucket), Key: aws.String(key),
 	})
 	if err != nil {
-		var noSuchKey *types.NoSuchKey
-		if errors.As(err, &noSuchKey) {
+		if storageNotFound(err) {
 			return nil, "", fmt.Errorf(
 				"airplan: get object %q: %w", key, errObjectNotFound,
 			)
@@ -263,6 +309,15 @@ func (s *storage) open(
 		return nil, "", fmt.Errorf("airplan: get object %q: %w", key, err)
 	}
 	return out.Body, aws.ToString(out.ContentType), nil
+}
+
+func storageNotFound(err error) bool {
+	var noSuchKey *types.NoSuchKey
+	if errors.As(err, &noSuchKey) {
+		return true
+	}
+	var responseErr *smithyhttp.ResponseError
+	return errors.As(err, &responseErr) && responseErr.HTTPStatusCode() == 404
 }
 
 // deleteMarker removes the ownership marker in a dedicated final request.

@@ -86,6 +86,71 @@ func (t *httpTransport) UploadFiles(
 	return &core, nil
 }
 
+func (t *httpTransport) PlanUpgradeDocument(
+	ctx context.Context, target string, opts UpgradeDocumentOptions,
+) (*UpgradeDocumentPlan, error) {
+	result, err := t.client.PlanDocumentUpgrade(ctx, httpapi.UpgradePlanRequest{Target: target, Force: opts.Force})
+	if err != nil {
+		return nil, transportError(err)
+	}
+	core := coreUpgradePlan(result)
+	return &core, nil
+}
+
+func (t *httpTransport) UpgradeDocument(
+	ctx context.Context, plan UpgradeDocumentPlan,
+) (*UpgradeDocumentResult, error) {
+	result, err := t.client.ExecuteDocumentUpgrade(ctx, wireUpgradePlan(plan))
+	if err != nil {
+		return nil, transportError(err)
+	}
+	coreUpload := coreUploadResult(result.Result)
+	return &UpgradeDocumentResult{
+		Result: coreUpload.Result,
+		State:  UpgradeState(result.State), Upgraded: result.Upgraded, Reason: result.Reason,
+	}, nil
+}
+
+func (t *httpTransport) PlanBulkUpgrade(
+	ctx context.Context, opts BulkUpgradeOptions,
+) (*BulkUpgradePlan, error) {
+	result, err := t.client.PlanBulkUpgrade(ctx, httpapi.BulkUpgradeOptions{Concurrency: opts.Concurrency})
+	if err != nil {
+		return nil, transportError(err)
+	}
+	items := make([]UpgradeDocumentPlan, len(result.Items))
+	for index, item := range result.Items {
+		items[index] = coreUpgradePlan(item)
+	}
+	counts := make(map[UpgradeState]int, len(result.Counts))
+	for state, count := range result.Counts {
+		counts[UpgradeState(state)] = count
+	}
+	return &BulkUpgradePlan{Items: items, Counts: counts, Warnings: append([]string(nil), result.Warnings...)}, nil
+}
+
+func (t *httpTransport) ExecuteBulkUpgrade(
+	ctx context.Context, req BulkUpgradeRequest,
+) (*BulkUpgradeResult, error) {
+	items := make([]httpapi.UpgradeDocumentPlan, len(req.Items))
+	for index, item := range req.Items {
+		items[index] = wireUpgradePlan(item)
+	}
+	result, err := t.client.ExecuteBulkUpgrade(ctx, httpapi.BulkUpgradeRequest{Items: items, Concurrency: req.Concurrency})
+	if err != nil {
+		return nil, transportError(err)
+	}
+	core := &BulkUpgradeResult{Items: make([]BulkUpgradeItemResult, len(result.Items)), Upgraded: result.Upgraded, Failed: result.Failed}
+	for index, item := range result.Items {
+		core.Items[index] = BulkUpgradeItemResult{Plan: coreUpgradePlan(item.Plan), Error: item.Error}
+		if item.Result != nil {
+			upload := coreUploadResult(item.Result.Result)
+			core.Items[index].Result = &UpgradeDocumentResult{Result: upload.Result, State: UpgradeState(item.Result.State), Upgraded: item.Result.Upgraded, Reason: item.Result.Reason}
+		}
+	}
+	return core, nil
+}
+
 func portableUploadLimit(limit int64) int64 {
 	if limit < 0 {
 		return 0
@@ -170,12 +235,14 @@ func coreInspection(result httpapi.UploadInspection) *UploadInspection {
 		Bytes: result.Bytes, Format: result.Format,
 		Kind: UploadKind(result.Kind), Title: result.Title,
 		Repo: result.RepositoryURL, MarkerVersion: result.MarkerVersion,
-		Page:          coreInspectedObject(result.Page),
-		Source:        coreInspectedObject(result.Source),
-		Protected:     result.Protected,
-		ProtectReason: safeProtectReason(result.ProtectReason),
-		Warnings:      append([]string(nil), result.Warnings...),
-		Error:         MarkerErrorCode(result.Error),
+		ProducerVersion:    result.ProducerVersion,
+		RendererGeneration: result.RendererVersion,
+		Page:               coreInspectedObject(result.Page),
+		Source:             coreInspectedObject(result.Source),
+		Protected:          result.Protected,
+		ProtectReason:      safeProtectReason(result.ProtectReason),
+		Warnings:           append([]string(nil), result.Warnings...),
+		Error:              MarkerErrorCode(result.Error),
 	}
 	if result.CreatedAt != nil {
 		core.CreatedAt = *result.CreatedAt
@@ -464,6 +531,12 @@ func transportError(err error) error {
 	if err == nil || errors.Is(err, context.Canceled) ||
 		errors.Is(err, context.DeadlineExceeded) {
 		return err
+	}
+	var problem *httpapi.ProblemError
+	if errors.As(err, &problem) && problem.Problem.Code == "upgrade_conflict" {
+		return fmt.Errorf(
+			"%w: server rejected stale upgrade plan: %w", ErrConflict, err,
+		)
 	}
 	return fmt.Errorf("airplan: server: %w", err)
 }

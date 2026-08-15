@@ -395,8 +395,8 @@ func TestListTableWideShowsEveryLocalColumn(t *testing.T) {
 	table := parseListTable(t, stdout)
 	table.assertHeader(t,
 		"DATE", "PROFILE", "STATE", "KIND", "TITLE", "SLUG",
-		"OBJECTS", "SIZE", "PAGE SIZE", "DIRECTORY", "FORMAT", "REPO",
-		"BUCKET", "URL",
+		"OBJECTS", "SIZE", "PAGE SIZE", "DIRECTORY", "FORMAT", "AIRPLAN",
+		"RENDERER", "REPO", "BUCKET", "URL",
 	)
 	table.assertColumn(t, "KIND", "document", "collection")
 	table.assertColumn(t, "SLUG", "plan", "-")
@@ -495,7 +495,8 @@ func TestListColumnFlagErrors(t *testing.T) {
 			"unknown name lists valid columns",
 			[]string{"--columns", "nope"},
 			"valid columns: date, profile, state, kind, title, slug, " +
-				"objects, size, page-size, dir, format, repo, bucket, url",
+				"objects, size, page-size, dir, format, airplan, renderer, " +
+				"repo, bucket, url",
 		},
 		{
 			"mixed absolute and additive syntax",
@@ -2242,6 +2243,8 @@ type fakeRemoteS3 struct {
 	markerDelay   time.Duration
 	markerActive  int
 	markerMax     int
+	puts          int
+	failPut       bool
 }
 
 func newFakeRemoteS3(
@@ -2276,6 +2279,8 @@ func newFakeRemoteS3(
 				fake.markerDeletes++
 				fake.mu.Unlock()
 				w.WriteHeader(http.StatusNoContent)
+			case "PUT":
+				fake.handlePut(w, r)
 			default:
 				w.WriteHeader(http.StatusOK)
 			}
@@ -2283,6 +2288,21 @@ func newFakeRemoteS3(
 	))
 	t.Cleanup(fake.server.Close)
 	return fake
+}
+
+func (f *fakeRemoteS3) handlePut(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+	key := strings.TrimPrefix(r.URL.Path, "/plans/")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.puts++
+	if f.failPut {
+		w.WriteHeader(http.StatusPreconditionFailed)
+		return
+	}
+	f.markers[key] = append([]byte(nil), body...)
+	w.Header().Set("ETag", `"fixture"`)
+	w.WriteHeader(http.StatusOK)
 }
 
 func (f *fakeRemoteS3) handleMarker(w http.ResponseWriter, r *http.Request) {
@@ -2309,6 +2329,7 @@ func (f *fakeRemoteS3) handleMarker(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(delay)
 	}
 	if explicit != nil {
+		w.Header().Set("ETag", `"fixture"`)
 		_, _ = w.Write(explicit)
 		return
 	}
@@ -2358,6 +2379,18 @@ func (f *fakeRemoteS3) setMarker(key string, body []byte) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.markers[key] = append([]byte(nil), body...)
+}
+
+func (f *fakeRemoteS3) setPutFailure(fail bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failPut = fail
+}
+
+func (f *fakeRemoteS3) putCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.puts
 }
 
 func (f *fakeRemoteS3) markerDeleteCalls() int {
