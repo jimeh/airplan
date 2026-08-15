@@ -1,8 +1,8 @@
 # Linked Document Revisions and Upload Upgrades Implementation Plan
 
-Status: proposed  
+Status: proposed
 Scope: linked Markdown revisions, adjacent diffs, renderer provenance, and
-individual or manifest-wide document upgrades  
+individual or manifest-wide document upgrades
 Repository baseline: Airplan v0.7.0, spec 0.33.0
 
 ## 1. Goal

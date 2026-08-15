@@ -2,6 +2,38 @@
   'use strict';
   var d = document;
 
+  // Markdown pages are revision-ready even while standalone. The control
+  // object intentionally does not exist until revision 2 is uploaded, so a
+  // 404 is the ordinary dormant state. A nonce and no-store prevent a cached
+  // negative response from hiding linkage added after this page was opened.
+  var versionsMeta = d.querySelector('meta[name="airplan-versions"]');
+  if (versionsMeta) {
+    var versionsURL = new URL(versionsMeta.content, window.location.href);
+    versionsURL.searchParams.set('_airplan',
+      Date.now().toString(36) + Math.random().toString(36).slice(2));
+    fetch(versionsURL, { cache: 'no-store', credentials: 'same-origin' })
+      .then(function (response) {
+        if (response.status === 404) return null;
+        if (!response.ok) throw new Error('metadata request failed');
+        return response.json();
+      })
+      .then(function (metadata) {
+        if (metadata === null) return;
+        if (!metadata || metadata.schema !== 'airplan-versions' ||
+            metadata.version !== 1 ||
+            !Array.isArray(metadata.revisions) ||
+            metadata.revisions.length < 2) {
+          throw new Error('metadata is invalid');
+        }
+        window.dispatchEvent(new CustomEvent('airplan:versions', {
+          detail: metadata,
+        }));
+      })
+      .catch(function () {
+        console.warn('airplan: revision metadata is unavailable or invalid');
+      });
+  }
+
   // Visually-hidden live region so screen readers announce copy
   // feedback even when focus doesn't stay on the button.
   var live = d.createElement('div');

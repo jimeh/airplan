@@ -97,6 +97,8 @@ func safeProblemDetail(code string) string {
 		return "The marker-managed upload could not be found."
 	case "upload_protected":
 		return "The upload is purge-protected; unprotect it or force deletion."
+	case "upgrade_conflict":
+		return "The upload changed after it was planned; create a new upgrade plan."
 	default:
 		return "The server could not complete the request."
 	}

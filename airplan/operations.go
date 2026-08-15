@@ -16,6 +16,10 @@ import (
 type operationTransport interface {
 	Upload(context.Context, Input) (*Result, error)
 	UploadFiles(context.Context, FilesInput) (*FilesResult, error)
+	PlanUpgradeDocument(context.Context, string, UpgradeDocumentOptions) (*UpgradeDocumentPlan, error)
+	UpgradeDocument(context.Context, UpgradeDocumentPlan) (*UpgradeDocumentResult, error)
+	PlanBulkUpgrade(context.Context, BulkUpgradeOptions) (*BulkUpgradePlan, error)
+	ExecuteBulkUpgrade(context.Context, BulkUpgradeRequest) (*BulkUpgradeResult, error)
 	ListManifest(context.Context, ListManifestOptions) (*ManifestList, error)
 	ListRemote(context.Context) ([]RemoteUpload, error)
 	InspectUpload(context.Context, string) (*UploadInspection, error)

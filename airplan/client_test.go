@@ -358,6 +358,45 @@ func TestUploadTextInput(t *testing.T) {
 	}
 }
 
+func TestUploadMarkerRecordsResolvedDefaultMermaidURL(t *testing.T) {
+	var markerBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		if strings.HasSuffix(r.URL.Path, "/"+MarkerFilename) {
+			markerBody = body
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Endpoint: server.URL, Bucket: "plans", AccessKeyID: "test",
+		SecretAccessKey: "test", PublicBaseURL: "https://plans.example.com",
+		DisableManifest: true, ProducerVersion: "0.8.0",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n\n```mermaid\ngraph TD\n```\n"),
+		Name:   "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dirPrefix, err := uploadDirPrefix(result.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.TrimSuffix(dirPrefix, "/")
+	marker, err := DecodeUploadMarker(markerBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marker.Render == nil || marker.Render.MermaidURL != DefaultMermaidURL {
+		t.Fatalf("render recipe = %+v, want default Mermaid URL", marker.Render)
+	}
+}
+
 func TestUploadPersistsRepositoryForEveryFormat(t *testing.T) {
 	for _, test := range []struct {
 		name     string

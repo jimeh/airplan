@@ -44,10 +44,12 @@ type UploadInspection struct {
 	// Repo is the canonical repository URL declared by marker v2, or empty.
 	Repo string `json:"repository_url,omitempty"`
 	// MarkerVersion is the validated ownership marker version.
-	MarkerVersion int                `json:"marker_version"`
-	Page          *InspectedObject   `json:"page,omitempty"`
-	Source        *InspectedObject   `json:"source,omitempty"`
-	Files         []*InspectedObject `json:"files,omitempty"`
+	MarkerVersion      int                `json:"marker_version"`
+	ProducerVersion    string             `json:"producer_version,omitempty"`
+	RendererGeneration int                `json:"renderer_version,omitempty"`
+	Page               *InspectedObject   `json:"page,omitempty"`
+	Source             *InspectedObject   `json:"source,omitempty"`
+	Files              []*InspectedObject `json:"files,omitempty"`
 	// Protected reports the purge-protection sentinel's presence in the
 	// directory listing (SPEC.md §9). ProtectedAt falls back to the sentinel's
 	// listing timestamp when its body cannot be read or decoded; ProtectReason
@@ -240,6 +242,10 @@ func (c *Client) inspectUploadSnapshot(
 	inspection.Title = marker.Title
 	inspection.Repo = marker.Repo
 	inspection.MarkerVersion = marker.Version
+	inspection.ProducerVersion = marker.Producer.Version
+	if marker.Render != nil {
+		inspection.RendererGeneration = marker.Render.Generation
+	}
 	dirPrefix := strings.TrimSuffix(upload.MarkerKey, path.Base(upload.MarkerKey))
 	var fallback bool
 	inspection.Page, fallback = c.inspectedObject(dirPrefix+marker.Page, byKey)
@@ -253,7 +259,7 @@ func (c *Client) inspectUploadSnapshot(
 		for _, object := range marker.Objects {
 			if object.Role == MarkerRoleSource {
 				inspection.Source.ExpectedBytes = object.Bytes
-				inspection.Source.ExpectedKnown = marker.Version == MarkerVersion
+				inspection.Source.ExpectedKnown = marker.Version >= 3
 			}
 		}
 		fallback = fallback || sourceFallback

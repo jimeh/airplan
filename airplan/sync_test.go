@@ -28,7 +28,7 @@ func TestSyncManifestImportsPrunesAndRestores(t *testing.T) {
 		CreatedAt: when, Format: "html", Page: "old.html",
 	}, []byte("old page"))
 	fake.addUpload(t, UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion, Directory: dirV2,
+		Schema: MarkerSchema, Version: 3, Directory: dirV2,
 		CreatedAt: when.Add(time.Minute), Kind: UploadKindDocument,
 		Slug: "new", Format: "md", Objects: []MarkerObject{
 			{Name: "new.html", Role: MarkerRolePage, Bytes: 10, ContentType: pageContentType},
@@ -74,7 +74,7 @@ func TestSyncManifestImportsPrunesAndRestores(t *testing.T) {
 	}
 
 	fake.addMarker(t, UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion, Directory: dirV2,
+		Schema: MarkerSchema, Version: 3, Directory: dirV2,
 		CreatedAt: when.Add(time.Minute), Kind: UploadKindDocument,
 		Slug: "new", Format: "md", Objects: []MarkerObject{
 			{Name: "new.html", Role: MarkerRolePage, Bytes: 10, ContentType: pageContentType},
@@ -132,7 +132,7 @@ func TestSyncManifestClassifiesInvalidAndIncomplete(t *testing.T) {
 	incompleteDir := strings.Repeat("e", 26)
 	fake.addObject(invalidDir+"/"+MarkerFilename, []byte(`{"schema":`), when)
 	fake.addMarker(t, UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion, Directory: incompleteDir,
+		Schema: MarkerSchema, Version: 3, Directory: incompleteDir,
 		CreatedAt: when, Kind: UploadKindDocument, Slug: "plan", Format: "html",
 		Objects: []MarkerObject{{
 			Name: "plan.html", Role: MarkerRolePage,
@@ -379,7 +379,7 @@ func TestSyncManifestReconcilesCollectionProtection(t *testing.T) {
 	fake := newSyncStorage(t)
 	dir := strings.Repeat("c", 26)
 	fake.addUpload(t, UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		Schema: MarkerSchema, Version: 3, Directory: dir,
 		CreatedAt: when, Kind: UploadKindCollection,
 		Objects: []MarkerObject{
 			{
@@ -588,7 +588,7 @@ func (f *syncStorage) addUpload(
 	t.Helper()
 	f.addMarker(t, marker)
 	pageName := marker.Page
-	if marker.Version == MarkerVersion {
+	if marker.Version >= 3 {
 		for _, object := range marker.Objects {
 			if object.Role == MarkerRolePage {
 				pageName = object.Name
@@ -605,7 +605,7 @@ func (f *syncStorage) addMarker(t *testing.T, marker UploadMarker) {
 		t.Fatal(err)
 	}
 	markerName := MarkerFilename
-	if marker.Version == MarkerVersion {
+	if marker.Version >= 3 {
 		markerName, _ = MarkerFilenameForKind(marker.Kind)
 	}
 	f.addObject(marker.Directory+"/"+markerName, body, marker.CreatedAt)

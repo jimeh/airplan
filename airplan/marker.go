@@ -24,12 +24,12 @@ const CollectionMarkerFilename = ".airplan-collection.json"
 const MarkerSchema = "airplan-upload"
 
 // MarkerVersion is the latest ownership marker version written by airplan.
-const MarkerVersion = 3
+const MarkerVersion = 4
 
 // IsSupportedMarkerVersion reports whether version can be safely managed by
 // this airplan release.
 func IsSupportedMarkerVersion(version int) bool {
-	return version == 1 || version == 2 || version == MarkerVersion
+	return version >= 1 && version <= MarkerVersion
 }
 
 // MaxMarkerSize is the maximum accepted marker body size.
@@ -41,7 +41,7 @@ const MaxCollectionFiles = 100
 // UploadKind identifies the shape and lifecycle rules for an upload.
 type UploadKind string
 
-// Supported marker v3 upload kinds.
+// Supported modern marker upload kinds.
 const (
 	UploadKindDocument   UploadKind = "document"
 	UploadKindCollection UploadKind = "collection"
@@ -50,7 +50,7 @@ const (
 // MarkerRole identifies the purpose of a declared upload object.
 type MarkerRole string
 
-// Supported marker v3 object roles.
+// Supported modern marker object roles.
 const (
 	MarkerRolePage   MarkerRole = "page"
 	MarkerRoleSource MarkerRole = "source"
@@ -65,13 +65,39 @@ type MarkerObject struct {
 	ContentType string     `json:"content_type"`
 }
 
+// Producer identifies the Airplan release that produced a v4 marker.
+type Producer struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
+// RenderTemplate identifies the template used to generate a page. Custom
+// template source and local paths are deliberately not persisted.
+type RenderTemplate struct {
+	Kind   string `json:"kind"`
+	SHA256 string `json:"sha256,omitempty"`
+}
+
+// RenderRecipe is the reproducible rendering policy recorded by marker v4.
+type RenderRecipe struct {
+	Generation       int            `json:"generation"`
+	Template         RenderTemplate `json:"template"`
+	Indexable        bool           `json:"indexable"`
+	NoExternalAssets bool           `json:"no_external_assets"`
+	MermaidURL       string         `json:"mermaid_url,omitempty"`
+}
+
+// RendererGeneration is incremented only when generated page capabilities or
+// embedded assets require existing source-backed pages to be re-rendered.
+const RendererGeneration = 1
+
 // MarkerDeclaredTotals returns the object count and byte total an upload
 // declares (SPEC.md §9): its ownership marker plus every object the marker
 // lists, with markerBytes the exact serialized marker body written to storage.
 //
 // These are declared values, never a storage listing, so the same upload
 // reports the same totals whether they were recorded when it was uploaded or
-// derived later from its marker by sync. Marker v3 declares every object;
+// derived later from its marker by sync. Marker v3 and later declare every object;
 // marker v2 declares the page and qualifies only when it has no source. Marker
 // v1 and v2-with-source report ok false because their totals would be a guess.
 func MarkerDeclaredTotals(
@@ -90,7 +116,7 @@ func MarkerDeclaredTotals(
 		}
 		return 2, total, true
 	}
-	if marker.Version != MarkerVersion {
+	if marker.Version < 3 {
 		return 0, 0, false
 	}
 	objects = 1
@@ -173,9 +199,11 @@ type UploadMarker struct {
 	Objects   []MarkerObject `json:"objects"`
 	Title     string         `json:"title,omitempty"`
 	Repo      string         `json:"repo,omitempty"`
+	Producer  Producer       `json:"producer"`
+	Render    *RenderRecipe  `json:"render,omitempty"`
 
 	// Page, PageBytes, and Source are normalized compatibility views used by
-	// callers that predate marker v3. They are never encoded in marker v3.
+	// callers that predate marker v3. They are never encoded in modern markers.
 	Page      string `json:"-"`
 	PageBytes int64  `json:"-"`
 	Source    string `json:"-"`
@@ -195,6 +223,8 @@ type markerWire struct {
 	Source    *string         `json:"source"`
 	Title     *string         `json:"title"`
 	Repo      json.RawMessage `json:"repo"`
+	Producer  json.RawMessage `json:"producer"`
+	Render    json.RawMessage `json:"render"`
 }
 
 type markerObjectWire struct {
@@ -207,7 +237,7 @@ type markerObjectWire struct {
 // EncodeUploadMarker validates and encodes marker as UTF-8 JSON.
 func EncodeUploadMarker(marker UploadMarker) ([]byte, error) {
 	markerName := MarkerFilename
-	if marker.Version == MarkerVersion {
+	if marker.Version >= 3 {
 		var ok bool
 		markerName, ok = MarkerFilenameForKind(marker.Kind)
 		if !ok {
@@ -219,7 +249,15 @@ func EncodeUploadMarker(marker UploadMarker) ([]byte, error) {
 		return nil, err
 	}
 	var value any
-	if marker.Version == MarkerVersion {
+	if marker.Version >= 3 {
+		producer := marker.Producer
+		render := marker.Render
+		if marker.Version < MarkerVersion {
+			// producer and render were unknown extension fields in v3. Keep
+			// v3 encoding compatible rather than assigning v4 meaning to them.
+			producer = Producer{}
+			render = nil
+		}
 		value = struct {
 			Schema    string         `json:"schema"`
 			Version   int            `json:"version"`
@@ -231,10 +269,12 @@ func EncodeUploadMarker(marker UploadMarker) ([]byte, error) {
 			Objects   []MarkerObject `json:"objects"`
 			Title     string         `json:"title,omitempty"`
 			Repo      string         `json:"repo,omitempty"`
+			Producer  Producer       `json:"producer,omitzero"`
+			Render    *RenderRecipe  `json:"render,omitempty"`
 		}{
 			marker.Schema, marker.Version, marker.Directory, marker.CreatedAt,
 			marker.Kind, marker.Slug, marker.Format, marker.Objects,
-			marker.Title, marker.Repo,
+			marker.Title, marker.Repo, producer, render,
 		}
 	} else {
 		value = struct {
@@ -326,14 +366,14 @@ func DecodeUploadMarkerForName(
 	if wire.Title != nil {
 		marker.Title = *wire.Title
 	}
-	if marker.Version == MarkerVersion {
+	if marker.Version >= 3 {
 		if wire.Kind == nil || len(wire.Objects) == 0 {
 			return nil, markerInvalid(MarkerErrorInvalidFields,
-				errors.New("one or more marker v3 fields are missing"))
+				errors.New("one or more modern marker fields are missing"))
 		}
 		if wire.Page != nil || len(wire.PageBytes) > 0 || wire.Source != nil {
 			return nil, markerInvalid(MarkerErrorInvalidFields,
-				errors.New("marker v3 must not use legacy object fields"))
+				errors.New("modern markers must not use legacy object fields"))
 		}
 		marker.Kind = UploadKind(*wire.Kind)
 		if wire.Slug != nil {
@@ -352,6 +392,20 @@ func DecodeUploadMarkerForName(
 				return nil, markerInvalid(MarkerErrorInvalidFields,
 					fmt.Errorf("repo is not a string: %w", err))
 			}
+		}
+		if marker.Version == MarkerVersion && len(wire.Producer) > 0 {
+			if err := json.Unmarshal(wire.Producer, &marker.Producer); err != nil {
+				return nil, markerInvalid(MarkerErrorInvalidFields,
+					fmt.Errorf("producer is invalid: %w", err))
+			}
+		}
+		if marker.Version == MarkerVersion && len(wire.Render) > 0 {
+			var recipe RenderRecipe
+			if err := json.Unmarshal(wire.Render, &recipe); err != nil {
+				return nil, markerInvalid(MarkerErrorInvalidFields,
+					fmt.Errorf("render is invalid: %w", err))
+			}
+			marker.Render = &recipe
 		}
 	} else {
 		if markerBasename != MarkerFilename {
@@ -389,7 +443,7 @@ func DecodeUploadMarkerForName(
 	if err := validateUploadMarker(marker, expectedDir, markerBasename); err != nil {
 		return nil, err
 	}
-	if marker.Version < MarkerVersion && wire.Source != nil && marker.Source == "" {
+	if marker.Version < 3 && wire.Source != nil && marker.Source == "" {
 		return nil, markerInvalid(MarkerErrorInvalidFields,
 			errors.New("source must be omitted when empty"))
 	}
@@ -401,7 +455,7 @@ func DecodeUploadMarkerForName(
 		return nil, markerInvalid(MarkerErrorInvalidFields,
 			errors.New("repo must be omitted when empty"))
 	}
-	if marker.Version == MarkerVersion {
+	if marker.Version >= 3 {
 		if wire.Slug != nil && marker.Slug == "" {
 			return nil, markerInvalid(MarkerErrorInvalidFields,
 				errors.New("slug must be omitted when empty"))
@@ -463,8 +517,14 @@ func validateUploadMarker(
 		return invalid("created_at is not UTC")
 	}
 
-	if marker.Version == MarkerVersion {
-		return validateMarkerV3(marker, markerBasename, invalid)
+	if marker.Version >= 3 {
+		if err := validateModernMarker(marker, markerBasename, invalid); err != nil {
+			return err
+		}
+		if marker.Version == MarkerVersion {
+			return validateMarkerV4(marker, invalid)
+		}
+		return nil
 	}
 
 	slug, ok := pageSlug(marker.Page)
@@ -492,7 +552,7 @@ func validateUploadMarker(
 	return nil
 }
 
-func validateMarkerV3(
+func validateModernMarker(
 	marker *UploadMarker,
 	markerBasename string,
 	invalid func(string, ...any) error,
@@ -516,6 +576,10 @@ func validateMarkerV3(
 		object := &marker.Objects[i]
 		if !validMarkerObjectName(object.Name) {
 			return invalid("object name %q is not a safe direct basename",
+				object.Name)
+		}
+		if marker.Version >= 4 && strings.HasPrefix(object.Name, ".airplan-") {
+			return invalid("object name %q uses the reserved .airplan- prefix",
 				object.Name)
 		}
 		if _, exists := names[object.Name]; exists {
@@ -569,6 +633,68 @@ func validateMarkerV3(
 	default:
 		return invalid("kind %q is unsupported", marker.Kind)
 	}
+}
+
+func validateMarkerV4(
+	marker *UploadMarker,
+	invalid func(string, ...any) error,
+) error {
+	if marker.Producer.Name != "airplan" || marker.Producer.Version == "" {
+		return invalid("producer must identify a non-empty airplan version")
+	}
+	if strings.TrimSpace(marker.Producer.Version) != marker.Producer.Version {
+		return invalid("producer version must not contain surrounding whitespace")
+	}
+	// Authored HTML is the only document payload Airplan does not render.
+	if marker.Kind == UploadKindDocument && marker.Format == "html" {
+		if marker.Render != nil {
+			return invalid("authored HTML must not declare a render recipe")
+		}
+		return nil
+	}
+	if marker.Render == nil {
+		return invalid("render recipe is required for generated pages")
+	}
+	render := marker.Render
+	if render.Generation <= 0 {
+		return invalid("render generation must be positive")
+	}
+	switch render.Template.Kind {
+	case "builtin", "builtin_collection":
+		if render.Template.SHA256 != "" {
+			return invalid("built-in templates must not declare sha256")
+		}
+	case "custom", "custom_collection":
+		if len(render.Template.SHA256) != 64 {
+			return invalid("custom template sha256 must be 64 lowercase hex characters")
+		}
+		for _, char := range render.Template.SHA256 {
+			if !strings.ContainsRune("0123456789abcdef", char) {
+				return invalid("custom template sha256 must be 64 lowercase hex characters")
+			}
+		}
+	default:
+		return invalid("render template kind %q is unsupported", render.Template.Kind)
+	}
+	if marker.Kind == UploadKindDocument {
+		if render.Template.Kind != "builtin" && render.Template.Kind != "custom" {
+			return invalid("document render template kind %q is invalid",
+				render.Template.Kind)
+		}
+	} else if render.Template.Kind != "builtin_collection" &&
+		render.Template.Kind != "custom_collection" {
+		return invalid("collection render template kind %q is invalid",
+			render.Template.Kind)
+	}
+	if marker.Kind == UploadKindCollection && render.MermaidURL != "" {
+		return invalid("collection render recipes must not declare mermaid_url")
+	}
+	if render.MermaidURL != "" {
+		if err := validateMermaidURL(render.MermaidURL); err != nil {
+			return invalid("render mermaid_url is invalid: %v", err)
+		}
+	}
+	return nil
 }
 
 func validateDocumentMarkerV3(

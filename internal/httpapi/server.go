@@ -248,6 +248,58 @@ func (s *Server) UploadCollection(
 	return generated.UploadCollection201JSONResponse(result), nil
 }
 
+func (s *Server) PlanDocumentUpgrade(
+	ctx context.Context, request generated.PlanDocumentUpgradeRequestObject,
+) (generated.PlanDocumentUpgradeResponseObject, error) {
+	if request.Body == nil {
+		return nil, invalidRequest("request body is required")
+	}
+	result, err := s.operations.PlanDocumentUpgrade(ctx, *request.Body)
+	if err != nil {
+		return nil, err
+	}
+	return generated.PlanDocumentUpgrade200JSONResponse(result), nil
+}
+
+func (s *Server) ExecuteDocumentUpgrade(
+	ctx context.Context, request generated.ExecuteDocumentUpgradeRequestObject,
+) (generated.ExecuteDocumentUpgradeResponseObject, error) {
+	if request.Body == nil {
+		return nil, invalidRequest("request body is required")
+	}
+	result, err := s.operations.ExecuteDocumentUpgrade(ctx, *request.Body)
+	if err != nil {
+		return nil, err
+	}
+	return generated.ExecuteDocumentUpgrade200JSONResponse(result), nil
+}
+
+func (s *Server) PlanBulkUpgrade(
+	ctx context.Context, request generated.PlanBulkUpgradeRequestObject,
+) (generated.PlanBulkUpgradeResponseObject, error) {
+	if request.Body == nil {
+		return nil, invalidRequest("request body is required")
+	}
+	result, err := s.operations.PlanBulkUpgrade(ctx, *request.Body)
+	if err != nil {
+		return nil, err
+	}
+	return generated.PlanBulkUpgrade200JSONResponse(result), nil
+}
+
+func (s *Server) ExecuteBulkUpgrade(
+	ctx context.Context, request generated.ExecuteBulkUpgradeRequestObject,
+) (generated.ExecuteBulkUpgradeResponseObject, error) {
+	if request.Body == nil {
+		return nil, invalidRequest("request body is required")
+	}
+	result, err := s.operations.ExecuteBulkUpgrade(ctx, *request.Body)
+	if err != nil {
+		return nil, err
+	}
+	return generated.ExecuteBulkUpgrade200JSONResponse(result), nil
+}
+
 // InspectUpload implements the generated operation.
 func (s *Server) InspectUpload(
 	ctx context.Context, request generated.InspectUploadRequestObject,

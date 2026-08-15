@@ -54,7 +54,9 @@ func TestListColumnsRenderValuesForEveryMode(t *testing.T) {
 
 		TotalBytes: 18944,
 
-		MarkerVersion: airplan.MarkerVersion,
+		MarkerVersion:   airplan.MarkerVersion,
+		ProducerVersion: "0.8.0",
+		RendererVersion: airplan.RendererGeneration,
 	}
 	upload := airplan.RemoteUpload{
 		Dir:          deleteDirA,
@@ -94,7 +96,8 @@ func TestListColumnsRenderDashForMissingValues(t *testing.T) {
 		Bytes: 42,
 	}
 	for _, name := range []string{
-		"title", "objects", "size", "slug", "dir", "format", "repo",
+		"title", "objects", "size", "slug", "dir", "format", "airplan",
+		"renderer", "repo",
 		"bucket",
 	} {
 		if got := localListCell(name, record); got != "-" {

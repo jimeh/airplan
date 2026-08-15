@@ -1283,7 +1283,7 @@ func TestManifestRecordDeclaredTotalsJSON(t *testing.T) {
 		`"url":"https://plans.example.com/aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html",` +
 		`"bucket":"plans","profile":"work","format":"md","kind":"document",` +
 		`"slug":"plan","title":"Plan","bytes":18432,"objects":3,` +
-		`"total_bytes":19000,"marker_version":3}`
+		`"total_bytes":19000,"marker_version":4}`
 	if string(encoded) != want {
 		t.Fatalf("encoded =\n%s\nwant\n%s", encoded, want)
 	}

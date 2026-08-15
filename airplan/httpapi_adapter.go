@@ -45,7 +45,9 @@ func (o *HTTPOperations) Capabilities(
 			"get_upload", "delete_upload", "protect_upload",
 			"unprotect_upload", "list_manifest",
 			"list_storage", "sync_manifest", "preview_purge",
-			"execute_purge",
+			"execute_purge", "plan_document_upgrade",
+			"execute_document_upgrade", "plan_bulk_upgrade",
+			"execute_bulk_upgrade",
 		},
 		UploadFormats: []httpapi.CapabilitiesUploadFormats{"md", "html", "txt"},
 		Limits: httpapi.UploadLimits{
@@ -53,7 +55,7 @@ func (o *HTTPOperations) Capabilities(
 			CollectionFileBytes:  DefaultMaxCollectionFileSize,
 			CollectionTotalBytes: DefaultMaxCollectionTotalSize,
 		},
-		MarkerVersions: []int{1, 2, MarkerVersion},
+		MarkerVersions: []int{1, 2, 3, MarkerVersion},
 	}, nil
 }
 
@@ -111,6 +113,124 @@ func (o *HTTPOperations) UploadCollection(
 		return httpapi.UploadResult{}, apiOperationError(err)
 	}
 	return wireUploadResult(&result.Result, result.Files), nil
+}
+
+func (o *HTTPOperations) PlanDocumentUpgrade(
+	ctx context.Context, request httpapi.UpgradePlanRequest,
+) (httpapi.UpgradeDocumentPlan, error) {
+	client, err := o.client()
+	if err != nil {
+		return httpapi.UpgradeDocumentPlan{}, err
+	}
+	plan, err := client.PlanUpgradeDocument(ctx, request.Target,
+		UpgradeDocumentOptions{Force: request.Force})
+	if err != nil {
+		return httpapi.UpgradeDocumentPlan{}, apiOperationError(err)
+	}
+	return wireUpgradePlan(*plan), nil
+}
+
+func (o *HTTPOperations) ExecuteDocumentUpgrade(
+	ctx context.Context, request httpapi.UpgradeDocumentPlan,
+) (httpapi.UpgradeDocumentResult, error) {
+	client, err := o.client()
+	if err != nil {
+		return httpapi.UpgradeDocumentResult{}, err
+	}
+	result, err := client.UpgradeDocument(ctx, coreUpgradePlan(request))
+	if err != nil {
+		return httpapi.UpgradeDocumentResult{}, apiOperationError(err)
+	}
+	return wireUpgradeResult(*result), nil
+}
+
+func (o *HTTPOperations) PlanBulkUpgrade(
+	ctx context.Context, request httpapi.BulkUpgradeOptions,
+) (httpapi.BulkUpgradePlan, error) {
+	client, err := o.client()
+	if err != nil {
+		return httpapi.BulkUpgradePlan{}, err
+	}
+	plan, err := client.PlanBulkUpgrade(ctx, BulkUpgradeOptions{Concurrency: request.Concurrency})
+	if err != nil {
+		return httpapi.BulkUpgradePlan{}, apiOperationError(err)
+	}
+	items := make([]httpapi.UpgradeDocumentPlan, len(plan.Items))
+	for index, item := range plan.Items {
+		items[index] = wireUpgradePlan(item)
+	}
+	counts := make(map[string]int, len(plan.Counts))
+	for state, count := range plan.Counts {
+		counts[string(state)] = count
+	}
+	return httpapi.BulkUpgradePlan{
+		Items: items, Counts: counts,
+		Warnings: serverSafeWarnings(plan.Warnings),
+	}, nil
+}
+
+func (o *HTTPOperations) ExecuteBulkUpgrade(
+	ctx context.Context, request httpapi.BulkUpgradeRequest,
+) (httpapi.BulkUpgradeResult, error) {
+	client, err := o.client()
+	if err != nil {
+		return httpapi.BulkUpgradeResult{}, err
+	}
+	items := make([]UpgradeDocumentPlan, len(request.Items))
+	for index, item := range request.Items {
+		items[index] = coreUpgradePlan(item)
+	}
+	result, err := client.ExecuteBulkUpgrade(ctx, BulkUpgradeRequest{Items: items, Concurrency: request.Concurrency})
+	if err != nil && result == nil {
+		return httpapi.BulkUpgradeResult{}, apiOperationError(err)
+	}
+	wireItems := make([]httpapi.BulkUpgradeItemResult, len(result.Items))
+	for index, item := range result.Items {
+		wireItems[index] = httpapi.BulkUpgradeItemResult{Plan: wireUpgradePlan(item.Plan), Error: serverSafeItemError(item.Error)}
+		if item.Result != nil {
+			wireItems[index].Result = wireUpgradeResult(*item.Result)
+		}
+	}
+	return httpapi.BulkUpgradeResult{Items: wireItems, Upgraded: result.Upgraded, Failed: result.Failed}, nil
+}
+
+func wireUpgradePlan(plan UpgradeDocumentPlan) httpapi.UpgradeDocumentPlan {
+	return httpapi.UpgradeDocumentPlan{
+		Target: plan.Target, Bucket: plan.Bucket,
+		State: httpapi.UpgradeState(plan.State), Reason: plan.Reason, URL: plan.URL,
+		MarkerKey: plan.MarkerKey, PageKey: plan.PageKey, SourceKey: plan.SourceKey,
+		CurrentMarkerVersion:      plan.CurrentMarkerVersion,
+		CurrentProducerVersion:    plan.CurrentProducerVersion,
+		CurrentRendererGeneration: plan.CurrentRendererGeneration,
+		TargetMarkerVersion:       plan.TargetMarkerVersion,
+		TargetProducerVersion:     plan.TargetProducerVersion,
+		TargetRendererGeneration:  plan.TargetRendererGeneration,
+		MarkerEtag:                plan.MarkerETag, PageEtag: plan.PageETag,
+		SourceEtag: plan.SourceETag, Force: plan.Force,
+	}
+}
+
+func coreUpgradePlan(plan httpapi.UpgradeDocumentPlan) UpgradeDocumentPlan {
+	return UpgradeDocumentPlan{
+		Target: plan.Target, Profile: plan.Profile, Bucket: plan.Bucket,
+		State: UpgradeState(plan.State), Reason: plan.Reason, URL: plan.URL,
+		MarkerKey: plan.MarkerKey, PageKey: plan.PageKey, SourceKey: plan.SourceKey,
+		CurrentMarkerVersion:      plan.CurrentMarkerVersion,
+		CurrentProducerVersion:    plan.CurrentProducerVersion,
+		CurrentRendererGeneration: plan.CurrentRendererGeneration,
+		TargetMarkerVersion:       plan.TargetMarkerVersion,
+		TargetProducerVersion:     plan.TargetProducerVersion,
+		TargetRendererGeneration:  plan.TargetRendererGeneration,
+		MarkerETag:                plan.MarkerEtag, PageETag: plan.PageEtag,
+		SourceETag: plan.SourceEtag, Force: plan.Force,
+	}
+}
+
+func wireUpgradeResult(result UpgradeDocumentResult) httpapi.UpgradeDocumentResult {
+	return httpapi.UpgradeDocumentResult{
+		Result: wireUploadResult(&result.Result, nil),
+		State:  httpapi.UpgradeState(result.State), Upgraded: result.Upgraded, Reason: result.Reason,
+	}
 }
 
 func wireUploadResult(
@@ -206,8 +326,10 @@ func wireInspection(result *UploadInspection) httpapi.UploadInspection {
 		Bytes: result.Bytes, CreatedAt: &createdAt, Format: result.Format,
 		Kind: httpapi.UploadInspectionKind(result.Kind), Title: result.Title,
 		RepositoryURL: result.Repo, MarkerVersion: result.MarkerVersion,
-		Warnings: serverSafeWarnings(result.Warnings),
-		Error:    string(result.Error),
+		ProducerVersion: result.ProducerVersion,
+		RendererVersion: result.RendererGeneration,
+		Warnings:        serverSafeWarnings(result.Warnings),
+		Error:           string(result.Error),
 	}
 	if result.CreatedAt.IsZero() {
 		wire.CreatedAt = nil
@@ -384,8 +506,14 @@ func wireManifestRecord(record ManifestRecord) httpapi.ManifestRecord {
 		RepositoryURL: record.Repo, Bytes: record.Bytes,
 		Objects: record.Objects, TotalBytes: record.TotalBytes,
 		Reason: record.Reason, MarkerVersion: record.MarkerVersion,
-		ProtectReason: safeProtectReason(record.ProtectReason),
-		Protected:     record.Protected,
+		ProducerVersion: record.ProducerVersion,
+		RendererVersion: record.RendererVersion,
+		ProtectReason:   safeProtectReason(record.ProtectReason),
+		Protected:       record.Protected,
+	}
+	if !record.CreatedAt.IsZero() {
+		createdAt := record.CreatedAt
+		wire.CreatedAt = &createdAt
 	}
 	if !record.ProtectedAt.IsZero() {
 		protectedAt := record.ProtectedAt
@@ -403,8 +531,13 @@ func coreManifestRecord(record httpapi.ManifestRecord) ManifestRecord {
 		Repo: record.RepositoryURL, Bytes: record.Bytes,
 		Objects: record.Objects, TotalBytes: record.TotalBytes,
 		Reason: record.Reason, MarkerVersion: record.MarkerVersion,
-		ProtectReason: safeProtectReason(record.ProtectReason),
-		Protected:     record.Protected,
+		ProducerVersion: record.ProducerVersion,
+		RendererVersion: record.RendererVersion,
+		ProtectReason:   safeProtectReason(record.ProtectReason),
+		Protected:       record.Protected,
+	}
+	if record.CreatedAt != nil {
+		core.CreatedAt = *record.CreatedAt
 	}
 	if record.ProtectedAt != nil {
 		core.ProtectedAt = *record.ProtectedAt
@@ -608,6 +741,12 @@ func apiOperationError(err error) error {
 			http.StatusUnprocessableEntity, "invalid_target",
 			"Invalid upload target",
 			"The target is not a valid marker-managed Airplan upload.",
+		)
+	}
+	if errors.Is(err, ErrConflict) {
+		return httpapi.NewProblemError(
+			http.StatusConflict, "upgrade_conflict", "Upgrade conflict",
+			"The upload changed after it was planned; create a new upgrade plan.",
 		)
 	}
 	if errors.Is(err, errInvalidProtectReason) {

@@ -457,6 +457,30 @@ cat plan.md | airplan --slug my-plan -
 cat main.go | airplan --format txt --lang go -
 ```
 
+### Upgrade existing Markdown pages
+
+Airplan can re-render an existing source-backed Markdown upload with the
+current page capabilities while keeping its original URL and source bytes:
+
+```sh
+airplan upgrade --check https://plans.example.com/vq3n.../plan.html
+airplan upgrade https://plans.example.com/vq3n.../plan.html
+airplan upgrade --force --template ./new-page.tmpl https://plans.example.com/vq3n.../plan.html
+airplan upgrade --all --dry-run
+airplan upgrade --all --yes
+airplan upgrade --all --all-profiles --yes
+```
+
+Single-target and bulk upgrades are planned against live ownership markers and
+applied only while the inspected marker/page ETags still match. Bulk apply
+prompts interactively and requires `--yes` in non-interactive use. A regular
+standalone upload has no `.airplan-versions.json`; upgrading it does not create
+one. Built-in Markdown pages merely carry dormant, cache-busted discovery so a
+future revision 2 can add history without replacing the original page URL.
+Template mismatches are refused unless `--force` explicitly replaces the
+stored recipe; pass `--template PATH` for a custom replacement or
+`--template=` to return to the built-in template.
+
 ### Preview without uploading
 
 `preview` uses the same renderer locally. It does not need storage credentials,
@@ -531,7 +555,8 @@ every column a mode offers, and `--reverse` prints newest first. `PROFILE`,
 `STATE`, and `DIRECTORY` appear automatically only when relevant — more than
 one profile, legacy or protected history (or an active protection filter), or
 a row with no URL. Local `STATE` values are `managed`, `legacy`, `protected`,
-or `legacy+protected`; remote values are `protected` or `unprotected`. Column
+or `legacy+protected`; remote values are `protected` or `unprotected`. Local
+wide output includes `AIRPLAN` and `RENDERER` provenance when known. Column
 flags are table-only and are rejected with `--json`, while `--reverse` reorders
 both.
 
@@ -558,20 +583,22 @@ a targeted request instead of trusting a bucket listing alone. It also completes
 older local records that predate the recorded `objects` and `total_bytes`
 totals, appending an enriched copy of each one with its original time and
 identity; those are reported separately from imports and never resurrect a
-deleted upload. Marker v3 and v2-without-source records can supply exact totals;
-v1 and v2-with-source records stay absent without recurring marker fetches.
+deleted upload. Marker v3 and later, plus v2-without-source records, can supply
+exact totals; v1 and v2-with-source records stay absent without recurring marker fetches.
 Enrichment fetch or marker problems are warnings deferred to a later sync, not
 sync failures. `--concurrency`
 controls concurrent marker requests (default 8, range 1-64). It converges the
 active remote inventory, not the historical JSONL event stream; deletion
 history is not uploaded.
 
-Every new upload uses ownership marker version 3 with one declared-object model
+Every new upload uses ownership marker version 4 with one declared-object model
 for pages, document sources, and collection files. Documents require a slug;
 collections have no slug and always use `index.html`. Current Airplan releases
-still manage marker versions 1 and 2. Older clients must be upgraded before
-they can manage any new v3 upload. Repository metadata is stored remotely for
-every input mode when `--repo` supplies or discovers a repository.
+still manage marker versions 1 through 3. Version 4 records the producing
+Airplan release and a renderer generation/template recipe for generated pages.
+Older clients must be upgraded before they can manage new v4 uploads.
+Repository metadata is stored remotely for every input mode when `--repo`
+supplies or discovers a repository.
 
 ## Pages airplan creates
 
@@ -647,11 +674,12 @@ Streamable HTTP endpoint at `https://airplan.example.com/mcp` and configure
 `Authorization: Bearer <token>`. Clients that cannot attach a custom
 Authorization header are not supported by the initial single-user server.
 
-The MCP server intentionally exposes only upload, list, inspect, delete, sync,
-and two-phase purge tools. Local stdio also supports collection upload from
-local paths. Hosted MCP does not accept server-local paths and therefore omits
-that tool. Template dumping, config inspection, arbitrary object access, and
-filesystem browsing are not exposed.
+The MCP server exposes upload, list, inspect, delete, sync, two-phase purge,
+and preview-by-default document upgrade tools. `upgrade_documents` applies
+only exact items returned by its preview. Local stdio also supports collection
+upload from local paths. Hosted MCP does not accept server-local paths and
+therefore omits that tool. Template dumping, config inspection, arbitrary
+object access, and filesystem browsing are not exposed.
 
 ## Configuration reference
 

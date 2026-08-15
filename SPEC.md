@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.33.0**
+**Spec version: 0.34.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -233,6 +233,13 @@ described below.
   expanded while printing and return to their prior open or closed state
   afterward. Print CSS also reveals closed disclosure content without scripting
   in browsers that support `::details-content`.
+- Every built-in Markdown page contains dormant revision discovery. It
+  requests the same-directory `.airplan-versions.json` path with
+  `cache: no-store` and a unique per-page-load query nonce. HTTP 404 means the
+  upload is standalone and is not an error. Other failures or invalid metadata
+  disable only revision navigation. A regular upload does not create this
+  control object; the linked-revision feature creates it only when revision 2
+  is uploaded. Custom templates do not gain this bootstrap automatically.
 - A responsive table of contents is rendered from markdown headings:
   - H1, H2, and H3 headings are included. If an H1 is the first visible
     block in the document, it is treated as the document title and is
@@ -487,10 +494,10 @@ already is the original file.
 
 ## 5. Upload Behavior
 
-- Every new upload writes ownership marker version 3. Readers continue to
-  manage versions 1 and 2, but writers never migrate or emit them. Marker
+- Every new upload writes ownership marker version 4. Readers continue to
+  manage versions 1 through 3, but writers never emit them. Marker
   versions describe wire-schema generations; `kind` distinguishes documents
-  from collections. Older clients fail closed on new v3 uploads.
+  from collections. Older clients fail closed on new v4 uploads.
 
 - The exact marker basename supplies an untrusted LIST-only kind hint:
 
@@ -500,18 +507,18 @@ already is the original file.
   | `collection` | `.airplan-collection.json` |
 
   Existing v1/v2 uploads remain documents under `.airplan.json`. Marker
-  content remains authoritative. A v3 marker whose `kind` disagrees with its
+  content remains authoritative. A modern marker whose `kind` disagrees with its
   basename is invalid. A directory containing both names has conflicting
   ownership declarations and grants no managed read or deletion authority.
 
 - Markers are UTF-8 JSON uploaded with
   `Content-Type: application/json` and `Cache-Control: no-store`, and are at
-  most 64 KiB. A v3 document marker is:
+  most 64 KiB. A v4 document marker is:
 
   ```json
   {
     "schema": "airplan-upload",
-    "version": 3,
+    "version": 4,
     "directory": "vq3nhk2p7r4wzt5c6ydjm3xhqd",
     "created_at": "2026-07-21T12:00:00Z",
     "kind": "document",
@@ -532,16 +539,25 @@ already is the original file.
       }
     ],
     "title": "Refactor auth",
-    "repo": "https://github.com/acme/service"
+    "repo": "https://github.com/acme/service",
+    "producer": { "name": "airplan", "version": "0.8.0" },
+    "render": {
+      "generation": 1,
+      "template": { "kind": "builtin" },
+      "indexable": false,
+      "no_external_assets": false,
+      "mermaid_url": "https://cdn.jsdelivr.net/npm/mermaid@11.16.1/+esm"
+    }
   }
   ```
 
-  A v3 collection uses the same declared-object model:
+  A v4 collection uses the same declared-object model and records template
+  kind `builtin_collection` or `custom_collection`:
 
   ```json
   {
     "schema": "airplan-upload",
-    "version": 3,
+    "version": 4,
     "directory": "vq3nhk2p7r4wzt5c6ydjm3xhqd",
     "created_at": "2026-07-21T12:00:00Z",
     "kind": "collection",
@@ -560,16 +576,29 @@ already is the original file.
       }
     ],
     "title": "Login flow",
-    "repo": "https://github.com/acme/service"
+    "repo": "https://github.com/acme/service",
+    "producer": { "name": "airplan", "version": "0.8.0" },
+    "render": {
+      "generation": 1,
+      "template": { "kind": "builtin_collection" },
+      "indexable": false,
+      "no_external_assets": false
+    }
   }
   ```
 
-- `schema`, `version`, `directory`, `created_at`, `kind`, and `objects` are
-  required in v3. `schema` is exactly `airplan-upload`; `directory` matches the
+- `schema`, `version`, `directory`, `created_at`, `kind`, `objects`, and
+  `producer` are required in v4. `schema` is exactly `airplan-upload`;
+  `producer.name` is `airplan`, and `producer.version` is the resolved release
+  string or `dev`. `directory` matches the
   containing random directory; `created_at` is RFC 3339 UTC. `repo`, when
   present, is the canonical resolved HTTPS repository URL. Connection-local
   profile, endpoint, credentials, bucket, prefix, and public URL metadata are
-  never stored.
+  never stored. Generated pages also require `render`. Authored HTML has no
+  render recipe. `generation` is a positive page-capability generation, not
+  the marker or release version. Custom template recipes store kind `custom`
+  or `custom_collection` and the lowercase SHA-256 of the exact template bytes;
+  no local path or template source is stored.
 
 - `objects` is non-empty, has unique safe direct basenames, and contains
   exactly one positive-size HTML `page`. Every object declares `name`, `role`,
@@ -587,7 +616,7 @@ already is the original file.
   visible to LIST-only discovery but cannot be inspected as valid, fetched,
   deleted, purged, or synced.
 
-- Version 1 and 2 markers are decoded into the v3 declared-object model after
+- Version 1 through 3 markers are decoded into the current declared-object model after
   their original wire rules validate. Version 1 omits `page_bytes` and `repo`;
   version 2 requires positive `page_bytes` and may include `repo`.
 
@@ -611,9 +640,10 @@ already is the original file.
   The body is advisory context only. `reason` is optional, at most 256
   Unicode characters, valid UTF-8, and free of control characters; readers
   drop reasons that violate any of these while the upload stays protected.
-  `.airplan-protected.json` is a reserved basename alongside both marker
-  basenames: collection member filenames and marker-declared object names must
-  not use it, or a member could forge protection for its own upload. An upload
+  Marker v4 reserves every direct basename beginning `.airplan-`, in addition
+  to `.airplan.json`; collection member filenames and v4 marker-declared object
+  names must not use that namespace, or a member could forge a control object.
+  Existing v1-v3 marker validation retains its original filename rules. An upload
   created by an older build whose collection already declares this basename is
   invalid to protection-aware builds; it must be removed with the older client
   or directly through storage tooling after its ownership is verified. The
@@ -759,6 +789,53 @@ airplan --json report.html
 airplan --profile personal --open plan.md
 ```
 
+### Document upgrades
+
+`airplan upgrade <url|key>` upgrades one marker-managed, source-backed
+Markdown document in place. Its page URL, source bytes, original `created_at`,
+repository context, and purge-protection sentinel remain unchanged. The
+operation re-renders the page and writes a complete marker v4 with producer and
+render provenance. HTML, text, collections, and source-less Markdown are
+ineligible. A marker produced by a newer renderer generation is never
+implicitly downgraded. A custom-template document is eligible only when the
+configured custom template has the marker-declared SHA-256. `--force` plus the
+currently configured template choice explicitly authorizes replacing a stored
+built-in or custom template recipe; `--template PATH` selects a custom
+replacement and `--template=` selects the built-in template. Without force, a
+template mismatch remains ineligible. Planning remains read-only even when a
+configured template cannot be loaded or parsed; execution reports that error
+before writing any object.
+
+`upgrade --check` performs read-only classification. `--force` explicitly
+re-renders an otherwise current target. Planning returns `upgradeable`,
+`current`, `ineligible`, `invalid`, or `missing`, plus the current and target
+marker, producer, and renderer versions. Execution is bound to the marker and
+page ETags observed by planning and rechecks the source ETag and bytes before
+mutation. Planning fails closed when the storage service omits a required ETag.
+It conditionally writes the marker first and
+page last; storage HTTP 409/412 is a conflict that requires a new plan. The REST
+API exposes the same condition as problem code `upgrade_conflict` with status 409. It verifies the
+result before success and appends a manifest `upgrade` event. It never creates,
+deletes, or modifies `.airplan-versions.json`.
+
+Once schema, renderer, page-size repair, and force decisions are satisfied,
+strictly comparable semantic producer versions provide a final classification:
+an older producer is upgradeable, an equal producer is current, and a newer
+producer is ineligible rather than implicitly downgraded. An optional leading
+`v` is ignored. `dev` and other non-comparable producer strings are neutral and
+therefore current unless another upgrade reason independently applies.
+
+`airplan upgrade --all --dry-run` classifies active, deduplicated records from
+the selected operation manifest. `--all` applies only the exact upgradeable
+plans shown by that preview, with bounded `--concurrency` (default 4, range
+1-32) and stable result ordering. Apply prompts on an interactive terminal;
+non-interactive apply requires `--yes`. Independent failures do not cancel
+later items, but any required upgrade failure makes the command non-zero.
+Local S3 mode additionally accepts `--all-profiles`, which loads each named
+profile from current configuration and fails records closed when profile
+configuration is missing or has drifted. Hosted mode remains scoped to the
+server's one configured S3 profile.
+
 `--json` output (single line, stable schema):
 
 ```json
@@ -822,6 +899,9 @@ airplan get [--output PATH] [--source] <url|key>
 airplan delete [--force] <url|key>
 airplan protect [--reason TEXT] <url|key>
 airplan unprotect <url|key>
+airplan upgrade [--check] [--force] [--template PATH] [--json] <url|key>
+airplan upgrade --all [--dry-run] [--yes] [--concurrency N]
+                [--all-profiles] [--json]
 airplan purge [--remote] [--older-than 30d|2026-01-01]
               [--all] [--dry-run] [--yes] [--concurrency N]
 airplan sync [--config PATH] [--profile NAME] [--concurrency N]
@@ -872,10 +952,16 @@ directories.
 
 `ls` is an exact non-destructive alias for `list`.
 
+Local `list --wide` and explicit `--columns airplan,renderer` expose optional
+manifest producer and renderer provenance as `AIRPLAN` and `RENDERER`. Older
+records render a dash. These columns are unavailable to LIST-only `--remote`
+output because it does not fetch marker bodies.
+
 `list`/`purge` operate on the operation service's manifest by default, or
 on its live bucket listing with `--remote`. With an `airplan` backend those
 operations execute on the server. `show` inspects one remote
-marker directory. `get` fetches only objects declared by a valid remote
+marker directory. For v4 markers its human and JSON output includes the
+producer release and renderer generation when present. `get` fetches only objects declared by a valid remote
 ownership marker. `delete` takes an explicit URL or key, but it only
 operates on a directory carrying a valid airplan ownership marker; it
 therefore works on marker-managed uploads from any machine without
@@ -1287,20 +1373,24 @@ conforming implementations can share a manifest:
 
 ```json
 {"type":"upload","time":"2026-07-21T12:00:00Z",
+ "created_at":"2026-07-21T12:00:00Z",
  "key":"vq3n.../plan.html","source_key":"vq3n.../plan.md",
  "marker_key":"vq3n.../.airplan.json",
  "url":"https://plans.example.com/vq3n.../plan.html",
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
- "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":3}
+ "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":4,
+ "producer_version":"0.8.0","renderer_version":1}
 {"type":"upload","time":"2026-07-21T12:03:00Z",
+ "created_at":"2026-07-21T12:03:00Z",
  "key":"gaj4.../index.html",
  "marker_key":"gaj4.../.airplan-collection.json",
  "url":"https://plans.example.com/gaj4.../index.html",
  "bucket":"plans","profile":"work","kind":"collection",
  "title":"login.png and 1 more","bytes":9216,"objects":4,
- "total_bytes":203512,"marker_version":3}
+ "total_bytes":203512,"marker_version":4,
+ "producer_version":"0.8.0","renderer_version":1}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
@@ -1310,6 +1400,15 @@ conforming implementations can share a manifest:
 {"type":"unprotect","time":"2026-07-26T09:00:00Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work"}
+{"type":"upgrade","time":"2026-08-15T10:00:00Z",
+ "created_at":"2026-07-21T12:00:00Z",
+ "key":"vq3n.../plan.html","source_key":"vq3n.../plan.md",
+ "marker_key":"vq3n.../.airplan.json",
+ "url":"https://plans.example.com/vq3n.../plan.html",
+ "bucket":"plans","profile":"work","kind":"document",
+ "slug":"plan","format":"md","title":"Refactor auth",
+ "bytes":19200,"marker_version":4,"producer_version":"0.8.0",
+ "renderer_version":1}
 ```
 
 (Shown wrapped for readability; on disk each record is one line.)
@@ -1323,7 +1422,7 @@ conforming implementations can share a manifest:
   marker declares, and `total_bytes` sums their declared sizes; both are
   optional and absent together on history written before airplan recorded
   them, and on uploads whose marker cannot declare every counted size. Marker
-  v3 always qualifies; marker v2 qualifies only when it declares no source;
+  v3 and v4 always qualify; marker v2 qualifies only when it declares no source;
   marker v1 and v2-with-source do not. When present, both fields are positive;
   a record with only one field or an explicit zero is invalid. They are
   additive: `bytes` keeps its own meaning and is never repurposed. `title` is
@@ -1331,7 +1430,7 @@ conforming implementations can share a manifest:
   root-level settings. `marker_key` is the exact kind-specific ownership key.
   `repo` preserves canonical repository metadata. The full collection
   inventory remains only in the remote marker.
-- Current writers always include `marker_version: 3`; its absence identifies
+- Current writers always include `marker_version: 4`; its absence identifies
   legacy pre-marker history. Readers infer `kind: document` and derive its
   slug from the page key for valid older records that omit those fields.
 - New `delete` tombstones include `marker_key`, `bucket`, the receiving
@@ -1345,6 +1444,11 @@ conforming implementations can share a manifest:
   most 256 Unicode characters with no control characters, present on
   `protect` records only; it is a
   distinct field because `reason` is already a delete-tombstone enum.
+- `upgrade` events carry a complete refreshed upload projection, an event
+  `time`, required nonzero UTC preserved original `created_at`, and
+  producer/renderer versions.
+  Reduction treats them like upload refreshes without clearing protection or
+  making the document appear newly created.
 - Manifest history reduces chronologically. The latest event for an upload
   identity wins, duplicate uploads collapse to their latest record, and a
   later upload reactivates an earlier tombstone. A legacy key-only tombstone
@@ -1365,7 +1469,7 @@ conforming implementations can share a manifest:
   Readers retain an otherwise-valid upload with no `marker_version`
   as legacy history, but it never authorizes delete or purge. An
   unsupported nonzero `marker_version` is invalid and skipped with a
-  warning. Marker versions 1, 2, and 3 are managed; pre-marker entries remain
+  warning. Marker versions 1, 2, 3, and 4 are managed; pre-marker entries remain
   visible as read-only legacy history and are never pruned by `sync`.
 
 Concurrent invocations are expected (parallel agents on one
@@ -2000,6 +2104,10 @@ POST   /api/v1/uploads/get
 POST   /api/v1/uploads/delete
 POST   /api/v1/uploads/protect
 POST   /api/v1/uploads/unprotect
+POST   /api/v1/upgrades/plan
+POST   /api/v1/upgrades/execute
+POST   /api/v1/upgrades/preview
+POST   /api/v1/upgrades
 GET    /api/v1/uploads
 GET    /api/v1/storage/uploads
 POST   /api/v1/sync
@@ -2049,6 +2157,12 @@ IDs, re-resolves and revalidates every current marker, attempts targets
 sequentially, and reports every success or failure. It accepts no URL, key,
 filter, or implicit-all execution request.
 
+Upgrade is likewise two-phase. `/upgrades/plan` classifies one target and
+returns its exact marker/page identity and ETags; `/upgrades/execute` accepts
+that plan and revalidates it before mutation. `/upgrades/preview` classifies
+the server-scoped active manifest; `/upgrades` accepts only the exact plan
+items returned by preview. Capabilities advertise all four operation names.
+
 REST errors use RFC 9457 `application/problem+json` with stable `code` and
 `request_id` fields. Problem detail is selected from stable generic text by
 code; request-derived validator and parser details remain internal.
@@ -2080,18 +2194,20 @@ safe enumeration error.
 
 The minimal tool set is:
 
-| Tool               | Stdio | HTTP | Effect                             |
-| ------------------ | ----- | ---- | ---------------------------------- |
-| `upload_document`  | yes   | yes  | Upload supplied text content       |
-| `upload_files`     | yes   | no   | Upload local paths as a collection |
-| `list_uploads`     | yes   | yes  | List manifest or storage records   |
-| `inspect_upload`   | yes   | yes  | Validate one marker-managed upload |
-| `delete_upload`    | yes   | yes  | Delete one explicit upload         |
-| `protect_upload`   | yes   | yes  | Mark one upload purge-protected    |
-| `unprotect_upload` | yes   | yes  | Remove purge protection            |
-| `sync_manifest`    | yes   | yes  | Preview or apply reconciliation    |
-| `preview_purge`    | yes   | yes  | Return explicit purge candidates   |
-| `execute_purge`    | yes   | yes  | Delete reviewed upload IDs         |
+| Tool                | Stdio | HTTP | Effect                             |
+| ------------------- | ----- | ---- | ---------------------------------- |
+| `upload_document`   | yes   | yes  | Upload supplied text content       |
+| `upload_files`      | yes   | no   | Upload local paths as a collection |
+| `list_uploads`      | yes   | yes  | List manifest or storage records   |
+| `inspect_upload`    | yes   | yes  | Validate one marker-managed upload |
+| `upgrade_document`  | yes   | yes  | Preview/apply one document upgrade |
+| `upgrade_documents` | yes   | yes  | Preview/apply exact bulk plans     |
+| `delete_upload`     | yes   | yes  | Delete one explicit upload         |
+| `protect_upload`    | yes   | yes  | Mark one upload purge-protected    |
+| `unprotect_upload`  | yes   | yes  | Remove purge protection            |
+| `sync_manifest`     | yes   | yes  | Preview or apply reconciliation    |
+| `preview_purge`     | yes   | yes  | Return explicit purge candidates   |
+| `execute_purge`     | yes   | yes  | Delete reviewed upload IDs         |
 
 The `upload_document` tool description identifies GFM, highlighted code,
 Mermaid fences, GitHub-style alerts, frontmatter, footnotes, and responsive
@@ -2103,6 +2219,9 @@ exposes template dumping, configuration inspection, credentials, server
 configuration, arbitrary S3 objects, or filesystem browsing.
 
 `sync_manifest` defaults to dry-run unless `apply: true` is explicit.
+`upgrade_document` also defaults to preview and requires `apply: true` to
+mutate. `upgrade_documents` defaults to manifest preview; apply requires both
+`apply: true` and the exact upgradeable plan items returned by preview.
 `preview_purge` never deletes, and `execute_purge` accepts only explicit
 `upload_id` values. `delete_upload` accepts an optional `force` boolean and
 otherwise refuses purge-protected uploads; `protect_upload` accepts an

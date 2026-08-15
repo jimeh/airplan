@@ -238,6 +238,86 @@ paths:
                 $ref: "#/components/schemas/ProtectionResult"
         default:
           $ref: "#/components/responses/Problem"
+  /api/v1/upgrades/plan:
+    post:
+      operationId: planDocumentUpgrade
+      tags: [uploads]
+      description: Classifies one source-backed Markdown upload without writing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpgradePlanRequest"
+      responses:
+        "200":
+          description: A plan bound to the inspected marker and page ETags.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpgradeDocumentPlan"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/upgrades/execute:
+    post:
+      operationId: executeDocumentUpgrade
+      tags: [uploads]
+      description: Applies one exact upgrade plan after revalidating its ETags.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpgradeDocumentPlan"
+      responses:
+        "200":
+          description: The upgraded document.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpgradeDocumentResult"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/upgrades/preview:
+    post:
+      operationId: planBulkUpgrade
+      tags: [manifest, uploads]
+      description: Classifies active server-manifest records without writing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkUpgradeOptions"
+      responses:
+        "200":
+          description: Ordered candidate classifications.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkUpgradePlan"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/upgrades:
+    post:
+      operationId: executeBulkUpgrade
+      tags: [manifest, uploads]
+      description: Applies only the exact upgradeable plans supplied by preview.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BulkUpgradeRequest"
+      responses:
+        "200":
+          description: Ordered per-item outcomes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BulkUpgradeResult"
+        default:
+          $ref: "#/components/responses/Problem"
   /api/v1/uploads:
     get:
       operationId: listManifestUploads
@@ -413,6 +493,103 @@ components:
           items:
             type: integer
             minimum: 1
+    UpgradeState:
+      type: string
+      enum: [upgradeable, current, ineligible, invalid, missing]
+    UpgradePlanRequest:
+      type: object
+      additionalProperties: false
+      required: [target]
+      properties:
+        target:
+          type: string
+          minLength: 1
+        force:
+          type: boolean
+    UpgradeDocumentPlan:
+      type: object
+      additionalProperties: false
+      required:
+        - target
+        - state
+        - target_marker_version
+        - target_producer_version
+        - target_renderer_generation
+      properties:
+        target: {type: string}
+        profile: {type: string}
+        bucket: {type: string}
+        state: {$ref: "#/components/schemas/UpgradeState"}
+        reason: {type: string}
+        url: {type: string}
+        marker_key: {type: string}
+        page_key: {type: string}
+        source_key: {type: string}
+        current_marker_version: {type: integer}
+        current_producer_version: {type: string}
+        current_renderer_generation: {type: integer}
+        target_marker_version: {type: integer, minimum: 1}
+        target_producer_version: {type: string}
+        target_renderer_generation: {type: integer, minimum: 1}
+        marker_etag: {type: string}
+        page_etag: {type: string}
+        source_etag: {type: string}
+        force: {type: boolean}
+    UpgradeDocumentResult:
+      type: object
+      additionalProperties: false
+      required: [result, state, upgraded]
+      properties:
+        result: {$ref: "#/components/schemas/UploadResult"}
+        state: {$ref: "#/components/schemas/UpgradeState"}
+        upgraded: {type: boolean}
+        reason: {type: string}
+    BulkUpgradeOptions:
+      type: object
+      additionalProperties: false
+      properties:
+        concurrency: {type: integer, minimum: 1, maximum: 32}
+    BulkUpgradePlan:
+      type: object
+      additionalProperties: false
+      required: [items, counts]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/UpgradeDocumentPlan"}
+        warnings:
+          type: array
+          items: {type: string}
+        counts:
+          type: object
+          additionalProperties: {type: integer, minimum: 0}
+    BulkUpgradeRequest:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/UpgradeDocumentPlan"}
+        concurrency: {type: integer, minimum: 1, maximum: 32}
+    BulkUpgradeItemResult:
+      type: object
+      additionalProperties: false
+      required: [plan]
+      properties:
+        plan: {$ref: "#/components/schemas/UpgradeDocumentPlan"}
+        result: {$ref: "#/components/schemas/UpgradeDocumentResult"}
+        error: {type: string}
+    BulkUpgradeResult:
+      type: object
+      additionalProperties: false
+      required: [items, upgraded, failed]
+      properties:
+        items:
+          type: array
+          items: {$ref: "#/components/schemas/BulkUpgradeItemResult"}
+        upgraded: {type: integer, minimum: 0}
+        failed: {type: integer, minimum: 0}
     UploadLimits:
       type: object
       additionalProperties: false
@@ -687,6 +864,11 @@ components:
         marker_version:
           type: integer
           minimum: 0
+        producer_version:
+          type: string
+        renderer_version:
+          type: integer
+          minimum: 1
         page:
           $ref: "#/components/schemas/InspectedObject"
           x-go-type-skip-optional-pointer: false
@@ -740,10 +922,14 @@ components:
       properties:
         type:
           type: string
-          enum: [upload, delete, protect, unprotect]
+          enum: [upload, upgrade, delete, protect, unprotect]
         time:
           type: string
           format: date-time
+        created_at:
+          type: string
+          format: date-time
+          x-go-type-skip-optional-pointer: false
         key:
           type: string
         source_key:
@@ -781,6 +967,11 @@ components:
           type: string
         marker_version:
           type: integer
+        producer_version:
+          type: string
+        renderer_version:
+          type: integer
+          minimum: 1
         protect_reason:
           type: string
         protected:

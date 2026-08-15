@@ -131,6 +131,7 @@ func newRootCmd() *cobra.Command {
 	cmd.AddCommand(newUnprotectCmd())
 	cmd.AddCommand(newPurgeCmd())
 	cmd.AddCommand(newSyncCmd())
+	cmd.AddCommand(newUpgradeCmd())
 	cmd.AddCommand(newServeCmd())
 	cmd.AddCommand(newMCPCmd())
 	return cmd
@@ -202,6 +203,7 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	if err := applyManifestSelection(cmd, cfg); err != nil {
 		return err
 	}
+	cfg.ProducerVersion = buildVersion()
 	if cfg.EffectiveBackend() == airplan.BackendAirplan {
 		for _, name := range []string{
 			"endpoint", "bucket", "region", "public-base-url", "key-prefix",

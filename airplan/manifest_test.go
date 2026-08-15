@@ -106,7 +106,7 @@ func TestAppendManifestRecordCreatesManifestAndRoundTrips(t *testing.T) {
 		`"url":"https://plans.example.com/vq3n/plan.html",` +
 		`"bucket":"plans","profile":"work","kind":"document","slug":"plan",` +
 		`"title":"Refactor auth",` +
-		`"bytes":18432,"marker_version":3}`
+		`"bytes":18432,"marker_version":4}`
 	if lines[0] != wantLine {
 		t.Fatalf("first line = %s, want %s", lines[0], wantLine)
 	}
@@ -226,7 +226,7 @@ func TestReadManifestRecognizesLegacyAndSkipsUnsupportedMarkerVersion(
 			`"bucket":"plans","bytes":1}`,
 		`{"type":"upload","time":"2026-07-08T13:30:11Z",` +
 			`"key":"future.html","url":"https://plans.example.com/future.html",` +
-			`"bucket":"plans","bytes":1,"marker_version":4}`,
+			`"bucket":"plans","bytes":1,"marker_version":5}`,
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
 			`"key":"v1.html","url":"https://plans.example.com/v1.html",` +
 			`"bucket":"plans","bytes":1,"marker_version":1}`,
@@ -509,6 +509,78 @@ func TestManifestUploadsChronologicalTombstonesAreReversible(t *testing.T) {
 	got = ManifestUploads([]ManifestRecord{base, tombstone, restored, duplicate})
 	if len(got) != 1 || got[0].Title != "latest" {
 		t.Fatalf("deduplicated records = %+v", got)
+	}
+}
+
+func TestManifestUpgradeProjectionPreservesCreationTimeAndProtection(t *testing.T) {
+	created := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	eventTime := created.Add(30 * 24 * time.Hour)
+	dir := strings.Repeat("u", 26)
+	pageKey := dir + "/plan.html"
+	markerKey := dir + "/" + MarkerFilename
+	upload := ManifestRecord{
+		Type: "upload", Time: created, CreatedAt: created, Key: pageKey,
+		MarkerKey: markerKey, URL: "https://plans.example.com/" + pageKey,
+		Bucket: "plans", Profile: "work", Format: "md",
+		Kind: string(UploadKindDocument), Slug: "plan", Bytes: 10,
+		MarkerVersion: 3,
+	}
+	protect := ManifestRecord{
+		Type: "protect", Time: created.Add(time.Hour), Key: pageKey,
+		MarkerKey: markerKey, Bucket: "plans", Profile: "work",
+		ProtectReason: "keep",
+	}
+	upgrade := upload
+	upgrade.Type = "upgrade"
+	upgrade.Time = eventTime
+	upgrade.MarkerVersion = MarkerVersion
+	upgrade.ProducerVersion = "0.8.0"
+	upgrade.RendererVersion = RendererGeneration
+
+	manifestPath := filepath.Join(t.TempDir(), "manifest.jsonl")
+	for _, record := range []ManifestRecord{upload, protect, upgrade} {
+		if err := appendManifestRecord(context.Background(), manifestPath, record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, warnings, err := ReadManifest(manifestPath)
+	if err != nil || len(warnings) != 0 || len(raw) != 3 {
+		t.Fatalf("raw = %+v, warnings = %v, error = %v", raw, warnings, err)
+	}
+	if !raw[2].Time.Equal(eventTime) {
+		t.Fatalf("raw upgrade time = %s, want event time %s", raw[2].Time, eventTime)
+	}
+	active := ManifestUploads(raw)
+	if len(active) != 1 || !active[0].Time.Equal(created) ||
+		!active[0].CreatedAt.Equal(created) || !active[0].Protected ||
+		active[0].ProtectReason != "keep" {
+		t.Fatalf("active projection = %+v", active)
+	}
+}
+
+func TestManifestUpgradeRequiresUTCCreatedAt(t *testing.T) {
+	base := ManifestRecord{
+		Type: "upgrade", Time: time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC),
+		CreatedAt: time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC),
+		Key:       "plan.html", URL: "https://plans.example.com/plan.html",
+		Bucket: "plans", Bytes: 1, MarkerVersion: MarkerVersion,
+	}
+	for _, test := range []struct {
+		name      string
+		createdAt time.Time
+		want      string
+	}{
+		{"missing", time.Time{}, "upgrade events require created_at"},
+		{"non UTC", time.Date(2026, 6, 1, 13, 0, 0, 0, time.FixedZone("offset", 3600)), "created_at must be UTC"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			record := base
+			record.CreatedAt = test.createdAt
+			if err := validateManifestRecord(record); err == nil ||
+				!strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 

@@ -13,7 +13,7 @@ const markerTestDir = "abcdefghijklmnopqrstuvwxyz"
 
 var markerTestTime = time.Date(2026, 7, 21, 9, 0, 0, 0, time.UTC)
 
-func TestUploadMarkerV3DocumentRoundTrip(t *testing.T) {
+func TestUploadMarkerV4DocumentRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	marker := validDocumentMarker()
@@ -40,7 +40,7 @@ func TestUploadMarkerV3DocumentRoundTrip(t *testing.T) {
 	}
 }
 
-func TestUploadMarkerV3CollectionRoundTrip(t *testing.T) {
+func TestUploadMarkerV4CollectionRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	marker := validCollectionMarker()
@@ -59,6 +59,78 @@ func TestUploadMarkerV3CollectionRoundTrip(t *testing.T) {
 	want.PageBytes = 900
 	if !reflect.DeepEqual(*got, want) {
 		t.Fatalf("marker = %+v, want %+v", *got, want)
+	}
+}
+
+func TestUploadMarkerV3RemainsReadableWithoutProvenance(t *testing.T) {
+	t.Parallel()
+	marker := validDocumentMarker()
+	marker.Version = 3
+	marker.Producer = Producer{}
+	marker.Render = nil
+	body, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeUploadMarker(body, markerTestDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Version != 3 || got.Producer.Name != "" || got.Render != nil {
+		t.Fatalf("legacy marker = %+v", got)
+	}
+}
+
+func TestUploadMarkerV3IgnoresV4ProvenanceFields(t *testing.T) {
+	t.Parallel()
+	marker := validDocumentMarker()
+	marker.Version = 3
+	body, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `"producer"`) ||
+		strings.Contains(string(body), `"render"`) {
+		t.Fatalf("v3 encoder emitted v4 provenance: %s", body)
+	}
+	withUnknownFields := strings.TrimSuffix(string(body), "}") +
+		`,"producer":{"name":"airplan","version":"99.0.0"},` +
+		`"render":{"generation":99,"template":{"kind":"builtin"}}}`
+	got, err := DecodeUploadMarker([]byte(withUnknownFields), markerTestDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Producer != (Producer{}) || got.Render != nil {
+		t.Fatalf("v3 unknown provenance became trusted: %+v", got)
+	}
+}
+
+func TestUploadMarkerV4RequiresApplicableProvenance(t *testing.T) {
+	t.Parallel()
+	missingProducer := validDocumentMarker()
+	missingProducer.Producer = Producer{}
+	if _, err := EncodeUploadMarker(missingProducer); err == nil {
+		t.Fatal("v4 marker without producer was accepted")
+	}
+	missingRender := validDocumentMarker()
+	missingRender.Render = nil
+	if _, err := EncodeUploadMarker(missingRender); err == nil {
+		t.Fatal("generated v4 document without render recipe was accepted")
+	}
+	authoredHTML := validDocumentMarker()
+	authoredHTML.Format = "html"
+	authoredHTML.Slug = "page"
+	authoredHTML.Objects = []MarkerObject{{
+		Name: "page.html", Role: MarkerRolePage, Bytes: 5,
+		ContentType: pageContentType,
+	}}
+	authoredHTML.Render = nil
+	if _, err := EncodeUploadMarker(authoredHTML); err != nil {
+		t.Fatalf("authored HTML marker rejected: %v", err)
+	}
+	authoredHTML.Render = documentRenderRecipe(&Config{MermaidURL: DefaultMermaidURL}, "")
+	if _, err := EncodeUploadMarker(authoredHTML); err == nil {
+		t.Fatal("authored HTML marker with render recipe was accepted")
 	}
 }
 
@@ -141,7 +213,7 @@ func TestDecodeUploadMarkerValidation(t *testing.T) {
 		},
 		{
 			name: "unsupported version",
-			body: strings.Replace(valid, `"version":1`, `"version":4`, 1),
+			body: strings.Replace(valid, `"version":1`, `"version":5`, 1),
 			dir:  markerTestDir, code: MarkerErrorUnsupportedVersion,
 		},
 		{
@@ -324,6 +396,9 @@ func TestUploadMarkerV3ObjectValidation(t *testing.T) {
 		}},
 		{"protection sentinel collision", func(o *MarkerObject) {
 			o.Name = ProtectedFilename
+		}},
+		{"reserved control prefix", func(o *MarkerObject) {
+			o.Name = ".airplan-user-document.txt"
 		}},
 		{"unknown role", func(o *MarkerObject) { o.Role = "thumbnail" }},
 		{"missing content type", func(o *MarkerObject) { o.ContentType = "" }},
@@ -532,6 +607,8 @@ func validDocumentMarker() UploadMarker {
 			},
 		},
 		Title: "Launch plan", Repo: "https://github.com/acme/airplan",
+		Producer: Producer{Name: "airplan", Version: "dev"},
+		Render:   documentRenderRecipe(&Config{MermaidURL: DefaultMermaidURL}, ""),
 	}
 }
 
@@ -550,7 +627,9 @@ func validCollectionMarker() UploadMarker {
 				ContentType: "image/png",
 			},
 		},
-		Title: "Feature evidence",
+		Title:    "Feature evidence",
+		Producer: Producer{Name: "airplan", Version: "dev"},
+		Render:   collectionRenderRecipe(&Config{}, ""),
 	}
 }
 

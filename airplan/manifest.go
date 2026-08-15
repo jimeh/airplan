@@ -25,7 +25,7 @@ import (
 // implementations can share a manifest. Readers ignore unknown fields
 // and skip records with an unknown Type.
 type ManifestRecord struct {
-	// Type is "upload", "delete", "protect", or "unprotect".
+	// Type is "upload", "upgrade", "delete", "protect", or "unprotect".
 	Type string `json:"type"`
 
 	// Time is the record time, RFC 3339 in UTC.
@@ -43,7 +43,7 @@ type ManifestRecord struct {
 	Profile   string `json:"profile,omitempty"`
 	// Format is the marker-declared input format when known.
 	Format string `json:"format,omitempty"`
-	// Kind is document or collection for marker v3 records.
+	// Kind is document or collection for modern marker records.
 	Kind string `json:"kind,omitempty"`
 	// Slug is present only for document uploads.
 	Slug  string `json:"slug,omitempty"`
@@ -65,6 +65,11 @@ type ManifestRecord struct {
 	// MarkerVersion is the remote ownership-marker version written for an
 	// upload. Delete records omit it.
 	MarkerVersion int `json:"marker_version,omitempty"`
+	// CreatedAt remains the upload's original creation time across upgrade
+	// events, while Time records when the event was appended.
+	CreatedAt       time.Time `json:"created_at,omitzero"`
+	ProducerVersion string    `json:"producer_version,omitempty"`
+	RendererVersion int       `json:"renderer_version,omitempty"`
 
 	// ProtectReason is the advisory purge-protection reason: written on
 	// protect records and projected onto reduced upload records. It is a
@@ -220,7 +225,7 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 			if err := json.Unmarshal(line, &rec); err != nil {
 				warnings = append(warnings,
 					fmt.Sprintf("skipping malformed manifest line %d", lineNo))
-			} else if rec.Type == "upload" {
+			} else if rec.Type == "upload" || rec.Type == "upgrade" {
 				normalizeManifestRecord(&rec)
 				if rec.MarkerVersion != 0 &&
 					!IsSupportedMarkerVersion(rec.MarkerVersion) {
@@ -292,7 +297,7 @@ func normalizeManifestRecord(rec *ManifestRecord) {
 	if rec.Kind == "" && path.Base(rec.MarkerKey) == CollectionMarkerFilename {
 		rec.Kind = string(UploadKindCollection)
 	}
-	if rec.Type != "upload" {
+	if rec.Type != "upload" && rec.Type != "upgrade" {
 		return
 	}
 	if rec.Kind == "" {
@@ -317,7 +322,7 @@ func validateManifestRecord(rec ManifestRecord) error {
 	}
 
 	switch rec.Type {
-	case "upload":
+	case "upload", "upgrade":
 		if rec.URL == "" {
 			return errors.New("url is required")
 		}
@@ -326,6 +331,22 @@ func validateManifestRecord(rec ManifestRecord) error {
 		}
 		if rec.Bytes <= 0 {
 			return errors.New("bytes must be positive")
+		}
+		if rec.Type == "upgrade" {
+			if rec.MarkerVersion != MarkerVersion {
+				return errors.New("upgrade events require the current marker version")
+			}
+			if rec.CreatedAt.IsZero() {
+				return errors.New("upgrade events require created_at")
+			}
+		}
+		if !rec.CreatedAt.IsZero() {
+			if _, offset := rec.CreatedAt.Zone(); offset != 0 {
+				return errors.New("created_at must be UTC")
+			}
+		}
+		if rec.RendererVersion < 0 {
+			return errors.New("renderer_version must not be negative")
 		}
 		// Both totals are optional, but they describe one measurement: a
 		// negative or half-present pair is corrupt rather than absent, and
@@ -459,23 +480,29 @@ func (c *Client) recordUpload(
 	}
 
 	rec := ManifestRecord{
-		Type:          "upload",
-		Time:          res.CreatedAt,
-		Key:           res.Key,
-		SourceKey:     res.SourceKey,
-		MarkerKey:     res.MarkerKey,
-		URL:           res.URL,
-		Bucket:        res.Bucket,
-		Profile:       c.cfg.Profile,
-		Format:        res.Format,
-		Kind:          res.Kind,
-		Slug:          res.Slug,
-		Title:         res.Title,
-		Repo:          res.RepositoryURL,
-		Bytes:         res.Bytes,
-		Objects:       declared.objects,
-		TotalBytes:    declared.bytes,
-		MarkerVersion: res.MarkerVersion,
+		Type:            "upload",
+		Time:            res.CreatedAt,
+		Key:             res.Key,
+		SourceKey:       res.SourceKey,
+		MarkerKey:       res.MarkerKey,
+		URL:             res.URL,
+		Bucket:          res.Bucket,
+		Profile:         c.cfg.Profile,
+		Format:          res.Format,
+		Kind:            res.Kind,
+		Slug:            res.Slug,
+		Title:           res.Title,
+		Repo:            res.RepositoryURL,
+		Bytes:           res.Bytes,
+		Objects:         declared.objects,
+		TotalBytes:      declared.bytes,
+		MarkerVersion:   res.MarkerVersion,
+		CreatedAt:       res.CreatedAt,
+		ProducerVersion: producerVersion(c.cfg.ProducerVersion),
+	}
+	if res.Kind == string(UploadKindCollection) ||
+		(res.Kind == string(UploadKindDocument) && res.Format != "html") {
+		rec.RendererVersion = RendererGeneration
 	}
 	if err := appendManifestRecord(ctx, path, rec); err != nil {
 		res.Warnings = append(res.Warnings,
@@ -561,10 +588,16 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 	protection := make(map[string]protectionState)
 	for index, rec := range records {
 		switch rec.Type {
-		case "upload":
+		case "upload", "upgrade":
 			// Derived fields are recomputed below; stale values on a read
 			// line never survive reduction.
 			clearDerivedProtection(&rec)
+			// Raw upgrade records retain the event time in ReadManifest. The
+			// active upload projection keeps the original creation time so
+			// upgrades do not change list ordering, age filters, or purge age.
+			if rec.Type == "upgrade" && !rec.CreatedAt.IsZero() {
+				rec.Time = rec.CreatedAt
+			}
 			active[manifestRecordIdentity(rec)] = activeRecord{rec, index}
 		case "delete":
 			if rec.MarkerKey != "" && rec.Bucket != "" {

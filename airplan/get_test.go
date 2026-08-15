@@ -149,7 +149,7 @@ func TestGetUploadCollectionMemberMayLookLikeRandomDirectory(t *testing.T) {
 	dir := "abcdefghijklmnopqrstuvwxyz"
 	member := strings.Repeat("a", 26)
 	marker, err := EncodeUploadMarker(UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		Schema: MarkerSchema, Version: 3, Directory: dir,
 		CreatedAt: time.Now().UTC(), Kind: UploadKindCollection,
 		Objects: []MarkerObject{
 			{

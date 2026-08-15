@@ -1573,6 +1573,34 @@ mark {
   'use strict';
   var d = document;
 
+  var versionsMeta = d.querySelector('meta[name="airplan-versions"]');
+  if (versionsMeta) {
+    var versionsURL = new URL(versionsMeta.content, window.location.href);
+    versionsURL.searchParams.set('_airplan',
+      Date.now().toString(36) + Math.random().toString(36).slice(2));
+    fetch(versionsURL, { cache: 'no-store', credentials: 'same-origin' })
+      .then(function (response) {
+        if (response.status === 404) return null;
+        if (!response.ok) throw new Error('metadata request failed');
+        return response.json();
+      })
+      .then(function (metadata) {
+        if (metadata === null) return;
+        if (!metadata || metadata.schema !== 'airplan-versions' ||
+            metadata.version !== 1 ||
+            !Array.isArray(metadata.revisions) ||
+            metadata.revisions.length < 2) {
+          throw new Error('metadata is invalid');
+        }
+        window.dispatchEvent(new CustomEvent('airplan:versions', {
+          detail: metadata,
+        }));
+      })
+      .catch(function () {
+        console.warn('airplan: revision metadata is unavailable or invalid');
+      });
+  }
+
   var live = d.createElement('div');
   live.className = 'sr-status';
   live.setAttribute('aria-live', 'polite');

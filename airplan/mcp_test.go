@@ -33,8 +33,8 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 		localFiles bool
 		wantTools  int
 	}{
-		{name: "stdio", localFiles: true, wantTools: 10},
-		{name: "hosted HTTP", localFiles: false, wantTools: 9},
+		{name: "stdio", localFiles: true, wantTools: 12},
+		{name: "hosted HTTP", localFiles: false, wantTools: 11},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -93,6 +93,54 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 				t.Fatalf("result = %+v", result)
 			}
 		})
+	}
+}
+
+func TestMCPUpgradeDocumentPreviewsByDefault(t *testing.T) {
+	transport := &mcpTestTransport{
+		upgradePlan: &UpgradeDocumentPlan{
+			Target: "dir/plan.html", State: UpgradeStateUpgradeable,
+			TargetMarkerVersion:      MarkerVersion,
+			TargetRendererGeneration: RendererGeneration,
+		},
+		upgradeResult: &UpgradeDocumentResult{Upgraded: true},
+	}
+	client := &Client{cfg: &Config{}, remote: transport}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", true)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "test"}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "upgrade_document",
+		Arguments: map[string]any{"url_or_key": "dir/plan.html"},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("preview result = %+v, err = %v", result, err)
+	}
+	if transport.planUpgradeCalls != 1 || transport.upgradeCalls != 0 {
+		t.Fatalf("calls = plan %d, execute %d", transport.planUpgradeCalls, transport.upgradeCalls)
+	}
+	_, err = session.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "upgrade_document",
+		Arguments: map[string]any{"url_or_key": "dir/plan.html", "apply": true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transport.planUpgradeCalls != 2 || transport.upgradeCalls != 1 {
+		t.Fatalf("calls = plan %d, execute %d", transport.planUpgradeCalls, transport.upgradeCalls)
 	}
 }
 
@@ -957,17 +1005,21 @@ func TestMCPHostedDocumentLimitAndPerCallTimeout(t *testing.T) {
 
 type mcpTestTransport struct {
 	operationTransport
-	uploadResult *Result
-	uploadErr    error
-	syncResult   *SyncManifestResult
-	syncErr      error
-	purgeResult  *PurgeResult
-	purgeErr     error
-	planResult   *PurgePlan
-	planErr      error
-	listResult   *ManifestList
-	listCalls    int
-	remoteResult []RemoteUpload
+	uploadResult     *Result
+	uploadErr        error
+	syncResult       *SyncManifestResult
+	syncErr          error
+	purgeResult      *PurgeResult
+	purgeErr         error
+	planResult       *PurgePlan
+	planErr          error
+	listResult       *ManifestList
+	listCalls        int
+	remoteResult     []RemoteUpload
+	upgradePlan      *UpgradeDocumentPlan
+	upgradeResult    *UpgradeDocumentResult
+	planUpgradeCalls int
+	upgradeCalls     int
 
 	// Protection call recording for the protect/unprotect/delete tools.
 	protectTarget   string
@@ -975,6 +1027,20 @@ type mcpTestTransport struct {
 	unprotectTarget string
 	deleteTarget    string
 	deleteOptions   DeleteOptions
+}
+
+func (t *mcpTestTransport) PlanUpgradeDocument(
+	context.Context, string, UpgradeDocumentOptions,
+) (*UpgradeDocumentPlan, error) {
+	t.planUpgradeCalls++
+	return t.upgradePlan, nil
+}
+
+func (t *mcpTestTransport) UpgradeDocument(
+	context.Context, UpgradeDocumentPlan,
+) (*UpgradeDocumentResult, error) {
+	t.upgradeCalls++
+	return t.upgradeResult, nil
 }
 
 func (t *mcpTestTransport) ListManifest(

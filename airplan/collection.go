@@ -185,8 +185,12 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 		return nil, err
 	}
 	tmpl, err := parseBuiltinCollectionTemplate()
+	templateSHA := ""
 	if c.cfg.CollectionTemplate != "" {
 		tmpl, err = LoadCollectionTemplate(c.cfg.CollectionTemplate)
+		if err == nil {
+			templateSHA, err = templateDigest(c.cfg.CollectionTemplate)
+		}
 	}
 	if err != nil {
 		return nil, err
@@ -204,7 +208,7 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 	for _, f := range files {
 		objects = append(objects, MarkerObject{Name: f.Name, Role: MarkerRoleFile, Bytes: f.Size, ContentType: f.ContentType})
 	}
-	marker := UploadMarker{Schema: MarkerSchema, Version: MarkerVersion, Directory: dir, CreatedAt: createdAt, Kind: UploadKindCollection, Objects: objects, Title: title, Repo: repo}
+	marker := UploadMarker{Schema: MarkerSchema, Version: MarkerVersion, Directory: dir, CreatedAt: createdAt, Kind: UploadKindCollection, Objects: objects, Title: title, Repo: repo, Producer: Producer{Name: "airplan", Version: producerVersion(c.cfg.ProducerVersion)}, Render: collectionRenderRecipe(c.cfg, templateSHA)}
 	markerBody, err := EncodeUploadMarker(marker)
 	if err != nil {
 		return nil, err
@@ -321,7 +325,9 @@ func prepareCollection(ctx context.Context, in FilesInput, repository string) ([
 const mathMaxInt64 = int64(^uint64(0) >> 1)
 
 func validateCollectionName(name string) error {
-	if name == "" || name == "." || name == ".." || name == MarkerFilename || name == CollectionMarkerFilename || name == ProtectedFilename || name == "index.html" {
+	if name == "" || name == "." || name == ".." ||
+		strings.HasPrefix(name, ".airplan-") || name == MarkerFilename ||
+		name == "index.html" {
 		return fmt.Errorf("airplan: invalid collection filename %q", name)
 	}
 	if !utf8.ValidString(name) || strings.ContainsAny(name, "/\\\x00") {
