@@ -916,6 +916,21 @@ func TestListProtectionFiltersForceColumn(t *testing.T) {
 	}
 }
 
+func TestListProtectionFilterAllowsExplicitColumnRemoval(t *testing.T) {
+	path := setListState(t)
+	writeFilterManifest(t, path)
+
+	stdout, stderr, err := executeList(t,
+		"--no-protected", "--columns", "-protected")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	table := parseListTable(t, stdout)
+	if table.index("PROTECTED") >= 0 || len(table.rows) != 2 {
+		t.Fatalf("header = %q, rows = %q", table.header, table.rows)
+	}
+}
+
 func TestListFilterAgeRelativeToNow(t *testing.T) {
 	path := setListState(t)
 	now := time.Now().UTC()

@@ -165,11 +165,17 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 			plan.Invalid)
 	}
 	candidates := make([]airplan.ManifestRecord, 0, len(plan.Candidates))
-	warningCandidates := make([]remotePurgeCandidate, 0, len(plan.Candidates))
+	warningCandidates := make([]remotePurgeCandidate, 0,
+		len(plan.Candidates)+len(plan.Protected))
 	for _, candidate := range plan.Candidates {
 		candidates = append(candidates, candidate.Record)
 		warningCandidates = append(warningCandidates, remotePurgeCandidate{
 			warnings: candidate.Warnings,
+		})
+	}
+	for _, item := range plan.Protected {
+		warningCandidates = append(warningCandidates, remotePurgeCandidate{
+			warnings: item.Warnings,
 		})
 	}
 	printRemotePurgeWarnings(stderr, warningCandidates)

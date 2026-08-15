@@ -370,6 +370,39 @@ func TestPurgeRemoteWarnsForFallbackPublicURL(t *testing.T) {
 	}
 }
 
+func TestPurgeRemoteWarnsForProtectedFallbackPublicURL(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	objects := append(remoteUploadObjects(deleteDirA, "plan", when),
+		remoteFakeObject{
+			key:          deleteDirA + "/" + airplan.ProtectedFilename,
+			size:         10,
+			lastModified: when,
+		},
+	)
+	fake := newFakeRemoteS3(t, objects, nil, nil)
+	config := filepath.Join(t.TempDir(), "config.toml")
+	data := "endpoint = \"" + fake.server.URL + "\"\n" +
+		"bucket = \"plans\"\n" +
+		"timeout = \"0\"\n"
+	if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--remote", "--all", "--dry-run",
+		"--config", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || !strings.Contains(stderr, "public_base_url") ||
+		!strings.Contains(stderr, "skipping protected upload") ||
+		fake.deleteCalls() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q, deletes = %d",
+			stdout, stderr, fake.deleteCalls())
+	}
+}
+
 func TestPrintRemotePurgeWarningsCountsAffectedUploads(t *testing.T) {
 	var out strings.Builder
 	printRemotePurgeWarnings(&out, []remotePurgeCandidate{
