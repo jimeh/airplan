@@ -20,9 +20,19 @@ const (
 	// MaxVersionsMetadataSize bounds every replicated chain index.
 	MaxVersionsMetadataSize = 64 * 1024
 	// MaxDiffSize keeps pathological changes from publishing unbounded diffs.
-	MaxDiffSize     = 32 * 1024 * 1024
-	diffContentType = "text/plain; charset=utf-8"
+	MaxDiffSize = 32 * 1024 * 1024
+	// MaxInlineDiffSize bounds server-highlighted diff content embedded in a
+	// rendered page. The complete adjacent diff remains a sibling object.
+	MaxInlineDiffSize = 512 * 1024
+	diffContentType   = "text/plain; charset=utf-8"
 )
+
+func inlineRevisionDiff(body []byte) string {
+	if len(body) > MaxInlineDiffSize {
+		return ""
+	}
+	return string(body)
+}
 
 // VersionsRevision describes one assigned document revision. Deleted entries
 // are tombstones and deliberately omit capability URLs.
@@ -273,14 +283,20 @@ func versionsMetadataMonotonicallyPrecedes(
 			return false
 		}
 		if before.Deleted {
-			if before != after {
+			if !sameVersionsRevision(before, after) {
 				return false
 			}
 			continue
 		}
-		if !after.Deleted && before != after {
+		if !after.Deleted && !sameVersionsRevision(before, after) {
 			return false
 		}
 	}
 	return true
+}
+
+func sameVersionsRevision(left, right VersionsRevision) bool {
+	return left.Number == right.Number && left.URL == right.URL &&
+		left.DiffURL == right.DiffURL && left.Deleted == right.Deleted &&
+		left.CreatedAt.Equal(right.CreatedAt) && left.DeletedAt.Equal(right.DeletedAt)
 }

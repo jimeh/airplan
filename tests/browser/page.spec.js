@@ -506,6 +506,32 @@ test('valid revision metadata with one live member stays silently dormant',
     expect(warnings).toEqual([]);
   });
 
+test('empty revision metadata fails closed without breaking the document',
+  async ({ page }) => {
+    const currentDir = 'j'.repeat(26);
+    const warnings = [];
+    page.on('console', (message) => {
+      if (message.type() === 'warning') warnings.push(message.text());
+    });
+    await page.route('**/.airplan-versions.json?*', (route) => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schema: 'airplan-versions', version: 1,
+        chain_id: 'k'.repeat(26), current_revision: 1,
+        latest_revision: 0, last_assigned_revision: 0, revisions: [],
+      }),
+    }));
+    await page.goto(`${baseURL}/${currentDir}/plan.html`);
+    await expect(page.getByRole('combobox', { name: 'Document revision' }))
+      .toHaveCount(0);
+    await expect(page.locator('.revision-context')).toBeHidden();
+    await expect(page.getByRole('heading', { name: 'Browser smoke plan' }))
+      .toBeVisible();
+    expect(warnings).toContain(
+      'airplan: revision metadata is unavailable or invalid',
+    );
+  });
+
 test('revision Changes view switches and exposes its adjacent raw diff',
   async ({ page }) => {
     const firstDir = 'q'.repeat(26);

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gofrs/flock"
 )
 
 type updateCountingTransport struct {
@@ -41,6 +43,39 @@ func TestUpdateDocumentValidatesBeforeRemoteDispatch(t *testing.T) {
 	}
 	if remote.calls != 0 {
 		t.Fatalf("remote update calls = %d, want 0", remote.calls)
+	}
+}
+
+func TestUpdateDocumentRejectsNameThatChangesExistingSlugBeforeMutation(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	puts := store.puts
+	store.mu.Unlock()
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL,
+		Input:  Input{Reader: strings.NewReader("two\n"), Name: "other.md"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "must match the existing document slug") {
+		t.Fatalf("mismatched name error = %v", err)
+	}
+	var refusal *updateRefusalError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("mismatched name error type = %T", err)
+	}
+	if refusal.kind != updateRefusalInvalidTarget {
+		t.Fatalf("mismatched name refusal kind = %q", refusal.kind)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.puts != puts {
+		t.Fatalf("mismatched name performed %d writes", store.puts-puts)
 	}
 }
 
@@ -115,6 +150,34 @@ func TestUpdateDocumentCreatesLinkedRevisionsOnlyOnFirstUpdate(t *testing.T) {
 		if position < 0 || putKeys[position] != want {
 			t.Fatalf("candidate PUT order = %v; missing ordered write %q", putKeys, want)
 		}
+	}
+}
+
+func TestUpdateDocumentPropagatesTransientRevisionDiffMetadataFailure(t *testing.T) {
+	t.Setenv("AWS_MAX_ATTEMPTS", "1")
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.failHeadKey = second.ID + "/" + DiffFilename
+	store.mu.Unlock()
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "inspect object") ||
+		strings.Contains(err.Error(), "missing or incomplete") {
+		t.Fatalf("transient diff metadata error = %v", err)
 	}
 }
 
@@ -267,6 +330,116 @@ func TestRevisionLinkManifestEventsPreserveCompleteProjection(t *testing.T) {
 	}
 }
 
+func TestRevisionDeleteManifestTombstoneCarriesChainProjection(t *testing.T) {
+	store := newUpgradeStore(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := store.client(t, manifest)
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), third.URL); err != nil {
+		t.Fatal(err)
+	}
+	records, warnings, err := ReadManifest(manifest)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("records = %+v, warnings = %v, err = %v", records, warnings, err)
+	}
+	var tombstone *ManifestRecord
+	for index := range records {
+		if records[index].Type == "delete" && records[index].MarkerKey == third.MarkerKey {
+			tombstone = &records[index]
+		}
+	}
+	if tombstone == nil || tombstone.RevisionChainID != third.RevisionChainID ||
+		tombstone.Revision != 3 || tombstone.LatestRevision != 2 {
+		t.Fatalf("revision delete tombstone = %+v", tombstone)
+	}
+}
+
+func TestRevisionDeleteMissingMarkerRetryOmitsUnknownLatestProjection(t *testing.T) {
+	store := newUpgradeStore(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := store.client(t, manifest)
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lock := flock.New(manifest + ".lock")
+	if err := lock.Lock(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lock.Unlock() })
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	deleted, err := client.DeleteUpload(ctx, third.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(deleted.Warnings, "\n"), "tombstone not recorded") {
+		t.Fatalf("delete warnings = %v", deleted.Warnings)
+	}
+	if err := lock.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), third.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	records, warnings, err := ReadManifest(manifest)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("records = %+v, warnings = %v, err = %v", records, warnings, err)
+	}
+	var tombstone *ManifestRecord
+	for index := range records {
+		if records[index].Type == "delete" && records[index].MarkerKey == third.MarkerKey {
+			tombstone = &records[index]
+		}
+	}
+	if tombstone == nil || tombstone.RevisionChainID != third.RevisionChainID ||
+		tombstone.Revision != 3 || tombstone.LatestRevision != 0 {
+		t.Fatalf("reconciled revision delete tombstone = %+v", tombstone)
+	}
+	uploads := ManifestUploads(records)
+	if len(uploads) != 2 {
+		t.Fatalf("active uploads = %+v", uploads)
+	}
+	for _, upload := range uploads {
+		if upload.Revision == 3 || upload.LatestRevision != 2 {
+			t.Fatalf("reconciled active projection = %+v", upload)
+		}
+	}
+}
+
 func TestUpdateDocumentRetryRecreatesMissingSiblingMetadata(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")
@@ -310,6 +483,93 @@ func TestUpdateDocumentRetryRecreatesMissingSiblingMetadata(t *testing.T) {
 	metadata, err := DecodeVersionsMetadata(body, client.cfg, first.Key)
 	if err != nil || metadata.CurrentRevision != 1 || metadata.LatestRevision != 3 {
 		t.Fatalf("recreated metadata = %+v, err = %v", metadata, err)
+	}
+}
+
+func TestDeleteRecreatesMissingSiblingMetadata(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstMetadataKey := first.ID + "/" + VersionsFilename
+	store.mu.Lock()
+	delete(store.objects, firstMetadataKey)
+	delete(store.etags, firstMetadataKey)
+	store.mu.Unlock()
+
+	if _, err := client.DeleteUpload(context.Background(), second.URL); err != nil {
+		t.Fatalf("delete with missing sibling replica: %v", err)
+	}
+	body, ok := store.get(firstMetadataKey)
+	if !ok {
+		t.Fatal("delete did not recreate missing first-revision metadata")
+	}
+	metadata, err := DecodeVersionsMetadata(body, client.cfg, first.Key)
+	if err != nil || !metadata.Revisions[1].Deleted ||
+		metadata.LatestRevision != third.Revision {
+		t.Fatalf("recreated metadata = %+v, %v", metadata, err)
+	}
+}
+
+func TestRevisionValidationReadsDiffMetadataWithoutFetchingBody(t *testing.T) {
+	t.Setenv("AWS_MAX_ATTEMPTS", "1")
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.failGetKey = second.ID + "/" + DiffFilename
+	store.mu.Unlock()
+	result, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil || !result.Unchanged {
+		t.Fatalf("metadata-only diff validation result = %+v, %v", result, err)
+	}
+}
+
+func TestStandaloneCorruptVersionsMetadataIsNotDeleteReservation(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(first.ID+"/"+VersionsFilename, []byte(`{"schema":"corrupt"}`))
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err == nil || errors.Is(err, errRevisionTransitionReserved) ||
+		!strings.Contains(err.Error(), "versions metadata") {
+		t.Fatalf("corrupt standalone metadata error = %v", err)
 	}
 }
 
@@ -396,20 +656,18 @@ func TestNoopMetadataRepairCannotSucceedAcrossConcurrentLatestDelete(t *testing.
 	case <-time.After(5 * time.Second):
 		t.Fatal("no-op did not pause before missing replica creation")
 	}
-	if _, err := client.DeleteUpload(context.Background(), second.URL); err == nil {
-		t.Fatalf("interrupted concurrent delete error = %v", err)
+	if _, err := client.DeleteUpload(context.Background(), second.URL); err != nil {
+		close(release)
+		t.Fatalf("concurrent delete did not self-heal missing replica: %v", err)
 	}
 	close(release)
 	select {
 	case updateErr := <-updateDone:
-		if updateErr == nil || !strings.Contains(updateErr.Error(), "metadata verification") {
+		if updateErr == nil {
 			t.Fatalf("stale no-op repair error = %v", updateErr)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("stale no-op repair did not finish")
-	}
-	if _, err := client.DeleteUpload(context.Background(), second.URL); err != nil {
-		t.Fatalf("delete retry did not monotonically repair stale replica: %v", err)
 	}
 	body, ok := store.get(firstMetadataKey)
 	if !ok {
@@ -564,6 +822,16 @@ func TestGenerateRevisionDiffFinalNewlineOnlyChanges(t *testing.T) {
 				t.Fatalf("newline annotations = %d, want 1:\n%s", got, diff)
 			}
 		})
+	}
+}
+
+func TestInlineRevisionDiffLimit(t *testing.T) {
+	atLimit := bytes.Repeat([]byte("x"), MaxInlineDiffSize)
+	if got := inlineRevisionDiff(atLimit); len(got) != len(atLimit) {
+		t.Fatalf("inline diff at limit has %d bytes, want %d", len(got), len(atLimit))
+	}
+	if got := inlineRevisionDiff(append(atLimit, 'x')); got != "" {
+		t.Fatalf("oversized inline diff has %d bytes, want none", len(got))
 	}
 }
 
@@ -840,6 +1108,15 @@ func TestUpdateViaRevisionTwoSucceedsAfterRevisionOneIsTombstoned(t *testing.T) 
 	})
 	if err != nil || fourth.Revision != 4 || fourth.PreviousURL != third.URL {
 		t.Fatalf("fourth revision = %+v, %v", fourth, err)
+	}
+	for _, target := range []string{second.URL, third.URL} {
+		if _, err := client.DeleteUpload(context.Background(), target); err != nil {
+			t.Fatalf("delete surviving historical revision: %v", err)
+		}
+	}
+	if _, err := client.DeleteUpload(context.Background(), fourth.URL); err == nil ||
+		!strings.Contains(err.Error(), "final live revision") {
+		t.Fatalf("final live revision error = %v", err)
 	}
 }
 

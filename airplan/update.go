@@ -215,6 +215,13 @@ func (c *Client) updateDocument(
 			return nil, err
 		}
 	}
+	if input.Input.Name != "" &&
+		SanitizeSlug(filenameStem(input.Input.Name)) != latest.marker.Slug {
+		return nil, &updateRefusalError{
+			kind: updateRefusalInvalidTarget,
+			err:  errors.New("airplan: update input name must match the existing document slug"),
+		}
+	}
 
 	limit := input.Input.MaxSize
 	if limit == 0 {
@@ -306,7 +313,7 @@ func (c *Client) updateDocument(
 		RepositoryURL: latest.marker.Repo, Template: c.template,
 		Revision: newRevision, RevisionCount: newRevision,
 		PreviousRevision: previousRevision, VersionsPath: VersionsFilename,
-		DiffPath: "./" + DiffFilename, DiffText: string(diffBody),
+		DiffPath: "./" + DiffFilename, DiffText: inlineRevisionDiff(diffBody),
 	})
 	if err != nil {
 		return nil, err
@@ -598,10 +605,16 @@ func (c *Client) loadRevisionDocument(ctx context.Context, target string) (*revi
 		if !declared {
 			return nil, errors.New("airplan: revision marker has no declared diff object")
 		}
-		diffBody, diffETag, _, diffErr := c.st.getBytesWithETag(
-			ctx, dirPrefix+diffObject.Name, diffObject.Bytes,
+		diffETag, diffBytes, diffErr := c.st.objectMetadata(
+			ctx, dirPrefix+diffObject.Name,
 		)
-		if diffErr != nil || diffETag == "" || int64(len(diffBody)) != diffObject.Bytes {
+		if diffErr != nil {
+			if !errors.Is(diffErr, errObjectNotFound) {
+				return nil, diffErr
+			}
+			return nil, errors.New("airplan: revision diff is missing or incomplete")
+		}
+		if diffETag == "" || diffBytes != diffObject.Bytes {
 			return nil, errors.New("airplan: revision diff is missing or incomplete")
 		}
 	}
@@ -638,7 +651,9 @@ func (c *Client) loadRevisionDocument(ctx context.Context, target string) (*revi
 	}
 	versions, err := DecodeVersionsMetadata(versionsBody, c.cfg, pageKey)
 	if err != nil {
-		if marker.Revision == nil {
+		if marker.Revision == nil && bytes.Equal(
+			versionsBody, standaloneDeleteReservationBody,
+		) {
 			return nil, fmt.Errorf("%w: %v", errRevisionTransitionReserved, err)
 		}
 		return nil, err
@@ -787,6 +802,7 @@ func (c *Client) promoteStandaloneRevision(
 		return err
 	}
 	marker := *doc.marker
+	marker.Objects = append([]MarkerObject(nil), doc.marker.Objects...)
 	marker.Revision = &RevisionDescriptor{ChainID: chainID, Number: 1}
 	marker.Producer = Producer{Name: "airplan", Version: producerVersion(c.cfg.ProducerVersion)}
 	for index := range marker.Objects {
@@ -908,13 +924,19 @@ func (c *Client) verifySerializationBody(
 		if !ok {
 			break
 		}
-		actual, err := c.st.getBytes(ctx, serializedKey, MaxVersionsMetadataSize)
-		if err != nil || !bytes.Equal(actual, expected) {
-			return errors.New("airplan: revision serialization point changed during metadata repair")
-		}
-		return nil
+		return c.verifyObjectBody(ctx, serializedKey, expected)
 	}
 	return errors.New("airplan: revision serialization point is not a live chain member")
+}
+
+func (c *Client) verifyObjectBody(
+	ctx context.Context, key string, expected []byte,
+) error {
+	actual, err := c.st.getBytes(ctx, key, MaxVersionsMetadataSize)
+	if err != nil || !bytes.Equal(actual, expected) {
+		return errors.New("airplan: revision serialization point changed during metadata repair")
+	}
+	return nil
 }
 
 func (c *Client) verifyRevisionChain(

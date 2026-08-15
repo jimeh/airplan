@@ -546,6 +546,7 @@ func TestActiveUploads(t *testing.T) {
 }
 
 type deleteLifecycleS3 struct {
+	t                *testing.T
 	server           *httptest.Server
 	mu               sync.Mutex
 	marker           []byte
@@ -563,7 +564,7 @@ func newDeleteLifecycleS3(
 	t *testing.T, marker []byte, objects []objectInfo,
 ) *deleteLifecycleS3 {
 	t.Helper()
-	fake := &deleteLifecycleS3{marker: marker, objects: objects}
+	fake := &deleteLifecycleS3{t: t, marker: marker, objects: objects}
 	fake.server = httptest.NewServer(http.HandlerFunc(fake.handle))
 	t.Cleanup(fake.server.Close)
 	return fake
@@ -621,6 +622,12 @@ func (f *deleteLifecycleS3) handle(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.WriteString(w,
 			`<?xml version="1.0"?><DeleteResult></DeleteResult>`)
 	case r.Method == http.MethodPut:
+		key := strings.TrimPrefix(r.URL.Path, "/plans/")
+		if key != testDir+"/"+VersionsFilename {
+			f.t.Errorf("reservation key = %q", key)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		f.record("reserve-delete")
 		w.WriteHeader(http.StatusOK)
 	case r.Method == http.MethodDelete:

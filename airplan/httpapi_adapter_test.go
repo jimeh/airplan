@@ -17,6 +17,13 @@ import (
 	"github.com/jimeh/airplan/internal/httpapi"
 )
 
+func TestWireVersionsMetadataPreservesSchemaAndVersion(t *testing.T) {
+	wire := wireVersionsMetadata(VersionsMetadata{Schema: "future", Version: 7})
+	if string(wire.Schema) != "future" || int(wire.Version) != 7 {
+		t.Fatalf("wire metadata = %+v", wire)
+	}
+}
+
 func TestHTTPAPIUpdatesDocumentThroughOperationFacade(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")

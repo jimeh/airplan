@@ -493,7 +493,7 @@ Accept at most 64 KiB and require:
 - `latest_revision` naming the greatest live entry;
 - `last_assigned_revision` greater than or equal to every entry;
 - revision `1` without a diff and each later live revision with one;
-- canonical absolute HTTPS URLs under the same resolved public base URL,
+- canonical absolute HTTP(S) URLs under the same resolved public base URL,
   bucket, and key-prefix scope;
 - page and diff URLs that resolve to valid Airplan key shapes; and
 - timestamps in RFC 3339 UTC.
@@ -563,6 +563,11 @@ Custom templates may ignore the additive fields. They retain full ownership of
 presentation and do not automatically gain a picker or Changes view until the
 template author adopts them.
 
+The built-in renderer embeds and highlights at most 512 KiB of adjacent diff
+text. Larger diffs keep the Changes view and raw sibling-object link but omit
+the diff body from the HTML page; the complete published diff remains bounded
+by the separate 32 MiB object limit.
+
 ## 10. Creating a new revision
 
 ### 10.1 Eligibility and preflight
@@ -573,6 +578,8 @@ with a source object. Reject:
 - HTML, text, and collections;
 - `--no-source` uploads;
 - invalid, unsupported, conflicting, or incomplete markers;
+- a named input whose ordinary sanitized filename stem differs from the
+  existing document slug;
 - a target outside the active backend's bucket and key-prefix scope;
 - a chain whose metadata and marker descriptors cannot be reconciled; and
 - a custom-template predecessor that cannot be reproduced for a required
@@ -940,7 +947,8 @@ existing upload tool permits it. Hosted MCP remains content-based.
 Update `skills/airplan/SKILL.md` and embedded MCP descriptions so agents:
 
 - use `update_document` when the user asks to revise an existing Airplan plan;
-- may supply any known chain URL because Airplan resolves latest;
+- may supply any surviving chain URL because Airplan resolves latest, while
+  deleted revision tombstones are not valid targets;
 - return the new revision URL;
 - do not create revisions for byte-identical content;
 - do not bulk-upgrade opportunistically; and

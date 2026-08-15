@@ -500,9 +500,12 @@ The first real update promotes the standalone upload to revision 1 and creates
 revision 2 under a new capability URL. Only then is
 `.airplan-versions.json` added to both uploads; ordinary standalone uploads
 still have no versions object. Later updates may target any member and resolve
-the latest revision before appending. Each revision after 1 owns a deterministic
-`.airplan-changes.diff`, rendered as a highlighted Changes view. Anyone with
-one chain URL can navigate to every linked revision URL.
+the latest revision before appending. Only surviving revisions are navigation
+and update targets; deleted entries remain as numbered tombstones and are never
+reused. Each revision after 1 owns a deterministic `.airplan-changes.diff`,
+rendered as a highlighted Changes view when small enough and always available
+through its raw diff link. Anyone with one chain URL can navigate to every
+surviving linked revision URL.
 The JSON result includes `previous_url`, `diff_url`, and `unchanged`; revision
 numbers are omitted only for an unchanged standalone document that has not yet
 formed a chain.

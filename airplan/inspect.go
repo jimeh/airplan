@@ -297,6 +297,9 @@ func (c *Client) inspectUploadSnapshot(
 		body, metadataErr := c.st.getBytes(ctx, dirPrefix+VersionsFilename,
 			MaxVersionsMetadataSize)
 		if metadataErr != nil {
+			if !errors.Is(metadataErr, errObjectNotFound) {
+				return nil, metadataErr
+			}
 			inspection.RevisionError = "versions metadata is unavailable"
 		} else {
 			metadata, decodeErr := DecodeVersionsMetadata(body, c.cfg,

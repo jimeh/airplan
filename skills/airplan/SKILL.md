@@ -60,15 +60,19 @@ When the user asks to revise an existing Airplan plan, use the existing link
 as the update target instead of creating an unrelated upload:
 
 ```sh
-airplan update --json <airplan-url> revised-plan.md
+airplan update --json <airplan-url> plan.md
 ```
 
-Any known URL in the chain is valid; Airplan resolves the latest live revision
-before comparing content. Return the resulting revision URL. Byte-identical
-content is a successful no-op and does not consume a revision number. Linked
-pages expose previous/next/latest navigation and server-generated adjacent
-changes. Anyone who can read one linked URL learns the capability URLs for the
-complete revision history. With MCP, use `update_document`.
+Any surviving URL in the chain is valid; Airplan resolves the latest live
+revision before comparing content. Deleted revisions remain numbered
+tombstones, are omitted from navigation, and are reported as unavailable when
+targeted. The input filename stem must resolve to the existing document slug;
+reuse the original filename or pass the revised Markdown through stdin. Return
+the resulting revision URL. Byte-identical content is a successful no-op and
+does not consume a revision number. Linked pages expose
+previous/next/latest navigation and server-generated adjacent changes. Anyone
+who can read one linked URL learns the capability URLs for the surviving
+revision history. With MCP, use `update_document`.
 
 ### Upgrade rendered documents
 

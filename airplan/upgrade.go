@@ -191,11 +191,8 @@ func (c *Client) PlanUpgradeDocument(
 	if pageETag == "" {
 		return nil, errors.New("airplan: rendered page has no ETag; conditional upgrade is unavailable")
 	}
-	sourceLimit := int64(DefaultMaxInputSize)
+	sourceLimit := upgradeSourceReadLimit(marker)
 	sourceObject, sourceDeclared := markerObjectForRole(marker, MarkerRoleSource)
-	if sourceDeclared {
-		sourceLimit = sourceObject.Bytes
-	}
 	sourceBody, sourceETag, _, err := c.st.getBytesWithETag(ctx, sourceKey, sourceLimit)
 	if err != nil {
 		return nil, err
@@ -203,10 +200,12 @@ func (c *Client) PlanUpgradeDocument(
 	if sourceETag == "" {
 		return nil, errors.New("airplan: Markdown source has no ETag; conditional upgrade is unavailable")
 	}
-	if sourceDeclared && int64(len(sourceBody)) != sourceObject.Bytes {
+	if sourceDeclared && sourceObject.Bytes > 0 &&
+		int64(len(sourceBody)) != sourceObject.Bytes {
 		return nil, errors.New("airplan: Markdown source size does not match its marker")
 	}
-	if !sourceDeclared && len(sourceBody) > DefaultMaxInputSize {
+	if (!sourceDeclared || sourceObject.Bytes == 0) &&
+		len(sourceBody) > DefaultMaxInputSize {
 		return nil, fmt.Errorf("airplan: source exceeds the maximum input size")
 	}
 	protection, protected, err := c.optionalUpgradeControlObject(
@@ -251,7 +250,14 @@ func (c *Client) PlanUpgradeDocument(
 			}
 			diffKey := dirPrefix + diffObject.Name
 			plan.diff, err = c.st.getBytes(ctx, diffKey, diffObject.Bytes)
-			if err != nil || int64(len(plan.diff)) != diffObject.Bytes {
+			if err != nil {
+				if !errors.Is(err, errObjectNotFound) {
+					return nil, err
+				}
+				plan.State, plan.Reason = UpgradeStateInvalid, "revision diff is missing or invalid"
+				return plan, nil
+			}
+			if int64(len(plan.diff)) != diffObject.Bytes {
 				plan.State, plan.Reason = UpgradeStateInvalid, "revision diff is missing or invalid"
 				return plan, nil
 			}
@@ -323,10 +329,7 @@ func (c *Client) UpgradeDocument(
 		return nil, ErrConflict
 	}
 	plan = *fresh
-	sourceLimit := int64(DefaultMaxInputSize)
-	if sourceObject, ok := markerObjectForRole(plan.marker, MarkerRoleSource); ok {
-		sourceLimit = sourceObject.Bytes
-	}
+	sourceLimit := upgradeSourceReadLimit(plan.marker)
 	currentSource, currentSourceETag, _, err := c.st.getBytesWithETag(
 		ctx, plan.SourceKey, sourceLimit,
 	)
@@ -393,6 +396,13 @@ func (c *Client) UpgradeDocument(
 	}, nil
 }
 
+func upgradeSourceReadLimit(marker *UploadMarker) int64 {
+	if sourceObject, ok := markerObjectForRole(marker, MarkerRoleSource); ok && sourceObject.Bytes > 0 {
+		return sourceObject.Bytes
+	}
+	return DefaultMaxInputSize
+}
+
 func resultFromUpgradePlan(cfg *Config, plan UpgradeDocumentPlan) Result {
 	marker := plan.marker
 	if marker == nil {
@@ -444,9 +454,9 @@ func (c *Client) materializeUpgrade(plan *UpgradeDocumentPlan) error {
 		Template:         c.template,
 		Revision:         revisionNumber(marker),
 		RevisionCount:    revisionLatest(plan.versions, c.cfg, plan.PageKey),
-		PreviousRevision: revisionPrevious(plan.versions, c.cfg, marker),
+		PreviousRevision: revisionPrevious(plan.versions, c.cfg, plan.PageKey, marker),
 		VersionsPath:     VersionsFilename,
-		DiffPath:         revisionDiffPath(marker), DiffText: string(plan.diff),
+		DiffPath:         revisionDiffPath(marker), DiffText: inlineRevisionDiff(plan.diff),
 	})
 	if err != nil {
 		return err
@@ -500,11 +510,13 @@ func revisionLatest(body []byte, cfg *Config, pageKey string) int {
 	return metadata.LatestRevision
 }
 
-func revisionPrevious(body []byte, cfg *Config, marker *UploadMarker) int {
+func revisionPrevious(
+	body []byte, cfg *Config, pageKey string, marker *UploadMarker,
+) int {
 	if marker == nil || marker.Revision == nil || marker.Revision.PreviousURL == "" {
 		return 0
 	}
-	metadata, err := DecodeVersionsMetadata(body, cfg, "")
+	metadata, err := DecodeVersionsMetadata(body, cfg, pageKey)
 	if err != nil {
 		return marker.Revision.Number - 1
 	}

@@ -719,7 +719,7 @@ func testRevisionRoundTrip(
 
 	// This helper is part of a larger shared-bucket test. Remove the remaining
 	// chain fixtures directly after public lifecycle behavior has been checked.
-	for _, id := range []string{fourth.ID} {
+	for _, id := range []string{first.ID, second.ID, third.ID, fourth.ID} {
 		objects, err := st.listKeys(ctx, id+"/")
 		if err != nil {
 			t.Fatal(err)

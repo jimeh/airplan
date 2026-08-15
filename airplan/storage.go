@@ -295,6 +295,25 @@ func (s *storage) getBytesWithETag(
 	return body, aws.ToString(out.ETag), aws.ToString(out.ContentType), nil
 }
 
+// objectMetadata reads only the immutable identity and declared size needed
+// to validate a payload without transferring its body.
+func (s *storage) objectMetadata(
+	ctx context.Context, key string,
+) (string, int64, error) {
+	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.bucket), Key: aws.String(key),
+	})
+	if err != nil {
+		if storageNotFound(err) {
+			return "", 0, fmt.Errorf(
+				"airplan: inspect object %q: %w", key, errObjectNotFound,
+			)
+		}
+		return "", 0, fmt.Errorf("airplan: inspect object %q: %w", key, err)
+	}
+	return aws.ToString(out.ETag), aws.ToInt64(out.ContentLength), nil
+}
+
 func (s *storage) getTo(ctx context.Context, key string, dst io.Writer) error {
 	body, _, err := s.open(ctx, key)
 	if err != nil {

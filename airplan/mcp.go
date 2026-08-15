@@ -781,6 +781,7 @@ func mcpOperationError(
 		)
 	}
 	var protectedErr *UploadProtectedError
+	var updateRefusal *updateRefusalError
 	public := "airplan: the server could not complete the operation"
 	switch {
 	case errors.Is(err, context.Canceled),
@@ -793,6 +794,15 @@ func mcpOperationError(
 	case errors.Is(err, ErrBinaryInput), errors.Is(err, ErrInvalidUTF8),
 		errors.Is(err, ErrEmptyInput):
 		public = "airplan: the request is not a valid document upload"
+	case errors.As(err, &updateRefusal):
+		switch updateRefusal.kind {
+		case updateRefusalMissing:
+			public = "airplan: the marker-managed upload could not be found"
+		case updateRefusalInvalidUpload:
+			public = "airplan: the revision chain cannot be safely reconciled"
+		default:
+			public = "airplan: the document is not eligible for a linked revision update"
+		}
 	case errors.As(err, &protectedErr):
 		public = "airplan: the upload is purge-protected; " +
 			"unprotect it or delete with force"

@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"mime"
+	"net/url"
 	"strings"
 	"time"
 	"unicode"
@@ -732,6 +733,14 @@ func validateMarkerV4(
 		}
 		if revision.Number > 1 && revision.PreviousURL == "" {
 			return invalid("revision %d must declare previous_url", revision.Number)
+		}
+		if revision.PreviousURL != "" {
+			previous, err := url.Parse(revision.PreviousURL)
+			if err != nil || (previous.Scheme != "https" && previous.Scheme != "http") || previous.Host == "" ||
+				previous.User != nil || previous.RawQuery != "" || previous.Fragment != "" ||
+				!strings.HasSuffix(previous.Path, ".html") {
+				return invalid("revision previous_url must be an absolute HTTP(S) HTML URL")
+			}
 		}
 		if marker.Kind != UploadKindDocument || marker.Format != "md" || !markerDeclaresSource(marker) {
 			return invalid("only source-backed Markdown documents may declare a revision")

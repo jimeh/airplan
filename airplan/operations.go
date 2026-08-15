@@ -436,10 +436,14 @@ func (c *Client) Purge(
 			}
 		}
 		deleted, err := c.DeleteUploadWithOptions(
-			ctx, BuildKey(c.cfg.KeyPrefix, id, ""), DeleteOptions{},
+			ctx, BuildKey(c.cfg.KeyPrefix, id, ""), DeleteOptions{
+				requireStandalone: !req.IncludeVersioned,
+			},
 		)
 		var protectedErr *UploadProtectedError
 		switch {
+		case errors.Is(err, errUploadBecameVersioned):
+			item.Versioned = true
 		case errors.As(err, &protectedErr):
 			// A delete-time protection skip is progress, not a failure: it
 			// catches protection set after planning (SPEC.md §9).

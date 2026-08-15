@@ -453,6 +453,8 @@ func (c *Client) syncPrune(
 		Type: "delete", Time: time.Now().UTC().Truncate(time.Second),
 		Key: record.Key, MarkerKey: markerKey, Bucket: c.cfg.Bucket,
 		Profile: c.cfg.Profile, Reason: "remote_missing", Kind: record.Kind,
+		RevisionChainID: record.RevisionChainID,
+		Revision:        record.Revision,
 	}
 	return syncJobResult{tombstone: &tombstone}
 }

@@ -224,10 +224,10 @@ func printInspection(w io.Writer, in *airplan.UploadInspection) error {
 				return err
 			}
 		}
-		if in.RevisionError != "" {
-			if err := write("REVISION METADATA", in.RevisionError); err != nil {
-				return err
-			}
+	}
+	if in.RevisionError != "" {
+		if err := write("REVISION METADATA", in.RevisionError); err != nil {
+			return err
 		}
 	}
 	title := in.Title

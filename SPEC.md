@@ -652,6 +652,9 @@ already is the original file.
   Marker v4 reserves every direct basename beginning `.airplan-`, in addition
   to `.airplan.json`; collection member filenames and v4 marker-declared object
   names must not use that namespace, or a member could forge a control object.
+  The sole payload exception is `.airplan-changes.diff` with role `diff`, and
+  only for a linked Markdown revision greater than 1; every other
+  marker-declared `.airplan-` payload remains invalid.
   Existing v1-v3 marker validation retains its original filename rules. An upload
   created by an older build whose collection already declares this basename is
   invalid to protection-aware builds; it must be removed with the older client
@@ -862,7 +865,9 @@ that parseable result on stdout and make the command non-zero.
 `airplan update <url|key> [file|-]` accepts only a complete, marker-managed,
 source-backed Markdown document. It resolves any supplied chain member to the
 latest live revision, compares exact UTF-8 source bytes, and uploads a complete
-ordinary document under a new random directory. Identical content is a
+ordinary document under a new random directory. A named input must resolve to
+the existing document slug; stdin or an omitted name preserves it implicitly.
+Identical content is a
 successful no-op returning the existing latest URL. An already-consistent
 chain performs no storage or manifest writes; an identical-source retry may
 first repair interrupted predecessor promotion or metadata replication.
@@ -894,7 +899,9 @@ exactly one `diff` object named `.airplan-changes.diff`, content type
 `text/plain; charset=utf-8`; standalone documents and revision 1 declare none.
 The adjacent unified diff has stable `revision-N/plan.md` headers, three context
 lines, deterministic LF output, and preserves final-newline distinctions. It is
-bounded to 32 MiB and generated before remote mutation.
+bounded to 32 MiB and generated before remote mutation. At most 512 KiB is
+embedded for server-highlighted display; larger diffs retain the Changes view
+and its raw sibling-object link without embedding the diff body in the page.
 
 `.airplan-versions.json` is a mutable no-store control object with schema
 `airplan-versions`, version 1, chain ID, containing member's
@@ -1545,7 +1552,14 @@ conforming implementations can share a manifest:
   slug from the page key for valid older records that omit those fields.
 - New `delete` tombstones include `marker_key`, `bucket`, the receiving
   `profile`, and reason `deleted` or `remote_missing`. Their identity is
-  `(bucket, marker_key)`. Legacy key-only tombstones remain valid.
+  `(bucket, marker_key)`. A linked-revision deletion also includes its
+  `revision_chain_id`, deleted `revision`, and surviving `latest_revision`;
+  these fields let reduction reject stale upload/link events whose local
+  manifest append completed after the remote deletion. A marker-missing retry
+  after an earlier manifest-write failure retains the chain and deleted
+  revision but omits `latest_revision`, because that recovery path cannot
+  reconstruct the surviving latest value safely. Legacy key-only tombstones
+  remain valid.
 - `protect` and `unprotect` records project remote purge-protection state
   (§9 protect/unprotect and purge) onto the same `(bucket, marker_key)`
   identity. Both require `key`, `marker_key`, and `bucket` — protection
@@ -1566,7 +1580,13 @@ conforming implementations can share a manifest:
 - Manifest history reduces chronologically. The latest event for an upload
   identity wins, duplicate uploads collapse to their latest record, and a
   later upload reactivates an earlier tombstone. A legacy key-only tombstone
-  hides matching preceding uploads but not a later upload event.
+  hides matching preceding uploads but not a later upload event. Linked
+  revision numbers are immutable and never reused: a revision-aware delete
+  tombstone permanently suppresses that revision even if a stale upload,
+  upgrade, or link event is appended later. Chain-wide `latest_revision` is
+  the highest advertised revision that does not have a revision-aware delete
+  tombstone, so partial local history preserves known remote members while
+  completed deletions cannot be resurrected by out-of-order manifest writes.
 - Protection reduces alongside uploads: the latest `protect`/`unprotect`
   event wins, a `delete` clears the identity's protection, and an `upload`
   event does **not** clear it — a sync re-import of a still protected

@@ -404,7 +404,8 @@ func wireInspection(result *UploadInspection) httpapi.UploadInspection {
 
 func wireVersionsMetadata(metadata VersionsMetadata) httpapi.VersionsMetadata {
 	wire := httpapi.VersionsMetadata{
-		Schema: "airplan-versions", Version: 1,
+		Schema:  httpapi.VersionsMetadataSchema(metadata.Schema),
+		Version: httpapi.VersionsMetadataVersion(metadata.Version),
 		ChainID: metadata.ChainID, CurrentRevision: metadata.CurrentRevision,
 		LatestRevision:       metadata.LatestRevision,
 		LastAssignedRevision: metadata.LastAssignedRevision,

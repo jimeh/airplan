@@ -178,6 +178,12 @@ func (s *Server) parseUpdateDocumentUpload(
 		cleanup()
 		return UpdateDocumentUpload{}, func() {}, invalidRequest("document update requires target metadata and document parts")
 	}
+	if err = validateDocumentMetadata(DocumentMetadata{
+		Name: metadata.Name, MaxSize: metadata.MaxSize,
+	}); err != nil {
+		cleanup()
+		return UpdateDocumentUpload{}, func() {}, err
+	}
 	limit := lowerLimit(s.options.MaxDocumentBytes, metadata.MaxSize)
 	if document.size > limit {
 		cleanup()

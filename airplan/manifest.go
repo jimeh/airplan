@@ -363,6 +363,10 @@ func validateManifestRecord(rec ManifestRecord) error {
 		} else if rec.Revision != 0 || rec.LatestRevision != 0 {
 			return errors.New("revision projection requires revision_chain_id")
 		}
+		if rec.Type == "link" && (rec.RevisionChainID == "" ||
+			rec.Revision <= 0 || rec.LatestRevision < rec.Revision) {
+			return errors.New("link events require complete revision projection fields")
+		}
 		// Both totals are optional, but they describe one measurement: a
 		// negative or half-present pair is corrupt rather than absent, and
 		// would otherwise render inconsistently forever, since backfill only
@@ -409,6 +413,14 @@ func validateManifestRecord(rec ManifestRecord) error {
 		if rec.Reason != "" && rec.Reason != "deleted" &&
 			rec.Reason != "remote_missing" {
 			return fmt.Errorf("unsupported delete reason %q", rec.Reason)
+		}
+		if rec.RevisionChainID != "" {
+			if !isRandomDir(rec.RevisionChainID) || rec.Revision <= 0 ||
+				rec.LatestRevision < 0 {
+				return errors.New("delete revision projection fields are invalid")
+			}
+		} else if rec.Revision != 0 || rec.LatestRevision != 0 {
+			return errors.New("delete revision projection requires revision_chain_id")
 		}
 	case "protect", "unprotect":
 		// Protection applies to marker-managed identities only, so both
@@ -600,9 +612,15 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 	}
 	active := make(map[string]activeRecord)
 	protection := make(map[string]protectionState)
+	deletedRevisions := make(map[string]map[int]struct{})
 	for index, rec := range records {
 		switch rec.Type {
 		case "upload", "upgrade", "link":
+			if deleted := deletedRevisions[rec.RevisionChainID]; rec.Revision > 0 && deleted != nil {
+				if _, ok := deleted[rec.Revision]; ok {
+					continue
+				}
+			}
 			// Derived fields are recomputed below; stale values on a read
 			// line never survive reduction.
 			clearDerivedProtection(&rec)
@@ -619,8 +637,16 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 					order = previous.order
 				}
 			}
-			active[identity] = activeRecord{rec, order}
+			active[identity] = activeRecord{record: rec, order: order}
 		case "delete":
+			if rec.RevisionChainID != "" && rec.Revision > 0 {
+				deleted := deletedRevisions[rec.RevisionChainID]
+				if deleted == nil {
+					deleted = make(map[int]struct{})
+					deletedRevisions[rec.RevisionChainID] = deleted
+				}
+				deleted[rec.Revision] = struct{}{}
+			}
 			if rec.MarkerKey != "" && rec.Bucket != "" {
 				identity := manifestRecordIdentity(rec)
 				delete(active, identity)
@@ -646,9 +672,30 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 		out = append(out, record)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].order < out[j].order })
+	chainLatest := make(map[string]int)
+	for _, record := range out {
+		if chain := record.record.RevisionChainID; chain != "" {
+			latest := max(record.record.Revision, record.record.LatestRevision)
+			if latest > chainLatest[chain] {
+				chainLatest[chain] = latest
+			}
+		}
+	}
+	for chain, latest := range chainLatest {
+		for latest > 0 {
+			if _, deleted := deletedRevisions[chain][latest]; !deleted {
+				break
+			}
+			latest--
+		}
+		chainLatest[chain] = latest
+	}
 	uploads := make([]ManifestRecord, 0, len(out))
 	for _, record := range out {
 		rec := record.record
+		if rec.RevisionChainID != "" {
+			rec.LatestRevision = chainLatest[rec.RevisionChainID]
+		}
 		// An upload never clears protection: a sync re-import of a still
 		// protected directory must not silently drop it. Protection state
 		// without an active upload is simply not surfaced.

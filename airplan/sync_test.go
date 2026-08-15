@@ -211,10 +211,20 @@ func TestSyncManifestReconstructsRevisionProjections(t *testing.T) {
 		fake.addObject(dir+"/"+VersionsFilename, body, when)
 	}
 
-	result, err := newSyncClient(t, fake.server.URL,
-		filepath.Join(t.TempDir(), "manifest.jsonl")).SyncManifest(
+	client := newSyncClient(t, fake.server.URL,
+		filepath.Join(t.TempDir(), "manifest.jsonl"))
+	versionsKey := dirs[0] + "/" + VersionsFilename
+	fake.failGet(versionsKey)
+	if inspection, inspectErr := client.InspectUpload(
+		context.Background(), dirs[0],
+	); inspectErr == nil || inspection != nil {
+		t.Fatalf("transient versions read inspection = %+v, %v", inspection, inspectErr)
+	}
+	fake.allowGet(versionsKey)
+
+	result, err := client.SyncManifest(
 		context.Background(), SyncManifestOptions{})
-	if err != nil || len(result.Added) != 2 {
+	if err != nil || len(result.Added) != 2 || len(result.Warnings) != 0 {
 		t.Fatalf("sync result = %+v, %v", result, err)
 	}
 	for index, record := range result.Added {
@@ -285,6 +295,41 @@ func TestSyncManifestConcurrentRunsDoNotDuplicateImports(t *testing.T) {
 		len(ActiveUploads(records)) != 1 {
 		t.Fatalf("records = %+v, warnings = %v, error = %v",
 			records, warnings, err)
+	}
+}
+
+func TestSyncPruneTombstonesMissingLatestRevisionByChainIdentity(t *testing.T) {
+	when := time.Now().UTC().Truncate(time.Second)
+	chain := strings.Repeat("c", 26)
+	records := make([]ManifestRecord, 3)
+	for index := range records {
+		dir := strings.Repeat(string(rune('a'+index)), 26)
+		records[index] = ManifestRecord{
+			Type: "upload", Time: when.Add(time.Duration(index) * time.Second),
+			CreatedAt: when.Add(time.Duration(index) * time.Second),
+			Key:       dir + "/plan.html", MarkerKey: dir + "/" + MarkerFilename,
+			URL:    "https://plans.example.com/" + dir + "/plan.html",
+			Bucket: "plans", Profile: "work", Bytes: 1,
+			MarkerVersion: MarkerVersion, RevisionChainID: chain,
+			Revision: index + 1, LatestRevision: 3,
+		}
+	}
+	fake := newSyncStorage(t)
+	client := newSyncClient(t, fake.server.URL, filepath.Join(t.TempDir(), "manifest.jsonl"))
+	job := client.syncPrune(context.Background(), records[2])
+	if job.tombstone == nil || job.tombstone.RevisionChainID != chain ||
+		job.tombstone.Revision != 3 || job.tombstone.LatestRevision != 0 ||
+		job.tombstone.Reason != "remote_missing" {
+		t.Fatalf("sync prune tombstone = %+v", job.tombstone)
+	}
+	uploads := ManifestUploads(append(records, *job.tombstone))
+	if len(uploads) != 2 {
+		t.Fatalf("active uploads = %+v", uploads)
+	}
+	for _, upload := range uploads {
+		if upload.LatestRevision != 2 {
+			t.Fatalf("revision %d latest = %d, want 2", upload.Revision, upload.LatestRevision)
+		}
 	}
 }
 
@@ -635,6 +680,12 @@ func (f *syncStorage) failGet(key string) {
 		f.failGets = make(map[string]bool)
 	}
 	f.failGets[key] = true
+}
+
+func (f *syncStorage) allowGet(key string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.failGets, key)
 }
 
 // getCount reports how many times a key's body has been fetched, so tests can

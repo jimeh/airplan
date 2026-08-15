@@ -189,6 +189,22 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		}
 	})
 
+	t.Run("large revision diff keeps raw changes view", func(t *testing.T) {
+		out := render(t, src, RenderOptions{
+			Revision: 2, RevisionCount: 2, PreviousRevision: 1,
+			VersionsPath: VersionsFilename, DiffPath: "./" + DiffFilename,
+		})
+		for _, fragment := range []string{
+			`data-view="changes"`, `class="content changes-view"`,
+			`This diff is too large to display inline.`,
+			`href="./.airplan-changes.diff"`,
+		} {
+			if !strings.Contains(out, fragment) {
+				t.Errorf("large-diff fallback missing %q", fragment)
+			}
+		}
+	})
+
 	t.Run("title is escaped", func(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "a <b> & c"})
 		if !strings.Contains(out, "<title>a &lt;b&gt; &amp; c</title>") {

@@ -5,12 +5,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 )
 
 var standaloneDeleteReservationBody = []byte(
 	`{"schema":"airplan-standalone-delete-reservation","version":1}`,
+)
+
+var errUploadBecameVersioned = errors.New(
+	"airplan: upload became versioned while purge deletion was starting",
 )
 
 // DeleteResult describes a completed delete (SPEC.md §9).
@@ -25,6 +30,10 @@ type DeleteResult struct {
 
 	// Warnings collects non-fatal manifest outcomes.
 	Warnings []string `json:"warnings,omitempty"`
+
+	revisionChainID string
+	revision        int
+	latestRevision  int
 }
 
 // ManifestProfileMismatchError reports that local history associates a delete
@@ -57,6 +66,10 @@ func (e *missingMarkerRecordError) Unwrap() error {
 type DeleteOptions struct {
 	// Force deletes the upload even when it is purge-protected.
 	Force bool
+
+	// requireStandalone is used by purge to preserve its version-history guard
+	// through the conditional operation that begins deletion.
+	requireStandalone bool
 }
 
 // DeleteUpload validates the upload's ownership marker, removes every
@@ -110,6 +123,9 @@ func (c *Client) DeleteUploadWithOptions(
 	if err := validateManagedTarget("delete", key, dirPrefix, marker); err != nil {
 		return nil, err
 	}
+	if opts.requireStandalone && marker.Revision != nil {
+		return nil, errUploadBecameVersioned
+	}
 
 	objects, err := c.st.listKeys(ctx, dirPrefix)
 	if err != nil {
@@ -143,6 +159,18 @@ func (c *Client) DeleteUploadWithOptions(
 	if marker.Kind == UploadKindDocument && marker.Format == "md" &&
 		marker.Source != "" && marker.Revision == nil {
 		if err := c.reserveStandaloneDelete(ctx, dirPrefix); err != nil {
+			if opts.requireStandalone && errors.Is(err, ErrConflict) {
+				body, readErr := c.st.getBytes(
+					ctx, dirPrefix+VersionsFilename, MaxVersionsMetadataSize,
+				)
+				if readErr == nil {
+					if _, decodeErr := DecodeVersionsMetadata(
+						body, c.cfg, dirPrefix+marker.Page,
+					); decodeErr == nil {
+						return nil, errUploadBecameVersioned
+					}
+				}
+			}
 			return nil, err
 		}
 		standaloneReserved = true
@@ -216,6 +244,11 @@ func (c *Client) DeleteUploadWithOptions(
 		PageKey:   dirPrefix + marker.Page,
 		MarkerKey: resolved.Key,
 		Kind:      marker.Kind,
+	}
+	if survivingVersions != nil && marker.Revision != nil {
+		res.revisionChainID = survivingVersions.ChainID
+		res.revision = marker.Revision.Number
+		res.latestRevision = survivingVersions.LatestRevision
 	}
 	if interruptedLinkedDelete {
 		res.Warnings = append(res.Warnings,
@@ -396,6 +429,7 @@ func (c *Client) tombstoneLinkedRevision(
 	if err != nil {
 		return nil, err
 	}
+	expectedSerializationBody := serializationBody
 	if !alreadyTombstoned {
 		committedBody := bodies[metadata.CurrentRevision]
 		if metadata.CurrentRevision == marker.Revision.Number {
@@ -415,6 +449,7 @@ func (c *Client) tombstoneLinkedRevision(
 				return nil, fmt.Errorf("airplan: reserve linked revision deletion: %w", putErr)
 			}
 		}
+		expectedSerializationBody = committedBody
 	}
 	for _, revision := range metadata.Revisions {
 		if revision.Deleted {
@@ -432,6 +467,31 @@ func (c *Client) tombstoneLinkedRevision(
 		current, etag, _, err := c.st.getBytesWithETag(ctx, metadataKey,
 			MaxVersionsMetadataSize)
 		if err != nil {
+			if errors.Is(err, errObjectNotFound) {
+				if err := c.verifyObjectBody(
+					ctx, serializationKey, expectedSerializationBody,
+				); err != nil {
+					return nil, err
+				}
+				resolved, markerErr := c.resolveMarker(ctx, dirPrefix)
+				if markerErr != nil {
+					return nil, errors.New("airplan: revision metadata recreation refused because the member marker is unavailable")
+				}
+				member, markerErr := DecodeUploadMarkerForName(resolved.Body,
+					path.Base(strings.TrimSuffix(dirPrefix, "/")), resolved.Basename)
+				if markerErr != nil || member.Revision == nil ||
+					member.Revision.ChainID != metadata.ChainID ||
+					member.Revision.Number != revision.Number {
+					return nil, errors.New("airplan: revision metadata recreation refused because the member marker changed")
+				}
+				if putErr := c.st.putIfAbsent(ctx, object{
+					Key: metadataKey, Body: bodies[revision.Number],
+					ContentType: markerContentType,
+				}); putErr != nil {
+					return nil, fmt.Errorf("airplan: revision tombstone recreation failed: %w", putErr)
+				}
+				continue
+			}
 			return nil, err
 		}
 		if bytes.Equal(current, bodies[revision.Number]) {
@@ -449,6 +509,9 @@ func (c *Client) tombstoneLinkedRevision(
 		}, etag); err != nil {
 			return nil, fmt.Errorf("airplan: revision tombstone propagation failed: %w", err)
 		}
+	}
+	if err := c.verifyRevisionChain(ctx, *metadata, bodies); err != nil {
+		return nil, err
 	}
 	return metadata, nil
 }
@@ -528,7 +591,9 @@ func (c *Client) reconcileMissingMarker(
 	}
 	res := &DeleteResult{
 		PageKey: record.Key, MarkerKey: manifestMarkerKey(record),
-		Kind: UploadKind(record.Kind),
+		Kind:            UploadKind(record.Kind),
+		revisionChainID: record.RevisionChainID,
+		revision:        record.Revision,
 	}
 	res.Warnings = append(res.Warnings, fmt.Sprintf(
 		"ownership marker is already absent under %q; recording the completed deletion",
@@ -570,6 +635,10 @@ func (c *Client) recordDelete(ctx context.Context, res *DeleteResult) {
 		Profile:   c.cfg.Profile,
 		Reason:    "deleted",
 		Kind:      string(res.Kind),
+
+		RevisionChainID: res.revisionChainID,
+		Revision:        res.revision,
+		LatestRevision:  res.latestRevision,
 	}
 	if err := appendManifestRecord(ctx, path, rec); err != nil {
 		res.Warnings = append(res.Warnings,

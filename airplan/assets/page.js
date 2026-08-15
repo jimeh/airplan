@@ -41,6 +41,7 @@
         metadata.current_revision !== embedded ||
         !Number.isInteger(metadata.latest_revision) ||
         !Number.isInteger(metadata.last_assigned_revision) ||
+        !Array.isArray(metadata.revisions) || metadata.revisions.length === 0 ||
         metadata.last_assigned_revision !== metadata.revisions.length ||
         !/^[a-z2-7]{26}$/.test(metadata.chain_id)) {
       throw new Error('revision identity is invalid');

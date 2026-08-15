@@ -317,3 +317,59 @@ func TestMarkerV4RevisionDiffRole(t *testing.T) {
 		t.Fatal("standalone diff accepted")
 	}
 }
+
+func TestMarkerV4RevisionPreviousURLMustBeAbsoluteHTTPHTML(t *testing.T) {
+	for _, previous := range []string{
+		"plan.html", "ftp://plans.example.com/plan.html",
+		"https://plans.example.com/plan.md",
+		"https://plans.example.com/plan.html?changed=1",
+	} {
+		marker := validDocumentMarker()
+		marker.Revision = &RevisionDescriptor{
+			ChainID: strings.Repeat("b", 26), Number: 2, PreviousURL: previous,
+		}
+		marker.Objects = append(marker.Objects, MarkerObject{
+			Name: DiffFilename, Role: MarkerRoleDiff, Bytes: 1,
+			ContentType: diffContentType,
+		})
+		if _, err := EncodeUploadMarker(marker); err == nil {
+			t.Fatalf("invalid previous URL %q was accepted", previous)
+		}
+	}
+	marker := validDocumentMarker()
+	marker.Revision = &RevisionDescriptor{
+		ChainID: strings.Repeat("b", 26), Number: 2,
+		PreviousURL: "http://plans.example.com/plan.html",
+	}
+	marker.Objects = append(marker.Objects, MarkerObject{
+		Name: DiffFilename, Role: MarkerRoleDiff, Bytes: 1,
+		ContentType: diffContentType,
+	})
+	if _, err := EncodeUploadMarker(marker); err != nil {
+		t.Fatalf("HTTP development previous URL rejected: %v", err)
+	}
+}
+
+func TestVersionsMetadataDeletedCurrentAllowanceAndConfiguredHTTPBase(t *testing.T) {
+	cfg := &Config{PublicBaseURL: "http://plans.example.com"}
+	when := time.Now().UTC().Truncate(time.Second)
+	dir1, dir2 := strings.Repeat("a", 26), strings.Repeat("b", 26)
+	metadata := VersionsMetadata{
+		Schema: "airplan-versions", Version: 1, ChainID: strings.Repeat("c", 26),
+		CurrentRevision: 2, LatestRevision: 1, LastAssignedRevision: 2,
+		Revisions: []VersionsRevision{
+			{Number: 1, URL: "http://plans.example.com/" + dir1 + "/plan.html", CreatedAt: when},
+			{Number: 2, Deleted: true, DeletedAt: when},
+		},
+	}
+	if _, err := encodeVersionsMetadata(metadata, cfg, "", true); err != nil {
+		t.Fatalf("allowed deleted current over configured HTTP base: %v", err)
+	}
+	if _, err := encodeVersionsMetadata(metadata, cfg, "", false); err == nil {
+		t.Fatal("deleted current accepted without allowance")
+	}
+	metadata.Revisions[0].URL = "http://other.example.com/" + dir2 + "/plan.html"
+	if _, err := encodeVersionsMetadata(metadata, cfg, "", true); err == nil {
+		t.Fatal("mismatched HTTP base was accepted")
+	}
+}

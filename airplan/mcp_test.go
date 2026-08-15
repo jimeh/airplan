@@ -477,6 +477,25 @@ func TestMCPListFilterPresence(t *testing.T) {
 	}
 }
 
+func TestHostedMCPSanitizesUpdateRefusalsWithActionableDetails(t *testing.T) {
+	for _, test := range []struct {
+		kind updateRefusalKind
+		want string
+	}{
+		{updateRefusalMissing, "marker-managed upload could not be found"},
+		{updateRefusalInvalidTarget, "not eligible for a linked revision update"},
+		{updateRefusalInvalidUpload, "revision chain cannot be safely reconciled"},
+	} {
+		err := mcpOperationError(context.Background(), &updateRefusalError{
+			kind: test.kind, err: errors.New("private update refusal detail"),
+		}, true, nil)
+		if !strings.Contains(err.Error(), test.want) ||
+			strings.Contains(err.Error(), "private update refusal detail") {
+			t.Fatalf("kind %q error = %q", test.kind, err)
+		}
+	}
+}
+
 func TestHostedMCPListFilterErrorsAreSanitizedBeforeListing(t *testing.T) {
 	const sentinel = "private-filter-value-sentinel"
 	transport := &mcpTestTransport{listResult: &ManifestList{}}

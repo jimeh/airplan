@@ -551,6 +551,45 @@ func TestTypedClientStreamsDocumentUpdateAndCleansTempFile(t *testing.T) {
 	assertDirEmpty(t, tempDir)
 }
 
+func TestUpdateDocumentMetadataValidationRejectsBeforeOperation(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		metadata UpdateDocumentMetadata
+	}{
+		{"long name", UpdateDocumentMetadata{
+			Target: "old-id", Name: strings.Repeat("a", 256),
+		}},
+		{"negative max size", UpdateDocumentMetadata{
+			Target: "old-id", MaxSize: -1,
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			called := false
+			operations := &stubOperations{updateDocument: func(
+				context.Context, UpdateDocumentUpload,
+			) (UpdateDocumentResult, error) {
+				called = true
+				return UpdateDocumentResult{}, nil
+			}}
+			server := httptest.NewServer(newTestHandler(t, operations,
+				Options{TempDir: tempDir}))
+			t.Cleanup(server.Close)
+			_, err := newTestClient(t, server.URL).UpdateDocument(
+				context.Background(), test.metadata, strings.NewReader("body"),
+			)
+			var problem *ProblemError
+			if !errors.As(err, &problem) || problem.Problem.Status != http.StatusBadRequest {
+				t.Fatalf("error = %v, want 400 problem", err)
+			}
+			if called {
+				t.Fatal("operation called for invalid update metadata")
+			}
+			assertDirEmpty(t, tempDir)
+		})
+	}
+}
+
 func TestTypedClientAllowsUnnamedStdinDocument(t *testing.T) {
 	operations := &stubOperations{}
 	operations.uploadDocument = func(

@@ -144,6 +144,103 @@ func TestUpgradeManifestEventPreservesRevisionAndCompleteProjection(t *testing.T
 	}
 }
 
+func TestPlanUpgradeLegacyMarkerWithUndeclaredSourceSize(t *testing.T) {
+	store := newUpgradeStore(t)
+	dir := strings.Repeat("z", 26)
+	page := []byte("old")
+	source := []byte("# Legacy plan\n")
+	marker, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: 1, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second), Format: "md",
+		Page: "plan.html", Source: "plan.md", Title: "Legacy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(dir+"/"+MarkerFilename, marker)
+	store.set(dir+"/plan.html", page)
+	store.set(dir+"/plan.md", source)
+	client := store.client(t, "")
+	plan, err := client.PlanUpgradeDocument(
+		context.Background(), dir, UpgradeDocumentOptions{},
+	)
+	if err != nil || plan.State != UpgradeStateUpgradeable ||
+		!bytes.Equal(plan.sourceBody, source) {
+		t.Fatalf("legacy upgrade plan = %+v, %v", plan, err)
+	}
+	result, err := client.UpgradeDocument(context.Background(), *plan)
+	if err != nil || !result.Upgraded {
+		t.Fatalf("legacy upgrade result = %+v, %v", result, err)
+	}
+}
+
+func TestUpgradeSourceReadLimitUsesDefaultForLegacyUndeclaredSize(t *testing.T) {
+	marker := &UploadMarker{Objects: []MarkerObject{{
+		Name: "plan.md", Role: MarkerRoleSource,
+	}}}
+	if got := upgradeSourceReadLimit(marker); got != DefaultMaxInputSize {
+		t.Fatalf("legacy source read limit = %d, want %d", got, DefaultMaxInputSize)
+	}
+	marker.Objects[0].Bytes = 123
+	if got := upgradeSourceReadLimit(marker); got != 123 {
+		t.Fatalf("declared source read limit = %d, want 123", got)
+	}
+}
+
+func TestPlanUpgradePropagatesTransientRevisionDiffReadFailure(t *testing.T) {
+	t.Setenv("AWS_MAX_ATTEMPTS", "1")
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.failGetKey = second.ID + "/" + DiffFilename
+	store.mu.Unlock()
+	plan, err := client.PlanUpgradeDocument(
+		context.Background(), second.URL, UpgradeDocumentOptions{},
+	)
+	if err == nil || plan != nil || !strings.Contains(err.Error(), "get object") {
+		t.Fatalf("transient diff read plan = %+v, %v", plan, err)
+	}
+}
+
+func TestRevisionPreviousUsesContainingPageKeyWithDeletedIntermediate(t *testing.T) {
+	cfg := &Config{PublicBaseURL: "https://plans.example.com"}
+	when := time.Now().UTC().Truncate(time.Second)
+	dir1, dir3 := strings.Repeat("a", 26), strings.Repeat("c", 26)
+	url1 := "https://plans.example.com/" + dir1 + "/plan.html"
+	metadata := VersionsMetadata{
+		Schema: "airplan-versions", Version: 1, ChainID: strings.Repeat("b", 26),
+		CurrentRevision: 3, LatestRevision: 3, LastAssignedRevision: 3,
+		Revisions: []VersionsRevision{
+			{Number: 1, URL: url1, CreatedAt: when},
+			{Number: 2, Deleted: true, DeletedAt: when.Add(time.Second)},
+			{Number: 3, URL: "https://plans.example.com/" + dir3 + "/plan.html", CreatedAt: when.Add(2 * time.Second), DiffURL: "https://plans.example.com/" + dir3 + "/" + DiffFilename},
+		},
+	}
+	pageKey := dir3 + "/plan.html"
+	body, err := EncodeVersionsMetadata(metadata, cfg, pageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := &UploadMarker{Revision: &RevisionDescriptor{
+		ChainID: metadata.ChainID, Number: 3, PreviousURL: url1,
+	}}
+	if got := revisionPrevious(body, cfg, pageKey, marker); got != 1 {
+		t.Fatalf("previous revision = %d, want 1", got)
+	}
+}
+
 func TestUpgradeRetryRepairsEqualLengthPageAfterMarkerFirstInterruption(t *testing.T) {
 	store := newUpgradeStore(t)
 	dir := strings.Repeat("i", 26)
@@ -672,6 +769,8 @@ type upgradeStore struct {
 	failPutSuffix           string
 	failDeleteKeys          bool
 	failMarkerDelete        bool
+	failGetKey              string
+	failHeadKey             string
 	getAttempts             int
 	conditionalBarrier      chan struct{}
 	conditionalBarrierCount int
@@ -680,6 +779,8 @@ type upgradeStore struct {
 	pauseIfNoneRelease      chan struct{}
 	pauseIfNoneUsed         bool
 	pauseListPrefix         string
+	pauseListAttempt        int
+	listAttempts            int
 	pauseListReached        chan struct{}
 	pauseListRelease        chan struct{}
 	pauseListUsed           bool
@@ -725,9 +826,15 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.URL.Path, "/plans/")
 	if r.Method == http.MethodGet && r.URL.Query().Get("list-type") == "2" {
 		s.mu.Lock()
+		s.listAttempts++
 		var listRelease chan struct{}
+		pauseAttempt := s.pauseListAttempt
+		if pauseAttempt == 0 {
+			pauseAttempt = 1
+		}
 		if s.pauseListReached != nil &&
-			r.URL.Query().Get("prefix") == s.pauseListPrefix && !s.pauseListUsed {
+			r.URL.Query().Get("prefix") == s.pauseListPrefix &&
+			s.listAttempts == pauseAttempt && !s.pauseListUsed {
 			s.pauseListUsed = true
 			close(s.pauseListReached)
 			listRelease = s.pauseListRelease
@@ -740,7 +847,8 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPut && r.Header.Get("If-None-Match") == "*" {
 		s.mu.Lock()
 		var targetedRelease chan struct{}
-		if key == s.pauseIfNoneKey && !s.pauseIfNoneUsed {
+		if s.pauseIfNoneReached != nil && key == s.pauseIfNoneKey &&
+			!s.pauseIfNoneUsed {
 			s.pauseIfNoneUsed = true
 			close(s.pauseIfNoneReached)
 			targetedRelease = s.pauseIfNoneRelease
@@ -760,7 +868,11 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		s.mu.Unlock()
 		if barrier != nil {
-			<-barrier
+			select {
+			case <-barrier:
+			case <-time.After(5 * time.Second):
+				s.t.Error("conditional-write barrier never released")
+			}
 		}
 	}
 	if r.Method == http.MethodPut && r.Header.Get("If-Match") != "" {
@@ -774,7 +886,11 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		s.mu.Unlock()
 		if barrier != nil {
-			<-barrier
+			select {
+			case <-barrier:
+			case <-time.After(5 * time.Second):
+				s.t.Error("conditional-update barrier never released")
+			}
 		}
 	}
 	s.mu.Lock()
@@ -796,6 +912,10 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.getAttempts++
+		if s.failGetKey == key {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		body, ok := s.objects[key]
 		if !ok {
 			w.Header().Set("Content-Type", "application/xml")
@@ -807,6 +927,19 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("ETag", `"etag-`+string(rune('0'+s.etags[key]))+`"`)
 		_, _ = w.Write(body)
+	case http.MethodHead:
+		if s.failHeadKey == key {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		body, ok := s.objects[key]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("ETag", `"etag-`+string(rune('0'+s.etags[key]))+`"`)
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+		w.WriteHeader(http.StatusOK)
 	case http.MethodPut:
 		ifMatch := r.Header.Get("If-Match")
 		want := `"etag-` + string(rune('0'+s.etags[key])) + `"`
@@ -827,10 +960,16 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.putAttempts++
-		if s.failPutAttempt == s.putAttempts || s.failPutKey == key ||
+		if s.failPutKey == key ||
 			(s.failPutSuffix != "" && strings.HasSuffix(key, s.failPutSuffix)) {
 			s.failPutKey = ""
 			s.failPutSuffix = ""
+			// A non-precondition, non-retryable response models an ordinary
+			// storage failure without turning the fixture into an append conflict.
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if s.failPutAttempt == s.putAttempts {
 			w.WriteHeader(http.StatusPreconditionFailed)
 			return
 		}
