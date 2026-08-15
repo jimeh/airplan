@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.7.0](https://github.com/jimeh/airplan/compare/v0.6.0...v0.7.0) (2026-08-15)
+
+
+### Features
+
+* add purge protection for individual uploads ([29f29fb](https://github.com/jimeh/airplan/commit/29f29fb0844cd0eb722adf6bdee5536992727280))
+
+
+### Bug Fixes
+
+* **ci:** verify container platforms by child digest ([#83](https://github.com/jimeh/airplan/issues/83)) ([621fabc](https://github.com/jimeh/airplan/commit/621fabce668404d01e9eb48a8b89709cbe1b4ff1))
+
 ## [0.6.0](https://github.com/jimeh/airplan/compare/v0.5.0...v0.6.0) (2026-08-14)
 
 
