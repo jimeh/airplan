@@ -2182,7 +2182,9 @@ Upgrade is likewise two-phase. `/upgrades/plan` classifies one target and
 returns its exact marker/page identity and ETags; `/upgrades/execute` accepts
 that plan and revalidates it before mutation. `/upgrades/preview` classifies
 the server-scoped active manifest; `/upgrades` accepts only the exact plan
-items returned by preview. Capabilities advertise all four operation names.
+items returned by preview. Execute-time refusal maps `missing` to
+`upload_not_found` (404), `invalid` to `invalid_upload` (422), and `ineligible`
+to `invalid_target` (422). Capabilities advertise all four operation names.
 
 REST errors use RFC 9457 `application/problem+json` with stable `code` and
 `request_id` fields. Problem detail is selected from stable generic text by

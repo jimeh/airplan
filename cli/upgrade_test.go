@@ -267,7 +267,8 @@ func TestRemoteBulkUpgradeFailureDoesNotDereferenceNilResult(t *testing.T) {
 	server := newBulkUpgradeBackend(t, false)
 	stdout, stderr, err := executeCommand(t, "", "", "upgrade", "--all", "--yes",
 		"--config", writeAirplanUpgradeConfig(t, server.URL, "0"))
-	if err == nil || stdout == "" || strings.Contains(stderr, "upgraded ") {
+	if err == nil || stdout != "" || !strings.Contains(stderr, "STATE\tCURRENT") ||
+		strings.Contains(stderr, "upgraded ") {
 		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
 	}
 }

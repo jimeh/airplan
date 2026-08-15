@@ -188,7 +188,8 @@ func (o *HTTPOperations) ExecuteBulkUpgrade(
 	for index, item := range result.Items {
 		wireItems[index] = httpapi.BulkUpgradeItemResult{Plan: wireUpgradePlan(item.Plan), Error: serverSafeItemError(item.Error)}
 		if item.Result != nil {
-			wireItems[index].Result = wireUpgradeResult(*item.Result)
+			result := wireUpgradeResult(*item.Result)
+			wireItems[index].Result = &result
 		}
 	}
 	return httpapi.BulkUpgradeResult{Items: wireItems, Upgraded: result.Upgraded, Failed: result.Failed}, nil
@@ -212,7 +213,7 @@ func wireUpgradePlan(plan UpgradeDocumentPlan) httpapi.UpgradeDocumentPlan {
 
 func coreUpgradePlan(plan httpapi.UpgradeDocumentPlan) UpgradeDocumentPlan {
 	return UpgradeDocumentPlan{
-		Target: plan.Target, Profile: plan.Profile, Bucket: plan.Bucket,
+		Target: plan.Target, Bucket: plan.Bucket,
 		State: UpgradeState(plan.State), Reason: plan.Reason, URL: plan.URL,
 		MarkerKey: plan.MarkerKey, PageKey: plan.PageKey, SourceKey: plan.SourceKey,
 		CurrentMarkerVersion:      plan.CurrentMarkerVersion,
@@ -742,6 +743,26 @@ func apiOperationError(err error) error {
 			"Invalid upload target",
 			"The target is not a valid marker-managed Airplan upload.",
 		)
+	}
+	var refusal *upgradeRefusalError
+	if errors.As(err, &refusal) {
+		switch refusal.state {
+		case UpgradeStateMissing:
+			return httpapi.NewProblemError(
+				http.StatusNotFound, "upload_not_found", "Upload not found",
+				"The marker-managed upload could not be found.",
+			)
+		case UpgradeStateInvalid:
+			return httpapi.NewProblemError(
+				http.StatusUnprocessableEntity, "invalid_upload", "Invalid upload",
+				"The ownership marker is invalid.",
+			)
+		case UpgradeStateIneligible:
+			return httpapi.NewProblemError(
+				http.StatusUnprocessableEntity, "invalid_target",
+				"Invalid upload target", "The document is not eligible for upgrade.",
+			)
+		}
 	}
 	if errors.Is(err, ErrConflict) {
 		return httpapi.NewProblemError(

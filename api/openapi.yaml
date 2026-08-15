@@ -517,7 +517,6 @@ components:
         - target_renderer_generation
       properties:
         target: {type: string}
-        profile: {type: string}
         bucket: {type: string}
         state: {$ref: "#/components/schemas/UpgradeState"}
         reason: {type: string}
@@ -578,7 +577,9 @@ components:
       required: [plan]
       properties:
         plan: {$ref: "#/components/schemas/UpgradeDocumentPlan"}
-        result: {$ref: "#/components/schemas/UpgradeDocumentResult"}
+        result:
+          $ref: "#/components/schemas/UpgradeDocumentResult"
+          x-go-type-skip-optional-pointer: false
         error: {type: string}
     BulkUpgradeResult:
       type: object

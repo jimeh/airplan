@@ -54,6 +54,10 @@ let tempRoot;
 let collectionHTML;
 const versionRequests = [];
 
+function isVersionManifestURL(url) {
+  return /\/\.airplan-versions\.json(?:\?|$)/.test(url);
+}
+
 const test = base.extend({
   page: async ({ page }, use) => {
     const errors = [];
@@ -63,6 +67,11 @@ const test = base.extend({
     }));
     page.on('pageerror', (error) => {
       errors.push(`page error: ${error.message}`);
+    });
+    page.on('response', (response) => {
+      if (response.status() !== 404) return;
+      if (isVersionManifestURL(response.url())) return;
+      errors.push(`response error: 404 ${response.url()}`);
     });
     page.on('console', (message) => {
       if (message.type() === 'error') {
@@ -587,6 +596,15 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
   await copyCode.click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe(expectedCode);
+});
+
+test('revision 404 filtering does not match unrelated resources', () => {
+  expect(isVersionManifestURL(
+    'https://plans.example.com/id/.airplan-versions.json?nonce=1',
+  )).toBe(true);
+  expect(isVersionManifestURL(
+    'https://plans.example.com/id/missing.png',
+  )).toBe(false);
 });
 
 test('uploaded source controls share the first row on narrow screens',

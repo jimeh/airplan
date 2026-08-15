@@ -143,7 +143,7 @@ func (t *httpTransport) ExecuteBulkUpgrade(
 	core := &BulkUpgradeResult{Items: make([]BulkUpgradeItemResult, len(result.Items)), Upgraded: result.Upgraded, Failed: result.Failed}
 	for index, item := range result.Items {
 		core.Items[index] = BulkUpgradeItemResult{Plan: coreUpgradePlan(item.Plan), Error: item.Error}
-		if item.Result.Upgraded || item.Result.Result.URL != "" {
+		if item.Result != nil {
 			upload := coreUploadResult(item.Result.Result)
 			core.Items[index].Result = &UpgradeDocumentResult{Result: upload.Result, State: UpgradeState(item.Result.State), Upgraded: item.Result.Upgraded, Reason: item.Result.Reason}
 		}
@@ -534,7 +534,9 @@ func transportError(err error) error {
 	}
 	var problem *httpapi.ProblemError
 	if errors.As(err, &problem) && problem.Problem.Code == "upgrade_conflict" {
-		return fmt.Errorf("%w: server rejected stale upgrade plan", ErrConflict)
+		return fmt.Errorf(
+			"%w: server rejected stale upgrade plan: %w", ErrConflict, err,
+		)
 	}
 	return fmt.Errorf("airplan: server: %w", err)
 }

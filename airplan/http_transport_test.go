@@ -238,6 +238,86 @@ func TestAirplanBackendNormalizesEmptyPurgeArrays(t *testing.T) {
 	}
 }
 
+func TestAirplanBackendPreservesPresentBulkNoOpResult(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v1/upgrades" {
+				t.Fatalf("path = %q", r.URL.Path)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, `{
+  "items": [{
+    "plan": {
+      "target": "dir/plan.html",
+      "state": "current",
+      "target_marker_version": 4,
+      "target_producer_version": "0.8.0",
+      "target_renderer_generation": 1
+    },
+    "result": {
+      "result": {
+        "id": "dir",
+        "kind": "document",
+        "url": "https://plans.example.com/dir/plan.html",
+        "key": "dir/plan.html",
+        "bucket": "plans",
+        "bytes": 0,
+        "content_type": "text/html; charset=utf-8",
+        "created_at": "2026-08-15T12:00:00Z",
+        "marker_version": 4,
+        "marker_key": "dir/.airplan.json",
+        "warnings": []
+      },
+      "state": "current",
+      "upgraded": false,
+      "reason": "already current"
+    }
+  }],
+  "upgraded": 0,
+  "failed": 0
+}`)
+		},
+	))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL,
+		APIToken: "01234567890123456789012345678901", Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.ExecuteBulkUpgrade(context.Background(),
+		BulkUpgradeRequest{Items: []UpgradeDocumentPlan{{
+			Target: "dir/plan.html", State: UpgradeStateCurrent,
+			TargetMarkerVersion:      MarkerVersion,
+			TargetProducerVersion:    "0.8.0",
+			TargetRendererGeneration: RendererGeneration,
+		}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || result.Items[0].Result == nil ||
+		result.Items[0].Result.State != UpgradeStateCurrent ||
+		result.Items[0].Result.Reason != "already current" ||
+		result.Items[0].Result.Result.URL != "https://plans.example.com/dir/plan.html" {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestTransportUpgradeConflictPreservesProblemError(t *testing.T) {
+	problem := httpapi.NewProblemError(
+		http.StatusConflict, "upgrade_conflict", "Upgrade conflict", "stale",
+	)
+	problem.Problem.RequestID = "request-123"
+	err := transportError(problem)
+	var got *httpapi.ProblemError
+	if !errors.Is(err, ErrConflict) || !errors.As(err, &got) ||
+		got.Problem.Status != http.StatusConflict ||
+		got.Problem.RequestID != "request-123" {
+		t.Fatalf("error = %v, problem = %+v", err, got)
+	}
+}
+
 func TestAirplanBackendStreamsDocumentMultipart(t *testing.T) {
 	const token = "01234567890123456789012345678901"
 	server := httptest.NewServer(http.HandlerFunc(

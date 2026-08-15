@@ -200,6 +200,10 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 	reader := bufio.NewReaderSize(file, 64*1024)
 	for {
 		line, oversized, readErr := readManifestLine(reader, maxManifestLine)
+		if len(line) == 0 && !oversized && readErr == nil {
+			return records, warnings,
+				errors.New("read manifest: empty read without EOF")
+		}
 		if len(line) == 0 && !oversized && readErr == io.EOF {
 			break
 		}
@@ -598,7 +602,14 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 			if rec.Type == "upgrade" && !rec.CreatedAt.IsZero() {
 				rec.Time = rec.CreatedAt
 			}
-			active[manifestRecordIdentity(rec)] = activeRecord{rec, index}
+			identity := manifestRecordIdentity(rec)
+			order := index
+			if rec.Type == "upgrade" {
+				if previous, ok := active[identity]; ok {
+					order = previous.order
+				}
+			}
+			active[identity] = activeRecord{rec, order}
 		case "delete":
 			if rec.MarkerKey != "" && rec.Bucket != "" {
 				identity := manifestRecordIdentity(rec)

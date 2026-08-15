@@ -558,6 +558,32 @@ func TestManifestUpgradeProjectionPreservesCreationTimeAndProtection(t *testing.
 	}
 }
 
+func TestManifestUpgradePreservesActiveProjectionOrder(t *testing.T) {
+	created := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	first := ManifestRecord{
+		Type: "upload", Time: created, CreatedAt: created,
+		Key: "first/plan.html", MarkerKey: "first/" + MarkerFilename,
+		URL: "https://plans.example.com/first/plan.html", Bucket: "plans",
+		Format: "md", Bytes: 10, MarkerVersion: 3,
+	}
+	second := first
+	second.Time = created.Add(time.Minute)
+	second.CreatedAt = second.Time
+	second.Key = "second/plan.html"
+	second.MarkerKey = "second/" + MarkerFilename
+	second.URL = "https://plans.example.com/second/plan.html"
+	upgrade := first
+	upgrade.Type = "upgrade"
+	upgrade.Time = created.Add(2 * time.Minute)
+	upgrade.MarkerVersion = MarkerVersion
+
+	active := ManifestUploads([]ManifestRecord{first, second, upgrade})
+	if len(active) != 2 || active[0].MarkerKey != first.MarkerKey ||
+		active[1].MarkerKey != second.MarkerKey {
+		t.Fatalf("active projection order = %+v, want first then second", active)
+	}
+}
+
 func TestManifestUpgradeRequiresUTCCreatedAt(t *testing.T) {
 	base := ManifestRecord{
 		Type: "upgrade", Time: time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC),

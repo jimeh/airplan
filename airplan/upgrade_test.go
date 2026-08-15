@@ -675,7 +675,9 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			s.t.Fatal(err)
+			s.t.Error(err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
 		}
 		s.putAttempts++
 		if s.failPutAttempt == s.putAttempts {

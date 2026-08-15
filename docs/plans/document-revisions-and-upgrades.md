@@ -888,7 +888,8 @@ Reject upload-only identity flags that cannot change during update, especially
 `--slug` and `--no-source`. Allow presentation inputs such as title only when
 their effect and persistence are defined by the revision marker recipe.
 
-Bulk table output goes to stdout; warnings and progress remain on stderr.
+Bulk table output, warnings, and progress go to stderr; stdout remains reserved
+for a result URL or one JSON object.
 Never print capability URLs in debug/progress logs.
 
 ### 15.2 OpenAPI

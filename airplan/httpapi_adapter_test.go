@@ -81,9 +81,35 @@ func TestHTTPAPIExecuteUpgradeReplansFabricatedCurrentState(t *testing.T) {
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request)
-	if recorder.Code == http.StatusOK || store.getAttempts == 0 || store.puts != 0 {
+	if recorder.Code != http.StatusNotFound || store.getAttempts == 0 || store.puts != 0 {
 		t.Fatalf("status = %d, gets = %d, puts = %d, body = %s",
 			recorder.Code, store.getAttempts, store.puts, recorder.Body.String())
+	}
+	var problem httpapi.Problem
+	if err := json.NewDecoder(recorder.Body).Decode(&problem); err != nil {
+		t.Fatal(err)
+	}
+	if problem.Code != "upload_not_found" {
+		t.Fatalf("problem = %+v", problem)
+	}
+}
+
+func TestWireBulkUpgradeFailedItemOmitsResult(t *testing.T) {
+	wire := httpapi.BulkUpgradeItemResult{
+		Plan: wireUpgradePlan(UpgradeDocumentPlan{
+			Target: "dir/plan.html", State: UpgradeStateUpgradeable,
+			TargetMarkerVersion:      MarkerVersion,
+			TargetProducerVersion:    "0.8.0",
+			TargetRendererGeneration: RendererGeneration,
+		}),
+		Error: "upgrade failed",
+	}
+	body, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), `"result"`) {
+		t.Fatalf("failed item emitted a zero result: %s", body)
 	}
 }
 
@@ -445,6 +471,30 @@ func TestAPIOperationErrorClassifiesUpgradeConflict(t *testing.T) {
 		problem.Problem.Status != http.StatusConflict ||
 		problem.Problem.Code != "upgrade_conflict" {
 		t.Fatalf("problem = %+v, error = %v", problem, got)
+	}
+}
+
+func TestAPIOperationErrorClassifiesUpgradeRefusals(t *testing.T) {
+	for _, test := range []struct {
+		state  UpgradeState
+		status int
+		code   string
+	}{
+		{UpgradeStateMissing, http.StatusNotFound, "upload_not_found"},
+		{UpgradeStateInvalid, http.StatusUnprocessableEntity, "invalid_upload"},
+		{UpgradeStateIneligible, http.StatusUnprocessableEntity, "invalid_target"},
+	} {
+		t.Run(string(test.state), func(t *testing.T) {
+			got := apiOperationError(&upgradeRefusalError{
+				state: test.state, reason: "test refusal",
+			})
+			var problem *httpapi.ProblemError
+			if !errors.As(got, &problem) ||
+				problem.Problem.Status != test.status ||
+				problem.Problem.Code != test.code {
+				t.Fatalf("problem = %+v, error = %v", problem, got)
+			}
+		})
 	}
 }
 

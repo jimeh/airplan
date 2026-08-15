@@ -185,7 +185,7 @@ func runBulkUpgrade(cmd *cobra.Command, opts *upgradeOptions) error {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(plan)
 	}
 	if !opts.json {
-		printUpgradePlan(cmd.OutOrStdout(), plan)
+		printUpgradePlan(cmd.ErrOrStderr(), plan)
 	}
 	if opts.dryRun {
 		return nil

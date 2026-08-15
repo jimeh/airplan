@@ -132,12 +132,12 @@ func TestMCPUpgradeDocumentPreviewsByDefault(t *testing.T) {
 	if transport.planUpgradeCalls != 1 || transport.upgradeCalls != 0 {
 		t.Fatalf("calls = plan %d, execute %d", transport.planUpgradeCalls, transport.upgradeCalls)
 	}
-	_, err = session.CallTool(ctx, &mcp.CallToolParams{
+	result, err = session.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "upgrade_document",
 		Arguments: map[string]any{"url_or_key": "dir/plan.html", "apply": true},
 	})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || result.IsError {
+		t.Fatalf("apply result = %+v, err = %v", result, err)
 	}
 	if transport.planUpgradeCalls != 2 || transport.upgradeCalls != 1 {
 		t.Fatalf("calls = plan %d, execute %d", transport.planUpgradeCalls, transport.upgradeCalls)

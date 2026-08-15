@@ -23,6 +23,19 @@ const (
 
 const maxUpgradePageSize = DefaultMaxInputSize * 4
 
+type upgradeRefusalError struct {
+	state  UpgradeState
+	reason string
+}
+
+func (e *upgradeRefusalError) Error() string {
+	return fmt.Sprintf("airplan: document is %s: %s", e.state, e.reason)
+}
+
+func refuseUpgrade(plan UpgradeDocumentPlan) error {
+	return &upgradeRefusalError{state: plan.State, reason: plan.Reason}
+}
+
 // UpgradeDocumentOptions controls one document upgrade plan.
 type UpgradeDocumentOptions struct {
 	Force bool `json:"force,omitempty"`
@@ -251,7 +264,7 @@ func (c *Client) UpgradeDocument(
 		return c.remote.UpgradeDocument(ctx, plan)
 	}
 	if plan.State != UpgradeStateCurrent && plan.State != UpgradeStateUpgradeable {
-		return nil, fmt.Errorf("airplan: document is %s: %s", plan.State, plan.Reason)
+		return nil, refuseUpgrade(plan)
 	}
 	fresh, err := c.PlanUpgradeDocument(ctx, plan.Target,
 		UpgradeDocumentOptions{Force: plan.Force})
@@ -265,7 +278,7 @@ func (c *Client) UpgradeDocument(
 		}, nil
 	}
 	if fresh.State != UpgradeStateUpgradeable {
-		return nil, fmt.Errorf("airplan: document is %s: %s", fresh.State, fresh.Reason)
+		return nil, refuseUpgrade(*fresh)
 	}
 	if plan.MarkerETag == "" || plan.PageETag == "" || plan.SourceETag == "" {
 		return nil, errors.New("airplan: upgrade plan is missing required object ETags")
