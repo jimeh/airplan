@@ -170,6 +170,32 @@ func TestMCPListEmptyStorageSerializesArray(t *testing.T) {
 	}
 }
 
+func TestMCPListProtectedFilter(t *testing.T) {
+	list := func(t *testing.T, protected bool) []string {
+		t.Helper()
+		transport := &mcpTestTransport{listResult: &ManifestList{
+			Records: []ManifestRecord{
+				{Type: "upload", Title: "plain"},
+				{Type: "upload", Title: "kept", Protected: true},
+			},
+		}}
+		client := &Client{cfg: &Config{}, remote: transport}
+		encoded := callMCPListUploads(t, client, true, map[string]any{
+			"source": "manifest", "protected": protected,
+		})
+		var output struct {
+			Manifest ManifestList `json:"manifest"`
+		}
+		if err := json.Unmarshal(encoded, &output); err != nil {
+			t.Fatalf("json.Unmarshal %s: %v", encoded, err)
+		}
+		return recordTitles(output.Manifest.Records)
+	}
+
+	assertTitles(t, list(t, true), "kept")
+	assertTitles(t, list(t, false), "plain")
+}
+
 // TestMCPListUploadsFilters covers filter parity with the CLI: the MCP tool
 // selects the same uploads from the same fixture (SPEC.md §9).
 func TestMCPListUploadsFilters(t *testing.T) {

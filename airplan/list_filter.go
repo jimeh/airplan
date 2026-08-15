@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// ListFilter selects listed uploads by time, kind, slug, and count
+// ListFilter selects listed uploads by time, kind, slug, protection, and count
 // (SPEC.md §9). It is selection, not presentation: the same filter applies to
 // manifest history and to a remote bucket listing, and to table and JSON
 // output alike. The zero value selects everything.
@@ -30,6 +30,11 @@ type ListFilter struct {
 	// Slug is a glob matched against document slugs. Collections never match,
 	// and neither does an upload with no known slug.
 	Slug string
+
+	// Protected keeps only uploads whose purge-protection state matches the
+	// pointed-to value. A pointer distinguishes an unprotected-only filter
+	// from the zero-value filter, which selects both states.
+	Protected *bool
 
 	// Limit, when non-nil, keeps that many most recent uploads and drops the
 	// rest; zero keeps none. Callers pass uploads in listing order (ascending
@@ -90,6 +95,9 @@ func (f ListFilter) matchesRecord(record ManifestRecord) bool {
 	if !f.matchesTime(record.Time) {
 		return false
 	}
+	if f.Protected != nil && record.Protected != *f.Protected {
+		return false
+	}
 	kind := ManifestRecordKind(record)
 	if f.Kind != "" && kind != f.Kind {
 		return false
@@ -104,6 +112,9 @@ func (f ListFilter) matchesRecord(record ManifestRecord) bool {
 
 func (f ListFilter) matchesUpload(upload RemoteUpload) bool {
 	if !f.matchesTime(upload.LastModified) {
+		return false
+	}
+	if f.Protected != nil && upload.Protected != *f.Protected {
 		return false
 	}
 	if f.Kind != "" && upload.Kind != f.Kind {

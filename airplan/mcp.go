@@ -42,6 +42,7 @@ type mcpListInput struct {
 	Limit     *int    `json:"limit,omitempty" jsonschema:"Keep only the N most recent matches, still ordered oldest first."`
 	Kind      *string `json:"kind,omitempty" jsonschema:"Keep only document or collection uploads."`
 	Slug      *string `json:"slug,omitempty" jsonschema:"Glob matched against document slugs; collections never match."`
+	Protected *bool   `json:"protected,omitempty" jsonschema:"Keep only uploads whose purge-protection state matches this value."`
 }
 
 var errInvalidMCPListFilter = errors.New(
@@ -68,7 +69,7 @@ func invalidMCPListFilter(err error) error {
 // the parser and the filter the CLI uses, so a listing selects the same
 // uploads through either surface.
 func (in mcpListInput) listFilter(now time.Time) (ListFilter, error) {
-	filter := ListFilter{Limit: in.Limit}
+	filter := ListFilter{Limit: in.Limit, Protected: in.Protected}
 	if in.NewerThan != nil {
 		when, err := ParseTimeFilter(*in.NewerThan, now)
 		if err != nil {

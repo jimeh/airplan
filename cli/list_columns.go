@@ -72,6 +72,10 @@ var listColumnRegistry = []listColumn{
 		local: listColumnAuto, remote: listColumnUnavailable,
 	},
 	{
+		name: "protected", header: "PROTECTED",
+		local: listColumnDefault, remote: listColumnDefault,
+	},
+	{
 		name: "kind", header: "KIND",
 		local: listColumnDefault, remote: listColumnDefault,
 	},
@@ -401,6 +405,11 @@ func localListCell(name string, record airplan.ManifestRecord) string {
 			return "managed"
 		}
 		return "legacy"
+	case "protected":
+		if record.Protected {
+			return "yes"
+		}
+		return "no"
 	case "kind":
 		return listCellOrDash(string(airplan.ManifestRecordKind(record)))
 	case "title":
@@ -441,6 +450,11 @@ func remoteListCell(name string, upload airplan.RemoteUpload) string {
 	switch name {
 	case "date":
 		return upload.LastModified.UTC().Format(listDateLayout)
+	case "protected":
+		if upload.Protected {
+			return "yes"
+		}
+		return "no"
 	case "kind":
 		if upload.Conflict {
 			return "conflict"

@@ -112,6 +112,21 @@ func TestListColumnsRenderDashForMissingValues(t *testing.T) {
 	}
 }
 
+func TestListProtectedColumnRendersBothStates(t *testing.T) {
+	if got := localListCell("protected", airplan.ManifestRecord{Protected: true}); got != "yes" {
+		t.Fatalf("protected local cell = %q, want yes", got)
+	}
+	if got := localListCell("protected", airplan.ManifestRecord{}); got != "no" {
+		t.Fatalf("unprotected local cell = %q, want no", got)
+	}
+	if got := remoteListCell("protected", airplan.RemoteUpload{Protected: true}); got != "yes" {
+		t.Fatalf("protected remote cell = %q, want yes", got)
+	}
+	if got := remoteListCell("protected", airplan.RemoteUpload{}); got != "no" {
+		t.Fatalf("unprotected remote cell = %q, want no", got)
+	}
+}
+
 func TestSelectListColumnsRejectsUnknownAndWrongMode(t *testing.T) {
 	tests := []struct {
 		name string

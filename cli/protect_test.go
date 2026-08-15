@@ -233,7 +233,7 @@ func TestPurgeReportsDeleteTimeProtectedSkip(t *testing.T) {
 	}
 }
 
-func TestListJSONSurfacesProtection(t *testing.T) {
+func TestListSurfacesProtection(t *testing.T) {
 	isolateEnv(t)
 	now := time.Now().UTC()
 	alpha := uploadRecord(deleteDirA, "alpha", "", now.Add(-time.Hour))
@@ -259,14 +259,12 @@ func TestListJSONSurfacesProtection(t *testing.T) {
 		t.Fatalf("records = %+v, want protected projection", records)
 	}
 
-	// The human table is deliberately unchanged: protection is JSON-only.
+	// The human table carries the same reduced state as the JSON projection.
 	stdout, _, err = executeCommand(t, "", "", "list")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(strings.ToUpper(stdout), "PROTECTED") {
-		t.Fatalf("stdout = %q, human table must not change", stdout)
-	}
+	parseListTable(t, stdout).assertColumn(t, "PROTECTED", "yes")
 }
 
 func TestShowReportsProtection(t *testing.T) {

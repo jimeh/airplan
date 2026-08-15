@@ -29,6 +29,8 @@ type listOptions struct {
 	limit       int
 	kind        string
 	slug        string
+	protected   bool
+	noProtected bool
 	allProfiles bool
 }
 
@@ -47,8 +49,16 @@ func (o *listOptions) columnRequest(cmd *cobra.Command) listColumnRequest {
 func (o *listOptions) listFilter(
 	cmd *cobra.Command, now time.Time,
 ) (airplan.ListFilter, error) {
+	if o.protected && o.noProtected {
+		return airplan.ListFilter{}, errors.New(
+			"--protected cannot be combined with --no-protected")
+	}
 	filter := airplan.ListFilter{
 		Kind: airplan.UploadKind(o.kind), Slug: o.slug,
+	}
+	if o.protected || o.noProtected {
+		protected := o.protected
+		filter.Protected = &protected
 	}
 	if cmd.Flags().Changed("newer-than") {
 		when, err := airplan.ParseTimeFilter(o.newerThan, now)
@@ -146,6 +156,10 @@ func newListCmd() *cobra.Command {
 		"filter: document or collection")
 	f.StringVar(&opts.slug, "slug", "",
 		"filter: glob matched against document slugs; collections never match")
+	f.BoolVar(&opts.protected, "protected", false,
+		"filter: only purge-protected uploads")
+	f.BoolVar(&opts.noProtected, "no-protected", false,
+		"filter: only uploads without purge protection")
 	f.BoolVarP(&opts.allProfiles, "all-profiles", "A", false,
 		"list every recorded profile")
 

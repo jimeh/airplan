@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.32.0**
+**Spec version: 0.33.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -815,6 +815,7 @@ airplan completion bash|zsh|fish|powershell
 airplan list|ls [--remote] [--json] [--columns SET] [--wide] [--reverse]
                 [--newer-than X] [--older-than X] [--limit N]
                 [--kind document|collection] [--slug PATTERN]
+                [--protected|--no-protected]
                 [-p NAME|--profile NAME|--profile=] [-A|--all-profiles]
 airplan show [--json] <url|key>
 airplan get [--output PATH] [--source] <url|key>
@@ -1389,9 +1390,10 @@ machine) and must be safe:
 
 ### Commands
 
-- `airplan list`: past uploads from the manifest, by default date, kind,
-  title, object count, human-readable binary size, and URL; `--json` for scripting with
-  exact byte counts. Rows sort by record time, then ownership marker key, so
+- `airplan list`: past uploads from the manifest, by default date, protection
+  state, kind, title, object count, human-readable binary size, and URL;
+  `--json` for scripting with exact byte counts. Rows sort by record time, then
+  ownership marker key, so
   local history reads in the same order as a remote listing even when `sync`
   appended imported uploads after later local ones. Clients reapply this order
   to manifest responses from older Airplan HTTP servers before filtering or
@@ -1409,10 +1411,12 @@ machine) and must be safe:
   history without warning; legacy entries remain ineligible for delete
   reconciliation and purge.
 - Table columns are one vocabulary shared by local and remote listing, and
-  always print in the canonical order `date`, `profile`, `state`, `kind`,
-  `title`, `slug`, `objects`, `size`, `page-size`, `dir`, `format`, `repo`,
-  `bucket`, `url`. Local listing offers every one of them; remote
-  listing offers `date`, `kind`, `slug`, `objects`, `size`, `dir`, and `url`.
+  always print in the canonical order `date`, `profile`, `state`, `protected`,
+  `kind`, `title`, `slug`, `objects`, `size`, `page-size`, `dir`, `format`,
+  `repo`, `bucket`, `url`. Local listing offers every one of them; remote
+  listing offers `date`, `protected`, `kind`, `slug`, `objects`, `size`, `dir`,
+  and `url`. `PROTECTED` is in both default column sets and renders `yes` or
+  `no` from the listing's protection projection.
   Three columns are automatic: `profile` when the printed rows span more than
   one profile, `state` when any row is legacy history, and `dir` when any row
   has no URL to identify it by. They appear in the default set only when their
@@ -1439,11 +1443,15 @@ machine) and must be safe:
   which declares no kind. `--slug PATTERN` is a glob over document slugs with
   the same meaning as `purge --slug`: collections are excluded even from
   `--slug '*'`, an upload with no known slug never matches, and a local record
-  that omits `slug` uses the one derived from its page key. Filters compose,
-  and `--reverse` reorders whatever they selected. Supplying any string filter
+  that omits `slug` uses the one derived from its page key. `--protected` keeps
+  only protected uploads; `--no-protected` keeps only unprotected uploads, and
+  the two flags are mutually exclusive. For remote listing the state comes
+  from sentinel presence in the same LIST snapshot. Filters compose, and
+  `--reverse` reorders whatever they selected. Supplying any string filter
   explicitly with an empty value is an error; omission alone means no filter.
-  MCP requests preserve the same distinction, while an explicit limit of zero
-  selects nothing.
+  MCP requests preserve the same distinction, use `protected: true|false` for
+  the two protection selections, and treat an explicit limit of zero as
+  selecting nothing.
 - `--newer-than` and `--older-than` accept exactly two forms. An age, as
   `purge --older-than` has always accepted, including `d` and `w` units:
   `7d`, `2w`, `36h`, `1h30m`. Or an absolute date: `2026`, `2026-07`,
@@ -1513,8 +1521,8 @@ machine) and must be safe:
   purge-protection sentinel (§5) — unlike `kind` it is authoritative, because
   sentinel presence is the whole contract;
   `slug`, `key`, and `url` appear only when inferred. These entries describe
-  marker-key presence and occupancy, not validated uploads. Protection is
-  JSON-only in both listings: neither human table gains a column.
+  marker-key presence and occupancy, not validated uploads. Both human tables
+  expose the same state through their `PROTECTED` column.
   A malformed, oversized, or unsupported marker remains visible here
   because ordinary remote listing never reads it.
 - `airplan show <url|key>` performs targeted inspection of one remote marker
@@ -2054,7 +2062,8 @@ commit is ambiguous without persistent idempotency state.
 
 `airplan mcp` is a stdio MCP server. Its upload listing tool accepts the same
 selection arguments as `list` — `newer_than`, `older_than`, `limit`, `kind`,
-and `slug`, with the same meanings and the same time parser (§9). It
+`slug`, and boolean `protected`, with the same meanings and the same time
+parser (§9). It
 constructs the normal public client,
 so it works with either backend. MCP frames are its only stdout content;
 warnings and logs use stderr. `airplan serve` exposes the same tool

@@ -483,6 +483,7 @@ airplan show <url-or-key>         # validate and inspect one remote upload
 airplan get [--source] <url-or-key>  # raw page or source bytes
 airplan delete <url-or-key>      # delete one upload
 airplan list --newer-than 7d     # only recent uploads (also --kind, --slug)
+airplan list --protected         # only purge-protected uploads
 airplan list --all-profiles      # uploads recorded under every profile
 airplan protect <url-or-key>     # mark one upload purge-protected
 airplan unprotect <url-or-key>   # remove purge protection
@@ -509,8 +510,10 @@ list reads the server manifest and `--config` is useful without `--remote`;
 server-scoped manifest.
 
 `list` selects rows with `--newer-than`, `--older-than`, `--limit`, `--kind`,
-and `--slug`, in both listing modes and in `--json`, because filters are
-selection rather than presentation. The two time flags take either an age such
+`--slug`, `--protected`, and `--no-protected`, in both listing modes and in
+`--json`, because filters are selection rather than presentation. The two
+protection flags are mutually exclusive and select protected or unprotected
+uploads respectively. The two time flags take either an age such
 as `7d`, `2w`, or `36h`, or an absolute date such as `2026-07-01`,
 `2026-07-01 09:30`, or a strict RFC 3339 timestamp; bare dates mean local midnight
 while the manifest keeps recording UTC. A slash date that does not lead with a
@@ -528,6 +531,7 @@ every column a mode offers, and `--reverse` prints newest first. `PROFILE`,
 `STATE`, and `DIRECTORY` appear automatically only when they carry information
 — more than one profile, legacy history, or a row with no URL. Column flags
 are table-only and are rejected with `--json`, while `--reverse` reorders both.
+Both default tables include `PROTECTED`, rendered as `yes` or `no`.
 
 `--remote` reads storage through the selected backend instead, so it can find
 uploads from other machines.
