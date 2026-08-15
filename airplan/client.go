@@ -134,12 +134,9 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 	// markdown/text uploads still fail before anything is uploaded.
 	var tmpl *template.Template
 	var tmplErr error
-	if cfg.Template != "" {
-		tmpl, tmplErr = LoadTemplate(cfg.Template)
-	}
 	templateSHA := ""
-	if tmplErr == nil && cfg.Template != "" {
-		templateSHA, tmplErr = templateDigest(cfg.Template)
+	if cfg.Template != "" {
+		tmpl, templateSHA, tmplErr = loadDocumentTemplate(cfg.Template)
 	}
 
 	return &Client{
@@ -276,7 +273,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 	}
 	marker.Objects = append(marker.Objects, MarkerObject{
 		Name: pageName, Role: MarkerRolePage, Bytes: int64(len(doc.HTML)),
-		ContentType: pageContentType,
+		ContentType: pageContentType, SHA256: contentSHA256(doc.HTML),
 	})
 	if sourceName != "" {
 		marker.Objects = append(marker.Objects, MarkerObject{

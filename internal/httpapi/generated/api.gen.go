@@ -912,13 +912,13 @@ type ClientInterface interface {
 	// ExecuteDocumentUpgradeWithBody performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request,
 	// with any type of body and a specified content type.
 	//
-	// Applies one exact upgrade plan after revalidating its ETags.
+	// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
 	ExecuteDocumentUpgradeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ExecuteDocumentUpgrade performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request.
 	// Takes a body of the `application/json` content type.
 	//
-	// Applies one exact upgrade plan after revalidating its ETags.
+	// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
 	ExecuteDocumentUpgrade(ctx context.Context, body ExecuteDocumentUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PlanDocumentUpgradeWithBody performs a POST /api/v1/upgrades/plan (the `PlanDocumentUpgrade` operationId) request,
@@ -1187,7 +1187,7 @@ func (c *Client) ExecuteBulkUpgrade(ctx context.Context, body ExecuteBulkUpgrade
 // ExecuteDocumentUpgradeWithBody performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request,
 // with any type of body and a specified content type.
 //
-// Applies one exact upgrade plan after revalidating its ETags.
+// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
 func (c *Client) ExecuteDocumentUpgradeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewExecuteDocumentUpgradeRequestWithBody(c.Server, contentType, body)
 	if err != nil {
@@ -1203,7 +1203,7 @@ func (c *Client) ExecuteDocumentUpgradeWithBody(ctx context.Context, contentType
 // ExecuteDocumentUpgrade performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request.
 // Takes a body of the `application/json` content type.
 //
-// Applies one exact upgrade plan after revalidating its ETags.
+// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
 func (c *Client) ExecuteDocumentUpgrade(ctx context.Context, body ExecuteDocumentUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewExecuteDocumentUpgradeRequest(c.Server, body)
 	if err != nil {
@@ -2300,7 +2300,7 @@ type ClientWithResponsesInterface interface {
 	// ExecuteDocumentUpgradeWithBodyWithResponse performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request,
 	// with any type of body and a specified content type.
 	//
-	// Applies one exact upgrade plan after revalidating its ETags.
+	// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	ExecuteDocumentUpgradeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExecuteDocumentUpgradeResponse, error)
@@ -2308,7 +2308,7 @@ type ClientWithResponsesInterface interface {
 	// ExecuteDocumentUpgradeWithResponse performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request.
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
-	// Applies one exact upgrade plan after revalidating its ETags.
+	// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
 	ExecuteDocumentUpgradeWithResponse(ctx context.Context, body ExecuteDocumentUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*ExecuteDocumentUpgradeResponse, error)
 
 	// PlanDocumentUpgradeWithBodyWithResponse performs a POST /api/v1/upgrades/plan (the `PlanDocumentUpgrade` operationId) request,
@@ -3487,7 +3487,7 @@ func (c *ClientWithResponses) ExecuteBulkUpgradeWithResponse(ctx context.Context
 // ExecuteDocumentUpgradeWithBodyWithResponse performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request,
 // with any type of body and a specified content type.
 //
-// Applies one exact upgrade plan after revalidating its ETags.
+// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
 //
 // Returns a wrapper object for the known response body format(s).
 func (c *ClientWithResponses) ExecuteDocumentUpgradeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ExecuteDocumentUpgradeResponse, error) {
@@ -3501,7 +3501,7 @@ func (c *ClientWithResponses) ExecuteDocumentUpgradeWithBodyWithResponse(ctx con
 // ExecuteDocumentUpgradeWithResponse performs a POST /api/v1/upgrades/execute (the `ExecuteDocumentUpgrade` operationId) request.
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
-// Applies one exact upgrade plan after revalidating its ETags.
+// Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
 func (c *ClientWithResponses) ExecuteDocumentUpgradeWithResponse(ctx context.Context, body ExecuteDocumentUpgradeJSONRequestBody, reqEditors ...RequestEditorFn) (*ExecuteDocumentUpgradeResponse, error) {
 	rsp, err := c.ExecuteDocumentUpgrade(ctx, body, reqEditors...)
 	if err != nil {
@@ -6349,23 +6349,23 @@ var swaggerSpec = []string{
 	"cHUO2fmQoDgVWyabWFAz2Rr116K6O5lMqtVwj0g+Xt58mUfAyQNETizl7o5grr08z2lY1bM6f25yGn4q",
 	"pTaFrlRLxyfWkUpd1yMOZWMoRMr86SUgQhxCRkMSE73aDBEaxlmkzI2rOU2vJDZrKdqN4ztNrUCMxrk9",
 	"XHGoFL1Id6JU20+R2X2tcmRN7qLtUKzcuTAREDxXbJwYD83bLjyw+Mwj4BDpg1I7FCyTIUuOLHpnAr2i",
-	"PwMjkyEQ2JO+lrzPsyJSoF+/4I1oRYCrh0yLAu/9JaeFQdsNQA0ofNHfqZgyCXJR/vNh0C17dwGSX/Dv",
-	"YywEWTvZm7h8vsLhPUToE+b3EXt0UVzhND1yIv2uUozpScVeLSi9rNRL4O1pltGgFctohKQOZBFx2WLn",
-	"k2AaoVR5HlajJkZEn7dcAQUOJXlwseHcGRxkuy6GIeKkR4G7ROvljoI2JLiDoHDRUGj5bFY8yYHQ7Shf",
-	"A46E/VxOJwMKgTtBK2YpTNCN85YXyBg8HUXfUhGyFAqk22lsd8QMmWzZTAP+HrQXsSZPvthaOb3OkzyB",
-	"q137XN2nxkYPFN1bonZOQhwju9l9tTiiIH3iOyuzwqLdFTdMK68W6lS9JIslSTGXZ2vGk7m7JAVoyJS7",
-	"ql+pXJ5iR36xCdN9rpcX/I2t8jfy80Vmd0Uo5nkwqodfPaxQ3Zkha17B1GhzdQ9cHcGTph1gc14d8QSq",
-	"tnz43Y0SKugRC2QrppEGsoETRJOdNwat9qPpUSk+5YvsZZTNdAt0hXM9r07a2Q/Ebqn5FkbbnP1kn96r",
-	"elBVUyAP6nRDRXfh4pa+q39tXAbVRDFunQn1C41BCKTbUdTvSsY+82U+SfvqPiGf4tCrX4114vOu9sld",
-	"q6trvEYsnJyQzhOZmFiBUCAcc8BRjnSzuZwaidZX67WaH8oK3N/eZhbVwoHWcqBBbNyZ1WEOCxL+FSyi",
-	"I/bF7KH1vPz4K66DmshoNK6berbdYKEEOReSA07qdPSi0RctWasfQRhjnTbBG5jZuHSGEkhWwGeoKDiq",
-	"iGMLOAKuSX1vaJx/IEKXssk+b5pNgW7IF9uQ0PXu/85tdXBu+nzm/23q2+1jdpNCyQaS7XCyfUmTQqre",
-	"C3/yKHyvkdIDqv8xWasi3N5zKZDub5pY6d0lMa1e0CfM7zv8HnVW7nsnq9zF3YhIcUsrt6QUt50YO7xA",
-	"7mYMXekqTt19T+eW6hoeRLo+jzio+UHULlDxeTt29klhtnc5yanLY/s3i3T7PKQhrYnxVV5D1Iqwa0iY",
-	"cno1YagClqIM5kfeKi+qpLeUSIG6cPa1QKFBWkGXB2M+JBXj/7kmazyUKEMxoxvgU4Nqqy9y/Ku1ZcVe",
-	"9Dghc+wKLSxJOdMdBkQFDuThGUbbdVMFF9/uWhpUbJ/PIsdJ3NXE8zkFapqFRnDFTdrhOfgYYGozdkXr",
-	"FSHlE0URRIhQJLdEIONvTcec+iv1PrRvd7s7d1u20E91j15wFuzKub7b+1fdnLtZ8YsDZOWnIhlW+c2V",
-	"Ond3u/8PAAD//w==",
+	"PwMjk3YIXIORcEweAOl8z0whgVokC4SRkCSO51VQGJhoZ9njehEp0K9f8Ea0QsQVTKaFifeCk9PipO2K",
+	"oAZWvugPWUwdBbk0wPNx0g0Od0OSHxnvYywEWRv7AMgE7vMVDu8hQp8wv4/YowvzCq/qkRPp96ViTE8q",
+	"9mrF6WWlXgJvz/oaDVqxjEZI6kgXEZdOdk4LphFKlWtiNWpiRPS50xVQ4FBqm6GDx7mzSMi2ZQxDxEnP",
+	"CnfL1sudFW1IcCdF4cOh0PLZrHiSE6Pbk74GHAn7PZ3OFhQCd4JWzFKYoBvnTi+QMXg6zL6lImQpFEi3",
+	"09j2iRky6bSZBvw9aDdjTZ58wbfyip2reQJfvPY9u0+NjR4ourdE7ZyEOEZ2s/tqcURB+sR3VqaNRbuv",
+	"bphW3j3UqXpJFkuSYi7P1ownc3eLCtCQKX9Wv1K5XcWO/GIzqvtcL28AHNsG0EjgF6nfFaGY58GoJn/1",
+	"sEJ1ZwqteUdTow/WPXCFBk8ed4DNeXXEE6jaE+J3N0qooEcskC2pRhrIBk4QTXbeGLTar6pH5QCVL7KX",
+	"cjbTLdAVzvW8OqtnvyC7peZjGW1z9rOBeq/qQVVNgTxot7doP1zc0nf1z5HLqJsoxq0zoX6hMQiBdL+K",
+	"+l3J2Ge+zDdrX9035lMcevW7s0583tW+yWt1dY3XiIWTE9KJJBM0KxAKhGMOOMqR7kaXUyPR+mq9VvND",
+	"WaL729vMopw40FoONIiNS7U6zGFBwr+CRXTEvpg9tJ6XH3/FfVETGY3GfVTPthsslCDnQnLASZ2OXjT6",
+	"oiVr9SMIY6zzKngDMxuXzlACyQr4DBUVSRVxbAFHwDWp7w2N8w9E6Fo32edNs2vQDfliOxa63v3fuS0f",
+	"zk0j0Py/TQG8fcxuUijZQLIdTrZxaVJI1ZvlTx6F73VaekD1PyZrVYTbey6FSYhNrPTuFplWL+gT5vcd",
+	"fo86K/e9k1Xu4m5EpLillWtUiutQjB1eIHd1hi6FFafuvqdzS3WRDyJdwEcc1Pwgajes+LwdO/ukMNu7",
+	"veTU9bP9q0e6fR7SkNbE+CrvKepIAidMOb2aMFQBS1En8yNvlRdl1FtKpEBdOPtaoNAgraDLgzEfkorx",
+	"/1yTNR5KlKGY0Q3wqUG11Tc9/tXa02JvgpyQOXaFFpaknOkWBKICB/LwDKPt2q2Ci293LR0sthFokeMk",
+	"7ury+ZwCNd1EI7jiJu3wHHwMMDUZu6L1ipDyiaIIIkQoklsikPG3pmNO/ZV6o9q3u92du05b6Ke6iS84",
+	"C3blXN/tBa1uzt2s+MUBsvJTkQyr/OZqobu73f8HAAD//w==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

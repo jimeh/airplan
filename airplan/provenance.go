@@ -3,8 +3,6 @@ package airplan
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"os"
-	"path/filepath"
 	"regexp"
 	"runtime/debug"
 	"strconv"
@@ -131,20 +129,9 @@ func numericPrerelease(value string) bool {
 	return true
 }
 
-func templateDigest(path string) (string, error) {
-	if strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
-	}
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
+func contentSHA256(body []byte) string {
 	sum := sha256.Sum256(body)
-	return hex.EncodeToString(sum[:]), nil
+	return hex.EncodeToString(sum[:])
 }
 
 func documentRenderRecipe(cfg *Config, customDigest string) *RenderRecipe {

@@ -472,7 +472,8 @@ airplan upgrade --all --all-profiles --yes
 ```
 
 Single-target and bulk upgrades are planned against live ownership markers and
-applied only while the inspected marker/page ETags still match. Bulk apply
+replanned immediately before apply; only a still-upgradeable target whose
+inspected marker/page ETags match can be written. Bulk apply
 prompts interactively and requires `--yes` in non-interactive use. A regular
 standalone upload has no `.airplan-versions.json`; upgrading it does not create
 one. Built-in Markdown pages merely carry dormant, cache-busted discovery so a
@@ -480,6 +481,10 @@ future revision 2 can add history without replacing the original page URL.
 Template mismatches are refused unless `--force` explicitly replaces the
 stored recipe; pass `--template PATH` for a custom replacement or
 `--template=` to return to the built-in template.
+`--all-profiles` inventories configured profiles even when none is selected by
+default and ignores `AIRPLAN_PROFILE` for that inventory; every participating
+profile must use direct S3. With `--json`, dry-run returns a plan while apply
+always returns a result object, including for empty or current-only plans.
 
 ### Preview without uploading
 
@@ -583,7 +588,7 @@ a targeted request instead of trusting a bucket listing alone. It also completes
 older local records that predate the recorded `objects` and `total_bytes`
 totals, appending an enriched copy of each one with its original time and
 identity; those are reported separately from imports and never resurrect a
-deleted upload. Marker v3 and later, plus v2-without-source records, can supply
+deleted upload. Marker v3 and v4, plus v2-without-source records, can supply
 exact totals; v1 and v2-with-source records stay absent without recurring marker fetches.
 Enrichment fetch or marker problems are warnings deferred to a later sync, not
 sync failures. `--concurrency`
@@ -595,7 +600,8 @@ Every new upload uses ownership marker version 4 with one declared-object model
 for pages, document sources, and collection files. Documents require a slug;
 collections have no slug and always use `index.html`. Current Airplan releases
 still manage marker versions 1 through 3. Version 4 records the producing
-Airplan release and a renderer generation/template recipe for generated pages.
+Airplan release, a renderer generation/template recipe for generated pages,
+and the exact SHA-256 of every uploaded page object.
 Older clients must be upgraded before they can manage new v4 uploads.
 Repository metadata is stored remotely for every input mode when `--repo`
 supplies or discovers a repository.

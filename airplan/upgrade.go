@@ -21,6 +21,8 @@ const (
 	UpgradeStateMissing     UpgradeState = "missing"
 )
 
+const maxUpgradePageSize = DefaultMaxInputSize * 4
+
 // UpgradeDocumentOptions controls one document upgrade plan.
 type UpgradeDocumentOptions struct {
 	Force bool `json:"force,omitempty"`
@@ -165,9 +167,12 @@ func (c *Client) PlanUpgradeDocument(
 	}
 	pageKey := dirPrefix + marker.Page
 	sourceKey := dirPrefix + marker.Source
-	pageBody, pageETag, _, err := c.st.getBytesWithETag(ctx, pageKey, DefaultMaxInputSize*4)
+	pageBody, pageETag, _, err := c.st.getBytesWithETag(ctx, pageKey, maxUpgradePageSize)
 	if err != nil {
 		return nil, err
+	}
+	if int64(len(pageBody)) > maxUpgradePageSize {
+		return nil, fmt.Errorf("airplan: rendered page exceeds the maximum upgrade size")
 	}
 	if pageETag == "" {
 		return nil, errors.New("airplan: rendered page has no ETag; conditional upgrade is unavailable")
@@ -205,13 +210,15 @@ func (c *Client) PlanUpgradeDocument(
 	plan.protection, plan.versions = protection, versions
 	plan.protected, plan.versioned = protected, versioned
 	plan.marker = marker
-	pageSizeCurrent := marker.PageBytes == int64(len(pageBody))
+	pageContentCurrent := marker.PageBytes == int64(len(pageBody)) &&
+		(marker.Version < MarkerVersion ||
+			marker.PageSHA256 == contentSHA256(pageBody))
 	switch {
 	case marker.Version < MarkerVersion:
 		plan.State, plan.Reason = UpgradeStateUpgradeable, "ownership marker schema is older"
 	case marker.Render == nil || marker.Render.Generation < RendererGeneration:
 		plan.State, plan.Reason = UpgradeStateUpgradeable, "renderer generation is older"
-	case !pageSizeCurrent:
+	case !pageContentCurrent:
 		plan.State, plan.Reason = UpgradeStateUpgradeable, "rendered page requires repair"
 	case opts.Force:
 		plan.State, plan.Reason = UpgradeStateUpgradeable, "forced re-render"
@@ -243,31 +250,32 @@ func (c *Client) UpgradeDocument(
 	if c.remote != nil {
 		return c.remote.UpgradeDocument(ctx, plan)
 	}
-	if plan.State == UpgradeStateCurrent {
+	if plan.State != UpgradeStateCurrent && plan.State != UpgradeStateUpgradeable {
+		return nil, fmt.Errorf("airplan: document is %s: %s", plan.State, plan.Reason)
+	}
+	fresh, err := c.PlanUpgradeDocument(ctx, plan.Target,
+		UpgradeDocumentOptions{Force: plan.Force})
+	if err != nil {
+		return nil, err
+	}
+	if fresh.State == UpgradeStateCurrent {
 		return &UpgradeDocumentResult{
-			Result: resultFromUpgradePlan(c.cfg, plan),
-			State:  plan.State, Reason: plan.Reason,
+			Result: resultFromUpgradePlan(c.cfg, *fresh),
+			State:  fresh.State, Reason: fresh.Reason,
 		}, nil
 	}
-	if plan.State != UpgradeStateUpgradeable {
-		return nil, fmt.Errorf("airplan: document is %s: %s", plan.State, plan.Reason)
+	if fresh.State != UpgradeStateUpgradeable {
+		return nil, fmt.Errorf("airplan: document is %s: %s", fresh.State, fresh.Reason)
 	}
 	if plan.MarkerETag == "" || plan.PageETag == "" || plan.SourceETag == "" {
 		return nil, errors.New("airplan: upgrade plan is missing required object ETags")
 	}
-	if plan.marker == nil || plan.sourceBody == nil || plan.pageBody == nil {
-		fresh, err := c.PlanUpgradeDocument(ctx, plan.Target,
-			UpgradeDocumentOptions{Force: plan.Force})
-		if err != nil {
-			return nil, err
-		}
-		if fresh.MarkerKey != plan.MarkerKey || fresh.PageKey != plan.PageKey ||
-			fresh.MarkerETag != plan.MarkerETag || fresh.PageETag != plan.PageETag ||
-			fresh.SourceETag != plan.SourceETag {
-			return nil, ErrConflict
-		}
-		plan = *fresh
+	if fresh.MarkerKey != plan.MarkerKey || fresh.PageKey != plan.PageKey ||
+		fresh.MarkerETag != plan.MarkerETag || fresh.PageETag != plan.PageETag ||
+		fresh.SourceETag != plan.SourceETag {
+		return nil, ErrConflict
 	}
+	plan = *fresh
 	currentSource, currentSourceETag, _, err := c.st.getBytesWithETag(
 		ctx, plan.SourceKey, DefaultMaxInputSize,
 	)
@@ -389,7 +397,7 @@ func (c *Client) materializeUpgrade(plan *UpgradeDocumentPlan) error {
 		Producer: Producer{Name: "airplan", Version: plan.TargetProducerVersion},
 		Render:   recipe,
 		Objects: []MarkerObject{
-			{Name: marker.Page, Role: MarkerRolePage, Bytes: int64(len(newPage)), ContentType: pageContentType},
+			{Name: marker.Page, Role: MarkerRolePage, Bytes: int64(len(newPage)), ContentType: pageContentType, SHA256: contentSHA256(newPage)},
 			{Name: marker.Source, Role: MarkerRoleSource, Bytes: int64(len(plan.sourceBody)), ContentType: sourceContentType},
 		},
 	}

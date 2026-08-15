@@ -34,6 +34,7 @@ func TestUploadMarkerV4DocumentRoundTrip(t *testing.T) {
 	want := marker
 	want.Page = "launch-plan.html"
 	want.PageBytes = 1234
+	want.PageSHA256 = strings.Repeat("a", 64)
 	want.Source = "launch-plan.md"
 	if !reflect.DeepEqual(*got, want) {
 		t.Fatalf("marker = %+v, want %+v", *got, want)
@@ -57,6 +58,7 @@ func TestUploadMarkerV4CollectionRoundTrip(t *testing.T) {
 	want := marker
 	want.Page = "index.html"
 	want.PageBytes = 900
+	want.PageSHA256 = strings.Repeat("b", 64)
 	if !reflect.DeepEqual(*got, want) {
 		t.Fatalf("marker = %+v, want %+v", *got, want)
 	}
@@ -90,17 +92,22 @@ func TestUploadMarkerV3IgnoresV4ProvenanceFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(string(body), `"producer"`) ||
-		strings.Contains(string(body), `"render"`) {
+		strings.Contains(string(body), `"render"`) ||
+		strings.Contains(string(body), `"sha256"`) {
 		t.Fatalf("v3 encoder emitted v4 provenance: %s", body)
 	}
-	withUnknownFields := strings.TrimSuffix(string(body), "}") +
+	withUnknownFields := strings.Replace(string(body),
+		`"content_type":"text/html; charset=utf-8"`,
+		`"content_type":"text/html; charset=utf-8","sha256":"`+strings.Repeat("c", 64)+`"`, 1)
+	withUnknownFields = strings.TrimSuffix(withUnknownFields, "}") +
 		`,"producer":{"name":"airplan","version":"99.0.0"},` +
 		`"render":{"generation":99,"template":{"kind":"builtin"}}}`
 	got, err := DecodeUploadMarker([]byte(withUnknownFields), markerTestDir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Producer != (Producer{}) || got.Render != nil {
+	if got.Producer != (Producer{}) || got.Render != nil ||
+		got.PageSHA256 != "" || got.Objects[0].SHA256 != "" {
 		t.Fatalf("v3 unknown provenance became trusted: %+v", got)
 	}
 }
@@ -117,12 +124,22 @@ func TestUploadMarkerV4RequiresApplicableProvenance(t *testing.T) {
 	if _, err := EncodeUploadMarker(missingRender); err == nil {
 		t.Fatal("generated v4 document without render recipe was accepted")
 	}
+	missingPageSHA := validDocumentMarker()
+	missingPageSHA.Objects[0].SHA256 = ""
+	if _, err := EncodeUploadMarker(missingPageSHA); err == nil {
+		t.Fatal("v4 marker without generated-page checksum was accepted")
+	}
+	sourceSHA := validDocumentMarker()
+	sourceSHA.Objects[1].SHA256 = strings.Repeat("b", 64)
+	if _, err := EncodeUploadMarker(sourceSHA); err == nil {
+		t.Fatal("v4 marker with a source checksum was accepted")
+	}
 	authoredHTML := validDocumentMarker()
 	authoredHTML.Format = "html"
 	authoredHTML.Slug = "page"
 	authoredHTML.Objects = []MarkerObject{{
 		Name: "page.html", Role: MarkerRolePage, Bytes: 5,
-		ContentType: pageContentType,
+		ContentType: pageContentType, SHA256: strings.Repeat("a", 64),
 	}}
 	authoredHTML.Render = nil
 	if _, err := EncodeUploadMarker(authoredHTML); err != nil {
@@ -599,7 +616,7 @@ func validDocumentMarker() UploadMarker {
 		Objects: []MarkerObject{
 			{
 				Name: "launch-plan.html", Role: MarkerRolePage, Bytes: 1234,
-				ContentType: "text/html; charset=utf-8",
+				ContentType: "text/html; charset=utf-8", SHA256: strings.Repeat("a", 64),
 			},
 			{
 				Name: "launch-plan.md", Role: MarkerRoleSource, Bytes: 321,
@@ -620,7 +637,7 @@ func validCollectionMarker() UploadMarker {
 		Objects: []MarkerObject{
 			{
 				Name: "index.html", Role: MarkerRolePage, Bytes: 900,
-				ContentType: "text/html; charset=utf-8",
+				ContentType: "text/html; charset=utf-8", SHA256: strings.Repeat("b", 64),
 			},
 			{
 				Name: "screenshot.png", Role: MarkerRoleFile, Bytes: 456,

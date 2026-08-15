@@ -63,6 +63,7 @@ type MarkerObject struct {
 	Role        MarkerRole `json:"role"`
 	Bytes       int64      `json:"bytes"`
 	ContentType string     `json:"content_type"`
+	SHA256      string     `json:"sha256,omitempty"`
 }
 
 // Producer identifies the Airplan release that produced a v4 marker.
@@ -97,9 +98,10 @@ const RendererGeneration = 1
 //
 // These are declared values, never a storage listing, so the same upload
 // reports the same totals whether they were recorded when it was uploaded or
-// derived later from its marker by sync. Marker v3 and later declare every object;
+// derived later from its marker by sync. Marker v3 and v4 declare every object;
 // marker v2 declares the page and qualifies only when it has no source. Marker
-// v1 and v2-with-source report ok false because their totals would be a guess.
+// v1, unsupported versions, and v2-with-source report ok false because their
+// totals would be a guess.
 func MarkerDeclaredTotals(
 	marker UploadMarker, markerBytes int,
 ) (objects int, total int64, ok bool) {
@@ -116,7 +118,7 @@ func MarkerDeclaredTotals(
 		}
 		return 2, total, true
 	}
-	if marker.Version < 3 {
+	if marker.Version != 3 && marker.Version != 4 {
 		return 0, 0, false
 	}
 	objects = 1
@@ -202,11 +204,13 @@ type UploadMarker struct {
 	Producer  Producer       `json:"producer"`
 	Render    *RenderRecipe  `json:"render,omitempty"`
 
-	// Page, PageBytes, and Source are normalized compatibility views used by
-	// callers that predate marker v3. They are never encoded in modern markers.
-	Page      string `json:"-"`
-	PageBytes int64  `json:"-"`
-	Source    string `json:"-"`
+	// Page, PageBytes, PageSHA256, and Source are normalized compatibility views
+	// used by callers that predate marker v3. They are never encoded separately
+	// in modern markers.
+	Page       string `json:"-"`
+	PageBytes  int64  `json:"-"`
+	PageSHA256 string `json:"-"`
+	Source     string `json:"-"`
 }
 
 type markerWire struct {
@@ -232,6 +236,7 @@ type markerObjectWire struct {
 	Role        *string `json:"role"`
 	Bytes       *int64  `json:"bytes"`
 	ContentType *string `json:"content_type"`
+	SHA256      *string `json:"sha256"`
 }
 
 // EncodeUploadMarker validates and encodes marker as UTF-8 JSON.
@@ -258,6 +263,12 @@ func EncodeUploadMarker(marker UploadMarker) ([]byte, error) {
 			producer = Producer{}
 			render = nil
 		}
+		objects := append([]MarkerObject(nil), marker.Objects...)
+		if marker.Version < MarkerVersion {
+			for index := range objects {
+				objects[index].SHA256 = ""
+			}
+		}
 		value = struct {
 			Schema    string         `json:"schema"`
 			Version   int            `json:"version"`
@@ -273,7 +284,7 @@ func EncodeUploadMarker(marker UploadMarker) ([]byte, error) {
 			Render    *RenderRecipe  `json:"render,omitempty"`
 		}{
 			marker.Schema, marker.Version, marker.Directory, marker.CreatedAt,
-			marker.Kind, marker.Slug, marker.Format, marker.Objects,
+			marker.Kind, marker.Slug, marker.Format, objects,
 			marker.Title, marker.Repo, producer, render,
 		}
 	} else {
@@ -382,7 +393,7 @@ func DecodeUploadMarkerForName(
 		if wire.Format != nil {
 			marker.Format = *wire.Format
 		}
-		objects, err := decodeMarkerObjects(wire.Objects)
+		objects, err := decodeMarkerObjects(wire.Objects, marker.Version)
 		if err != nil {
 			return nil, err
 		}
@@ -590,6 +601,14 @@ func validateModernMarker(
 			return invalid("object %q content type %q is not normalized",
 				object.Name, object.ContentType)
 		}
+		if object.SHA256 != "" && !validSHA256(object.SHA256) {
+			return invalid("object %q sha256 must be 64 lowercase hex characters",
+				object.Name)
+		}
+		if marker.Version == MarkerVersion && object.Role != MarkerRolePage &&
+			object.SHA256 != "" {
+			return invalid("object %q sha256 is only valid for the page", object.Name)
+		}
 		switch object.Role {
 		case MarkerRolePage:
 			if page != nil {
@@ -623,6 +642,9 @@ func validateModernMarker(
 	}
 	if page == nil {
 		return invalid("objects must contain exactly one page")
+	}
+	if marker.Version == MarkerVersion && page.SHA256 == "" {
+		return invalid("page %q sha256 is required", page.Name)
 	}
 
 	switch marker.Kind {
@@ -762,7 +784,7 @@ func validateCollectionMarkerV3(
 	return nil
 }
 
-func decodeMarkerObjects(data json.RawMessage) ([]MarkerObject, error) {
+func decodeMarkerObjects(data json.RawMessage, version int) ([]MarkerObject, error) {
 	var wires []markerObjectWire
 	if err := json.Unmarshal(data, &wires); err != nil {
 		return nil, markerInvalid(MarkerErrorInvalidFields,
@@ -779,6 +801,9 @@ func decodeMarkerObjects(data json.RawMessage) ([]MarkerObject, error) {
 			Name: *wire.Name, Role: MarkerRole(*wire.Role), Bytes: *wire.Bytes,
 			ContentType: *wire.ContentType,
 		}
+		if version == MarkerVersion && wire.SHA256 != nil {
+			objects[i].SHA256 = *wire.SHA256
+		}
 	}
 	return objects, nil
 }
@@ -789,10 +814,23 @@ func normalizeV3Compatibility(marker *UploadMarker) {
 		case MarkerRolePage:
 			marker.Page = object.Name
 			marker.PageBytes = object.Bytes
+			marker.PageSHA256 = object.SHA256
 		case MarkerRoleSource:
 			marker.Source = object.Name
 		}
 	}
+}
+
+func validSHA256(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, char := range value {
+		if !strings.ContainsRune("0123456789abcdef", char) {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeLegacyMarker(marker *UploadMarker) {

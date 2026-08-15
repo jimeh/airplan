@@ -1,11 +1,17 @@
 package cli
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -90,6 +96,7 @@ func TestBulkUpgradeJSONReportsFailureWithNonzeroStatus(t *testing.T) {
 
 func TestBulkUpgradeAllProfilesRoutesAndClassifiesManifestDrift(t *testing.T) {
 	isolateEnv(t)
+	t.Setenv("AIRPLAN_PROFILE", "removed-profile")
 	work := newFakeRemoteS3(t, nil, nil, nil)
 	home := newFakeRemoteS3(t, nil, nil, nil)
 	workDir := strings.Repeat("w", 26)
@@ -139,6 +146,146 @@ func TestBulkUpgradeAllProfilesRoutesAndClassifiesManifestDrift(t *testing.T) {
 	}
 	if work.putCalls() != 0 || home.putCalls() != 0 {
 		t.Fatalf("dry run writes = work %d, home %d", work.putCalls(), home.putCalls())
+	}
+}
+
+func TestBulkUpgradeAllProfilesRejectsMixedBackendsBeforeStorage(t *testing.T) {
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, nil, nil, nil)
+	dir := strings.Repeat("x", 26)
+	writeDefaultManifest(t, []airplan.ManifestRecord{
+		seedCLIUpgradeDocument(t, fake, "work", dir),
+	})
+	path := filepath.Join(t.TempDir(), "config.toml")
+	data := fmt.Sprintf(`
+access_key_id = "test"
+secret_access_key = "test"
+public_base_url = "https://plans.example.com"
+
+[profiles.work]
+endpoint = %q
+bucket = "plans"
+key_prefix = "work"
+
+[profiles.hosted]
+backend = "airplan"
+api_url = "https://airplan.example.com"
+api_token = "01234567890123456789012345678901"
+`, fake.server.URL)
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, _, err := executeCommand(t, "", "", "upgrade", "--all",
+		"--all-profiles", "--dry-run", "--config", path)
+	if err == nil || !strings.Contains(err.Error(), "requires s3 profiles") ||
+		stdout != "" || fake.putCalls() != 0 || fake.listCalls() != 0 {
+		t.Fatalf("stdout = %q, puts = %d, lists = %d, error = %v",
+			stdout, fake.putCalls(), fake.listCalls(), err)
+	}
+}
+
+func TestBulkUpgradeApplyJSONAlwaysUsesResultSchema(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		current     bool
+		allProfiles bool
+	}{
+		{"empty", false, false},
+		{"current only", true, false},
+		{"root only all profiles", false, true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			isolateEnv(t)
+			fake := newFakeRemoteS3(t, nil, nil, nil)
+			if test.current {
+				dir := strings.Repeat("q", 26)
+				writeDefaultManifest(t, []airplan.ManifestRecord{
+					seedCLICurrentDocument(t, fake, dir),
+				})
+			}
+			args := []string{"upgrade", "--all", "--yes", "--json"}
+			if test.allProfiles {
+				t.Setenv("AIRPLAN_PROFILE", "stale")
+				args = append(args, "--all-profiles")
+			}
+			args = append(args, "--config", writeCLIConfig(t, fake.server.URL))
+			stdout, stderr, err := executeCommand(t, "", "", args...)
+			if err != nil || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+			}
+			var result airplan.BulkUpgradeResult
+			if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+				t.Fatalf("stdout is not BulkUpgradeResult: %q: %v", stdout, err)
+			}
+			if result.Items == nil || len(result.Items) != 0 ||
+				result.Upgraded != 0 || result.Failed != 0 {
+				t.Fatalf("result = %+v", result)
+			}
+		})
+	}
+}
+
+func TestBulkUpgradeBareEnterAbortsCleanly(t *testing.T) {
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, nil, nil, nil)
+	dir := strings.Repeat("e", 26)
+	writeDefaultManifest(t, []airplan.ManifestRecord{
+		seedCLIUpgradeDocument(t, fake, "", dir),
+	})
+	_, stderr, err := executeCommand(t, "\n", "", "upgrade", "--all",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil || !strings.Contains(stderr, "aborted") || fake.putCalls() != 0 {
+		t.Fatalf("stderr = %q, puts = %d, error = %v", stderr, fake.putCalls(), err)
+	}
+}
+
+func TestBulkUpgradeJSONDeclineEmitsEmptyResult(t *testing.T) {
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, nil, nil, nil)
+	dir := strings.Repeat("j", 26)
+	writeDefaultManifest(t, []airplan.ManifestRecord{
+		seedCLIUpgradeDocument(t, fake, "", dir),
+	})
+	stdout, stderr, err := executeCommand(t, "\n", "", "upgrade", "--all",
+		"--json", "--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil || !strings.Contains(stderr, "aborted") || fake.putCalls() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q, puts = %d, error = %v",
+			stdout, stderr, fake.putCalls(), err)
+	}
+	var result airplan.BulkUpgradeResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("stdout is not BulkUpgradeResult: %q: %v", stdout, err)
+	}
+	if result.Items == nil || len(result.Items) != 0 ||
+		result.Upgraded != 0 || result.Failed != 0 {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestRemoteBulkUpgradeFailureDoesNotDereferenceNilResult(t *testing.T) {
+	isolateEnv(t)
+	server := newBulkUpgradeBackend(t, false)
+	stdout, stderr, err := executeCommand(t, "", "", "upgrade", "--all", "--yes",
+		"--config", writeAirplanUpgradeConfig(t, server.URL, "0"))
+	if err == nil || stdout == "" || strings.Contains(stderr, "upgraded ") {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+}
+
+func TestBulkUpgradeConfirmationGetsFreshExecutionTimeout(t *testing.T) {
+	isolateEnv(t)
+	server := newBulkUpgradeBackend(t, true)
+	cmd := newRootCmd()
+	var stdout, stderr bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetIn(&delayedReader{delay: 80 * time.Millisecond, body: []byte("y\n")})
+	cmd.SetArgs([]string{
+		"upgrade", "--all", "--config",
+		writeAirplanUpgradeConfig(t, server.URL, "30ms"),
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout.String(), stderr.String(), err)
 	}
 }
 
@@ -204,11 +351,53 @@ func seedCLIUpgradeDocument(
 	}
 }
 
+func seedCLICurrentDocument(
+	t *testing.T, fake *fakeRemoteS3, dir string,
+) airplan.ManifestRecord {
+	t.Helper()
+	page := []byte("current")
+	source := []byte("# Plan\n")
+	marker, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
+		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
+		Directory: dir, CreatedAt: time.Now().UTC().Truncate(time.Second),
+		Kind: airplan.UploadKindDocument, Slug: "plan", Format: "md",
+		Producer: airplan.Producer{Name: "airplan", Version: buildVersion()},
+		Render: &airplan.RenderRecipe{
+			Generation: airplan.RendererGeneration,
+			Template:   airplan.RenderTemplate{Kind: "builtin"},
+			MermaidURL: airplan.DefaultMermaidURL,
+		},
+		Objects: []airplan.MarkerObject{
+			{
+				Name: "plan.html", Role: airplan.MarkerRolePage, Bytes: int64(len(page)),
+				ContentType: "text/html; charset=utf-8", SHA256: sha256Hex(page),
+			},
+			{
+				Name: "plan.md", Role: airplan.MarkerRoleSource, Bytes: int64(len(source)),
+				ContentType: "text/markdown; charset=utf-8",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.setMarker(dir+"/"+airplan.MarkerFilename, marker)
+	fake.setMarker(dir+"/plan.html", page)
+	fake.setMarker(dir+"/plan.md", source)
+	return airplan.ManifestRecord{
+		Type: "upload", Time: time.Now().UTC(), CreatedAt: time.Now().UTC(),
+		Key: dir + "/plan.html", SourceKey: dir + "/plan.md",
+		MarkerKey: dir + "/" + airplan.MarkerFilename,
+		URL:       "https://plans.example.com/" + dir + "/plan.html",
+		Bucket:    "plans", Format: "md", Kind: string(airplan.UploadKindDocument),
+		Slug: "plan", Bytes: int64(len(page)), MarkerVersion: airplan.MarkerVersion,
+	}
+}
+
 func writeUpgradeProfilesConfig(t *testing.T, workEndpoint, homeEndpoint string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.toml")
 	data := fmt.Sprintf(`
-default_profile = "work"
 access_key_id = "test"
 secret_access_key = "test"
 public_base_url = "https://plans.example.com"
@@ -228,4 +417,68 @@ key_prefix = "home"
 		t.Fatal(err)
 	}
 	return path
+}
+
+func newBulkUpgradeBackend(t *testing.T, succeed bool) *httptest.Server {
+	t.Helper()
+	dir := strings.Repeat("r", 26)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/v1/upgrades/preview":
+			_, _ = fmt.Fprintf(w, `{"items":[{"target":%q,"state":"upgradeable",`+
+				`"target_marker_version":4,"target_producer_version":"0.8.0",`+
+				`"target_renderer_generation":1,"marker_etag":"m",`+
+				`"page_etag":"p","source_etag":"s"}],`+
+				`"counts":{"upgradeable":1}}`, dir+"/plan.html")
+		case "/api/v1/upgrades":
+			if !succeed {
+				w.WriteHeader(http.StatusInternalServerError)
+				_, _ = io.WriteString(w,
+					`{"type":"about:blank","title":"failure","status":500,`+
+						`"code":"internal_error","detail":"boom"}`)
+				return
+			}
+			_, _ = io.WriteString(w, `{"items":[],"upgraded":0,"failed":0}`)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func writeAirplanUpgradeConfig(t *testing.T, endpoint, timeout string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.toml")
+	data := fmt.Sprintf(`
+backend = "airplan"
+api_url = %q
+api_token = "01234567890123456789012345678901"
+timeout = %q
+`, endpoint, timeout)
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func sha256Hex(body []byte) string {
+	return fmt.Sprintf("%x", sha256.Sum256(body))
+}
+
+type delayedReader struct {
+	once  sync.Once
+	delay time.Duration
+	body  []byte
+}
+
+func (r *delayedReader) Read(p []byte) (int, error) {
+	r.once.Do(func() { time.Sleep(r.delay) })
+	if len(r.body) == 0 {
+		return 0, io.EOF
+	}
+	n := copy(p, r.body)
+	r.body = r.body[n:]
+	return n, nil
 }

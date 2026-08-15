@@ -321,6 +321,10 @@ func TestUploadTextInput(t *testing.T) {
 		marker.Format != "txt" {
 		t.Fatalf("marker = %+v", marker)
 	}
+	if marker.PageSHA256 != contentSHA256(puts[2].body) {
+		t.Fatalf("marker page digest = %q, want digest of uploaded page",
+			marker.PageSHA256)
+	}
 	records, warnings, err := ReadManifest(cfg.ManifestPath)
 	if err != nil || len(warnings) != 0 || len(records) != 1 {
 		t.Fatalf("manifest records = %+v, warnings = %v, error = %v",

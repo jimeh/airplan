@@ -92,6 +92,7 @@ func TestSyncCommandReportsEnrichedSeparately(t *testing.T) {
 		Objects: []airplan.MarkerObject{{
 			Name: "plan.html", Role: airplan.MarkerRolePage,
 			Bytes: int64(len(page)), ContentType: "text/html; charset=utf-8",
+			SHA256: sha256Hex(page),
 		}},
 	})
 	if err != nil {

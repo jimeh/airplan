@@ -342,14 +342,14 @@ func (c *Client) syncImport(
 // manifestRecordNeedsTotals reports whether a record predates declared totals
 // and could still gain them. Only records missing both fields qualify, so one
 // pass converges. Only a marker that declares every object's size can supply
-// them. Marker v3 and later always qualify; v2 qualifies only without a source, while
+// them. Marker v3 and v4 always qualify; v2 qualifies only without a source, while
 // v1 and v2-with-source are left alone rather than re-fetched by every run.
 func manifestRecordNeedsTotals(rec ManifestRecord) bool {
 	if rec.Objects != 0 || rec.TotalBytes != 0 {
 		return false
 	}
 	switch rec.MarkerVersion {
-	case MarkerVersion:
+	case 3, 4:
 		return true
 	case 2:
 		return rec.SourceKey == ""

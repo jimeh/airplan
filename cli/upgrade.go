@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -110,64 +111,39 @@ func runBulkUpgrade(cmd *cobra.Command, opts *upgradeOptions) error {
 	if opts.concurrency < 1 || opts.concurrency > 32 {
 		return errors.New("--concurrency must be between 1 and 32")
 	}
-	client, cfg, ctx, cancel, err := setupClient(cmd, opts.config, opts.profile)
+	client, cfg, clients, profileConfigs, profileOrder, err := prepareBulkUpgradeClients(cmd, opts)
 	if err != nil {
 		return err
 	}
-	defer cancel()
-	if opts.allProfiles && cfg.EffectiveBackend() != airplan.BackendS3 {
-		return errors.New("--all-profiles is available only with the s3 backend")
+	planCtx, planCancel := timeoutContext(cmd.Context(), cfg)
+	plan := &airplan.BulkUpgradePlan{
+		Items: []airplan.UpgradeDocumentPlan{}, Counts: map[airplan.UpgradeState]int{},
 	}
-	plan, err := client.PlanBulkUpgrade(ctx, airplan.BulkUpgradeOptions{Concurrency: opts.concurrency})
-	if err != nil {
-		return err
-	}
-	clients := map[string]*airplan.Client{cfg.Profile: client}
-	profileConfigs := map[string]*airplan.Config{cfg.Profile: cfg}
-	if opts.allProfiles {
-		profiles, profileErr := airplan.ListConfigProfiles(airplan.ConfigProfilesOptions{Path: opts.config})
-		if profileErr != nil {
-			return profileErr
+	seen := map[string]struct{}{}
+	for _, profile := range profileOrder {
+		profilePlan, planErr := clients[profile].PlanBulkUpgrade(planCtx,
+			airplan.BulkUpgradeOptions{Concurrency: opts.concurrency})
+		if planErr != nil {
+			planCancel()
+			return planErr
 		}
-		seen := map[string]struct{}{}
-		for _, item := range plan.Items {
-			seen[item.Bucket+"\x00"+item.MarkerKey] = struct{}{}
-		}
-		for _, profile := range profiles.Profiles {
-			if _, ok := clients[profile.Name]; ok {
+		for _, item := range profilePlan.Items {
+			identity := item.Bucket + "\x00" + item.MarkerKey
+			if _, exists := seen[identity]; exists {
 				continue
 			}
-			profileCfg, loadErr := airplan.LoadConfig(airplan.ConfigOptions{Path: opts.config, Profile: profile.Name})
-			if loadErr != nil {
-				return fmt.Errorf("airplan: load profile %q: %w", profile.Name, loadErr)
-			}
-			profileCfg.ProducerVersion = buildVersion()
-			profileCfg.ManifestPath = cfg.ManifestPath
-			profileClient, newErr := airplan.New(ctx, profileCfg)
-			if newErr != nil {
-				return newErr
-			}
-			clients[profile.Name] = profileClient
-			profileConfigs[profile.Name] = profileCfg
-			profilePlan, planErr := profileClient.PlanBulkUpgrade(ctx, airplan.BulkUpgradeOptions{Concurrency: opts.concurrency})
-			if planErr != nil {
-				return planErr
-			}
-			for _, item := range profilePlan.Items {
-				identity := item.Bucket + "\x00" + item.MarkerKey
-				if _, ok := seen[identity]; ok {
-					continue
-				}
-				seen[identity] = struct{}{}
-				plan.Items = append(plan.Items, item)
-				plan.Counts[item.State]++
-			}
-			plan.Warnings = append(plan.Warnings, profilePlan.Warnings...)
+			seen[identity] = struct{}{}
+			plan.Items = append(plan.Items, item)
+			plan.Counts[item.State]++
 		}
-		allRecords, listErr := client.ListManifest(ctx, airplan.ListManifestOptions{
+		plan.Warnings = append(plan.Warnings, profilePlan.Warnings...)
+	}
+	if opts.allProfiles {
+		allRecords, listErr := client.ListManifest(planCtx, airplan.ListManifestOptions{
 			Scope: airplan.ManifestScopeAll,
 		})
 		if listErr != nil {
+			planCancel()
 			return listErr
 		}
 		for _, record := range allRecords.Records {
@@ -201,13 +177,14 @@ func runBulkUpgrade(cmd *cobra.Command, opts *upgradeOptions) error {
 		}
 		plan.Warnings = append(plan.Warnings, allRecords.Warnings...)
 	}
-	if opts.json && (opts.dryRun || len(plan.Items) == 0) {
+	planCancel()
+	if opts.json && opts.dryRun {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(plan)
 	}
 	if !opts.json {
 		printUpgradePlan(cmd.OutOrStdout(), plan)
 	}
-	if opts.dryRun || len(plan.Items) == 0 {
+	if opts.dryRun {
 		return nil
 	}
 	upgradeable := make([]airplan.UpgradeDocumentPlan, 0)
@@ -216,10 +193,7 @@ func runBulkUpgrade(cmd *cobra.Command, opts *upgradeOptions) error {
 			upgradeable = append(upgradeable, item)
 		}
 	}
-	if len(upgradeable) == 0 {
-		return nil
-	}
-	if !opts.yes {
+	if len(upgradeable) > 0 && !opts.yes {
 		if file, ok := cmd.InOrStdin().(*os.File); ok {
 			if info, statErr := file.Stat(); statErr == nil && info.Mode()&os.ModeCharDevice == 0 {
 				return errors.New("airplan: non-interactive bulk upgrade requires --yes")
@@ -231,14 +205,31 @@ func runBulkUpgrade(cmd *cobra.Command, opts *upgradeOptions) error {
 		}
 		if !confirmed {
 			fmt.Fprintln(cmd.ErrOrStderr(), "aborted")
+			if opts.json {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(
+					&airplan.BulkUpgradeResult{
+						Items: []airplan.BulkUpgradeItemResult{},
+					},
+				)
+			}
 			return nil
 		}
 	}
-	var result *airplan.BulkUpgradeResult
-	if !opts.allProfiles {
-		result, err = client.ExecuteBulkUpgrade(ctx, airplan.BulkUpgradeRequest{Items: upgradeable, Concurrency: opts.concurrency})
-	} else {
-		result = executeAllProfileUpgrades(ctx, clients, upgradeable, opts.concurrency)
+	result := &airplan.BulkUpgradeResult{Items: []airplan.BulkUpgradeItemResult{}}
+	if len(upgradeable) > 0 {
+		execCtx, execCancel := timeoutContext(cmd.Context(), cfg)
+		defer execCancel()
+		if !opts.allProfiles {
+			result, err = client.ExecuteBulkUpgrade(execCtx, airplan.BulkUpgradeRequest{Items: upgradeable, Concurrency: opts.concurrency})
+		} else {
+			result = executeAllProfileUpgrades(execCtx, clients, upgradeable, opts.concurrency)
+		}
+	}
+	if result == nil {
+		if err != nil {
+			return err
+		}
+		return errors.New("airplan: bulk upgrade returned no result")
 	}
 	if opts.json {
 		if encodeErr := json.NewEncoder(cmd.OutOrStdout()).Encode(result); encodeErr != nil {
@@ -260,6 +251,87 @@ func runBulkUpgrade(cmd *cobra.Command, opts *upgradeOptions) error {
 		return errors.New("airplan: one or more upgrades failed")
 	}
 	return nil
+}
+
+func prepareBulkUpgradeClients(
+	cmd *cobra.Command, opts *upgradeOptions,
+) (*airplan.Client, *airplan.Config, map[string]*airplan.Client,
+	map[string]*airplan.Config, []string, error,
+) {
+	if !opts.allProfiles {
+		cfg, err := loadCommandConfig(cmd, opts.config, opts.profile)
+		if err != nil {
+			return nil, nil, nil, nil, nil, err
+		}
+		client, err := airplan.New(cmd.Context(), cfg)
+		if err != nil {
+			return nil, nil, nil, nil, nil, err
+		}
+		return client, cfg,
+			map[string]*airplan.Client{cfg.Profile: client},
+			map[string]*airplan.Config{cfg.Profile: cfg},
+			[]string{cfg.Profile}, nil
+	}
+
+	inventory, err := airplan.ListConfigProfiles(
+		airplan.ConfigProfilesOptions{Path: opts.config},
+	)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+	configs := make(map[string]*airplan.Config)
+	order := make([]string, 0, len(inventory.Profiles))
+	if len(inventory.Profiles) == 0 {
+		getenv := func(name string) string {
+			if name == "AIRPLAN_PROFILE" {
+				return ""
+			}
+			return os.Getenv(name)
+		}
+		cfg, loadErr := airplan.LoadConfig(airplan.ConfigOptions{
+			Path: opts.config, Profile: opts.profile, Getenv: getenv,
+		})
+		if loadErr != nil {
+			return nil, nil, nil, nil, nil, loadErr
+		}
+		if err := applyManifestSelection(cmd, cfg); err != nil {
+			return nil, nil, nil, nil, nil, err
+		}
+		cfg.ProducerVersion = buildVersion()
+		for _, warning := range cfg.Warnings {
+			fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", warning)
+		}
+		configs[cfg.Profile] = cfg
+		order = append(order, cfg.Profile)
+	} else {
+		for _, profile := range inventory.Profiles {
+			cfg, loadErr := loadCommandConfig(cmd, opts.config, profile.Name)
+			if loadErr != nil {
+				return nil, nil, nil, nil, nil,
+					fmt.Errorf("airplan: load profile %q: %w", profile.Name, loadErr)
+			}
+			configs[profile.Name] = cfg
+			order = append(order, profile.Name)
+		}
+	}
+	for _, profile := range order {
+		if configs[profile].EffectiveBackend() != airplan.BackendS3 {
+			return nil, nil, nil, nil, nil, fmt.Errorf(
+				"--all-profiles requires s3 profiles; profile %q uses %s",
+				profile, configs[profile].EffectiveBackend(),
+			)
+		}
+	}
+	clients := make(map[string]*airplan.Client, len(order))
+	for _, profile := range order {
+		client, newErr := airplan.New(cmd.Context(), configs[profile])
+		if newErr != nil {
+			return nil, nil, nil, nil, nil, newErr
+		}
+		clients[profile] = client
+	}
+	primary := order[0]
+	return clients[primary], configs[primary], clients, configs, order, nil
 }
 
 func executeAllProfileUpgrades(
@@ -340,13 +412,15 @@ func printUpgradePlan(w io.Writer, plan *airplan.BulkUpgradePlan) {
 
 func confirmUpgrade(cmd *cobra.Command, count int) (bool, error) {
 	fmt.Fprintf(cmd.ErrOrStderr(), "Upgrade %d uploads? [y/N] ", count)
-	var answer string
-	if _, err := fmt.Fscanln(cmd.InOrStdin(), &answer); err != nil {
-		if errors.Is(err, io.EOF) {
-			return false, errors.New("airplan: confirmation input closed; rerun with --yes")
-		}
+	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
 		return false, err
 	}
-	answer = strings.ToLower(strings.TrimSpace(answer))
+	if errors.Is(err, io.EOF) && strings.TrimSpace(line) == "" {
+		return false, errors.New(
+			"airplan: confirmation input closed; rerun with --yes",
+		)
+	}
+	answer := strings.ToLower(strings.TrimSpace(line))
 	return answer == "y" || answer == "yes", nil
 }

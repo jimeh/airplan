@@ -62,6 +62,31 @@ func TestHTTPAPIPlansDocumentUpgradeThroughOperationFacade(t *testing.T) {
 	}
 }
 
+func TestHTTPAPIExecuteUpgradeReplansFabricatedCurrentState(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	const token = "01234567890123456789012345678901"
+	handler, err := httpapi.NewHandler(&HTTPOperations{
+		Client: client, ServerVersion: "test",
+	}, httpapi.Options{Token: token})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := `{"target":"` + strings.Repeat("m", 26) +
+		`","state":"current","target_marker_version":4,` +
+		`"target_producer_version":"0.8.0","target_renderer_generation":1}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/upgrades/execute",
+		bytes.NewBufferString(body))
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code == http.StatusOK || store.getAttempts == 0 || store.puts != 0 {
+		t.Fatalf("status = %d, gets = %d, puts = %d, body = %s",
+			recorder.Code, store.getAttempts, store.puts, recorder.Body.String())
+	}
+}
+
 func TestHTTPAPIManifestListScopesSharedManifest(t *testing.T) {
 	manifestPath := t.TempDir() + "/manifest.jsonl"
 	now := time.Now().UTC().Truncate(time.Second)

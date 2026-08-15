@@ -238,7 +238,9 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   document slug/format fields remain conditional. Every v4 marker records
   producer provenance. Generated document and collection pages additionally
   record the renderer generation and either the built-in template identity or
-  a SHA-256 digest of the custom template; authored HTML omits render
+  a SHA-256 digest of the custom template; the digest is computed from the same
+  single file read that is parsed for rendering. Every v4 page object also
+  records the SHA-256 of its exact uploaded bytes. Authored HTML omits render
   provenance. Version-specific decoding normalizes v1-v3 into the same
   internal object model. Authored object names beginning `.airplan-` are
   reserved for Airplan control objects and rejected before upload. A centralized
@@ -484,8 +486,10 @@ outside the project's signing and notarization pipeline.
    same way, then PUT or DELETE the sentinel and append the matching manifest
    record.
 8. Upgrade source-backed Markdown pages with marker-first/page-last conditional
-   writes. Planning records the observed marker and page entity tags; execution
-   fails on drift, verifies the new marker and page bytes, and appends an
+   writes. Planning records the observed marker and page entity tags plus the
+   declared v4 page digest without rendering. Execution replans live state even
+   for a submitted current plan, fails on drift, verifies the new marker and
+   page bytes, and appends an
    `upgrade` manifest event while leaving source, protection, and revision
    control objects untouched.
 9. Sync complete normalized uploads into compact local history. Confirm every
@@ -579,7 +583,10 @@ unless `--all-profiles` requests the separate all-history scope.
 Bulk upgrade follows the same service scope. CLI `--all-profiles` explicitly
 constructs one client per configured profile, merges plans by bucket and marker
 key, then routes each selected item back to its owning profile; it is never an
-implicit expansion performed by one client or by the server.
+implicit expansion performed by one client or by the server. Profile inventory
+is independent of the active selector/default, and mixed S3/hosted inventories
+are rejected before any remote mutation. Its planning timeout ends before
+confirmation and execution receives a fresh timeout context afterward.
 
 Upgrade planning compares reproducible v4 template recipes without parsing or
 rendering. A forced template mismatch records the currently configured recipe;

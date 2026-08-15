@@ -262,7 +262,7 @@ paths:
     post:
       operationId: executeDocumentUpgrade
       tags: [uploads]
-      description: Applies one exact upgrade plan after revalidating its ETags.
+      description: Replans live state, then applies a still-upgradeable exact plan after revalidating its ETags.
       requestBody:
         required: true
         content:

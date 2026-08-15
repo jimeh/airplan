@@ -1,7 +1,9 @@
 package airplan
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"io"
@@ -85,6 +87,72 @@ func TestUpgradeDocumentMigratesV3WithoutVersionsMetadata(t *testing.T) {
 	}
 }
 
+func TestUpgradeRetryRepairsEqualLengthPageAfterMarkerFirstInterruption(t *testing.T) {
+	store := newUpgradeStore(t)
+	dir := strings.Repeat("i", 26)
+	source := []byte("# Plan\n")
+	wantPage, err := RenderMarkdown(source, RenderOptions{
+		Title: "Plan", Slug: "plan", SourceName: "plan.md",
+		SourcePath: "./plan.md", MermaidURL: DefaultMermaidURL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldPage := []byte(strings.Repeat("x", len(wantPage)))
+	marker, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: 3, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second), Kind: UploadKindDocument,
+		Slug: "plan", Format: "md", Title: "Plan", Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(oldPage)), ContentType: pageContentType},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(dir+"/"+MarkerFilename, marker)
+	store.set(dir+"/plan.html", oldPage)
+	store.set(dir+"/plan.md", source)
+	client := store.client(t, "")
+	plan, err := client.PlanUpgradeDocument(context.Background(), dir,
+		UpgradeDocumentOptions{})
+	if err != nil || plan.State != UpgradeStateUpgradeable {
+		t.Fatalf("initial plan = %+v, error = %v", plan, err)
+	}
+	store.failPutAttempt = 2
+	if _, err := client.UpgradeDocument(context.Background(), *plan); err == nil {
+		t.Fatal("page write interruption unexpectedly succeeded")
+	}
+	strandedMarkerBody, _ := store.get(dir + "/" + MarkerFilename)
+	strandedMarker, err := DecodeUploadMarker(strandedMarkerBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strandedMarker.PageSHA256 != contentSHA256(wantPage) {
+		t.Fatalf("stranded marker page digest = %q", strandedMarker.PageSHA256)
+	}
+	if got, _ := store.get(dir + "/plan.html"); !bytes.Equal(got, oldPage) {
+		t.Fatal("failed page write changed the old page")
+	}
+	store.failPutAttempt = 0
+	retry, err := client.PlanUpgradeDocument(context.Background(), dir,
+		UpgradeDocumentOptions{})
+	if err != nil || retry.State != UpgradeStateUpgradeable ||
+		retry.Reason != "rendered page requires repair" {
+		t.Fatalf("retry plan = %+v, error = %v", retry, err)
+	}
+	result, err := client.UpgradeDocument(context.Background(), *retry)
+	if err != nil || !result.Upgraded {
+		t.Fatalf("retry result = %+v, error = %v", result, err)
+	}
+	if got, _ := store.get(dir + "/plan.html"); !bytes.Equal(got, wantPage) {
+		t.Fatal("retry did not repair the rendered page")
+	}
+	if _, exists := store.get(dir + "/.airplan-versions.json"); exists {
+		t.Fatal("upgrade retry created versions metadata")
+	}
+}
+
 func TestUpgradePlanningDoesNotRender(t *testing.T) {
 	store := newUpgradeStore(t)
 	dir := strings.Repeat("w", 26)
@@ -94,7 +162,7 @@ func TestUpgradePlanningDoesNotRender(t *testing.T) {
 		Schema: MarkerSchema, Version: 3, Directory: dir,
 		CreatedAt: time.Now().UTC().Truncate(time.Second), Kind: UploadKindDocument,
 		Slug: "plan", Format: "md", Title: "Plan", Objects: []MarkerObject{
-			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType},
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
 			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
 		},
 	})
@@ -243,6 +311,37 @@ func TestPlanUpgradeClassifiesConflictingMarkersInvalid(t *testing.T) {
 	}
 }
 
+func TestPlanUpgradeRejectsOversizedFetchedPage(t *testing.T) {
+	store := newUpgradeStore(t)
+	dir := strings.Repeat("o", 26)
+	page := bytes.Repeat([]byte("x"), int(maxUpgradePageSize)+1)
+	source := []byte("# Plan\n")
+	marker, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: 3, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second), Kind: UploadKindDocument,
+		Slug: "plan", Format: "md", Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(dir+"/"+MarkerFilename, marker)
+	store.set(dir+"/plan.html", page)
+	store.set(dir+"/plan.md", source)
+
+	_, err = store.client(t, "").PlanUpgradeDocument(
+		context.Background(), dir, UpgradeDocumentOptions{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "exceeds the maximum upgrade size") {
+		t.Fatalf("error = %v, want oversized-page rejection", err)
+	}
+	if store.puts != 0 {
+		t.Fatalf("oversized planning performed %d writes", store.puts)
+	}
+}
+
 func TestBulkUpgradeRejectsInvalidConcurrency(t *testing.T) {
 	client := newUpgradeStore(t).client(t, filepath.Join(t.TempDir(), "manifest.jsonl"))
 	if _, err := client.PlanBulkUpgrade(context.Background(),
@@ -287,6 +386,106 @@ func TestUpgradeDocumentRejectsStalePlan(t *testing.T) {
 	if got, _ := store.get(dir + "/plan.html"); string(got) != string(page) {
 		t.Fatal("page changed after marker conflict")
 	}
+}
+
+func TestUpgradeDocumentReplansSerializedState(t *testing.T) {
+	t.Run("fresh current no-ops after reads", func(t *testing.T) {
+		store := newUpgradeStore(t)
+		dir := strings.Repeat("c", 26)
+		seedV4UpgradeDocument(t, store, dir, "0.8.0",
+			documentRenderRecipe(&Config{MermaidURL: DefaultMermaidURL}, ""))
+		client := store.client(t, "")
+		plan, err := client.PlanUpgradeDocument(context.Background(), dir,
+			UpgradeDocumentOptions{})
+		if err != nil || plan.State != UpgradeStateCurrent {
+			t.Fatalf("plan = %+v, error = %v", plan, err)
+		}
+		serialized := roundTripUpgradePlan(t, *plan)
+		getsBefore := store.getAttempts
+		result, err := client.UpgradeDocument(context.Background(), serialized)
+		if err != nil || result.Upgraded || result.State != UpgradeStateCurrent {
+			t.Fatalf("result = %+v, error = %v", result, err)
+		}
+		if store.getAttempts == getsBefore || store.puts != 0 {
+			t.Fatalf("gets = %d -> %d, puts = %d", getsBefore, store.getAttempts, store.puts)
+		}
+	})
+
+	t.Run("serialized upgradeable applies exact fresh plan", func(t *testing.T) {
+		store := newUpgradeStore(t)
+		dir := strings.Repeat("s", 26)
+		seedV3UpgradeDocument(t, store, dir)
+		client := store.client(t, "")
+		plan, err := client.PlanUpgradeDocument(context.Background(), dir,
+			UpgradeDocumentOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		result, err := client.UpgradeDocument(context.Background(),
+			roundTripUpgradePlan(t, *plan))
+		if err != nil || !result.Upgraded || store.puts != 2 {
+			t.Fatalf("result = %+v, puts = %d, error = %v", result, store.puts, err)
+		}
+	})
+
+	t.Run("fabricated current missing target refuses after reads", func(t *testing.T) {
+		store := newUpgradeStore(t)
+		_, err := store.client(t, "").UpgradeDocument(context.Background(),
+			UpgradeDocumentPlan{
+				Target: strings.Repeat("m", 26), State: UpgradeStateCurrent,
+			})
+		if err == nil || !strings.Contains(err.Error(), "missing") ||
+			store.getAttempts == 0 || store.puts != 0 {
+			t.Fatalf("gets = %d, puts = %d, error = %v", store.getAttempts, store.puts, err)
+		}
+	})
+
+	t.Run("fresh ineligible refuses fabricated current", func(t *testing.T) {
+		store := newUpgradeStore(t)
+		dir := strings.Repeat("n", 26)
+		page := []byte("<html></html>")
+		marker, err := EncodeUploadMarker(UploadMarker{
+			Schema: MarkerSchema, Version: 3, Directory: dir,
+			CreatedAt: time.Now().UTC(), Kind: UploadKindDocument,
+			Slug: "plan", Format: "md", Objects: []MarkerObject{{
+				Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)),
+				ContentType: pageContentType,
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		store.set(dir+"/"+MarkerFilename, marker)
+		store.set(dir+"/plan.html", page)
+		_, err = store.client(t, "").UpgradeDocument(context.Background(),
+			UpgradeDocumentPlan{Target: dir, State: UpgradeStateCurrent})
+		if err == nil || !strings.Contains(err.Error(), "ineligible") || store.puts != 0 {
+			t.Fatalf("puts = %d, error = %v", store.puts, err)
+		}
+	})
+
+	t.Run("fresh invalid refuses fabricated current", func(t *testing.T) {
+		store := newUpgradeStore(t)
+		dir := strings.Repeat("d", 26)
+		seedV3UpgradeDocument(t, store, dir)
+		collection, err := EncodeUploadMarker(UploadMarker{
+			Schema: MarkerSchema, Version: 3, Directory: dir,
+			CreatedAt: time.Now().UTC().Truncate(time.Second),
+			Kind:      UploadKindCollection, Objects: []MarkerObject{
+				{Name: "index.html", Role: MarkerRolePage, Bytes: 1, ContentType: pageContentType},
+				{Name: "file.txt", Role: MarkerRoleFile, Bytes: 1, ContentType: "text/plain"},
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		store.set(dir+"/"+CollectionMarkerFilename, collection)
+		_, err = store.client(t, "").UpgradeDocument(context.Background(),
+			UpgradeDocumentPlan{Target: dir, State: UpgradeStateCurrent})
+		if err == nil || !strings.Contains(err.Error(), "invalid") || store.puts != 0 {
+			t.Fatalf("puts = %d, error = %v", store.puts, err)
+		}
+	})
 }
 
 func TestBulkUpgradeKeepsOrderAndContinuesAfterConflict(t *testing.T) {
@@ -377,7 +576,7 @@ func seedV4UpgradeDocument(
 		CreatedAt: time.Now().UTC().Truncate(time.Second), Kind: UploadKindDocument,
 		Slug: "plan", Format: "md", Producer: Producer{Name: "airplan", Version: producer},
 		Render: recipe, Objects: []MarkerObject{
-			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType},
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
 			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
 		},
 	})
@@ -389,14 +588,30 @@ func seedV4UpgradeDocument(
 	store.set(dir+"/plan.md", source)
 }
 
+func roundTripUpgradePlan(t *testing.T, plan UpgradeDocumentPlan) UpgradeDocumentPlan {
+	t.Helper()
+	body, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded UpgradeDocumentPlan
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	return decoded
+}
+
 type upgradeStore struct {
-	t       *testing.T
-	server  *httptest.Server
-	mu      sync.Mutex
-	objects map[string][]byte
-	etags   map[string]int
-	puts    int
-	putKeys []string
+	t              *testing.T
+	server         *httptest.Server
+	mu             sync.Mutex
+	objects        map[string][]byte
+	etags          map[string]int
+	puts           int
+	putKeys        []string
+	putAttempts    int
+	failPutAttempt int
+	getAttempts    int
 }
 
 func newUpgradeStore(t *testing.T) *upgradeStore {
@@ -439,6 +654,7 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 	defer s.mu.Unlock()
 	switch r.Method {
 	case http.MethodGet:
+		s.getAttempts++
 		body, ok := s.objects[key]
 		if !ok {
 			w.Header().Set("Content-Type", "application/xml")
@@ -460,6 +676,11 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			s.t.Fatal(err)
+		}
+		s.putAttempts++
+		if s.failPutAttempt == s.putAttempts {
+			w.WriteHeader(http.StatusPreconditionFailed)
+			return
 		}
 		s.objects[key] = body
 		s.etags[key]++

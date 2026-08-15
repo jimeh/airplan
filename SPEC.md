@@ -529,7 +529,8 @@ already is the original file.
         "name": "plan.html",
         "role": "page",
         "bytes": 18432,
-        "content_type": "text/html; charset=utf-8"
+        "content_type": "text/html; charset=utf-8",
+        "sha256": "5cd8d993f5ea9ad07d1290e673e32b6ae3e7078190cacceb5f3655071753b6e4"
       },
       {
         "name": "plan.md",
@@ -566,7 +567,8 @@ already is the original file.
         "name": "index.html",
         "role": "page",
         "bytes": 9216,
-        "content_type": "text/html; charset=utf-8"
+        "content_type": "text/html; charset=utf-8",
+        "sha256": "ec328863f41675b9216ed9c398c91162dbea954192fab7435048847a53a0a44b"
       },
       {
         "name": "login.png",
@@ -608,6 +610,13 @@ already is the original file.
   document filename rules. A collection omits `slug` and `format`, uses
   `index.html` as its page, declares no source, and contains one through 100
   `file` objects whose sizes may be zero. Unknown roles or kinds are invalid.
+
+  In v4, the page object additionally requires `sha256`, the lowercase
+  64-hex-character SHA-256 of the exact uploaded page bytes. This durable
+  content identity lets interrupted marker-first operations detect and repair
+  an old page even when it has the same byte length as the replacement. Other
+  objects omit it. Versions 1 through 3 treat `sha256` as an unknown field and
+  never expose it as trusted marker data.
 
 - Unknown marker fields are ignored for forward-compatible extensions.
   Duplicate field names, invalid UTF-8, malformed JSON, unsupported versions,
@@ -759,11 +768,12 @@ begins after config resolution; config loading itself is excluded because the
 config may supply the timeout. Interactive confirmation time is also excluded.
 
 Upload, preview, list, show, get, and delete each receive one timeout budget.
-Local
-purge starts one deletion budget after confirmation. Remote purge receives one
-budget for listing and marker inspection, then a fresh deletion budget after
-confirmation. This prevents human think time from consuming a network budget
-and gives both remote phases the configured opportunity to finish. Operations
+Local purge starts one deletion budget after confirmation. Remote purge
+receives one budget for listing and marker inspection, then a fresh deletion
+budget after confirmation. Bulk upgrade likewise receives one planning budget
+and a fresh execution budget after confirmation. This prevents human think
+time from consuming a network budget and gives each phase the configured
+opportunity to finish. Operations
 that share a phase share its deadline; a large sequential purge may therefore
 complete partially and report the remaining items as failures for retry.
 
@@ -809,11 +819,15 @@ before writing any object.
 `upgrade --check` performs read-only classification. `--force` explicitly
 re-renders an otherwise current target. Planning returns `upgradeable`,
 `current`, `ineligible`, `invalid`, or `missing`, plus the current and target
-marker, producer, and renderer versions. Execution is bound to the marker and
-page ETags observed by planning and rechecks the source ETag and bytes before
-mutation. Planning fails closed when the storage service omits a required ETag.
-It conditionally writes the marker first and
-page last; storage HTTP 409/412 is a conflict that requires a new plan. The REST
+marker, producer, and renderer versions. Execution always replans from live
+storage before deciding to no-op or mutate. A fresh `current` classification
+no-ops; `missing`, `invalid`, or `ineligible` refuses execution. A
+still-upgradeable target must exactly match the submitted marker and page ETags,
+and execution rechecks the source ETag and bytes before mutation. Planning fails
+closed when the storage service omits a required ETag and rejects a fetched page
+larger than 40 MiB rather than classifying truncated bytes.
+It conditionally writes the marker first and page last; storage HTTP 409/412 is
+a conflict that requires a new plan. The REST
 API exposes the same condition as problem code `upgrade_conflict` with status 409. It verifies the
 result before success and appends a manifest `upgrade` event. It never creates,
 deletes, or modifies `.airplan-versions.json`.
@@ -832,9 +846,15 @@ plans shown by that preview, with bounded `--concurrency` (default 4, range
 non-interactive apply requires `--yes`. Independent failures do not cancel
 later items, but any required upgrade failure makes the command non-zero.
 Local S3 mode additionally accepts `--all-profiles`, which loads each named
-profile from current configuration and fails records closed when profile
+profile from current configuration without requiring an active or default
+profile and without letting `AIRPLAN_PROFILE` narrow that inventory. Every
+participating profile must use the S3 backend; a mixed-backend inventory is
+rejected before storage mutation. Records fail closed when profile
 configuration is missing or has drifted. Hosted mode remains scoped to the
-server's one configured S3 profile.
+server's one configured S3 profile. With `--json`, bulk dry-run emits a
+`BulkUpgradePlan`; apply always emits one `BulkUpgradeResult`, including when
+the plan is empty or contains only current documents. Failed apply items retain
+that parseable result on stdout and make the command non-zero.
 
 `--json` output (single line, stable schema):
 
@@ -1835,7 +1855,7 @@ machine) and must be safe:
   connection, never the marker.
   Sync also completes local history in place: for each active, scoped,
   marker-managed record that is missing both `objects` and `total_bytes` and
-  carries a v3 marker version, or a v2 marker version without a source, it
+  carries a v3 or v4 marker version, or a v2 marker version without a source, it
   fetches and inspects that marker and, only
   for a `complete` inspection, appends an enriched upload record carrying the
   record's original time and identity plus the declared totals. Append-only
