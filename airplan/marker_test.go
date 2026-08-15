@@ -98,7 +98,7 @@ func TestUploadMarkerV3IgnoresV4ProvenanceFields(t *testing.T) {
 	}
 	withUnknownFields := strings.Replace(string(body),
 		`"content_type":"text/html; charset=utf-8"`,
-		`"content_type":"text/html; charset=utf-8","sha256":"`+strings.Repeat("c", 64)+`"`, 1)
+		`"content_type":"text/html; charset=utf-8","sha256":{"future":true}`, 1)
 	withUnknownFields = strings.TrimSuffix(withUnknownFields, "}") +
 		`,"producer":{"name":"airplan","version":"99.0.0"},` +
 		`"render":{"generation":99,"template":{"kind":"builtin"}}}`
@@ -109,6 +109,29 @@ func TestUploadMarkerV3IgnoresV4ProvenanceFields(t *testing.T) {
 	if got.Producer != (Producer{}) || got.Render != nil ||
 		got.PageSHA256 != "" || got.Objects[0].SHA256 != "" {
 		t.Fatalf("v3 unknown provenance became trusted: %+v", got)
+	}
+}
+
+func TestUploadMarkerV4RequiresStringLowercasePageSHA(t *testing.T) {
+	t.Parallel()
+	body, err := EncodeUploadMarker(validDocumentMarker())
+	if err != nil {
+		t.Fatal(err)
+	}
+	encodedSHA := `"sha256":"` + strings.Repeat("a", 64) + `"`
+	for _, test := range []struct {
+		name        string
+		replacement string
+	}{
+		{"object value", `"sha256":{"future":true}`},
+		{"uppercase hex", `"sha256":"` + strings.Repeat("A", 64) + `"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			modified := strings.Replace(string(body), encodedSHA, test.replacement, 1)
+			if _, err := DecodeUploadMarker([]byte(modified), markerTestDir); err == nil {
+				t.Fatalf("v4 marker accepted %s sha256", test.name)
+			}
+		})
 	}
 }
 

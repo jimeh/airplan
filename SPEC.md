@@ -849,7 +849,8 @@ Local S3 mode additionally accepts `--all-profiles`, which loads each named
 profile from current configuration without requiring an active or default
 profile and without letting `AIRPLAN_PROFILE` narrow that inventory. Every
 participating profile must use the S3 backend; a mixed-backend inventory is
-rejected before storage mutation. Records fail closed when profile
+rejected before storage mutation. `--all-profiles` cannot be combined with an
+explicit `--profile`. Records fail closed when profile
 configuration is missing or has drifted. Hosted mode remains scoped to the
 server's one configured S3 profile. With `--json`, bulk dry-run emits a
 `BulkUpgradePlan`; apply always emits one `BulkUpgradeResult`, including when

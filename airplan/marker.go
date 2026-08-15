@@ -232,11 +232,11 @@ type markerWire struct {
 }
 
 type markerObjectWire struct {
-	Name        *string `json:"name"`
-	Role        *string `json:"role"`
-	Bytes       *int64  `json:"bytes"`
-	ContentType *string `json:"content_type"`
-	SHA256      *string `json:"sha256"`
+	Name        *string         `json:"name"`
+	Role        *string         `json:"role"`
+	Bytes       *int64          `json:"bytes"`
+	ContentType *string         `json:"content_type"`
+	SHA256      json.RawMessage `json:"sha256"`
 }
 
 // EncodeUploadMarker validates and encodes marker as UTF-8 JSON.
@@ -801,8 +801,13 @@ func decodeMarkerObjects(data json.RawMessage, version int) ([]MarkerObject, err
 			Name: *wire.Name, Role: MarkerRole(*wire.Role), Bytes: *wire.Bytes,
 			ContentType: *wire.ContentType,
 		}
-		if version == MarkerVersion && wire.SHA256 != nil {
-			objects[i].SHA256 = *wire.SHA256
+		if version == MarkerVersion && len(wire.SHA256) > 0 {
+			var digest *string
+			if err := json.Unmarshal(wire.SHA256, &digest); err != nil || digest == nil {
+				return nil, markerInvalid(MarkerErrorInvalidFields,
+					fmt.Errorf("object %d sha256 must be a string", i))
+			}
+			objects[i].SHA256 = *digest
 		}
 	}
 	return objects, nil

@@ -296,6 +296,7 @@ func TestUpgradeFlagBoundariesFailBeforeConfiguration(t *testing.T) {
 		want string
 		args []string
 	}{
+		{"all profiles rejects profile", "cannot be combined with --profile", []string{"upgrade", "--all", "--all-profiles", "--profile", "work"}},
 		{"all profiles requires all", "--all-profiles requires --all", []string{"upgrade", "--all-profiles"}},
 		{"bulk rejects target", "--all does not accept a target", []string{"upgrade", "--all", "target"}},
 		{"single rejects dry run", "require --all", []string{"upgrade", "--dry-run", "target"}},

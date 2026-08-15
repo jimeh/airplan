@@ -47,6 +47,9 @@ func newUpgradeCmd() *cobra.Command {
 }
 
 func runUpgrade(cmd *cobra.Command, args []string, opts *upgradeOptions) error {
+	if opts.allProfiles && cmd.Flags().Changed("profile") {
+		return errors.New("--all-profiles cannot be combined with --profile")
+	}
 	if opts.allProfiles && !opts.all {
 		return errors.New("--all-profiles requires --all")
 	}

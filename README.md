@@ -483,8 +483,9 @@ stored recipe; pass `--template PATH` for a custom replacement or
 `--template=` to return to the built-in template.
 `--all-profiles` inventories configured profiles even when none is selected by
 default and ignores `AIRPLAN_PROFILE` for that inventory; every participating
-profile must use direct S3. With `--json`, dry-run returns a plan while apply
-always returns a result object, including for empty or current-only plans.
+profile must use direct S3. It cannot be combined with an explicit `--profile`.
+With `--json`, dry-run returns a plan while apply always returns a result object,
+including for empty or current-only plans.
 
 ### Preview without uploading
 
