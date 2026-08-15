@@ -22,10 +22,20 @@ const testToken = "01234567890123456789012345678901"
 
 type stubOperations struct {
 	uploadDocument   func(context.Context, DocumentUpload) (UploadResult, error)
+	updateDocument   func(context.Context, UpdateDocumentUpload) (UpdateDocumentResult, error)
 	uploadCollection func(context.Context, CollectionUpload) (UploadResult, error)
 	getUpload        func(context.Context, GetUploadRequest) (Download, error)
 	capabilities     func(context.Context) (Capabilities, error)
 	capabilitiesErr  error
+}
+
+func (s *stubOperations) UpdateDocument(
+	ctx context.Context, request UpdateDocumentUpload,
+) (UpdateDocumentResult, error) {
+	if s.updateDocument == nil {
+		return UpdateDocumentResult{}, errors.New("unexpected UpdateDocument call")
+	}
+	return s.updateDocument(ctx, request)
 }
 
 func (s *stubOperations) Capabilities(ctx context.Context) (Capabilities, error) {
@@ -464,7 +474,7 @@ func TestTypedClientStreamsDocumentAndCleansTempFile(t *testing.T) {
 		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 			t.Fatalf("temp mode = %o, want 600", info.Mode().Perm())
 		}
-		body, err := io.ReadAll(request.Document)
+		body, err := io.ReadAll(file)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -494,6 +504,49 @@ func TestTypedClientStreamsDocumentAndCleansTempFile(t *testing.T) {
 	}
 	if result.ID != "upload-id" {
 		t.Fatalf("upload ID = %q", result.ID)
+	}
+	assertDirEmpty(t, tempDir)
+}
+
+func TestTypedClientStreamsDocumentUpdateAndCleansTempFile(t *testing.T) {
+	tempDir := t.TempDir()
+	operations := &stubOperations{}
+	operations.updateDocument = func(
+		_ context.Context, request UpdateDocumentUpload,
+	) (UpdateDocumentResult, error) {
+		file, ok := request.Document.(*os.File)
+		if !ok {
+			t.Fatalf("document reader type = %T, want *os.File", request.Document)
+		}
+		body, err := io.ReadAll(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.Metadata.Target != "old-id" || string(body) != "# Revised\n" {
+			t.Fatalf("unexpected update: %+v %q", request.Metadata, body)
+		}
+		return UpdateDocumentResult{
+			ID: "new-id", Kind: "document",
+			URL:      "https://example.test/new-id/plan.html",
+			Revision: 2, LatestRevision: 2,
+			Warnings: []string{}, Files: []FileResult{},
+			PreviousURL: "https://example.test/old-id/plan.html",
+		}, nil
+	}
+	handler := newTestHandler(t, operations, Options{TempDir: tempDir})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client := newTestClient(t, server.URL)
+
+	result, err := client.UpdateDocument(context.Background(),
+		UpdateDocumentMetadata{Target: "old-id", Name: "plan.md"},
+		strings.NewReader("# Revised\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ID != "new-id" || result.Revision != 2 ||
+		result.PreviousURL == "" {
+		t.Fatalf("update result = %+v", result)
 	}
 	assertDirEmpty(t, tempDir)
 }

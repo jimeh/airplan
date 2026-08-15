@@ -18,6 +18,13 @@ type (
 	ProtectionResult          = generated.ProtectionResult
 	FileResult                = generated.FileResult
 	UploadResult              = generated.UploadResult
+	UpdateDocumentMetadata    = generated.UpdateDocumentMetadata
+	UpdateDocumentResult      = generated.UpdateDocumentResult
+	UpdateDocumentResultKind  = generated.UpdateDocumentResultKind
+	VersionsMetadata          = generated.VersionsMetadata
+	VersionsRevision          = generated.VersionsRevision
+	VersionsMetadataSchema    = generated.VersionsMetadataSchema
+	VersionsMetadataVersion   = generated.VersionsMetadataVersion
 	InspectedObject           = generated.InspectedObject
 	UploadInspection          = generated.UploadInspection
 	DeleteResult              = generated.DeleteResult

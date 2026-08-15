@@ -138,6 +138,7 @@ func (e ManifestRecordKind) Valid() bool {
 // Defines values for ManifestRecordType.
 const (
 	Delete    ManifestRecordType = "delete"
+	Link      ManifestRecordType = "link"
 	Protect   ManifestRecordType = "protect"
 	Unprotect ManifestRecordType = "unprotect"
 	Upgrade   ManifestRecordType = "upgrade"
@@ -148,6 +149,8 @@ const (
 func (e ManifestRecordType) Valid() bool {
 	switch e {
 	case Delete:
+		return true
+	case Link:
 		return true
 	case Protect:
 		return true
@@ -234,6 +237,24 @@ func (e SyncFailureOperation) Valid() bool {
 	}
 }
 
+// Defines values for UpdateDocumentResultKind.
+const (
+	UpdateDocumentResultKindCollection UpdateDocumentResultKind = "collection"
+	UpdateDocumentResultKindDocument   UpdateDocumentResultKind = "document"
+)
+
+// Valid indicates whether the value is a known member of the UpdateDocumentResultKind enum.
+func (e UpdateDocumentResultKind) Valid() bool {
+	switch e {
+	case UpdateDocumentResultKindCollection:
+		return true
+	case UpdateDocumentResultKindDocument:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for UpgradeState.
 const (
 	UpgradeStateCurrent     UpgradeState = "current"
@@ -312,6 +333,36 @@ func (e UploadResultKind) Valid() bool {
 	case UploadResultKindCollection:
 		return true
 	case UploadResultKindDocument:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VersionsMetadataSchema.
+const (
+	AirplanVersions VersionsMetadataSchema = "airplan-versions"
+)
+
+// Valid indicates whether the value is a known member of the VersionsMetadataSchema enum.
+func (e VersionsMetadataSchema) Valid() bool {
+	switch e {
+	case AirplanVersions:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for VersionsMetadataVersion.
+const (
+	N1 VersionsMetadataVersion = 1
+)
+
+// Valid indicates whether the value is a known member of the VersionsMetadataVersion enum.
+func (e VersionsMetadataVersion) Valid() bool {
+	switch e {
+	case N1:
 		return true
 	default:
 		return false
@@ -418,6 +469,7 @@ type FileResult struct {
 
 // GetUploadRequest defines model for GetUploadRequest.
 type GetUploadRequest struct {
+	Diff     bool   `json:"diff,omitempty"`
 	Source   bool   `json:"source,omitempty"`
 	URLOrKey string `json:"url_or_key"`
 }
@@ -454,6 +506,7 @@ type ManifestRecord struct {
 	Format          string             `json:"format,omitempty"`
 	Key             string             `json:"key"`
 	Kind            ManifestRecordKind `json:"kind,omitempty"`
+	LatestRevision  int                `json:"latest_revision,omitempty"`
 	MarkerKey       string             `json:"marker_key,omitempty"`
 	MarkerVersion   int                `json:"marker_version,omitempty"`
 	Objects         int                `json:"objects,omitempty"`
@@ -464,6 +517,8 @@ type ManifestRecord struct {
 	Reason          string             `json:"reason,omitempty"`
 	RendererVersion int                `json:"renderer_version,omitempty"`
 	RepositoryURL   string             `json:"repository_url,omitempty"`
+	Revision        int                `json:"revision,omitempty"`
+	RevisionChainID string             `json:"revision_chain_id,omitempty"`
 	Slug            string             `json:"slug,omitempty"`
 	SourceKey       string             `json:"source_key,omitempty"`
 	Time            time.Time          `json:"time"`
@@ -529,6 +584,7 @@ type PurgeItemResult struct {
 	Error     string        `json:"error,omitempty"`
 	Protected bool          `json:"protected,omitempty"`
 	UploadID  string        `json:"upload_id"`
+	Versioned bool          `json:"versioned,omitempty"`
 }
 
 // PurgePreview defines model for PurgePreview.
@@ -536,16 +592,18 @@ type PurgePreview struct {
 	Candidates []PurgeCandidate `json:"candidates"`
 	Invalid    int              `json:"invalid"`
 	Protected  []PurgeCandidate `json:"protected"`
+	Versioned  []PurgeCandidate `json:"versioned"`
 	Warnings   []string         `json:"warnings"`
 }
 
 // PurgePreviewRequest defines model for PurgePreviewRequest.
 type PurgePreviewRequest struct {
-	All           bool                      `json:"all,omitempty"`
-	Concurrency   int                       `json:"concurrency,omitempty"`
-	CreatedBefore *time.Time                `json:"created_before,omitempty"`
-	Slug          string                    `json:"slug,omitempty"`
-	Source        PurgePreviewRequestSource `json:"source"`
+	All              bool                      `json:"all,omitempty"`
+	Concurrency      int                       `json:"concurrency,omitempty"`
+	CreatedBefore    *time.Time                `json:"created_before,omitempty"`
+	IncludeVersioned bool                      `json:"include_versioned,omitempty"`
+	Slug             string                    `json:"slug,omitempty"`
+	Source           PurgePreviewRequestSource `json:"source"`
 }
 
 // PurgePreviewRequestSource defines model for PurgePreviewRequest.Source.
@@ -553,7 +611,8 @@ type PurgePreviewRequestSource string
 
 // PurgeRequest defines model for PurgeRequest.
 type PurgeRequest struct {
-	UploadIds []string `json:"upload_ids"`
+	IncludeVersioned bool     `json:"include_versioned,omitempty"`
+	UploadIds        []string `json:"upload_ids"`
 }
 
 // PurgeResult defines model for PurgeResult.
@@ -624,6 +683,45 @@ type TargetRequest struct {
 	URLOrKey string `json:"url_or_key"`
 }
 
+// UpdateDocumentMetadata defines model for UpdateDocumentMetadata.
+type UpdateDocumentMetadata struct {
+	MaxSize int64  `json:"max_size,omitempty"`
+	Name    string `json:"name,omitempty"`
+	Target  string `json:"target"`
+	Title   string `json:"title,omitempty"`
+}
+
+// UpdateDocumentResult defines model for UpdateDocumentResult.
+type UpdateDocumentResult struct {
+	Bucket          string                   `json:"bucket"`
+	Bytes           int64                    `json:"bytes"`
+	ContentType     string                   `json:"content_type"`
+	CreatedAt       time.Time                `json:"created_at"`
+	DiffURL         string                   `json:"diff_url,omitempty"`
+	Files           []FileResult             `json:"files,omitempty"`
+	Format          string                   `json:"format,omitempty"`
+	ID              string                   `json:"id"`
+	Key             string                   `json:"key"`
+	Kind            UpdateDocumentResultKind `json:"kind"`
+	LatestRevision  int                      `json:"latest_revision"`
+	MarkerKey       string                   `json:"marker_key"`
+	MarkerVersion   int                      `json:"marker_version"`
+	PreviousURL     string                   `json:"previous_url,omitempty"`
+	RepositoryURL   string                   `json:"repository_url,omitempty"`
+	Revision        int                      `json:"revision"`
+	RevisionChainID string                   `json:"revision_chain_id,omitempty"`
+	Slug            string                   `json:"slug,omitempty"`
+	SourceKey       string                   `json:"source_key,omitempty"`
+	SourceURL       string                   `json:"source_url,omitempty"`
+	Title           string                   `json:"title,omitempty"`
+	Unchanged       bool                     `json:"unchanged"`
+	URL             string                   `json:"url"`
+	Warnings        []string                 `json:"warnings"`
+}
+
+// UpdateDocumentResultKind defines model for UpdateDocumentResult.Kind.
+type UpdateDocumentResultKind string
+
 // UpgradeDocumentPlan defines model for UpgradeDocumentPlan.
 type UpgradeDocumentPlan struct {
 	Bucket                    string       `json:"bucket,omitempty"`
@@ -667,11 +765,14 @@ type UpgradeState string
 type UploadInspection struct {
 	Bytes           int64                 `json:"bytes"`
 	CreatedAt       *time.Time            `json:"created_at,omitempty"`
+	Diff            *InspectedObject      `json:"diff,omitempty"`
 	Error           string                `json:"error,omitempty"`
 	Files           []InspectedObject     `json:"files"`
 	Format          string                `json:"format,omitempty"`
 	ID              string                `json:"id"`
 	Kind            UploadInspectionKind  `json:"kind,omitempty"`
+	LatestRevision  int                   `json:"latest_revision,omitempty"`
+	LatestURL       string                `json:"latest_url,omitempty"`
 	MarkerKey       string                `json:"marker_key"`
 	MarkerVersion   int                   `json:"marker_version,omitempty"`
 	Objects         int                   `json:"objects"`
@@ -682,9 +783,13 @@ type UploadInspection struct {
 	ProtectedAt     *time.Time            `json:"protected_at,omitempty"`
 	RendererVersion int                   `json:"renderer_version,omitempty"`
 	RepositoryURL   string                `json:"repository_url,omitempty"`
+	Revision        int                   `json:"revision,omitempty"`
+	RevisionChainID string                `json:"revision_chain_id,omitempty"`
+	RevisionError   string                `json:"revision_error,omitempty"`
 	Source          *InspectedObject      `json:"source,omitempty"`
 	State           UploadInspectionState `json:"state"`
 	Title           string                `json:"title,omitempty"`
+	Versions        *VersionsMetadata     `json:"versions,omitempty"`
 	Warnings        []string              `json:"warnings"`
 }
 
@@ -703,28 +808,58 @@ type UploadLimits struct {
 
 // UploadResult defines model for UploadResult.
 type UploadResult struct {
-	Bucket        string           `json:"bucket"`
-	Bytes         int64            `json:"bytes"`
-	ContentType   string           `json:"content_type"`
-	CreatedAt     time.Time        `json:"created_at"`
-	Files         []FileResult     `json:"files,omitempty"`
-	Format        string           `json:"format,omitempty"`
-	ID            string           `json:"id"`
-	Key           string           `json:"key"`
-	Kind          UploadResultKind `json:"kind"`
-	MarkerKey     string           `json:"marker_key"`
-	MarkerVersion int              `json:"marker_version"`
-	RepositoryURL string           `json:"repository_url,omitempty"`
-	Slug          string           `json:"slug,omitempty"`
-	SourceKey     string           `json:"source_key,omitempty"`
-	SourceURL     string           `json:"source_url,omitempty"`
-	Title         string           `json:"title,omitempty"`
-	URL           string           `json:"url"`
-	Warnings      []string         `json:"warnings"`
+	Bucket          string           `json:"bucket"`
+	Bytes           int64            `json:"bytes"`
+	ContentType     string           `json:"content_type"`
+	CreatedAt       time.Time        `json:"created_at"`
+	Files           []FileResult     `json:"files,omitempty"`
+	Format          string           `json:"format,omitempty"`
+	ID              string           `json:"id"`
+	Key             string           `json:"key"`
+	Kind            UploadResultKind `json:"kind"`
+	LatestRevision  int              `json:"latest_revision,omitempty"`
+	MarkerKey       string           `json:"marker_key"`
+	MarkerVersion   int              `json:"marker_version"`
+	RepositoryURL   string           `json:"repository_url,omitempty"`
+	Revision        int              `json:"revision,omitempty"`
+	RevisionChainID string           `json:"revision_chain_id,omitempty"`
+	Slug            string           `json:"slug,omitempty"`
+	SourceKey       string           `json:"source_key,omitempty"`
+	SourceURL       string           `json:"source_url,omitempty"`
+	Title           string           `json:"title,omitempty"`
+	URL             string           `json:"url"`
+	Warnings        []string         `json:"warnings"`
 }
 
 // UploadResultKind defines model for UploadResult.Kind.
 type UploadResultKind string
+
+// VersionsMetadata defines model for VersionsMetadata.
+type VersionsMetadata struct {
+	ChainID              string                  `json:"chain_id"`
+	CurrentRevision      int                     `json:"current_revision"`
+	LastAssignedRevision int                     `json:"last_assigned_revision"`
+	LatestRevision       int                     `json:"latest_revision"`
+	Revisions            []VersionsRevision      `json:"revisions"`
+	Schema               VersionsMetadataSchema  `json:"schema"`
+	Version              VersionsMetadataVersion `json:"version"`
+}
+
+// VersionsMetadataSchema defines model for VersionsMetadata.Schema.
+type VersionsMetadataSchema string
+
+// VersionsMetadataVersion defines model for VersionsMetadata.Version.
+type VersionsMetadataVersion int
+
+// VersionsRevision defines model for VersionsRevision.
+type VersionsRevision struct {
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+	Deleted   bool       `json:"deleted,omitempty"`
+	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	DiffURL   string     `json:"diff_url,omitempty"`
+	Number    int        `json:"number"`
+	URL       string     `json:"url,omitempty"`
+}
 
 // UploadCollectionMultipartBody defines parameters for UploadCollection.
 type UploadCollectionMultipartBody struct {
@@ -736,6 +871,12 @@ type UploadCollectionMultipartBody struct {
 type UploadDocumentMultipartBody struct {
 	Document openapi_types.File `json:"document"`
 	Metadata DocumentMetadata   `json:"metadata"`
+}
+
+// UpdateDocumentMultipartBody defines parameters for UpdateDocument.
+type UpdateDocumentMultipartBody struct {
+	Document openapi_types.File     `json:"document"`
+	Metadata UpdateDocumentMetadata `json:"metadata"`
 }
 
 // ExecutePurgeJSONRequestBody defines body for ExecutePurge for application/json ContentType.
@@ -767,6 +908,9 @@ type DeleteUploadJSONRequestBody = DeleteRequest
 
 // UploadDocumentMultipartRequestBody defines body for UploadDocument for multipart/form-data ContentType.
 type UploadDocumentMultipartRequestBody UploadDocumentMultipartBody
+
+// UpdateDocumentMultipartRequestBody defines body for UpdateDocument for multipart/form-data ContentType.
+type UpdateDocumentMultipartRequestBody UpdateDocumentMultipartBody
 
 // GetUploadJSONRequestBody defines body for GetUpload for application/json ContentType.
 type GetUploadJSONRequestBody = GetUploadRequest
@@ -973,6 +1117,10 @@ type ClientInterface interface {
 	// UploadDocumentWithBody performs a POST /api/v1/uploads/documents (the `UploadDocument` operationId) request,
 	// with any type of body and a specified content type.
 	UploadDocumentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateDocumentWithBody performs a POST /api/v1/uploads/documents/update (the `UpdateDocument` operationId) request,
+	// with any type of body and a specified content type.
+	UpdateDocumentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetUploadWithBody performs a POST /api/v1/uploads/get (the `GetUpload` operationId) request,
 	// with any type of body and a specified content type.
@@ -1349,6 +1497,20 @@ func (c *Client) DeleteUpload(ctx context.Context, body DeleteUploadJSONRequestB
 // with any type of body and a specified content type.
 func (c *Client) UploadDocumentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUploadDocumentRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateDocumentWithBody performs a POST /api/v1/uploads/documents/update (the `UpdateDocument` operationId) request,
+// with any type of body and a specified content type.
+func (c *Client) UpdateDocumentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateDocumentRequestWithBody(c.Server, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1972,6 +2134,35 @@ func NewUploadDocumentRequestWithBody(server string, contentType string, body io
 	return req, nil
 }
 
+// NewUpdateDocumentRequestWithBody constructs an http.Request for the UpdateDocument method, with any body, and a specified content type
+func NewUpdateDocumentRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/v1/uploads/documents/update")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetUploadRequest calls the generic GetUpload builder with application/json body
 func NewGetUploadRequest(server string, body GetUploadJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -2375,6 +2566,12 @@ type ClientWithResponsesInterface interface {
 	//
 	// Returns a wrapper object for the known response body format(s).
 	UploadDocumentWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UploadDocumentResponse, error)
+
+	// UpdateDocumentWithBodyWithResponse performs a POST /api/v1/uploads/documents/update (the `UpdateDocument` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	UpdateDocumentWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateDocumentResponse, error)
 
 	// GetUploadWithBodyWithResponse performs a POST /api/v1/uploads/get (the `GetUpload` operationId) request,
 	// with any type of body and a specified content type.
@@ -3067,6 +3264,54 @@ func (r UploadDocumentResponse) ContentType() string {
 	return ""
 }
 
+type UpdateDocumentResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *UpdateDocumentResult
+	// ApplicationProblemJSONDefault the response for an HTTP default `application/problem+json` response
+	ApplicationProblemJSONDefault *Problem
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r UpdateDocumentResponse) GetJSON201() *UpdateDocumentResult {
+	return r.JSON201
+}
+
+// GetApplicationProblemJSONDefault returns the response for an HTTP default `application/problem+json` response
+func (r UpdateDocumentResponse) GetApplicationProblemJSONDefault() *Problem {
+	return r.ApplicationProblemJSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateDocumentResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateDocumentResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateDocumentResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateDocumentResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // GetUploadResponse200Headers the declared response headers of an HTTP 200 response for GetUpload
 type GetUploadResponse200Headers struct {
 	ContentDisposition string
@@ -3629,6 +3874,18 @@ func (c *ClientWithResponses) UploadDocumentWithBodyWithResponse(ctx context.Con
 	return ParseUploadDocumentResponse(rsp)
 }
 
+// UpdateDocumentWithBodyWithResponse performs a POST /api/v1/uploads/documents/update (the `UpdateDocument` operationId) request,
+// with any type of body and a specified content type.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) UpdateDocumentWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateDocumentResponse, error) {
+	rsp, err := c.UpdateDocumentWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateDocumentResponse(rsp)
+}
+
 // GetUploadWithBodyWithResponse performs a POST /api/v1/uploads/get (the `GetUpload` operationId) request,
 // with any type of body and a specified content type.
 //
@@ -4184,6 +4441,39 @@ func ParseUploadDocumentResponse(rsp *http.Response) (*UploadDocumentResponse, e
 	return response, nil
 }
 
+// ParseUpdateDocumentResponse parses an HTTP response from a UpdateDocumentWithResponse call
+func ParseUpdateDocumentResponse(rsp *http.Response) (*UpdateDocumentResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateDocumentResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest UpdateDocumentResult
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Problem
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.ApplicationProblemJSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetUploadResponse parses an HTTP response from a GetUploadWithResponse call
 func ParseGetUploadResponse(rsp *http.Response) (*GetUploadResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -4444,6 +4734,9 @@ type ServerInterface interface {
 	// (POST /api/v1/uploads/documents)
 	UploadDocument(w http.ResponseWriter, r *http.Request)
 
+	// (POST /api/v1/uploads/documents/update)
+	UpdateDocument(w http.ResponseWriter, r *http.Request)
+
 	// (POST /api/v1/uploads/get)
 	GetUpload(w http.ResponseWriter, r *http.Request)
 
@@ -4645,6 +4938,20 @@ func (siw *ServerInterfaceWrapper) UploadDocument(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UploadDocument(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpdateDocument operation middleware
+func (siw *ServerInterfaceWrapper) UpdateDocument(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpdateDocument(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4862,6 +5169,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/openapi.yaml", wrapper.GetOpenAPI)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/api/v1/capabilities", wrapper.GetCapabilities)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/documents", wrapper.UploadDocument)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/documents/update", wrapper.UpdateDocument)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/collections", wrapper.UploadCollection)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/inspect", wrapper.InspectUpload)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/api/v1/uploads/get", wrapper.GetUpload)
@@ -5387,6 +5695,45 @@ func (response UploadDocumentdefaultApplicationProblemPlusJSONResponse) VisitUpl
 	return err
 }
 
+type UpdateDocumentRequestObject struct {
+	Body *multipart.Reader
+}
+
+type UpdateDocumentResponseObject interface {
+	VisitUpdateDocumentResponse(w http.ResponseWriter) error
+}
+
+type UpdateDocument201JSONResponse UpdateDocumentResult
+
+func (response UpdateDocument201JSONResponse) VisitUpdateDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UpdateDocumentdefaultApplicationProblemPlusJSONResponse struct {
+	Body       Problem
+	StatusCode int
+}
+
+func (response UpdateDocumentdefaultApplicationProblemPlusJSONResponse) VisitUpdateDocumentResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetUploadRequestObject struct {
 	Body *GetUploadJSONRequestBody
 }
@@ -5682,6 +6029,9 @@ type StrictServerInterface interface {
 
 	// (POST /api/v1/uploads/documents)
 	UploadDocument(ctx context.Context, request UploadDocumentRequestObject) (UploadDocumentResponseObject, error)
+
+	// (POST /api/v1/uploads/documents/update)
+	UpdateDocument(ctx context.Context, request UpdateDocumentRequestObject) (UpdateDocumentResponseObject, error)
 
 	// (POST /api/v1/uploads/get)
 	GetUpload(ctx context.Context, request GetUploadRequestObject) (GetUploadResponseObject, error)
@@ -6123,6 +6473,37 @@ func (sh *strictHandler) UploadDocument(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+// UpdateDocument operation middleware
+func (sh *strictHandler) UpdateDocument(w http.ResponseWriter, r *http.Request) {
+	var request UpdateDocumentRequestObject
+
+	if reader, err := r.MultipartReader(); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode multipart body: %w", err))
+		return
+	} else {
+		request.Body = reader
+	}
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UpdateDocument(ctx, request.(UpdateDocumentRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UpdateDocument")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UpdateDocumentResponseObject); ok {
+		if err := validResponse.VisitUpdateDocumentResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetUpload operation middleware
 func (sh *strictHandler) GetUpload(w http.ResponseWriter, r *http.Request) {
 	var request GetUploadRequestObject
@@ -6300,71 +6681,77 @@ func (sh *strictHandler) GetOpenAPI(w http.ResponseWriter, r *http.Request) {
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"3Fxbc9u4kv4rKO552pVkZ25b8VtOMnPWtUnFZSdbWxV7VRDRknBMAhwAtM1J+b9v4caLCFKkLMpz5iXl",
-	"iATQ6P660TfiexTzNOMMmJLRxfdIgMw4k2D+cyX4KoFU/xlzpoAp/SfOsoTGWFHOzjL7xn/8U3Kmn8l4",
-	"CynWf/1NwDq6iP7trJr/zD6VZ37e5+fnWURAxoJmerroIrr+7T16+9PP/4nczIiAwjSRi0i/6ybQ8/89",
-	"T+6/ZhuBCVwqSK9B5okljxCqJ8PJleAZCEX1ZtY4kTCLstpP3yMQggv9hyoyiC4iqQRlm+h5FmUJZvt2",
-	"4Vb/wOM8Baau9JDnmeago2TEYEf+LHqab/hckzOX9zSb88xuZZ5xyhQIt5Fns87vORVAootvlty7md8H",
-	"X/0TYqWJqXHps5lKjmRRzFmcCwEsLvR/U/xE0zyNLn78YRallNn/vClX1kRuQBhh9RFz5fg7ipLcYTQ8",
-	"6HtFz3mbngA5VEFqxpV/HCBtNysWAhf6/49YMMo2zXlb8GqO2hGmHTbzG94j1mv4PQepTiTWSbgW3P/e",
-	"bR+g72tME73GPqiM22PYEgWwkduX9hLQgYdy+MxvJMSj9zjDK5pQv+cR7MEZXT6AkNTacmCavm/Rw5va",
-	"QhWGE5pSNQAACcfko333eRalWNyD8Ms0mdwPvF1uasqxak2yR9dmkQTxUFEQHJIbopdrLlKsmtN7pqRa",
-	"DFuVJtEsUk8qyKFelNeZ3SKqsbsWPSXv2+wMIoInCcR6rk+gMMEKj8RFip+Wkv4BRoUMDVYyv/wU7bMW",
-	"eqjiCieHTiAg45IqLoplLpLGBLmgUYjrVCUQEGvoCPgACagDTeiai9isQ2CNjS1yr7lVVpwnYM1dLpIl",
-	"F8t7KBzMPwLbqG19yzUq6yipjbzrof8AW0hJEPr3UIzUp3vKSF0ziLP15gTzyAvqhwOvY0vbB8Mb6Hx4",
-	"jHNWq7DZb22tBlVuc7XVgkJwGz5Quzyex9mWBLNNcMsvUFaGU3D67gH6w88/BxYfr5QyycPkjtHW32hy",
-	"GNZXhWryus2QoB/ggp6lfRLWluDvnpPtk2UIu3ZwaiazQ+2KM7ehHQJD2PwHKHsCH2bjJM9f38j9F+BE",
-	"zzOOcoVV3jix+X1AkXYocaNCVFwymUGsgHy2P50GgfBEparbthrD4ckStDx8cjfBPeOPLLxIF8IPAbLF",
-	"rttSBeKdfbToCknjE2Z0DVJ9pKMxLSDmggx37/1S12bcRDGfJ2rPUbNDy0gM5vE9qCBt3QgKGEUBWAvH",
-	"nlnlAIIVzBU1pqo5/+Ckxqx2Fg42tZO5H03XuvZKjRdWMgOCl0xwksd7wo5McAWxWgrAsv8VIGFtLR9P",
-	"Ip0eugQwAqK5v2M79p0+hD2lOgVptj2MGT0OySyyccwAY9sTvlY4tTFdFdZHs4gYbz4qxagfMv93CMGH",
-	"GGHz1DHFalXI0NQyv6OySsTsMcNKgWDRRfR/3/D8jzv9z/n87fLu3/8WYrlN8QZ5TplUmMWwu825gDUI",
-	"0E9mQxSpmWR+Rx6o5KJAWS42MHevU86QHYFwrA8CzArKNkhtAbkIvNQvpLc6Q49bYOa5BKYogwStOClQ",
-	"zPOEoBXo6cjCxBQ1j/qXoEdt3LNlR1RWeTNlpu7nt29rkPvpPJzz7Aazg+Nh2NGzllTNrNwbm+jAlGbe",
-	"YZ5oJcq9vJzMEb0qcXLUiPtV4uc/60HiFWnywL8R5jdWbWQDXAKgYtceD+1KW5T3mBGqOTUWITbGcOfn",
-	"/rTqZfX+KO5753Gc2+tsYAeMjyCXaoGSyCHcPrj8Z8/bvZxoJNlG8LmnutivfH2M7mRZJ3uuBDxQeBx7",
-	"lHsIDw+UdqAfCJQoe8AJHVCAaTDoSIsfAaA1pjRNgt/YELg6eRx2DOIkGZaN6Srw/fLTPkfVx3crWHMB",
-	"xzf+e9z4RiLU2SDja3CBNzAghWNn6WT/YXwv9axVsep2LgyjL+2rb3aQpT17+nsO7rESOXSqtuzbzCF+",
-	"yKjq5q6JPbx6ew0pV2BPrtMlcNcJjVXYznaXQF69NJJgqZYpJ3RNrREcFrzu8QhD6Yr99rfNuE4VPiQg",
-	"bXtjzucqhde0ta5i4/dS5RGbPAsh8MYakQOShlYZh2tNA+vTHEaepD1nzk3B4t8wTXIBR+uO2gczX7uu",
-	"Y38NKt46qVKRLvFKmvB9r0FvQKOa2vtXXXs+bl/M/mOTiGIpcjbsdM5EzgaVVZ47d3eA4ceEAFkeP/+t",
-	"B5nMVdBYEFiDEEPaboAJGm8nIXFtNWD4lHW1CXqy9U3v6SYa6fVSzibggACFKRsiBsXTlVScwQRU5Cze",
-	"YrYZQsYRTGQT8AGAhTYblEOd8hqkG0CohwElt2vQq22ppjMh+/UFiw0cmCibLPsVauU7WgHKGl21HFJ0",
-	"8e8Oqqn4l8sCxQZY7XRqz1629bQtmSMOFN4cciyarFLn4N5sXV/CzBY/OufdUxyRyqWpBnRx3igfWht8",
-	"hvXRPArIcU91xA4bJFL3bodE+9dxDuqeNLfdnmdO16a6qe6lcYBuHXS691bnhrWk20YRH+YdBI16j2vA",
-	"mWnWvF1GzbO5HNvDIm12Xtiv11bsCs9j7KUb1UPsjedgVfQzv+OVqZ8422QODkjohtqfq1MkpVLqlUMR",
-	"YisDfKKIesLqf3fAsabJCN9tt1Un5A92NxqcukzTYyqDEhgexOMNjGXVCGn9RVoaTtC3UOY1J5KE3DUz",
-	"DZc04J/ejep7OIIj7i18O9fTTuNYXd+T1Wh8VjA2xPfautRLHdzQUZvnZZ0h3pIcOMEOq3dmm3Xst5P+",
-	"bm4f1np7SNPZC7tyJ+1QG3US1TqWj3MIvX4T3J+lq8s9fuFHIQNT1kf83sDmthvN3FZFOrq6G3BuCWTH",
-	"mvbYTNNbEeeCquJGo9OpJ2AB4l1u+6ubXVLae6Ux0h5oAvNcgkD2MyWk+D2wReS+xzUHtpmnYtxWqcx+",
-	"3kvZmgfmrk367uoSrblAdifzFDO8AYLeUZElmLnWK7lA5ZdtBfp6/VEizMgts9tD91BIhIVtxEKUIdeL",
-	"hFacUJBIcqS2UCDCEeMK4SwDLPR7OI5ByluW8I1coC+mlcvskUpEjRiMIUgKzwffkaYHOymgN4tbVvZF",
-	"XUSe8ndXl9EsKnUnerM4X5y7BDnDGY0uoh8X54sfTceJ2hqBnOGMnj28OYt3PuNz8UmZ/74k0UX0D1CN",
-	"z/1mzc+3fzg/7/l0e9wn2411At9t3+B1yTrTO6eok5UGgNYtytnC5YNxTzRa7qD2lbiO0LTqfYtkIRWk",
-	"0Z3+zbPKNPGZtkNug8ImZVcgUqznTgpkOz6kadmDJ80LqhzA0OUHifBagUACjJuEFWUbBA8gilvGHxkI",
-	"uaWZg+kCfcT6XRsEWuxhpSDNFBA3D2ZImwrkMoAWJE0J/voEca7AFFmrDrq/c1IcTXKNqvdz0yiZuvOE",
-	"qKkXqQOg+VXzFmUg5k4GMjfqiLgomfZiyISaCFrwOcuqLpkOGCWYSVR1gKBHqrY8VxZTGimYFWpL2WbR",
-	"krJr+ZhcyjutJa8hbN9tFJJ2QOF82sMcAHYoEMfSY9iLfcJ3P57V6rvO0jZp/0ilkk716yBYC54izgAR",
-	"KvQ55OZDkuFMbrlqY0HP5OrQX8sK7mQyqVe8AyL5eHnzZU5A0AcgXizV7o5groM8L1hc17Mmf24KFn+q",
-	"pDaFrtTLwyfWkVrtNiAObWMYEG3+zBJAkICYs5gm1Kw2Q5TFSU60ufF1pemVxGUtZbdxfGeolYizpHCH",
-	"K461opfpTpQZ+ylzt69VgZzJXXQdirV7FSYCQuAajRPjoX2jRQAWnwUBAcQclMah4LmKeXpk0XsTGBT9",
-	"GViZdEPgGqyEE/oAyOR7ZhoJzCFZIoykokkyr4PCwsQ4ywHXiyqJfv2CN7ITIr5gMi1MgpeYnBYn4QJR",
-	"ACtfzMcqto6CfBrg5TjpB4e/LSmMjPcJlpKurX0AZAP3+QrH90DQJyzuCX/0YV7pVT0KqsK+VILZScVe",
-	"rzi9rtQr4O1YX6tBK54zgpSJdBH16WTvtGBGUKZdE6dREyNinztdAwWOlbEZJnice4uEXOvFMESc9Kzw",
-	"N2m93lnRhQR/UpQ+HIodn+2KJzkx+j3pa8BEum/mTLagFLgXtGaWxgTbeHd6gazBM2H2LZMxz6BEupsm",
-	"E3xNE5ghm06bGcDfg3Ez1vQpFHxrr9i7mifwxRvfrIfU2OqBpntL9c5pjBPkNrurFkcUZEh8Z1XaWHb7",
-	"6pZp1f1CvaqX5omiGRbqbM1FOvc3pQCLufZnzSu1G1TcyC8uo7rL9eo2wLFtAK0Efpn6XVGGRRGNauTX",
-	"D2tU96bQ2vcwtXpd/QNfaAjkcQfYnDdHPIHqPSFhd6OCCnrEErmSKjFAtnACMtl5Y9HqvpwelQPUvshO",
-	"ytlOt0BXuDDzmqye+0rsltkPYozN2c0Gmr3qB3U1Bfpg3N6yxXBxy941Pzmuom6qGbfOpf6FJSAlMv0q",
-	"+nct45D5st+lffXfkU9x6DXvxzrxedf47q7T1bVeI5ZeTsgkkmzQrEEoEU4EYFIg03Gupkai89X2Ws0P",
-	"VYnuT28zy3LiQGs50CC2Ls7qMYclCf8KFtET+2r20HleYfyVd0JNZDRad0692G7wWIGaSyUAp0069qIx",
-	"FC05q08gTrDJq+ANzFxcOkMppCsQM1RWJHXEsQVMQBhS31sa5x+oNLVuusubdtegH/LFdSz0vfu/c1c+",
-	"nNtGoPl/2wJ495jnSaHkAsluOLnGpUkh1WyIP3kUvtNpGQDV/9isVRlu77gUNiE2sdL7m2I6vaBPWNz3",
-	"+D36rNz1TlaFj7sRVfKW1a5KKa88sXZ4gfz1GKYUVp66u57OLTNFPiCmgI8E6PlBNm5RCXk7bvZJYbZz",
-	"Q8mp62e714v0+zy0Ja2J8VXdRdSTBE65dnoNYagGlrJOFkbeqijLqLeMKon6cPa1RKFFWklXAGMhJJXj",
-	"/7omazyUGEcJZxsQU4Nqa25z/KOzp8Xd9jghc9wKHSzJBDctCFQHDvThBUbbt1tFF9/uOjpYXCPQosBp",
-	"0tfl8zkDZruJRnDFT9rjOYQYYGsybkXnFSHtExECBFGG1JZKZP2t6ZjTfKXZqPbt7vnOX5ktzVPTxBed",
-	"Rc/VXN/dJax+zudZ+YsHZO2nMhlW+83XQp/vnv8/AAD//w==",
+	"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",
+	"uD/8XwAAAP//",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

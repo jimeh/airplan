@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.34.0.
+may contradict it. Targets spec version 0.35.0.
 
 ---
 
@@ -254,6 +254,13 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   case. Ordinary uploads therefore gain revision readiness without uploading a
   versions object; revision linkage can add that object later without replacing
   the page.
+- `versions.go`, `diff.go`, and `update.go` implement linked Markdown history.
+  Markers carry immutable chain descriptors and diff inventory, while the
+  separately versioned 64 KiB metadata index is conditionally replicated to
+  each live member. The old latest metadata write is the append serialization
+  point; candidates created before a lost race use scoped rollback. Adjacent
+  exact source bytes are diffed with pure-Go go-difflib and Chroma renders the
+  immutable diff into the built-in page's Changes view.
 - Collection storage: `UploadFiles` accepts known-size `io.ReadSeeker` members,
   keeps inputs stable through preflight and sequential retryable PUTs, limits
   each reader to its declaration, and uploads the overview last. `GetUploadTo`

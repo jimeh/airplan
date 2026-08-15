@@ -73,6 +73,30 @@ func TestUpgradeApplyPrintsOnlyStableURL(t *testing.T) {
 	}
 }
 
+func TestUpdatePrintsOnlyNewRevisionURLAndJSONDescribesChain(t *testing.T) {
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, nil, nil, nil)
+	dir := strings.Repeat("u", 26)
+	seedCLICurrentDocument(t, fake, dir)
+	config := writeCLIConfig(t, fake.server.URL)
+	target := "https://plans.example.com/" + dir + "/plan.html"
+
+	stdout, stderr, err := executeCommand(t, "# Plan\n\nRevised.\n", "",
+		"update", "--json", "--config", config, target)
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	var result airplan.UpdateDocumentResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("stdout = %q: %v", stdout, err)
+	}
+	if result.URL == "" || result.URL == target || result.Revision != 2 ||
+		result.LatestRevision != 2 || result.PreviousURL != target ||
+		result.DiffURL == "" || result.Unchanged {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
 func TestBulkUpgradeJSONReportsFailureWithNonzeroStatus(t *testing.T) {
 	isolateEnv(t)
 	fake := newFakeRemoteS3(t, nil, nil, nil)

@@ -396,7 +396,7 @@ func TestListTableWideShowsEveryLocalColumn(t *testing.T) {
 	table.assertHeader(t,
 		"DATE", "PROFILE", "STATE", "KIND", "TITLE", "SLUG",
 		"OBJECTS", "SIZE", "PAGE SIZE", "DIRECTORY", "FORMAT", "AIRPLAN",
-		"RENDERER", "REPO", "BUCKET", "URL",
+		"RENDERER", "REVISION", "LATEST", "REPO", "BUCKET", "URL",
 	)
 	table.assertColumn(t, "KIND", "document", "collection")
 	table.assertColumn(t, "SLUG", "plan", "-")
@@ -496,7 +496,7 @@ func TestListColumnFlagErrors(t *testing.T) {
 			[]string{"--columns", "nope"},
 			"valid columns: date, profile, state, kind, title, slug, " +
 				"objects, size, page-size, dir, format, airplan, renderer, " +
-				"repo, bucket, url",
+				"revision, latest, repo, bucket, url",
 		},
 		{
 			"mixed absolute and additive syntax",

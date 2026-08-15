@@ -12,6 +12,11 @@ type DocumentUpload struct {
 	Document io.Reader
 }
 
+type UpdateDocumentUpload struct {
+	Metadata UpdateDocumentMetadata
+	Document io.Reader
+}
+
 // CollectionFile is one mode-0600 spooled collection member.
 type CollectionFile struct {
 	Name        string
@@ -41,6 +46,7 @@ type Download struct {
 type Operations interface {
 	Capabilities(context.Context) (Capabilities, error)
 	UploadDocument(context.Context, DocumentUpload) (UploadResult, error)
+	UpdateDocument(context.Context, UpdateDocumentUpload) (UpdateDocumentResult, error)
 	UploadCollection(context.Context, CollectionUpload) (UploadResult, error)
 	PlanDocumentUpgrade(context.Context, UpgradePlanRequest) (UpgradeDocumentPlan, error)
 	ExecuteDocumentUpgrade(context.Context, UpgradeDocumentPlan) (UpgradeDocumentResult, error)

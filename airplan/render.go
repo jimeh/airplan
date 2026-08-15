@@ -189,6 +189,13 @@ type RenderOptions struct {
 	// template takes full responsibility for the page: styles,
 	// noindex meta, and any interactivity.
 	Template *template.Template
+
+	Revision         int
+	RevisionCount    int
+	PreviousRevision int
+	VersionsPath     string
+	DiffPath         string
+	DiffText         string
 }
 
 // newMarkdown builds the goldmark instance implementing the dialect of
@@ -343,6 +350,13 @@ func renderMarkdown(
 			return nil, err
 		}
 	}
+	var highlightedDiff template.HTML
+	if opts.DiffText != "" {
+		highlightedDiff, _, err = highlightSource([]byte(opts.DiffText), DiffFilename, "diff")
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	return renderPage(TemplateData{
 		RenderedHTML:               template.HTML(body.String()),
@@ -358,6 +372,13 @@ func renderMarkdown(
 		FrontMatterTitle:           frontMatter.title,
 		HighlightedFrontMatterHTML: highlightedFrontMatter,
 		RepositoryURL:              opts.RepositoryURL,
+		Revision:                   opts.Revision,
+		RevisionCount:              opts.RevisionCount,
+		PreviousRevision:           opts.PreviousRevision,
+		VersionsPath:               opts.VersionsPath,
+		DiffPath:                   opts.DiffPath,
+		DiffText:                   opts.DiffText,
+		HighlightedDiffHTML:        highlightedDiff,
 	}, opts)
 }
 
@@ -405,6 +426,12 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 	data.Indexable = opts.Indexable
 	data.NoExternalAssets = opts.NoExternalAssets
 	data.MermaidURL = opts.MermaidURL
+	data.Revision = opts.Revision
+	data.RevisionCount = opts.RevisionCount
+	data.PreviousRevision = opts.PreviousRevision
+	data.VersionsPath = opts.VersionsPath
+	data.DiffPath = opts.DiffPath
+	data.DiffText = opts.DiffText
 	if data.SourceName == "" {
 		data.SourceName = opts.SourceName
 	}

@@ -315,6 +315,9 @@ func (c *Client) syncImport(
 		MarkerVersion:   inspection.MarkerVersion,
 		ProducerVersion: inspection.ProducerVersion,
 		RendererVersion: inspection.RendererGeneration,
+		RevisionChainID: inspection.RevisionChainID,
+		Revision:        inspection.Revision,
+		LatestRevision:  inspection.LatestRevision,
 	}
 	if inspection.Kind == UploadKindDocument {
 		record.Slug, _ = pageSlug(path.Base(inspection.Page.Key))
@@ -335,6 +338,8 @@ func (c *Client) syncImport(
 	}
 	if len(inspection.Warnings) > 0 {
 		result.warning = inspection.Warnings[0]
+	} else if inspection.RevisionError != "" {
+		result.warning = inspection.RevisionError
 	}
 	return result
 }

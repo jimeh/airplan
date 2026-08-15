@@ -158,6 +158,28 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		}
 	})
 
+	t.Run("linked revision includes picker context and highlighted changes", func(t *testing.T) {
+		out := render(t, src, RenderOptions{
+			Title: "Hi", SourceName: "plan.md", SourcePath: "./plan.md",
+			Revision: 2, RevisionCount: 3, PreviousRevision: 1,
+			VersionsPath: VersionsFilename, DiffPath: "./" + DiffFilename,
+			DiffText: "--- revision-1/plan.md\n+++ revision-2/plan.md\n@@ -1 +1 @@\n-old\n+new\n",
+		})
+		for _, fragment := range []string{
+			`<meta name="airplan-revision" content="2">`,
+			`data-current-revision="2"`,
+			`Revision 2 of 3`,
+			`data-view="changes"`,
+			`class="content changes-view"`,
+			`href="./.airplan-changes.diff"`,
+			`Changes from revision 1`,
+		} {
+			if !strings.Contains(out, fragment) {
+				t.Errorf("revision page missing %q", fragment)
+			}
+		}
+	})
+
 	t.Run("title is escaped", func(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "a <b> & c"})
 		if !strings.Contains(out, "<title>a &lt;b&gt; &amp; c</title>") {

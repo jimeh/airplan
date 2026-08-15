@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -602,16 +603,21 @@ func roundTripUpgradePlan(t *testing.T, plan UpgradeDocumentPlan) UpgradeDocumen
 }
 
 type upgradeStore struct {
-	t              *testing.T
-	server         *httptest.Server
-	mu             sync.Mutex
-	objects        map[string][]byte
-	etags          map[string]int
-	puts           int
-	putKeys        []string
-	putAttempts    int
-	failPutAttempt int
-	getAttempts    int
+	t                       *testing.T
+	server                  *httptest.Server
+	mu                      sync.Mutex
+	objects                 map[string][]byte
+	etags                   map[string]int
+	puts                    int
+	putKeys                 []string
+	putAttempts             int
+	failPutAttempt          int
+	failPutSuffix           string
+	getAttempts             int
+	conditionalBarrier      chan struct{}
+	conditionalBarrierCount int
+	ifMatchBarrier          chan struct{}
+	ifMatchBarrierCount     int
 }
 
 func newUpgradeStore(t *testing.T) *upgradeStore {
@@ -650,10 +656,52 @@ func (s *upgradeStore) get(key string) ([]byte, bool) {
 
 func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.URL.Path, "/plans/")
+	if r.Method == http.MethodPut && r.Header.Get("If-None-Match") == "*" {
+		s.mu.Lock()
+		barrier := s.conditionalBarrier
+		if barrier != nil {
+			s.conditionalBarrierCount++
+			if s.conditionalBarrierCount == 2 {
+				close(barrier)
+			}
+		}
+		s.mu.Unlock()
+		if barrier != nil {
+			<-barrier
+		}
+	}
+	if r.Method == http.MethodPut && r.Header.Get("If-Match") != "" {
+		s.mu.Lock()
+		barrier := s.ifMatchBarrier
+		if barrier != nil {
+			s.ifMatchBarrierCount++
+			if s.ifMatchBarrierCount == 2 {
+				close(barrier)
+			}
+		}
+		s.mu.Unlock()
+		if barrier != nil {
+			<-barrier
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch r.Method {
 	case http.MethodGet:
+		if r.URL.Query().Get("list-type") == "2" {
+			prefix := r.URL.Query().Get("prefix")
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(w, `<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>`)
+			for objectKey, objectBody := range s.objects {
+				if strings.HasPrefix(objectKey, prefix) {
+					_, _ = fmt.Fprintf(w, "<Contents><Key>%s</Key><Size>%d</Size>"+
+						"<LastModified>2026-08-15T12:00:00Z</LastModified></Contents>",
+						objectKey, len(objectBody))
+				}
+			}
+			_, _ = io.WriteString(w, `</ListBucketResult>`)
+			return
+		}
 		s.getAttempts++
 		body, ok := s.objects[key]
 		if !ok {
@@ -673,6 +721,12 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusPreconditionFailed)
 			return
 		}
+		if r.Header.Get("If-None-Match") == "*" {
+			if _, exists := s.objects[key]; exists {
+				w.WriteHeader(http.StatusPreconditionFailed)
+				return
+			}
+		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			s.t.Error(err)
@@ -680,7 +734,9 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.putAttempts++
-		if s.failPutAttempt == s.putAttempts {
+		if s.failPutAttempt == s.putAttempts ||
+			(s.failPutSuffix != "" && strings.HasSuffix(key, s.failPutSuffix)) {
+			s.failPutSuffix = ""
 			w.WriteHeader(http.StatusPreconditionFailed)
 			return
 		}
@@ -690,6 +746,27 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 		s.putKeys = append(s.putKeys, key)
 		w.Header().Set("ETag", `"updated"`)
 		w.WriteHeader(http.StatusOK)
+	case http.MethodPost:
+		var request struct {
+			Objects []struct {
+				Key string `xml:"Key"`
+			} `xml:"Object"`
+		}
+		if err := xml.NewDecoder(r.Body).Decode(&request); err != nil {
+			s.t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		for _, object := range request.Objects {
+			delete(s.objects, object.Key)
+			delete(s.etags, object.Key)
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = io.WriteString(w, `<?xml version="1.0"?><DeleteResult></DeleteResult>`)
+	case http.MethodDelete:
+		delete(s.objects, key)
+		delete(s.etags, key)
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}

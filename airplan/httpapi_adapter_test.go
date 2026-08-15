@@ -17,6 +17,28 @@ import (
 	"github.com/jimeh/airplan/internal/httpapi"
 )
 
+func TestHTTPAPIUpdatesDocumentThroughOperationFacade(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operations := &HTTPOperations{Client: client, ServerVersion: "test"}
+	result, err := operations.UpdateDocument(context.Background(), httpapi.UpdateDocumentUpload{
+		Metadata: httpapi.UpdateDocumentMetadata{Target: first.URL, Name: "plan.md"},
+		Document: strings.NewReader("two\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Revision != 2 || result.LatestRevision != 2 || result.Unchanged || result.DiffURL == "" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
 func TestHTTPAPIPlansDocumentUpgradeThroughOperationFacade(t *testing.T) {
 	store := newUpgradeStore(t)
 	dir := strings.Repeat("r", 26)
@@ -470,6 +492,16 @@ func TestAPIOperationErrorClassifiesUpgradeConflict(t *testing.T) {
 	if !errors.As(got, &problem) ||
 		problem.Problem.Status != http.StatusConflict ||
 		problem.Problem.Code != "upgrade_conflict" {
+		t.Fatalf("problem = %+v, error = %v", problem, got)
+	}
+}
+
+func TestAPIOperationErrorClassifiesRevisionConflict(t *testing.T) {
+	got := apiOperationError(&revisionAppendConflictError{err: ErrConflict})
+	var problem *httpapi.ProblemError
+	if !errors.As(got, &problem) ||
+		problem.Problem.Status != http.StatusConflict ||
+		problem.Problem.Code != "revision_conflict" {
 		t.Fatalf("problem = %+v, error = %v", problem, got)
 	}
 }

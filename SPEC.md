@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.34.0**
+**Spec version: 0.35.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -543,7 +543,7 @@ already is the original file.
     "repo": "https://github.com/acme/service",
     "producer": { "name": "airplan", "version": "0.8.0" },
     "render": {
-      "generation": 1,
+      "generation": 2,
       "template": { "kind": "builtin" },
       "indexable": false,
       "no_external_assets": false,
@@ -581,7 +581,7 @@ already is the original file.
     "repo": "https://github.com/acme/service",
     "producer": { "name": "airplan", "version": "0.8.0" },
     "render": {
-      "generation": 1,
+      "generation": 2,
       "template": { "kind": "builtin_collection" },
       "indexable": false,
       "no_external_assets": false
@@ -857,6 +857,66 @@ server's one configured S3 profile. With `--json`, bulk dry-run emits a
 the plan is empty or contains only current documents. Failed apply items retain
 that parseable result on stdout and make the command non-zero.
 
+### Linked Markdown revisions
+
+`airplan update <url|key> [file|-]` accepts only a complete, marker-managed,
+source-backed Markdown document. It resolves any supplied chain member to the
+latest live revision, compares exact UTF-8 source bytes, and uploads a complete
+ordinary document under a new random directory. Identical content is a
+successful no-op returning the existing latest URL without storage or manifest
+writes. Revision numbers are positive integers beginning at 1 and never reused.
+
+A standalone upload has no `.airplan-versions.json`. Its first real update
+conditionally creates that object in the predecessor and candidate, promotes
+the predecessor marker to revision 1, and creates revision 2. Later updates
+append linearly using the latest metadata ETag as the serialization point; a
+stale concurrent writer receives a conflict and its unannounced candidate is
+deleted. REST reports this as `revision_conflict` with status 409. After that
+point, retries repair interrupted promotion or replication rather than
+allocating another revision.
+
+Every linked v4 Markdown marker contains an immutable `revision` descriptor
+with a 26-character lowercase RFC 4648 base32 `chain_id`, positive `number`,
+and, after revision 1, the previous page URL. Revisions greater than 1 declare
+exactly one `diff` object named `.airplan-changes.diff`, content type
+`text/plain; charset=utf-8`; standalone documents and revision 1 declare none.
+The adjacent unified diff has stable `revision-N/plan.md` headers, three context
+lines, deterministic LF output, and preserves final-newline distinctions. It is
+bounded to 32 MiB and generated before remote mutation.
+
+`.airplan-versions.json` is a mutable no-store control object with schema
+`airplan-versions`, version 1, chain ID, containing member's
+`current_revision`, greatest live `latest_revision`, never-decreasing
+`last_assigned_revision`, and a complete ordered `revisions` array containing
+every assigned integer from 1 through that high-water mark. Live
+entries carry number, canonical same-service page URL, UTC creation time, and,
+after revision 1, a same-directory diff URL. Deleted entries are tombstones
+carrying number, `deleted: true`, and UTC `deleted_at`. Every live member gets
+the complete index with only `current_revision` differing. Bodies are limited
+to 64 KiB. A missing object means standalone; invalid metadata disables only
+revision navigation, not an otherwise complete payload.
+
+The built-in page fetches metadata relative to itself with `no-store` and a
+per-load nonce. Valid metadata adds an accessible selector, previous/next
+links, a highlighted latest action and stale notice, plus the server-highlighted
+Changes view and raw diff link. It validates same-origin Airplan-shaped URLs
+and inserts metadata text through DOM text APIs. Failure leaves the document,
+source, theme, ToC, print, and Mermaid behavior intact. Anyone who can read one
+chain URL learns every linked capability URL; this is intentional.
+
+`get --diff` fetches the declared adjacent diff from a directory target and is
+mutually exclusive with `--source`. `show` exposes revision identity, latest
+revision/URL, diff state, validated versions metadata, and a separate advisory
+metadata error. Manifest projections may carry `revision_chain_id`, `revision`,
+and `latest_revision`; sync reconstructs them from v4 markers and bounded
+metadata reads.
+
+Protection remains per directory. Purge skips linked revisions unless
+`--include-versioned` explicitly acknowledges history removal; protection
+still wins. Targeted delete conditionally tombstones the revision in every
+surviving member before deleting payloads. The greatest remaining live revision
+becomes latest while the assignment high-water mark never decreases.
+
 `--json` output (single line, stable schema):
 
 ```json
@@ -922,8 +982,9 @@ airplan protect [--reason TEXT] <url|key>
 airplan unprotect <url|key>
 airplan upgrade [--check] [--force] [--template PATH] [--json] <url|key>
 airplan upgrade --all [--dry-run] [--yes] [--concurrency N]
+airplan update [--title TITLE] [--max-size SIZE] [--json] <url|key> [file|-]
                 [--all-profiles] [--json]
-airplan purge [--remote] [--older-than 30d|2026-01-01]
+airplan purge [--remote] [--older-than 30d|2026-01-01] [--include-versioned]
               [--all] [--dry-run] [--yes] [--concurrency N]
 airplan sync [--config PATH] [--profile NAME] [--concurrency N]
              [--no-prune] [--dry-run] [--json]

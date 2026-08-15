@@ -9,7 +9,9 @@ import { promisify } from 'node:util';
 
 import { expect, test as base } from '@playwright/test';
 
-import { binaryPath, cleanEnv, repoRoot } from './airplan-binary.js';
+import {
+  binaryPath, cleanEnv, fixtureBinaryPath, repoRoot,
+} from './airplan-binary.js';
 
 const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -52,6 +54,7 @@ let server;
 let sourceURL;
 let tempRoot;
 let collectionHTML;
+let revisionHTML;
 const versionRequests = [];
 
 function isVersionManifestURL(url) {
@@ -104,6 +107,7 @@ test.beforeAll(async () => {
   fixtureSource = await readFile(fixturePath, 'utf8');
   const outputPath = join(tempRoot, 'index.html');
   const collectionOutputPath = join(tempRoot, 'collection.html');
+  const revisionOutputPath = join(tempRoot, 'revision.html');
   const configRoot = join(tempRoot, 'config');
   const env = cleanEnv();
   env.XDG_CONFIG_HOME = configRoot;
@@ -122,6 +126,9 @@ test.beforeAll(async () => {
     ],
     { cwd: repoRoot, env },
   );
+  await execFileAsync(fixtureBinaryPath, [revisionOutputPath], {
+    cwd: repoRoot, env,
+  });
   await writeFile(join(tempRoot, 'shot.svg'),
     '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">' +
     '<rect width="20" height="20" fill="green"/></svg>');
@@ -140,6 +147,7 @@ test.beforeAll(async () => {
   );
   const html = await readFile(outputPath);
   collectionHTML = await readFile(collectionOutputPath);
+  revisionHTML = await readFile(revisionOutputPath);
   collectionMembers = new Map([
     ['/demo.webm', await readFile(join(tempRoot, 'demo.webm'))],
     ['/sound.ogg', await readFile(join(tempRoot, 'sound.ogg'))],
@@ -156,6 +164,14 @@ test.beforeAll(async () => {
       body = html;
     } else if (request.url === '/source') {
       body = sourceHTML;
+    } else if (request.url === `/${'r'.repeat(26)}/plan.html`) {
+      body = revisionHTML;
+    } else if (request.url === `/${'r'.repeat(26)}/.airplan-changes.diff`) {
+      response.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
+      response.end('--- revision-1/plan.md\n+++ revision-2/plan.md\n');
+      return;
+    } else if (/^\/[a-z2-7]{26}\/plan\.html$/.test(request.url)) {
+      body = html;
     } else if (request.url === '/collection') {
       body = collectionHTML;
     } else if (request.url === '/shot.svg') {
@@ -390,6 +406,78 @@ test('standalone Markdown performs cache-busted dormant revision discovery',
     for (const request of requests) {
       expect(request.headers['cache-control']).toContain('no-cache');
     }
+  });
+
+test('revision metadata renders picker and stale latest navigation',
+  async ({ page }) => {
+    const dirs = ['a'.repeat(26), 'b'.repeat(26), 'c'.repeat(26)];
+    const revisions = dirs.map((dir, index) => ({
+      number: index + 1,
+      url: `${baseURL}/${dir}/plan.html`,
+      created_at: `2026-08-15T10:${String(index * 10).padStart(2, '0')}:00Z`,
+      ...(index === 0 ? {} : {
+        diff_url: `${baseURL}/${dir}/.airplan-changes.diff`,
+      }),
+    }));
+    await page.route('**/.airplan-versions.json?*', (route) => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schema: 'airplan-versions', version: 1,
+        chain_id: 'd'.repeat(26), current_revision: 1,
+        latest_revision: 3, last_assigned_revision: 3, revisions,
+      }),
+    }));
+    await page.goto(`${baseURL}/${dirs[0]}/plan.html`);
+    const picker = page.getByRole('combobox', { name: 'Document revision' });
+    await expect(picker).toHaveValue(revisions[0].url);
+    await expect(picker.locator('option')).toHaveCount(3);
+    await expect(page.getByRole('link', { name: 'Next' }))
+      .toHaveAttribute('href', revisions[1].url);
+    await expect(page.getByRole('link', { name: 'Latest: revision 3' }))
+      .toHaveAttribute('href', revisions[2].url);
+    await expect(page.locator('[data-revision-heading]'))
+      .toContainText('an older revision');
+  });
+
+test('revision Changes view switches and exposes its adjacent raw diff',
+  async ({ page }) => {
+    const firstDir = 'q'.repeat(26);
+    const currentDir = 'r'.repeat(26);
+    const revisions = [
+      {
+        number: 1,
+        url: `${baseURL}/${firstDir}/plan.html`,
+        created_at: '2026-08-15T10:00:00Z',
+      },
+      {
+        number: 2,
+        url: `${baseURL}/${currentDir}/plan.html`,
+        created_at: '2026-08-15T10:10:00Z',
+        diff_url: `${baseURL}/${currentDir}/.airplan-changes.diff`,
+      },
+    ];
+    await page.route('**/.airplan-versions.json?*', (route) => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schema: 'airplan-versions', version: 1,
+        chain_id: 's'.repeat(26), current_revision: 2,
+        latest_revision: 2, last_assigned_revision: 2, revisions,
+      }),
+    }));
+    await page.goto(revisions[1].url);
+    const changesButton = page.getByRole('button', { name: 'Changes view' });
+    await expect(changesButton).toBeVisible();
+    await changesButton.click();
+    await expect(page.locator('#changes')).toBeVisible();
+    await expect(page.locator('#rendered')).toBeHidden();
+    await expect(page.locator('#changes')).toContainText('Changes from revision 1');
+    await expect(page.locator('#changes')).toContainText('-Original');
+    await expect(page.locator('#changes')).toContainText('+Revised');
+    await expect(page.getByRole('link', { name: 'Open raw diff' }))
+      .toHaveAttribute('href', './.airplan-changes.diff');
+    await page.getByRole('button', { name: 'Rendered view' }).click();
+    await expect(page.locator('#rendered')).toBeVisible();
+    await expect(page.locator('#changes')).toBeHidden();
   });
 
 test('rendered page controls work', async ({ context, page }, testInfo) => {

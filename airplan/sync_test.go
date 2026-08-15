@@ -150,6 +150,81 @@ func TestSyncManifestClassifiesInvalidAndIncomplete(t *testing.T) {
 	}
 }
 
+func TestSyncManifestReconstructsRevisionProjections(t *testing.T) {
+	when := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dirs := []string{strings.Repeat("r", 26), strings.Repeat("s", 26)}
+	chainID := strings.Repeat("t", 26)
+	pages := [][]byte{[]byte("revision one"), []byte("revision two")}
+	sources := [][]byte{[]byte("one\n"), []byte("two\n")}
+	diff := []byte("--- revision-1/plan.md\n+++ revision-2/plan.md\n")
+	urls := []string{
+		"https://plans.example.com/" + dirs[0] + "/plan.html",
+		"https://plans.example.com/" + dirs[1] + "/plan.html",
+	}
+	metadata := VersionsMetadata{
+		Schema: "airplan-versions", Version: 1, ChainID: chainID,
+		LatestRevision: 2, LastAssignedRevision: 2,
+		Revisions: []VersionsRevision{
+			{Number: 1, URL: urls[0], CreatedAt: when},
+			{
+				Number: 2, URL: urls[1], CreatedAt: when.Add(time.Minute),
+				DiffURL: "https://plans.example.com/" + dirs[1] + "/" + DiffFilename,
+			},
+		},
+	}
+	for index, dir := range dirs {
+		objects := []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(pages[index])), ContentType: pageContentType, SHA256: contentSHA256(pages[index])},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(sources[index])), ContentType: sourceContentType},
+		}
+		descriptor := &RevisionDescriptor{ChainID: chainID, Number: index + 1}
+		if index == 1 {
+			descriptor.PreviousURL = urls[0]
+			objects = append(objects, MarkerObject{
+				Name: DiffFilename,
+				Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType,
+			})
+		}
+		fake.addUpload(t, UploadMarker{
+			Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+			CreatedAt: when.Add(time.Duration(index) * time.Minute),
+			Kind:      UploadKindDocument, Slug: "plan", Format: "md",
+			Producer: Producer{Name: "airplan", Version: "test"},
+			Render: &RenderRecipe{
+				Generation: RendererGeneration,
+				Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
+			},
+			Revision: descriptor, Objects: objects,
+		}, pages[index])
+		fake.addObject(dir+"/plan.md", sources[index], when)
+		if index == 1 {
+			fake.addObject(dir+"/"+DiffFilename, diff, when)
+		}
+		member := metadata
+		member.CurrentRevision = index + 1
+		body, err := EncodeVersionsMetadata(member,
+			&Config{PublicBaseURL: "https://plans.example.com"}, dir+"/plan.html")
+		if err != nil {
+			t.Fatal(err)
+		}
+		fake.addObject(dir+"/"+VersionsFilename, body, when)
+	}
+
+	result, err := newSyncClient(t, fake.server.URL,
+		filepath.Join(t.TempDir(), "manifest.jsonl")).SyncManifest(
+		context.Background(), SyncManifestOptions{})
+	if err != nil || len(result.Added) != 2 {
+		t.Fatalf("sync result = %+v, %v", result, err)
+	}
+	for index, record := range result.Added {
+		if record.RevisionChainID != chainID || record.Revision != index+1 ||
+			record.LatestRevision != 2 {
+			t.Fatalf("revision projection %d = %+v", index, record)
+		}
+	}
+}
+
 func TestSyncManifestDoesNotDuplicateManifestWarnings(t *testing.T) {
 	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 	fake := newSyncStorage(t)

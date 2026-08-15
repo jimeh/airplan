@@ -454,6 +454,56 @@ body.toc-dialog-open {
   margin-right: auto;
 }
 
+.revision-context {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.revision-context select {
+  min-height: 2rem;
+  color: var(--fg);
+  background: var(--control-active);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.2rem 1.6rem 0.2rem 0.5rem;
+}
+
+.revision-context a {
+  color: var(--link);
+  white-space: nowrap;
+}
+
+.revision-latest {
+  border-radius: 6px;
+  padding: 0.35rem 0.55rem;
+  color: var(--on-link) !important;
+  background: var(--link);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.revision-heading {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.revision-heading.is-stale {
+  border-left: 3px solid var(--alert-warning);
+  padding: 0.5rem 0.75rem;
+  color: var(--fg);
+  background: var(--alert-warning-bg);
+}
+
+.changes-view pre {
+  overflow-x: auto;
+}
+
 .file-actions {
   flex-wrap: wrap;
 }
@@ -1413,6 +1463,7 @@ mark {
 <body>
 <div class="page-shell">
 <nav class="toolbar" aria-label="Document controls">
+  <div class="revision-context" hidden></div>
   <div class="viewtoggle mode-toggle js-only" hidden>
     <button type="button" class="active" data-view="rendered"
       aria-pressed="true" aria-label="Rendered view"
@@ -1844,6 +1895,134 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
   var d = document;
 
   var versionsMeta = d.querySelector('meta[name="airplan-versions"]');
+  function safeRevisionURL(raw, diff) {
+    if (typeof raw !== 'string') return null;
+    try {
+      var parsed = new URL(raw);
+      if (parsed.origin !== window.location.origin || parsed.username ||
+          parsed.password || parsed.search || parsed.hash) return null;
+      var parts = parsed.pathname.split('/').filter(Boolean);
+      if (parts.length < 2 || !/^[a-z2-7]{26}$/.test(parts[parts.length - 2])) {
+        return null;
+      }
+      var name = parts[parts.length - 1];
+      if (diff ? name !== '.airplan-changes.diff' : !name.endsWith('.html')) {
+        return null;
+      }
+      return parsed.href;
+    } catch (_) {
+      return null;
+    }
+  }
+  function renderVersions(metadata) {
+    var context = d.querySelector('.revision-context');
+    if (!context) throw new Error('revision context is unavailable');
+    var currentMeta = d.querySelector('meta[name="airplan-revision"]');
+    var embedded = currentMeta ? Number(currentMeta.content) :
+      Number(metadata.current_revision);
+    if (!Number.isInteger(embedded) || embedded <= 0 ||
+        metadata.current_revision !== embedded ||
+        !Number.isInteger(metadata.latest_revision) ||
+        !Number.isInteger(metadata.last_assigned_revision) ||
+        metadata.last_assigned_revision !== metadata.revisions.length ||
+        !/^[a-z2-7]{26}$/.test(metadata.chain_id)) {
+      throw new Error('revision identity is invalid');
+    }
+    var invalidEntry = false;
+    var previousNumber = 0;
+    var live = metadata.revisions.filter(function (revision) {
+      if (!revision || !Number.isInteger(revision.number) ||
+          revision.number !== previousNumber + 1) {
+        invalidEntry = true;
+        return false;
+      }
+      previousNumber = revision.number;
+      if (revision.deleted) return false;
+      revision.safeURL = safeRevisionURL(revision.url, false);
+      if (!revision.safeURL) {
+        invalidEntry = true;
+        return false;
+      }
+      if (revision.number > 1) {
+        var safeDiff = safeRevisionURL(revision.diff_url, true);
+        if (!safeDiff || new URL(safeDiff).pathname.replace(/[^/]+$/, '') !==
+            new URL(revision.safeURL).pathname.replace(/[^/]+$/, '')) {
+          invalidEntry = true;
+          return false;
+        }
+      }
+      return true;
+    });
+    if (invalidEntry || metadata.revisions[0].number !== 1 ||
+        live.length < 2 || !live.some(function (revision) {
+      return revision.number === embedded;
+    })) throw new Error('revision entries are invalid');
+    var current = live.find(function (revision) {
+      return revision.number === embedded;
+    });
+    var currentPage = window.location.origin + window.location.pathname;
+    if (!current || current.safeURL !== currentPage) {
+      throw new Error('current revision URL is invalid');
+    }
+    var latest = Math.max.apply(null, live.map(function (revision) {
+      return revision.number;
+    }));
+    if (latest !== metadata.latest_revision) throw new Error('latest is invalid');
+
+    context.replaceChildren();
+    context.hidden = false;
+    context.classList.remove('js-only');
+    var previous = live.filter(function (revision) {
+      return revision.number < embedded;
+    }).pop();
+    var next = live.find(function (revision) {
+      return revision.number > embedded;
+    });
+    function navigation(label, revision, className) {
+      var link = d.createElement('a');
+      link.className = className;
+      link.textContent = label;
+      link.href = revision.safeURL;
+      return link;
+    }
+    if (previous) context.appendChild(navigation('Previous', previous, 'revision-previous'));
+    var label = d.createElement('label');
+    label.textContent = 'Revision ';
+    var select = d.createElement('select');
+    select.setAttribute('aria-label', 'Document revision');
+    live.forEach(function (revision) {
+      var option = d.createElement('option');
+      option.value = revision.safeURL;
+      option.textContent = revision.number + ' of ' + latest;
+      option.selected = revision.number === embedded;
+      select.appendChild(option);
+    });
+    select.addEventListener('change', function () {
+      window.location.assign(select.value);
+    });
+    label.appendChild(select);
+    context.appendChild(label);
+    if (next) context.appendChild(navigation('Next', next, 'revision-next'));
+    var heading = d.querySelector('[data-revision-heading]');
+    if (!heading) {
+      heading = d.createElement('p');
+      heading.className = 'revision-heading';
+      heading.setAttribute('data-revision-heading', '');
+      var renderedView = d.getElementById('rendered');
+      if (renderedView) renderedView.prepend(heading);
+    }
+    if (heading) heading.textContent = 'Revision ' + embedded + ' of ' + latest;
+    if (embedded < latest) {
+      d.body.classList.add('airplan-stale-revision');
+      context.appendChild(navigation('Latest: revision ' + latest,
+        live.find(function (revision) { return revision.number === latest; }),
+        'revision-latest'));
+      if (heading) {
+        heading.classList.add('is-stale');
+        heading.textContent += ' — an older revision';
+      }
+    }
+  }
   if (versionsMeta) {
     var versionsURL = new URL(versionsMeta.content, window.location.href);
     versionsURL.searchParams.set('_airplan',
@@ -1862,6 +2041,7 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
             metadata.revisions.length < 2) {
           throw new Error('metadata is invalid');
         }
+        renderVersions(metadata);
         window.dispatchEvent(new CustomEvent('airplan:versions', {
           detail: metadata,
         }));
@@ -1959,6 +2139,7 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
 
   var rendered = d.getElementById('rendered');
   var source = d.getElementById('source');
+  var changes = d.getElementById('changes');
   var toc = d.getElementById('toc');
   var tocTrigger = null;
   var tocDialog = null;
@@ -1982,10 +2163,11 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
 
   d.querySelectorAll('.viewtoggle button').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var showSource = btn.dataset.view === 'source';
-      source.hidden = !showSource;
-      rendered.hidden = showSource;
-      if (toc) toc.hidden = showSource;
+      var view = btn.dataset.view;
+      rendered.hidden = view !== 'rendered';
+      if (source) source.hidden = view !== 'source';
+      if (changes) changes.hidden = view !== 'changes';
+      if (toc) toc.hidden = view !== 'rendered';
       d.querySelectorAll('.viewtoggle button').forEach(function (b) {
         b.classList.toggle('active', b === btn);
         b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');

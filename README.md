@@ -487,6 +487,23 @@ profile must use direct S3. It cannot be combined with an explicit `--profile`.
 With `--json`, dry-run returns a plan while apply always returns a result object,
 including for empty or current-only plans.
 
+### Revise an existing Markdown document
+
+Upload a complete new revision while keeping every previously shared page as
+an immutable view of its original source:
+
+```sh
+airplan update --json https://plans.example.com/vq3n.../plan.html plan.md
+```
+
+The first real update promotes the standalone upload to revision 1 and creates
+revision 2 under a new capability URL. Only then is
+`.airplan-versions.json` added to both uploads; ordinary standalone uploads
+still have no versions object. Later updates may target any member and resolve
+the latest revision before appending. Each revision after 1 owns a deterministic
+`.airplan-changes.diff`, rendered as a highlighted Changes view. Anyone with
+one chain URL can navigate to every linked revision URL.
+
 ### Preview without uploading
 
 `preview` uses the same renderer locally. It does not need storage credentials,

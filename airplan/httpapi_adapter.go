@@ -48,6 +48,7 @@ func (o *HTTPOperations) Capabilities(
 			"execute_purge", "plan_document_upgrade",
 			"execute_document_upgrade", "plan_bulk_upgrade",
 			"execute_bulk_upgrade",
+			"update_document",
 		},
 		UploadFormats: []httpapi.CapabilitiesUploadFormats{"md", "html", "txt"},
 		Limits: httpapi.UploadLimits{
@@ -57,6 +58,27 @@ func (o *HTTPOperations) Capabilities(
 		},
 		MarkerVersions: []int{1, 2, 3, MarkerVersion},
 	}, nil
+}
+
+func (o *HTTPOperations) UpdateDocument(
+	ctx context.Context, upload httpapi.UpdateDocumentUpload,
+) (httpapi.UpdateDocumentResult, error) {
+	client, err := o.client()
+	if err != nil {
+		return httpapi.UpdateDocumentResult{}, err
+	}
+	result, err := client.UpdateDocument(ctx, UpdateDocumentInput{
+		Target: upload.Metadata.Target,
+		Input: Input{
+			Reader: upload.Document, Name: upload.Metadata.Name,
+			Format: "md", Title: upload.Metadata.Title,
+			MaxSize: upload.Metadata.MaxSize,
+		},
+	})
+	if err != nil {
+		return httpapi.UpdateDocumentResult{}, apiOperationError(err)
+	}
+	return wireUpdateDocumentResult(result), nil
 }
 
 // UploadDocument invokes the shared document operation.
@@ -252,8 +274,25 @@ func wireUploadResult(
 		ContentType: result.ContentType, Title: result.Title,
 		CreatedAt: result.CreatedAt, MarkerVersion: result.MarkerVersion,
 		MarkerKey: result.MarkerKey, Format: result.Format, Slug: result.Slug,
-		RepositoryURL: result.RepositoryURL,
-		Warnings:      serverSafeWarnings(result.Warnings), Files: wireFiles,
+		RepositoryURL:   result.RepositoryURL,
+		RevisionChainID: result.RevisionChainID, Revision: result.Revision,
+		LatestRevision: result.LatestRevision,
+		Warnings:       serverSafeWarnings(result.Warnings), Files: wireFiles,
+	}
+}
+
+func wireUpdateDocumentResult(result *UpdateDocumentResult) httpapi.UpdateDocumentResult {
+	return httpapi.UpdateDocumentResult{
+		ID: result.ID, Kind: httpapi.UpdateDocumentResultKind(result.Kind),
+		URL: result.URL, Key: result.Key, SourceURL: result.SourceURL,
+		SourceKey: result.SourceKey, Bucket: result.Bucket, Bytes: result.Bytes,
+		ContentType: result.ContentType, Title: result.Title,
+		CreatedAt: result.CreatedAt, MarkerVersion: result.MarkerVersion,
+		MarkerKey: result.MarkerKey, Format: result.Format, Slug: result.Slug,
+		RepositoryURL: result.RepositoryURL, Warnings: serverSafeWarnings(result.Warnings),
+		RevisionChainID: result.RevisionChainID, Revision: result.Revision,
+		LatestRevision: result.LatestRevision, PreviousURL: result.PreviousURL,
+		DiffURL: result.DiffURL, Unchanged: result.Unchanged,
 	}
 }
 
@@ -329,8 +368,11 @@ func wireInspection(result *UploadInspection) httpapi.UploadInspection {
 		RepositoryURL: result.Repo, MarkerVersion: result.MarkerVersion,
 		ProducerVersion: result.ProducerVersion,
 		RendererVersion: result.RendererGeneration,
-		Warnings:        serverSafeWarnings(result.Warnings),
-		Error:           string(result.Error),
+		RevisionChainID: result.RevisionChainID, Revision: result.Revision,
+		LatestRevision: result.LatestRevision, LatestURL: result.LatestURL,
+		RevisionError: result.RevisionError,
+		Warnings:      serverSafeWarnings(result.Warnings),
+		Error:         string(result.Error),
 	}
 	if result.CreatedAt.IsZero() {
 		wire.CreatedAt = nil
@@ -343,6 +385,11 @@ func wireInspection(result *UploadInspection) httpapi.UploadInspection {
 	wire.ProtectReason = result.ProtectReason
 	wire.Page = wireInspectedObject(result.Page)
 	wire.Source = wireInspectedObject(result.Source)
+	wire.Diff = wireInspectedObject(result.Diff)
+	if result.Versions != nil {
+		versions := wireVersionsMetadata(*result.Versions)
+		wire.Versions = &versions
+	}
 	for _, file := range result.Files {
 		wireFile := wireInspectedObject(file)
 		if wireFile != nil {
@@ -351,6 +398,31 @@ func wireInspection(result *UploadInspection) httpapi.UploadInspection {
 	}
 	if wire.Files == nil {
 		wire.Files = []httpapi.InspectedObject{}
+	}
+	return wire
+}
+
+func wireVersionsMetadata(metadata VersionsMetadata) httpapi.VersionsMetadata {
+	wire := httpapi.VersionsMetadata{
+		Schema: "airplan-versions", Version: 1,
+		ChainID: metadata.ChainID, CurrentRevision: metadata.CurrentRevision,
+		LatestRevision:       metadata.LatestRevision,
+		LastAssignedRevision: metadata.LastAssignedRevision,
+	}
+	for _, revision := range metadata.Revisions {
+		item := httpapi.VersionsRevision{
+			Number: revision.Number, URL: revision.URL,
+			DiffURL: revision.DiffURL, Deleted: revision.Deleted,
+		}
+		if !revision.CreatedAt.IsZero() {
+			value := revision.CreatedAt
+			item.CreatedAt = &value
+		}
+		if !revision.DeletedAt.IsZero() {
+			value := revision.DeletedAt
+			item.DeletedAt = &value
+		}
+		wire.Revisions = append(wire.Revisions, item)
 	}
 	return wire
 }
@@ -376,7 +448,7 @@ func (o *HTTPOperations) GetUpload(
 	}
 	key, body, contentType, err := client.openUpload(
 		ctx, request.URLOrKey, GetOptions{
-			Source: request.Source,
+			Source: request.Source, Diff: request.Diff,
 		},
 	)
 	if err != nil {
@@ -509,8 +581,10 @@ func wireManifestRecord(record ManifestRecord) httpapi.ManifestRecord {
 		Reason: record.Reason, MarkerVersion: record.MarkerVersion,
 		ProducerVersion: record.ProducerVersion,
 		RendererVersion: record.RendererVersion,
-		ProtectReason:   safeProtectReason(record.ProtectReason),
-		Protected:       record.Protected,
+		RevisionChainID: record.RevisionChainID, Revision: record.Revision,
+		LatestRevision: record.LatestRevision,
+		ProtectReason:  safeProtectReason(record.ProtectReason),
+		Protected:      record.Protected,
 	}
 	if !record.CreatedAt.IsZero() {
 		createdAt := record.CreatedAt
@@ -534,8 +608,10 @@ func coreManifestRecord(record httpapi.ManifestRecord) ManifestRecord {
 		Reason: record.Reason, MarkerVersion: record.MarkerVersion,
 		ProducerVersion: record.ProducerVersion,
 		RendererVersion: record.RendererVersion,
-		ProtectReason:   safeProtectReason(record.ProtectReason),
-		Protected:       record.Protected,
+		RevisionChainID: record.RevisionChainID, Revision: record.Revision,
+		LatestRevision: record.LatestRevision,
+		ProtectReason:  safeProtectReason(record.ProtectReason),
+		Protected:      record.Protected,
 	}
 	if record.CreatedAt != nil {
 		core.CreatedAt = *record.CreatedAt
@@ -650,7 +726,7 @@ func (o *HTTPOperations) PreviewPurge(
 		Source:        UploadSource(request.Source),
 		CreatedBefore: createdBefore,
 		Slug:          request.Slug, All: request.All,
-		Concurrency: request.Concurrency,
+		Concurrency: request.Concurrency, IncludeVersioned: request.IncludeVersioned,
 	})
 	if err != nil {
 		return httpapi.PurgePreview{}, apiOperationError(err)
@@ -660,6 +736,7 @@ func (o *HTTPOperations) PreviewPurge(
 		Warnings:   serverSafeWarnings(result.Warnings),
 		Candidates: []httpapi.PurgeCandidate{},
 		Protected:  []httpapi.PurgeCandidate{},
+		Versioned:  []httpapi.PurgeCandidate{},
 	}
 	wireCandidate := func(candidate PurgeCandidate) httpapi.PurgeCandidate {
 		item := httpapi.PurgeCandidate{
@@ -679,6 +756,9 @@ func (o *HTTPOperations) PreviewPurge(
 	for _, candidate := range result.Protected {
 		wire.Protected = append(wire.Protected, wireCandidate(candidate))
 	}
+	for _, candidate := range result.Versioned {
+		wire.Versioned = append(wire.Versioned, wireCandidate(candidate))
+	}
 	return wire, nil
 }
 
@@ -691,7 +771,7 @@ func (o *HTTPOperations) ExecutePurge(
 		return httpapi.PurgeResult{}, err
 	}
 	result, purgeErr := client.Purge(ctx, PurgeRequest{
-		UploadIDs: request.UploadIds,
+		UploadIDs: request.UploadIds, IncludeVersioned: request.IncludeVersioned,
 	})
 	if result == nil {
 		return httpapi.PurgeResult{}, apiOperationError(purgeErr)
@@ -700,7 +780,8 @@ func (o *HTTPOperations) ExecutePurge(
 	for _, item := range result.Items {
 		wireItem := httpapi.PurgeItemResult{
 			UploadID: item.UploadID, Protected: item.Protected,
-			Error: serverSafeItemError(item.Error),
+			Versioned: item.Versioned,
+			Error:     serverSafeItemError(item.Error),
 		}
 		if item.Deleted != nil {
 			deleted := wireDeleteResult(item.Deleted)
@@ -763,6 +844,13 @@ func apiOperationError(err error) error {
 				"Invalid upload target", "The document is not eligible for upgrade.",
 			)
 		}
+	}
+	var revisionConflict *revisionAppendConflictError
+	if errors.As(err, &revisionConflict) {
+		return httpapi.NewProblemError(
+			http.StatusConflict, "revision_conflict", "Revision conflict",
+			"Another writer appended first; retry from the newly resolved latest revision.",
+		)
 	}
 	if errors.Is(err, ErrConflict) {
 		return httpapi.NewProblemError(

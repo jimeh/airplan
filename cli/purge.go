@@ -13,15 +13,16 @@ import (
 )
 
 type purgeOptions struct {
-	config      string
-	olderThan   string
-	slug        string
-	profile     string
-	remote      bool
-	all         bool
-	dryRun      bool
-	yes         bool
-	concurrency int
+	config           string
+	olderThan        string
+	slug             string
+	profile          string
+	remote           bool
+	all              bool
+	dryRun           bool
+	yes              bool
+	concurrency      int
+	includeVersioned bool
 }
 
 func newPurgeCmd() *cobra.Command {
@@ -68,6 +69,8 @@ func newPurgeCmd() *cobra.Command {
 	f.IntVar(&opts.concurrency, "concurrency",
 		airplan.DefaultRemoteConcurrency,
 		"maximum concurrent remote marker inspections (1-64)")
+	f.BoolVar(&opts.includeVersioned, "include-versioned", false,
+		"include linked document revisions in purge candidates")
 
 	return cmd
 }
@@ -151,7 +154,8 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	plan, err := client.PlanPurge(planCtx, airplan.PurgePlanOptions{
 		Source: source, CreatedBefore: createdBefore,
 		Slug: opts.slug, All: opts.all || profileOnly,
-		Concurrency: opts.concurrency,
+		Concurrency:      opts.concurrency,
+		IncludeVersioned: opts.includeVersioned,
 	})
 	if err != nil {
 		return err
@@ -183,6 +187,9 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	// dry-run and confirmation both reflect what purge will actually touch
 	// (SPEC.md §9). Skips are notes, never failures.
 	protected := len(plan.Protected)
+	if len(plan.Versioned) > 0 {
+		fmt.Fprintf(stderr, "airplan: note: skipped %d linked revision(s); use --include-versioned to include them\n", len(plan.Versioned))
+	}
 	for _, item := range plan.Protected {
 		printProtectedSkip(stderr, item.Record)
 	}
@@ -216,13 +223,19 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	for _, candidate := range plan.Candidates {
 		ids = append(ids, candidate.UploadID)
 	}
-	result, purgeErr := client.Purge(ctx, airplan.PurgeRequest{UploadIDs: ids})
+	result, purgeErr := client.Purge(ctx, airplan.PurgeRequest{
+		UploadIDs: ids, IncludeVersioned: opts.includeVersioned,
+	})
 	if result == nil {
 		return purgeErr
 	}
 	purged := 0
 	failed := 0
 	for index, item := range result.Items {
+		if item.Versioned {
+			fmt.Fprintf(stderr, "airplan: note: skipped linked revision %s; use --include-versioned to include it\n", item.UploadID)
+			continue
+		}
 		if item.Protected {
 			// A delete-time skip catches protection set after planning; it
 			// is not a failure and does not change the exit status.

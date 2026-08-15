@@ -180,6 +180,7 @@ func (s *Server) Handler() (http.Handler, error) {
 
 func isMultipartUploadPath(path string) bool {
 	return path == "/api/v1/uploads/documents" ||
+		path == "/api/v1/uploads/documents/update" ||
 		path == "/api/v1/uploads/collections"
 }
 
@@ -246,6 +247,21 @@ func (s *Server) UploadCollection(
 		return nil, err
 	}
 	return generated.UploadCollection201JSONResponse(result), nil
+}
+
+func (s *Server) UpdateDocument(
+	ctx context.Context, request generated.UpdateDocumentRequestObject,
+) (generated.UpdateDocumentResponseObject, error) {
+	upload, cleanup, err := s.parseUpdateDocumentUpload(request.Body)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	result, err := s.operations.UpdateDocument(ctx, upload)
+	if err != nil {
+		return nil, err
+	}
+	return generated.UpdateDocument201JSONResponse(result), nil
 }
 
 func (s *Server) PlanDocumentUpgrade(

@@ -33,8 +33,8 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 		localFiles bool
 		wantTools  int
 	}{
-		{name: "stdio", localFiles: true, wantTools: 12},
-		{name: "hosted HTTP", localFiles: false, wantTools: 11},
+		{name: "stdio", localFiles: true, wantTools: 13},
+		{name: "hosted HTTP", localFiles: false, wantTools: 12},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -62,15 +62,20 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 				t.Fatalf("tools = %d, want %d", len(tools.Tools), test.wantTools)
 			}
 			hasUploadFiles := false
+			hasUpdateDocument := false
 			uploadDocumentDescription := ""
 			for _, tool := range tools.Tools {
 				hasUploadFiles = hasUploadFiles || tool.Name == "upload_files"
+				hasUpdateDocument = hasUpdateDocument || tool.Name == "update_document"
 				if tool.Name == "upload_document" {
 					uploadDocumentDescription = tool.Description
 				}
 			}
 			if hasUploadFiles != test.localFiles {
 				t.Fatalf("upload_files present = %t", hasUploadFiles)
+			}
+			if !hasUpdateDocument {
+				t.Fatal("update_document tool is missing")
 			}
 			for _, feature := range []string{
 				"Mermaid fences", "GitHub alerts", "responsive columns",
@@ -141,6 +146,68 @@ func TestMCPUpgradeDocumentPreviewsByDefault(t *testing.T) {
 	}
 	if transport.planUpgradeCalls != 2 || transport.upgradeCalls != 1 {
 		t.Fatalf("calls = plan %d, execute %d", transport.planUpgradeCalls, transport.upgradeCalls)
+	}
+}
+
+func TestMCPUpdateDocumentInvokesRevisionOperation(t *testing.T) {
+	transport := &mcpTestTransport{updateResult: &UpdateDocumentResult{
+		Result: Result{
+			ID: "bbbbbbbbbbbbbbbbbbbbbbbbbb", Kind: string(UploadKindDocument),
+			URL: "https://plans.example.com/bbbbbbbbbbbbbbbbbbbbbbbbbb/plan.html",
+			Key: "bbbbbbbbbbbbbbbbbbbbbbbbbb/plan.html",
+		},
+		PreviousURL: "https://plans.example.com/aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html",
+		DiffURL:     "https://plans.example.com/bbbbbbbbbbbbbbbbbbbbbbbbbb/" + DiffFilename,
+	}}
+	transport.updateResult.Revision = 2
+	transport.updateResult.LatestRevision = 2
+	client := &Client{cfg: &Config{}, remote: transport}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", false)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "test"}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "update_document", Arguments: map[string]any{
+			"url_or_key": "aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html",
+			"content":    "# Revised\n", "name": "agent-plan.md",
+			"title": "Revised plan", "max_size": 4096,
+		},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("result = %+v, err = %v", result, err)
+	}
+	if transport.updateCalls != 1 ||
+		transport.updateInput.Target != "aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html" ||
+		transport.updateContent != "# Revised\n" ||
+		transport.updateInput.Input.Name != "agent-plan.md" ||
+		transport.updateInput.Input.Title != "Revised plan" ||
+		transport.updateInput.Input.MaxSize != 4096 {
+		t.Fatalf("update invocation = %#v, content %q, calls %d",
+			transport.updateInput, transport.updateContent, transport.updateCalls)
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output UpdateDocumentResult
+	if err := json.Unmarshal(encoded, &output); err != nil {
+		t.Fatal(err)
+	}
+	if output.URL != transport.updateResult.URL || output.Revision != 2 ||
+		output.PreviousURL != transport.updateResult.PreviousURL {
+		t.Fatalf("structured result = %+v", output)
 	}
 }
 
@@ -1020,6 +1087,11 @@ type mcpTestTransport struct {
 	upgradeResult    *UpgradeDocumentResult
 	planUpgradeCalls int
 	upgradeCalls     int
+	updateInput      UpdateDocumentInput
+	updateContent    string
+	updateResult     *UpdateDocumentResult
+	updateErr        error
+	updateCalls      int
 
 	// Protection call recording for the protect/unprotect/delete tools.
 	protectTarget   string
@@ -1027,6 +1099,19 @@ type mcpTestTransport struct {
 	unprotectTarget string
 	deleteTarget    string
 	deleteOptions   DeleteOptions
+}
+
+func (t *mcpTestTransport) UpdateDocument(
+	_ context.Context, input UpdateDocumentInput,
+) (*UpdateDocumentResult, error) {
+	t.updateCalls++
+	t.updateInput = input
+	body, err := io.ReadAll(input.Input.Reader)
+	if err != nil {
+		return nil, err
+	}
+	t.updateContent = string(body)
+	return t.updateResult, t.updateErr
 }
 
 func (t *mcpTestTransport) PlanUpgradeDocument(

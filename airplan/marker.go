@@ -55,7 +55,17 @@ const (
 	MarkerRolePage   MarkerRole = "page"
 	MarkerRoleSource MarkerRole = "source"
 	MarkerRoleFile   MarkerRole = "file"
+	MarkerRoleDiff   MarkerRole = "diff"
 )
+
+// RevisionDescriptor is the immutable chain identity carried by linked
+// Markdown ownership markers. Mutable latest-navigation state lives in the
+// separately replicated versions metadata object.
+type RevisionDescriptor struct {
+	ChainID     string `json:"chain_id"`
+	Number      int    `json:"number"`
+	PreviousURL string `json:"previous_url,omitempty"`
+}
 
 // MarkerObject declares one payload object owned by an upload marker.
 type MarkerObject struct {
@@ -90,7 +100,7 @@ type RenderRecipe struct {
 
 // RendererGeneration is incremented only when generated page capabilities or
 // embedded assets require existing source-backed pages to be re-rendered.
-const RendererGeneration = 1
+const RendererGeneration = 2
 
 // MarkerDeclaredTotals returns the object count and byte total an upload
 // declares (SPEC.md §9): its ownership marker plus every object the marker
@@ -191,18 +201,19 @@ func MarkerCode(err error) (MarkerErrorCode, bool) {
 // UploadMarker is the versioned ownership record stored in every airplan
 // upload directory (SPEC.md §5).
 type UploadMarker struct {
-	Schema    string         `json:"schema"`
-	Version   int            `json:"version"`
-	Directory string         `json:"directory"`
-	CreatedAt time.Time      `json:"created_at"`
-	Kind      UploadKind     `json:"kind"`
-	Slug      string         `json:"slug,omitempty"`
-	Format    string         `json:"format,omitempty"`
-	Objects   []MarkerObject `json:"objects"`
-	Title     string         `json:"title,omitempty"`
-	Repo      string         `json:"repo,omitempty"`
-	Producer  Producer       `json:"producer"`
-	Render    *RenderRecipe  `json:"render,omitempty"`
+	Schema    string              `json:"schema"`
+	Version   int                 `json:"version"`
+	Directory string              `json:"directory"`
+	CreatedAt time.Time           `json:"created_at"`
+	Kind      UploadKind          `json:"kind"`
+	Slug      string              `json:"slug,omitempty"`
+	Format    string              `json:"format,omitempty"`
+	Objects   []MarkerObject      `json:"objects"`
+	Title     string              `json:"title,omitempty"`
+	Repo      string              `json:"repo,omitempty"`
+	Producer  Producer            `json:"producer"`
+	Render    *RenderRecipe       `json:"render,omitempty"`
+	Revision  *RevisionDescriptor `json:"revision,omitempty"`
 
 	// Page, PageBytes, PageSHA256, and Source are normalized compatibility views
 	// used by callers that predate marker v3. They are never encoded separately
@@ -229,6 +240,7 @@ type markerWire struct {
 	Repo      json.RawMessage `json:"repo"`
 	Producer  json.RawMessage `json:"producer"`
 	Render    json.RawMessage `json:"render"`
+	Revision  json.RawMessage `json:"revision"`
 }
 
 type markerObjectWire struct {
@@ -270,22 +282,23 @@ func EncodeUploadMarker(marker UploadMarker) ([]byte, error) {
 			}
 		}
 		value = struct {
-			Schema    string         `json:"schema"`
-			Version   int            `json:"version"`
-			Directory string         `json:"directory"`
-			CreatedAt time.Time      `json:"created_at"`
-			Kind      UploadKind     `json:"kind"`
-			Slug      string         `json:"slug,omitempty"`
-			Format    string         `json:"format,omitempty"`
-			Objects   []MarkerObject `json:"objects"`
-			Title     string         `json:"title,omitempty"`
-			Repo      string         `json:"repo,omitempty"`
-			Producer  Producer       `json:"producer,omitzero"`
-			Render    *RenderRecipe  `json:"render,omitempty"`
+			Schema    string              `json:"schema"`
+			Version   int                 `json:"version"`
+			Directory string              `json:"directory"`
+			CreatedAt time.Time           `json:"created_at"`
+			Kind      UploadKind          `json:"kind"`
+			Slug      string              `json:"slug,omitempty"`
+			Format    string              `json:"format,omitempty"`
+			Objects   []MarkerObject      `json:"objects"`
+			Title     string              `json:"title,omitempty"`
+			Repo      string              `json:"repo,omitempty"`
+			Producer  Producer            `json:"producer,omitzero"`
+			Render    *RenderRecipe       `json:"render,omitempty"`
+			Revision  *RevisionDescriptor `json:"revision,omitempty"`
 		}{
 			marker.Schema, marker.Version, marker.Directory, marker.CreatedAt,
 			marker.Kind, marker.Slug, marker.Format, objects,
-			marker.Title, marker.Repo, producer, render,
+			marker.Title, marker.Repo, producer, render, marker.Revision,
 		}
 	} else {
 		value = struct {
@@ -417,6 +430,14 @@ func DecodeUploadMarkerForName(
 					fmt.Errorf("render is invalid: %w", err))
 			}
 			marker.Render = &recipe
+		}
+		if marker.Version == MarkerVersion && len(wire.Revision) > 0 {
+			var revision RevisionDescriptor
+			if err := json.Unmarshal(wire.Revision, &revision); err != nil {
+				return nil, markerInvalid(MarkerErrorInvalidFields,
+					fmt.Errorf("revision is invalid: %w", err))
+			}
+			marker.Revision = &revision
 		}
 	} else {
 		if markerBasename != MarkerFilename {
@@ -581,7 +602,7 @@ func validateModernMarker(
 	}
 
 	names := make(map[string]struct{}, len(marker.Objects))
-	var page, source *MarkerObject
+	var page, source, diff *MarkerObject
 	files := 0
 	for i := range marker.Objects {
 		object := &marker.Objects[i]
@@ -589,7 +610,8 @@ func validateModernMarker(
 			return invalid("object name %q is not a safe direct basename",
 				object.Name)
 		}
-		if marker.Version >= 4 && strings.HasPrefix(object.Name, ".airplan-") {
+		if marker.Version >= 4 && strings.HasPrefix(object.Name, ".airplan-") &&
+			(object.Role != MarkerRoleDiff || object.Name != DiffFilename) {
 			return invalid("object name %q uses the reserved .airplan- prefix",
 				object.Name)
 		}
@@ -635,6 +657,21 @@ func validateModernMarker(
 			if object.Bytes < 0 {
 				return invalid("file %q bytes must not be negative", object.Name)
 			}
+		case MarkerRoleDiff:
+			if diff != nil {
+				return invalid("objects must contain at most one diff")
+			}
+			diff = object
+			if object.Name != DiffFilename {
+				return invalid("diff object must be %q", DiffFilename)
+			}
+			if object.Bytes <= 0 {
+				return invalid("diff %q bytes must be positive", object.Name)
+			}
+			if object.ContentType != diffContentType {
+				return invalid("diff %q must have content type %q",
+					object.Name, diffContentType)
+			}
 		default:
 			return invalid("object %q role %q is unsupported",
 				object.Name, object.Role)
@@ -649,8 +686,11 @@ func validateModernMarker(
 
 	switch marker.Kind {
 	case UploadKindDocument:
-		return validateDocumentMarkerV3(marker, page, source, files, invalid)
+		return validateDocumentMarkerV3(marker, page, source, diff, files, invalid)
 	case UploadKindCollection:
+		if diff != nil {
+			return invalid("collection markers must not declare a diff")
+		}
 		return validateCollectionMarkerV3(marker, page, source, files, invalid)
 	default:
 		return invalid("kind %q is unsupported", marker.Kind)
@@ -666,6 +706,24 @@ func validateMarkerV4(
 	}
 	if strings.TrimSpace(marker.Producer.Version) != marker.Producer.Version {
 		return invalid("producer version must not contain surrounding whitespace")
+	}
+	if marker.Revision != nil {
+		revision := marker.Revision
+		if !isRandomDir(revision.ChainID) {
+			return invalid("revision chain_id is not a lowercase 128-bit base32 value")
+		}
+		if revision.Number <= 0 {
+			return invalid("revision number must be positive")
+		}
+		if revision.Number == 1 && revision.PreviousURL != "" {
+			return invalid("revision 1 must not declare previous_url")
+		}
+		if revision.Number > 1 && revision.PreviousURL == "" {
+			return invalid("revision %d must declare previous_url", revision.Number)
+		}
+		if marker.Kind != UploadKindDocument || marker.Format != "md" || !markerDeclaresSource(marker) {
+			return invalid("only source-backed Markdown documents may declare a revision")
+		}
 	}
 	// Authored HTML is the only document payload Airplan does not render.
 	if marker.Kind == UploadKindDocument && marker.Format == "html" {
@@ -719,9 +777,24 @@ func validateMarkerV4(
 	return nil
 }
 
+func markerDeclaresSource(marker *UploadMarker) bool {
+	if marker == nil {
+		return false
+	}
+	if marker.Source != "" {
+		return true
+	}
+	for _, object := range marker.Objects {
+		if object.Role == MarkerRoleSource {
+			return true
+		}
+	}
+	return false
+}
+
 func validateDocumentMarkerV3(
 	marker *UploadMarker,
-	page, source *MarkerObject,
+	page, source, diff *MarkerObject,
 	files int,
 	invalid func(string, ...any) error,
 ) error {
@@ -734,6 +807,20 @@ func validateDocumentMarkerV3(
 	}
 	if files != 0 {
 		return invalid("document markers must not declare file objects")
+	}
+	if marker.Version < MarkerVersion && diff != nil {
+		return invalid("marker versions before 4 must not declare a diff")
+	}
+	if marker.Revision == nil && diff != nil {
+		return invalid("standalone documents must not declare a diff")
+	}
+	if marker.Revision != nil {
+		if marker.Revision.Number == 1 && diff != nil {
+			return invalid("revision 1 must not declare a diff")
+		}
+		if marker.Revision.Number > 1 && diff == nil {
+			return invalid("revision %d must declare a diff", marker.Revision.Number)
+		}
 	}
 	switch marker.Format {
 	case "md":

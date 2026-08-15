@@ -25,7 +25,7 @@ import (
 // implementations can share a manifest. Readers ignore unknown fields
 // and skip records with an unknown Type.
 type ManifestRecord struct {
-	// Type is "upload", "upgrade", "delete", "protect", or "unprotect".
+	// Type is "upload", "upgrade", "link", "delete", "protect", or "unprotect".
 	Type string `json:"type"`
 
 	// Time is the record time, RFC 3339 in UTC.
@@ -70,6 +70,9 @@ type ManifestRecord struct {
 	CreatedAt       time.Time `json:"created_at,omitzero"`
 	ProducerVersion string    `json:"producer_version,omitempty"`
 	RendererVersion int       `json:"renderer_version,omitempty"`
+	RevisionChainID string    `json:"revision_chain_id,omitempty"`
+	Revision        int       `json:"revision,omitempty"`
+	LatestRevision  int       `json:"latest_revision,omitempty"`
 
 	// ProtectReason is the advisory purge-protection reason: written on
 	// protect records and projected onto reduced upload records. It is a
@@ -229,7 +232,7 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 			if err := json.Unmarshal(line, &rec); err != nil {
 				warnings = append(warnings,
 					fmt.Sprintf("skipping malformed manifest line %d", lineNo))
-			} else if rec.Type == "upload" || rec.Type == "upgrade" {
+			} else if rec.Type == "upload" || rec.Type == "upgrade" || rec.Type == "link" {
 				normalizeManifestRecord(&rec)
 				if rec.MarkerVersion != 0 &&
 					!IsSupportedMarkerVersion(rec.MarkerVersion) {
@@ -301,7 +304,7 @@ func normalizeManifestRecord(rec *ManifestRecord) {
 	if rec.Kind == "" && path.Base(rec.MarkerKey) == CollectionMarkerFilename {
 		rec.Kind = string(UploadKindCollection)
 	}
-	if rec.Type != "upload" && rec.Type != "upgrade" {
+	if rec.Type != "upload" && rec.Type != "upgrade" && rec.Type != "link" {
 		return
 	}
 	if rec.Kind == "" {
@@ -326,7 +329,7 @@ func validateManifestRecord(rec ManifestRecord) error {
 	}
 
 	switch rec.Type {
-	case "upload", "upgrade":
+	case "upload", "upgrade", "link":
 		if rec.URL == "" {
 			return errors.New("url is required")
 		}
@@ -336,7 +339,7 @@ func validateManifestRecord(rec ManifestRecord) error {
 		if rec.Bytes <= 0 {
 			return errors.New("bytes must be positive")
 		}
-		if rec.Type == "upgrade" {
+		if rec.Type == "upgrade" || rec.Type == "link" {
 			if rec.MarkerVersion != MarkerVersion {
 				return errors.New("upgrade events require the current marker version")
 			}
@@ -351,6 +354,14 @@ func validateManifestRecord(rec ManifestRecord) error {
 		}
 		if rec.RendererVersion < 0 {
 			return errors.New("renderer_version must not be negative")
+		}
+		if rec.RevisionChainID != "" {
+			if !isRandomDir(rec.RevisionChainID) || rec.Revision <= 0 ||
+				(rec.LatestRevision != 0 && rec.LatestRevision < rec.Revision) {
+				return errors.New("revision projection fields are invalid")
+			}
+		} else if rec.Revision != 0 || rec.LatestRevision != 0 {
+			return errors.New("revision projection requires revision_chain_id")
 		}
 		// Both totals are optional, but they describe one measurement: a
 		// negative or half-present pair is corrupt rather than absent, and
@@ -503,6 +514,9 @@ func (c *Client) recordUpload(
 		MarkerVersion:   res.MarkerVersion,
 		CreatedAt:       res.CreatedAt,
 		ProducerVersion: producerVersion(c.cfg.ProducerVersion),
+		RevisionChainID: res.RevisionChainID,
+		Revision:        res.Revision,
+		LatestRevision:  res.LatestRevision,
 	}
 	if res.Kind == string(UploadKindCollection) ||
 		(res.Kind == string(UploadKindDocument) && res.Format != "html") {
@@ -592,19 +606,19 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 	protection := make(map[string]protectionState)
 	for index, rec := range records {
 		switch rec.Type {
-		case "upload", "upgrade":
+		case "upload", "upgrade", "link":
 			// Derived fields are recomputed below; stale values on a read
 			// line never survive reduction.
 			clearDerivedProtection(&rec)
 			// Raw upgrade records retain the event time in ReadManifest. The
 			// active upload projection keeps the original creation time so
 			// upgrades do not change list ordering, age filters, or purge age.
-			if rec.Type == "upgrade" && !rec.CreatedAt.IsZero() {
+			if (rec.Type == "upgrade" || rec.Type == "link") && !rec.CreatedAt.IsZero() {
 				rec.Time = rec.CreatedAt
 			}
 			identity := manifestRecordIdentity(rec)
 			order := index
-			if rec.Type == "upgrade" {
+			if rec.Type == "upgrade" || rec.Type == "link" {
 				if previous, ok := active[identity]; ok {
 					order = previous.order
 				}

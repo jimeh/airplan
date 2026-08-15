@@ -50,6 +50,13 @@ type UploadInspection struct {
 	Page               *InspectedObject   `json:"page,omitempty"`
 	Source             *InspectedObject   `json:"source,omitempty"`
 	Files              []*InspectedObject `json:"files,omitempty"`
+	Diff               *InspectedObject   `json:"diff,omitempty"`
+	RevisionChainID    string             `json:"revision_chain_id,omitempty"`
+	Revision           int                `json:"revision,omitempty"`
+	LatestRevision     int                `json:"latest_revision,omitempty"`
+	LatestURL          string             `json:"latest_url,omitempty"`
+	Versions           *VersionsMetadata  `json:"versions,omitempty"`
+	RevisionError      string             `json:"revision_error,omitempty"`
 	// Protected reports the purge-protection sentinel's presence in the
 	// directory listing (SPEC.md §9). ProtectedAt falls back to the sentinel's
 	// listing timestamp when its body cannot be read or decoded; ProtectReason
@@ -246,6 +253,10 @@ func (c *Client) inspectUploadSnapshot(
 	if marker.Render != nil {
 		inspection.RendererGeneration = marker.Render.Generation
 	}
+	if marker.Revision != nil {
+		inspection.RevisionChainID = marker.Revision.ChainID
+		inspection.Revision = marker.Revision.Number
+	}
 	dirPrefix := strings.TrimSuffix(upload.MarkerKey, path.Base(upload.MarkerKey))
 	var fallback bool
 	inspection.Page, fallback = c.inspectedObject(dirPrefix+marker.Page, byKey)
@@ -265,6 +276,14 @@ func (c *Client) inspectUploadSnapshot(
 		fallback = fallback || sourceFallback
 	}
 	for _, object := range marker.Objects {
+		if object.Role == MarkerRoleDiff {
+			var diffFallback bool
+			inspection.Diff, diffFallback = c.inspectedObject(dirPrefix+object.Name, byKey)
+			inspection.Diff.ExpectedBytes = object.Bytes
+			inspection.Diff.ExpectedKnown = true
+			fallback = fallback || diffFallback
+			continue
+		}
 		if object.Role != MarkerRoleFile {
 			continue
 		}
@@ -273,6 +292,26 @@ func (c *Client) inspectUploadSnapshot(
 		file.ExpectedKnown = true
 		inspection.Files = append(inspection.Files, file)
 		fallback = fallback || fileFallback
+	}
+	if marker.Revision != nil {
+		body, metadataErr := c.st.getBytes(ctx, dirPrefix+VersionsFilename,
+			MaxVersionsMetadataSize)
+		if metadataErr != nil {
+			inspection.RevisionError = "versions metadata is unavailable"
+		} else {
+			metadata, decodeErr := DecodeVersionsMetadata(body, c.cfg,
+				dirPrefix+marker.Page)
+			if decodeErr != nil || metadata.ChainID != marker.Revision.ChainID ||
+				metadata.CurrentRevision != marker.Revision.Number {
+				inspection.RevisionError = "versions metadata is invalid"
+			} else {
+				inspection.Versions = metadata
+				inspection.LatestRevision = metadata.LatestRevision
+				if latest := liveVersionsRevision(metadata, metadata.LatestRevision); latest != nil {
+					inspection.LatestURL = latest.URL
+				}
+			}
+		}
 	}
 	if fallback {
 		inspection.Warnings = append(inspection.Warnings,
@@ -286,6 +325,10 @@ func (c *Client) inspectUploadSnapshot(
 	}
 	if inspection.Source != nil && inspection.Source.ExpectedKnown &&
 		inspection.Source.Bytes != inspection.Source.ExpectedBytes {
+		inspection.State = UploadIncomplete
+	}
+	if inspection.Diff != nil &&
+		(!inspection.Diff.Exists || inspection.Diff.Bytes != inspection.Diff.ExpectedBytes) {
 		inspection.State = UploadIncomplete
 	}
 	for _, file := range inspection.Files {

@@ -251,6 +251,56 @@ body.toc-dialog-open {
   margin-right: auto;
 }
 
+.revision-context {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.revision-context select {
+  min-height: 2rem;
+  color: var(--fg);
+  background: var(--control-active);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.2rem 1.6rem 0.2rem 0.5rem;
+}
+
+.revision-context a {
+  color: var(--link);
+  white-space: nowrap;
+}
+
+.revision-latest {
+  border-radius: 6px;
+  padding: 0.35rem 0.55rem;
+  color: var(--on-link) !important;
+  background: var(--link);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.revision-heading {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.revision-heading.is-stale {
+  border-left: 3px solid var(--alert-warning);
+  padding: 0.5rem 0.75rem;
+  color: var(--fg);
+  background: var(--alert-warning-bg);
+}
+
+.changes-view pre {
+  overflow-x: auto;
+}
+
 .file-actions {
   flex-wrap: wrap;
 }

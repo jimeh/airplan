@@ -112,6 +112,14 @@ var listColumnRegistry = []listColumn{
 		local: listColumnWide, remote: listColumnUnavailable,
 	},
 	{
+		name: "revision", header: "REVISION",
+		local: listColumnWide, remote: listColumnUnavailable,
+	},
+	{
+		name: "latest", header: "LATEST",
+		local: listColumnWide, remote: listColumnUnavailable,
+	},
+	{
 		name: "repo", header: "REPO",
 		local: listColumnWide, remote: listColumnUnavailable,
 	},
@@ -453,6 +461,16 @@ func localListCell(name string, record airplan.ManifestRecord) string {
 			return "-"
 		}
 		return strconv.Itoa(record.RendererVersion)
+	case "revision":
+		if record.Revision == 0 {
+			return "-"
+		}
+		return strconv.Itoa(record.Revision)
+	case "latest":
+		if record.LatestRevision == 0 {
+			return "-"
+		}
+		return strconv.Itoa(record.LatestRevision)
 	case "repo":
 		return listCellOrDash(record.Repo)
 	case "bucket":

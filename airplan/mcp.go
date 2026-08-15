@@ -28,6 +28,14 @@ type mcpUploadDocumentInput struct {
 	MaxSize       int64  `json:"max_size,omitempty"`
 }
 
+type mcpUpdateDocumentInput struct {
+	URLOrKey string `json:"url_or_key" jsonschema:"Any known capability URL or key in the document revision chain."`
+	Content  string `json:"content" jsonschema:"The complete UTF-8 Markdown source for the proposed revision."`
+	Name     string `json:"name,omitempty"`
+	Title    string `json:"title,omitempty"`
+	MaxSize  int64  `json:"max_size,omitempty"`
+}
+
 type mcpUploadFilesInput struct {
 	Paths        []string `json:"paths" jsonschema:"Local file paths to upload as one collection."`
 	Title        string   `json:"title,omitempty"`
@@ -130,15 +138,17 @@ type mcpSyncInput struct {
 }
 
 type mcpPurgePreviewInput struct {
-	Source        string     `json:"source,omitempty"`
-	CreatedBefore *time.Time `json:"created_before,omitempty"`
-	Slug          string     `json:"slug,omitempty"`
-	All           bool       `json:"all,omitempty"`
-	Concurrency   int        `json:"concurrency,omitempty"`
+	Source           string     `json:"source,omitempty"`
+	CreatedBefore    *time.Time `json:"created_before,omitempty"`
+	Slug             string     `json:"slug,omitempty"`
+	All              bool       `json:"all,omitempty"`
+	Concurrency      int        `json:"concurrency,omitempty"`
+	IncludeVersioned bool       `json:"include_versioned,omitempty" jsonschema:"Include linked revision history; defaults to false."`
 }
 
 type mcpPurgeExecuteInput struct {
-	UploadIDs []string `json:"upload_ids" jsonschema:"Exact upload_id values returned by preview_purge."`
+	UploadIDs        []string `json:"upload_ids" jsonschema:"Exact upload_id values returned by preview_purge."`
+	IncludeVersioned bool     `json:"include_versioned,omitempty" jsonschema:"Acknowledge deletion of linked revision history; defaults to false."`
 }
 
 type mcpUpgradeDocumentInput struct {
@@ -223,6 +233,35 @@ func NewMCPServerWithOptions(
 			result.Warnings = serverSafeWarnings(result.Warnings)
 		}
 		return uploadToolContent(result), *result, nil
+	})
+
+	mcp.AddTool(server, &mcp.Tool{
+		Name: "update_document",
+		Description: "Create a new linked Markdown revision from any known " +
+			"Airplan chain URL, resolving the latest member first. Returns the " +
+			"new revision URL; byte-identical content is a successful no-op.",
+	}, func(ctx context.Context, _ *mcp.CallToolRequest,
+		input mcpUpdateDocumentInput,
+	) (*mcp.CallToolResult, UpdateDocumentResult, error) {
+		ctx, cancel := mcpOperationContext(ctx, client)
+		defer cancel()
+		result, err := client.UpdateDocument(ctx, UpdateDocumentInput{
+			Target: input.URLOrKey,
+			Input: Input{
+				Reader: strings.NewReader(input.Content), Name: input.Name,
+				Format: "md", Title: input.Title,
+				MaxSize: mcpDocumentLimit(input.MaxSize, !localFiles),
+			},
+		})
+		if err != nil {
+			return nil, UpdateDocumentResult{}, mcpOperationError(
+				ctx, err, !localFiles, options.Logger,
+			)
+		}
+		if !localFiles {
+			result.Warnings = serverSafeWarnings(result.Warnings)
+		}
+		return uploadToolContent(&result.Result), *result, nil
 	})
 
 	if localFiles {
@@ -539,7 +578,7 @@ func NewMCPServerWithOptions(
 		result, err := client.PlanPurge(ctx, PurgePlanOptions{
 			Source: source, CreatedBefore: createdBefore,
 			Slug: input.Slug, All: input.All,
-			Concurrency: input.Concurrency,
+			Concurrency: input.Concurrency, IncludeVersioned: input.IncludeVersioned,
 		})
 		if err != nil {
 			return nil, PurgePlan{}, mcpOperationError(
@@ -556,6 +595,11 @@ func NewMCPServerWithOptions(
 			for index := range result.Protected {
 				result.Protected[index].Warnings = serverSafeWarnings(
 					result.Protected[index].Warnings,
+				)
+			}
+			for index := range result.Versioned {
+				result.Versioned[index].Warnings = serverSafeWarnings(
+					result.Versioned[index].Warnings,
 				)
 			}
 		}
@@ -686,7 +730,7 @@ func safeMCPToolName(request mcp.Request) string {
 		return "unknown"
 	}
 	switch call.Params.Name {
-	case "upload_document", "upload_files", "list_uploads", "inspect_upload",
+	case "upload_document", "update_document", "upload_files", "list_uploads", "inspect_upload",
 		"delete_upload", "protect_upload", "unprotect_upload",
 		"sync_manifest", "preview_purge", "execute_purge",
 		"upgrade_document", "upgrade_documents":

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"text/tabwriter"
 	"time"
 
@@ -72,26 +73,33 @@ type showJSONObject struct {
 }
 
 type showJSONRecord struct {
-	State           airplan.UploadState     `json:"state"`
-	Dir             string                  `json:"dir"`
-	MarkerKey       string                  `json:"marker_key"`
-	Objects         int                     `json:"objects"`
-	Bytes           int64                   `json:"bytes"`
-	Time            *time.Time              `json:"time,omitempty"`
-	Format          string                  `json:"format,omitempty"`
-	Kind            airplan.UploadKind      `json:"kind,omitempty"`
-	Version         int                     `json:"marker_version,omitempty"`
-	ProducerVersion string                  `json:"producer_version,omitempty"`
-	RendererVersion int                     `json:"renderer_version,omitempty"`
-	Title           string                  `json:"title,omitempty"`
-	Repo            string                  `json:"repo,omitempty"`
-	Protected       bool                    `json:"protected,omitempty"`
-	ProtectedAt     *time.Time              `json:"protected_at,omitempty"`
-	ProtectReason   string                  `json:"protect_reason,omitempty"`
-	Page            *showJSONObject         `json:"page,omitempty"`
-	Source          *showJSONObject         `json:"source,omitempty"`
-	Files           []*showJSONObject       `json:"files,omitempty"`
-	Error           airplan.MarkerErrorCode `json:"error,omitempty"`
+	State           airplan.UploadState       `json:"state"`
+	Dir             string                    `json:"dir"`
+	MarkerKey       string                    `json:"marker_key"`
+	Objects         int                       `json:"objects"`
+	Bytes           int64                     `json:"bytes"`
+	Time            *time.Time                `json:"time,omitempty"`
+	Format          string                    `json:"format,omitempty"`
+	Kind            airplan.UploadKind        `json:"kind,omitempty"`
+	Version         int                       `json:"marker_version,omitempty"`
+	ProducerVersion string                    `json:"producer_version,omitempty"`
+	RendererVersion int                       `json:"renderer_version,omitempty"`
+	Title           string                    `json:"title,omitempty"`
+	Repo            string                    `json:"repo,omitempty"`
+	Protected       bool                      `json:"protected,omitempty"`
+	ProtectedAt     *time.Time                `json:"protected_at,omitempty"`
+	ProtectReason   string                    `json:"protect_reason,omitempty"`
+	Page            *showJSONObject           `json:"page,omitempty"`
+	Source          *showJSONObject           `json:"source,omitempty"`
+	Diff            *showJSONObject           `json:"diff,omitempty"`
+	Files           []*showJSONObject         `json:"files,omitempty"`
+	RevisionChainID string                    `json:"revision_chain_id,omitempty"`
+	Revision        int                       `json:"revision,omitempty"`
+	LatestRevision  int                       `json:"latest_revision,omitempty"`
+	LatestURL       string                    `json:"latest_url,omitempty"`
+	Versions        *airplan.VersionsMetadata `json:"versions,omitempty"`
+	RevisionError   string                    `json:"revision_error,omitempty"`
+	Error           airplan.MarkerErrorCode   `json:"error,omitempty"`
 }
 
 func showJSONFromInspection(in *airplan.UploadInspection) showJSONRecord {
@@ -117,6 +125,13 @@ func showJSONFromInspection(in *airplan.UploadInspection) showJSONRecord {
 		out.ProtectReason = in.ProtectReason
 		out.Page = showJSONFromObject(in.Page)
 		out.Source = showJSONFromObject(in.Source)
+		out.Diff = showJSONFromObject(in.Diff)
+		out.RevisionChainID = in.RevisionChainID
+		out.Revision = in.Revision
+		out.LatestRevision = in.LatestRevision
+		out.LatestURL = in.LatestURL
+		out.Versions = in.Versions
+		out.RevisionError = in.RevisionError
 		for _, file := range in.Files {
 			out.Files = append(out.Files, showJSONFromObject(file))
 		}
@@ -193,6 +208,28 @@ func printInspection(w io.Writer, in *airplan.UploadInspection) error {
 			return err
 		}
 	}
+	if in.Revision > 0 {
+		revision := strconv.Itoa(in.Revision)
+		if in.LatestRevision > 0 {
+			revision = fmt.Sprintf("%d of %d", in.Revision, in.LatestRevision)
+		}
+		if err := write("DOCUMENT REVISION", revision); err != nil {
+			return err
+		}
+		if err := write("REVISION CHAIN", in.RevisionChainID); err != nil {
+			return err
+		}
+		if in.LatestURL != "" {
+			if err := write("LATEST URL", in.LatestURL); err != nil {
+				return err
+			}
+		}
+		if in.RevisionError != "" {
+			if err := write("REVISION METADATA", in.RevisionError); err != nil {
+				return err
+			}
+		}
+	}
 	title := in.Title
 	if title == "" {
 		title = "-"
@@ -222,6 +259,11 @@ func printInspection(w io.Writer, in *airplan.UploadInspection) error {
 	}
 	if in.Source != nil {
 		if err := printInspectedObject(tw, "SOURCE", in.Source); err != nil {
+			return err
+		}
+	}
+	if in.Diff != nil {
+		if err := printInspectedObject(tw, "DIFF", in.Diff); err != nil {
 			return err
 		}
 	}

@@ -1,6 +1,7 @@
 package airplan
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -134,6 +135,29 @@ func (c *Client) DeleteUploadWithOptions(
 		}
 		return nil, &UploadProtectedError{Target: urlOrKey, Reason: reason}
 	}
+	var survivingVersions *VersionsMetadata
+	interruptedLinkedDelete := false
+	if marker.Revision != nil {
+		survivingVersions, err = c.tombstoneLinkedRevision(ctx, dirPrefix, marker)
+		if err != nil {
+			declaredPayloadPresent := false
+			for _, observed := range objects {
+				for _, declared := range marker.Objects {
+					if observed.Key == dirPrefix+declared.Name {
+						declaredPayloadPresent = true
+						break
+					}
+				}
+			}
+			if !errors.Is(err, errObjectNotFound) || declaredPayloadPresent {
+				return nil, err
+			}
+			// Tombstones are propagated before any payload deletion. A linked
+			// marker with none of its declared payloads or local metadata left is
+			// therefore the recoverable marker-last interruption state.
+			interruptedLinkedDelete = true
+		}
+	}
 	payloadKeys := make([]string, 0, len(objects))
 	for _, object := range objects {
 		if object.Key != resolved.Key && object.Key != sentinelKey {
@@ -162,8 +186,229 @@ func (c *Client) DeleteUploadWithOptions(
 		MarkerKey: resolved.Key,
 		Kind:      marker.Kind,
 	}
+	if interruptedLinkedDelete {
+		res.Warnings = append(res.Warnings,
+			"completed an interrupted linked-revision deletion")
+	}
 	c.recordDelete(ctx, res)
+	if survivingVersions != nil {
+		c.recordSurvivingRevisionLinks(ctx, res, *survivingVersions)
+	}
 	return res, nil
+}
+
+func (c *Client) tombstoneLinkedRevision(
+	ctx context.Context, targetDirPrefix string, marker *UploadMarker,
+) (*VersionsMetadata, error) {
+	targetMetadataKey := targetDirPrefix + VersionsFilename
+	body, targetETag, _, err := c.st.getBytesWithETag(ctx,
+		targetMetadataKey, MaxVersionsMetadataSize)
+	if err != nil {
+		return nil, fmt.Errorf("airplan: read revision metadata before delete: %w", err)
+	}
+	metadata, err := DecodeVersionsMetadata(body, c.cfg,
+		targetDirPrefix+marker.Page)
+	targetReserved := false
+	if err != nil {
+		metadata, err = decodeVersionsMetadata(body, c.cfg, "", true)
+		if err != nil {
+			return nil, err
+		}
+		targetReserved = true
+	}
+	if metadata.ChainID != marker.Revision.ChainID ||
+		metadata.CurrentRevision != marker.Revision.Number {
+		return nil, errors.New("airplan: marker and revision metadata conflict")
+	}
+
+	serializationKey := targetMetadataKey
+	serializationETag := targetETag
+	serializationBody := body
+	seen := map[string]bool{targetMetadataKey: true}
+	for !targetReserved && metadata.CurrentRevision != metadata.LatestRevision {
+		latestEntry := liveVersionsRevision(metadata, metadata.LatestRevision)
+		if latestEntry == nil {
+			return nil, errors.New("airplan: revision metadata has no live latest entry")
+		}
+		latestDoc, loadErr := c.loadRevisionDocument(ctx, latestEntry.URL)
+		if loadErr != nil {
+			return nil, fmt.Errorf("airplan: resolve latest revision before delete: %w", loadErr)
+		}
+		serializationKey = latestDoc.dirPrefix + VersionsFilename
+		if seen[serializationKey] {
+			return nil, errors.New("airplan: revision metadata latest link forms a cycle")
+		}
+		seen[serializationKey] = true
+		if latestDoc.versions == nil ||
+			latestDoc.versions.ChainID != marker.Revision.ChainID {
+			return nil, errors.New("airplan: latest revision metadata conflicts with delete target")
+		}
+		metadata = latestDoc.versions
+		serializationETag = latestDoc.versionsETag
+		serializationBody = latestDoc.versionsBody
+	}
+
+	deletedAt := time.Now().UTC().Truncate(time.Second)
+	live := 0
+	latest := 0
+	foundTarget := false
+	alreadyTombstoned := false
+	for index := range metadata.Revisions {
+		revision := &metadata.Revisions[index]
+		if revision.Number == marker.Revision.Number {
+			foundTarget = true
+			alreadyTombstoned = revision.Deleted
+			if targetReserved {
+				if !revision.Deleted {
+					return nil, errors.New("airplan: invalid linked-delete reservation")
+				}
+			} else if !revision.Deleted {
+				revision.URL = ""
+				revision.DiffURL = ""
+				revision.CreatedAt = time.Time{}
+				revision.Deleted = true
+				revision.DeletedAt = deletedAt
+			}
+			continue
+		}
+		if !revision.Deleted {
+			live++
+			latest = revision.Number
+		}
+	}
+	if !foundTarget {
+		return nil, errors.New("airplan: revision metadata does not contain the delete target")
+	}
+	if live == 0 {
+		return nil, errors.New("airplan: deleting the final live revision is not supported")
+	}
+	metadata.LatestRevision = latest
+	bodies, err := c.encodeMemberMetadata(*metadata)
+	if err != nil {
+		return nil, err
+	}
+	if !alreadyTombstoned {
+		committedBody := bodies[metadata.CurrentRevision]
+		if metadata.CurrentRevision == marker.Revision.Number {
+			committedBody, err = encodeVersionsMetadata(*metadata, c.cfg, "", true)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if !bytes.Equal(serializationBody, committedBody) {
+			// Append and delete contend on the current latest member's metadata.
+			// Deleting latest publishes a short-lived invalid-current reservation;
+			// deleting history publishes its valid tombstone body there.
+			if putErr := c.st.putConditional(ctx, object{
+				Key: serializationKey, Body: committedBody,
+				ContentType: markerContentType,
+			}, serializationETag); putErr != nil {
+				return nil, fmt.Errorf("airplan: reserve linked revision deletion: %w", putErr)
+			}
+		}
+	}
+	for _, revision := range metadata.Revisions {
+		if revision.Deleted {
+			continue
+		}
+		key, err := KeyFromURLOrKey(c.cfg, revision.URL)
+		if err != nil {
+			return nil, err
+		}
+		dirPrefix, err := uploadDirPrefixForKeyPrefix(key, c.cfg.KeyPrefix)
+		if err != nil {
+			return nil, err
+		}
+		metadataKey := dirPrefix + VersionsFilename
+		current, etag, _, err := c.st.getBytesWithETag(ctx, metadataKey,
+			MaxVersionsMetadataSize)
+		if err != nil {
+			return nil, err
+		}
+		if bytes.Equal(current, bodies[revision.Number]) {
+			continue
+		}
+		observed, decodeErr := DecodeVersionsMetadata(current, c.cfg, key)
+		if decodeErr != nil || !metadataPrecedesRevisionDeletion(
+			observed, metadata, marker.Revision.Number,
+		) {
+			return nil, errors.New("airplan: revision chain changed during tombstone propagation")
+		}
+		if err := c.st.putConditional(ctx, object{
+			Key:  metadataKey,
+			Body: bodies[revision.Number], ContentType: markerContentType,
+		}, etag); err != nil {
+			return nil, fmt.Errorf("airplan: revision tombstone propagation failed: %w", err)
+		}
+	}
+	return metadata, nil
+}
+
+func metadataPrecedesRevisionDeletion(
+	observed, deleted *VersionsMetadata, targetRevision int,
+) bool {
+	if observed.Schema != deleted.Schema || observed.Version != deleted.Version ||
+		observed.ChainID != deleted.ChainID ||
+		observed.LastAssignedRevision != deleted.LastAssignedRevision ||
+		len(observed.Revisions) != len(deleted.Revisions) {
+		return false
+	}
+	for index := range observed.Revisions {
+		before := observed.Revisions[index]
+		after := deleted.Revisions[index]
+		if before.Number == targetRevision {
+			if before.Deleted || !after.Deleted || before.Number != after.Number {
+				return false
+			}
+			continue
+		}
+		if before != after {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *Client) recordSurvivingRevisionLinks(
+	ctx context.Context, result *DeleteResult, metadata VersionsMetadata,
+) {
+	if c.cfg.DisableManifest {
+		return
+	}
+	manifestPath := c.cfg.ManifestPath
+	if manifestPath == "" {
+		var err error
+		manifestPath, err = DefaultManifestPath()
+		if err != nil {
+			return
+		}
+	}
+	for _, revision := range metadata.Revisions {
+		if revision.Deleted {
+			continue
+		}
+		doc, err := c.loadRevisionDocument(ctx, revision.URL)
+		if err != nil {
+			result.Warnings = append(result.Warnings, "manifest chain links not fully recorded")
+			return
+		}
+		rec := ManifestRecord{
+			Type: "link", Time: time.Now().UTC().Truncate(time.Second),
+			CreatedAt: doc.marker.CreatedAt, Key: doc.pageKey, SourceKey: doc.sourceKey,
+			MarkerKey: doc.dirPrefix + MarkerFilename, URL: doc.pageURL,
+			Bucket: c.cfg.Bucket, Profile: c.cfg.Profile, Format: doc.marker.Format,
+			Kind: string(doc.marker.Kind), Slug: doc.marker.Slug, Title: doc.marker.Title,
+			Repo: doc.marker.Repo, Bytes: int64(len(doc.pageBody)), MarkerVersion: MarkerVersion,
+			ProducerVersion: doc.marker.Producer.Version,
+			RendererVersion: doc.marker.Render.Generation,
+			RevisionChainID: metadata.ChainID, Revision: revision.Number,
+			LatestRevision: metadata.LatestRevision,
+		}
+		if err := appendManifestRecord(ctx, manifestPath, rec); err != nil {
+			result.Warnings = append(result.Warnings, "manifest link not recorded: "+err.Error())
+			return
+		}
+	}
 }
 
 // validateManagedTarget checks a destructive or protective operation's target
