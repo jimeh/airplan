@@ -49,9 +49,9 @@ type UploadInspection struct {
 	Source        *InspectedObject   `json:"source,omitempty"`
 	Files         []*InspectedObject `json:"files,omitempty"`
 	// Protected reports the purge-protection sentinel's presence in the
-	// directory listing (SPEC.md §9). ProtectedAt and ProtectReason are
-	// advisory metadata from a best-effort sentinel body read; both stay
-	// zero when the body cannot be read or decoded.
+	// directory listing (SPEC.md §9). ProtectedAt falls back to the sentinel's
+	// listing timestamp when its body cannot be read or decoded; ProtectReason
+	// stays empty when that advisory metadata is unavailable.
 	Protected     bool      `json:"protected,omitempty"`
 	ProtectedAt   time.Time `json:"protected_at,omitzero"`
 	ProtectReason string    `json:"protect_reason,omitempty"`
