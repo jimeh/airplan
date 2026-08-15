@@ -112,6 +112,46 @@ func TestListColumnsRenderDashForMissingValues(t *testing.T) {
 	}
 }
 
+func TestListStateColumnRendersManagementAndProtection(t *testing.T) {
+	managed := airplan.ManifestRecord{MarkerVersion: airplan.MarkerVersion}
+	if got := localListCell("state", managed); got != "managed" {
+		t.Fatalf("managed local state = %q, want managed", got)
+	}
+	managed.Protected = true
+	if got := localListCell("state", managed); got != "protected" {
+		t.Fatalf("protected local state = %q, want protected", got)
+	}
+	if got := localListCell("state", airplan.ManifestRecord{}); got != "legacy" {
+		t.Fatalf("legacy local state = %q, want legacy", got)
+	}
+	if got := localListCell("state", airplan.ManifestRecord{Protected: true}); got != "legacy+protected" {
+		t.Fatalf("protected legacy local state = %q, want legacy+protected", got)
+	}
+	if got := remoteListCell("state", airplan.RemoteUpload{Protected: true}); got != "protected" {
+		t.Fatalf("protected remote state = %q, want protected", got)
+	}
+	if got := remoteListCell("state", airplan.RemoteUpload{}); got != "unprotected" {
+		t.Fatalf("unprotected remote state = %q, want unprotected", got)
+	}
+}
+
+func TestStateColumnAutoSelectionFollowsRows(t *testing.T) {
+	managed := airplan.ManifestRecord{MarkerVersion: airplan.MarkerVersion}
+	if autoLocalListColumns([]airplan.ManifestRecord{managed})["state"] {
+		t.Fatal("local state column enabled for a managed unprotected row")
+	}
+	managed.Protected = true
+	if !autoLocalListColumns([]airplan.ManifestRecord{managed})["state"] {
+		t.Fatal("local state column not enabled for a protected row")
+	}
+	if autoRemoteListColumns([]airplan.RemoteUpload{{}})["state"] {
+		t.Fatal("remote state column enabled for unprotected rows")
+	}
+	if !autoRemoteListColumns([]airplan.RemoteUpload{{Protected: true}})["state"] {
+		t.Fatal("remote state column not enabled for a protected row")
+	}
+}
+
 func TestSelectListColumnsRejectsUnknownAndWrongMode(t *testing.T) {
 	tests := []struct {
 		name string

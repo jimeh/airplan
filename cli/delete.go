@@ -12,6 +12,7 @@ import (
 type deleteOptions struct {
 	config  string
 	profile string
+	force   bool
 }
 
 func newDeleteCmd() *cobra.Command {
@@ -33,6 +34,8 @@ func newDeleteCmd() *cobra.Command {
 		"config file path (default: XDG config dir)")
 	f.StringVarP(&opts.profile, "profile", "p", "",
 		"config profile name (default: config default)")
+	f.BoolVar(&opts.force, "force", false,
+		"delete the upload even when it is purge-protected")
 
 	return cmd
 }
@@ -47,7 +50,9 @@ func runDelete(cmd *cobra.Command, urlOrKey string, opts *deleteOptions) error {
 	}
 	defer cancel()
 
-	res, err := client.DeleteUpload(ctx, urlOrKey)
+	res, err := client.DeleteUploadWithOptions(
+		ctx, urlOrKey, airplan.DeleteOptions{Force: opts.force},
+	)
 	if err != nil {
 		var mismatch *airplan.ManifestProfileMismatchError
 		if errors.As(err, &mismatch) {

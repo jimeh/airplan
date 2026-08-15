@@ -483,7 +483,10 @@ airplan show <url-or-key>         # validate and inspect one remote upload
 airplan get [--source] <url-or-key>  # raw page or source bytes
 airplan delete <url-or-key>      # delete one upload
 airplan list --newer-than 7d     # only recent uploads (also --kind, --slug)
+airplan list --protected         # only purge-protected uploads
 airplan list --all-profiles      # uploads recorded under every profile
+airplan protect <url-or-key>     # mark one upload purge-protected
+airplan unprotect <url-or-key>   # remove purge protection
 airplan purge --older-than 30d   # review and delete older uploads
 airplan sync                     # reconcile remote uploads into local history
 ```
@@ -507,8 +510,10 @@ list reads the server manifest and `--config` is useful without `--remote`;
 server-scoped manifest.
 
 `list` selects rows with `--newer-than`, `--older-than`, `--limit`, `--kind`,
-and `--slug`, in both listing modes and in `--json`, because filters are
-selection rather than presentation. The two time flags take either an age such
+`--slug`, `--protected`, and `--no-protected`, in both listing modes and in
+`--json`, because filters are selection rather than presentation. The two
+protection flags are mutually exclusive and select protected or unprotected
+uploads respectively. The two time flags take either an age such
 as `7d`, `2w`, or `36h`, or an absolute date such as `2026-07-01`,
 `2026-07-01 09:30`, or a strict RFC 3339 timestamp; bare dates mean local midnight
 while the manifest keeps recording UTC. A slash date that does not lead with a
@@ -523,9 +528,12 @@ request deletion of everything.
 Table shape is controlled separately: `--columns date,title,url` selects an
 exact set, `--columns +dir,-title` adjusts the default one, `--wide` prints
 every column a mode offers, and `--reverse` prints newest first. `PROFILE`,
-`STATE`, and `DIRECTORY` appear automatically only when they carry information
-— more than one profile, legacy history, or a row with no URL. Column flags
-are table-only and are rejected with `--json`, while `--reverse` reorders both.
+`STATE`, and `DIRECTORY` appear automatically only when relevant — more than
+one profile, legacy or protected history (or an active protection filter), or
+a row with no URL. Local `STATE` values are `managed`, `legacy`, `protected`,
+or `legacy+protected`; remote values are `protected` or `unprotected`. Column
+flags are table-only and are rejected with `--json`, while `--reverse` reorders
+both.
 
 `--remote` reads storage through the selected backend instead, so it can find
 uploads from other machines.
@@ -835,7 +843,17 @@ and on the overview. HTML and SVG members may execute active content when
 opened; Airplan uploads every member byte-for-byte and does not sanitize it.
 
 Use `airplan purge --older-than 30d --yes` manually or from cron when uploads
-should expire. For large remote inventories, `purge --remote --concurrency N`
+should expire. Mark uploads that must survive bulk cleanup — a demo linked
+from a README, say — with `airplan protect --reason "why" <url-or-key>`.
+Purge skips protected uploads with a stderr note and no failure, and
+`delete` refuses them unless given `--force`; `airplan unprotect` lifts the
+mark again. Protection lives in the bucket as a small
+`.airplan-protected.json` sentinel object, so it follows the upload across
+machines; note that older airplan builds do not know about the sentinel and
+will purge straight through it. Protection-aware builds also reject older
+collections that already used that now-reserved basename; remove those with the
+older client or verified storage tooling. For large remote inventories,
+`purge --remote --concurrency N`
 changes only parallel marker inspection (default 8, range 1-64); destructive
 deletions stay sequential after confirmation. For defense in depth on
 Cloudflare, a Transform Rule can add an

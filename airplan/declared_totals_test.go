@@ -793,10 +793,10 @@ func TestSyncBackfillNeverResurrectsTombstonedIdentity(t *testing.T) {
 	}
 }
 
-// TestSyncBackfillMergesIntoTheCurrentRecord covers a concurrent update: a
-// newer record for the same identity was appended while the marker was being
-// inspected, so enrichment must add its two fields to that record rather than
-// re-appending the snapshot it planned from, which would revert the update.
+// TestSyncBackfillMergesIntoTheCurrentRecord covers concurrent metadata and
+// protection updates: enrichment must add only its two fields to the current
+// raw upload record. Protection stays a reduction-only projection rather than
+// leaking into the appended upload line.
 func TestSyncBackfillMergesIntoTheCurrentRecord(t *testing.T) {
 	fake := newSyncStorage(t)
 	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
@@ -816,8 +816,18 @@ func TestSyncBackfillMergesIntoTheCurrentRecord(t *testing.T) {
 	planned.TotalBytes = 4096
 	initialLen := len(records)
 
-	// A concurrent writer re-titles the same upload while the marker is being
-	// inspected.
+	// Concurrent writers protect and re-title the same upload while the marker
+	// is being inspected. A later upload record does not clear protection.
+	protectedAt := records[0].Time.Add(time.Second)
+	if err := appendManifestRecord(
+		context.Background(), manifest, ManifestRecord{
+			Type: "protect", Time: protectedAt, Key: records[0].Key,
+			MarkerKey: records[0].MarkerKey, Bucket: records[0].Bucket,
+			Profile: records[0].Profile, ProtectReason: "keep",
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
 	updated := records[0]
 	updated.Title = "Retitled plan"
 	if err := appendManifestRecord(
@@ -835,12 +845,110 @@ func TestSyncBackfillMergesIntoTheCurrentRecord(t *testing.T) {
 	if len(result.Enriched) != 1 {
 		t.Fatalf("enriched = %+v, want one record", result.Enriched)
 	}
+	if result.Enriched[0].Protected ||
+		!result.Enriched[0].ProtectedAt.IsZero() ||
+		result.Enriched[0].ProtectReason != "" {
+		t.Fatalf("enriched record persisted derived protection: %+v",
+			result.Enriched[0])
+	}
+	raw, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	var appended map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &appended); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"protected", "protected_at", "protect_reason"} {
+		if _, ok := appended[field]; ok {
+			t.Fatalf("enrichment line emitted derived field %q: %s",
+				field, lines[len(lines)-1])
+		}
+	}
 	got := manifestRecordsByMarker(t, manifest)[planned.MarkerKey]
 	if got.Title != "Retitled plan" {
 		t.Fatalf("title = %q, want the concurrent update preserved", got.Title)
 	}
 	if got.Objects != 3 || got.TotalBytes != 4096 {
 		t.Fatalf("totals = %d/%d, want 3/4096", got.Objects, got.TotalBytes)
+	}
+	if !got.Protected || got.ProtectReason != "keep" ||
+		!got.ProtectedAt.Equal(protectedAt) {
+		t.Fatalf("reduced protection = %+v", got)
+	}
+}
+
+// TestSyncBackfillAndUnprotectConvergeTogether covers a single sync planning
+// both metadata enrichment and protection reconciliation for the same upload.
+// The appendable enrichment record omits reduction-only protection fields, but
+// the commit-time projection must retain them long enough to append unprotect.
+func TestSyncBackfillAndUnprotectConvergeTogether(t *testing.T) {
+	fake := newSyncStorage(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := newSyncClient(t, fake.server.URL, manifest)
+	if _, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n"), Name: "plan.md",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stripDeclaredTotals(t, manifest)
+	records, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload := records[0]
+	if err := appendManifestRecord(
+		context.Background(), manifest, ManifestRecord{
+			Type: "protect", Time: upload.Time.Add(time.Second),
+			Key: upload.Key, MarkerKey: upload.MarkerKey,
+			Bucket: upload.Bucket, Profile: upload.Profile,
+			ProtectReason: "keep",
+		},
+	); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dry, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dry.Enriched) != 1 || len(dry.Protection) != 1 ||
+		dry.Protection[0].Type != "unprotect" {
+		t.Fatalf("dry run = %+v, want enrichment and unprotect", dry)
+	}
+	afterDryRun, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(afterDryRun, before) {
+		t.Fatal("manifest changed during dry run")
+	}
+
+	applied, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applied.Enriched) != 1 || len(applied.Protection) != 1 ||
+		applied.Protection[0].Type != "unprotect" {
+		t.Fatalf("applied sync = %+v, want enrichment and unprotect", applied)
+	}
+	active := mustActiveUploads(t, manifest)
+	if len(active) != 1 || active[0].Protected ||
+		active[0].Objects == 0 || active[0].TotalBytes == 0 {
+		t.Fatalf("active uploads = %+v, want enriched and unprotected", active)
+	}
+	second, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{})
+	if err != nil || len(second.Enriched) != 0 ||
+		len(second.Protection) != 0 || second.Unchanged != 1 {
+		t.Fatalf("second sync = %+v, %v; want converged", second, err)
 	}
 }
 

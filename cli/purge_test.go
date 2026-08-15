@@ -286,7 +286,7 @@ func TestPurgeRemoteOlderThanDeletesOnlyOldUploads(t *testing.T) {
 	if stdout != "" {
 		t.Fatalf("stdout = %q, want empty", stdout)
 	}
-	if !strings.Contains(stderr, "purged 1 uploads (0 failed)") {
+	if !strings.Contains(stderr, "purged 1 uploads (0 protected, 0 failed)") {
 		t.Fatalf("stderr = %q, want purge summary", stderr)
 	}
 	if fake.deleteCalls() != 1 {
@@ -331,7 +331,7 @@ func TestPurgeRemoteDeletesIncompleteAndSkipsInvalid(t *testing.T) {
 	}
 	if stdout != "" ||
 		!strings.Contains(stderr, "skipped 1 invalid remote marker") ||
-		!strings.Contains(stderr, "purged 1 uploads (0 failed)") ||
+		!strings.Contains(stderr, "purged 1 uploads (0 protected, 0 failed)") ||
 		fake.markerDeleteCalls() != 1 {
 		t.Fatalf("stdout = %q, stderr = %q, marker deletes = %d",
 			stdout, stderr, fake.markerDeleteCalls())
@@ -365,6 +365,39 @@ func TestPurgeRemoteWarnsForFallbackPublicURL(t *testing.T) {
 	wantURL := fake.server.URL + "/plans/" + pageKey
 	if stdout != "" || !strings.Contains(stderr, "public_base_url") ||
 		!strings.Contains(stderr, wantURL) || fake.deleteCalls() != 0 {
+		t.Fatalf("stdout = %q, stderr = %q, deletes = %d",
+			stdout, stderr, fake.deleteCalls())
+	}
+}
+
+func TestPurgeRemoteWarnsForProtectedFallbackPublicURL(t *testing.T) {
+	isolateEnv(t)
+	when := time.Now().UTC().Add(-24 * time.Hour).Truncate(time.Second)
+	objects := append(remoteUploadObjects(deleteDirA, "plan", when),
+		remoteFakeObject{
+			key:          deleteDirA + "/" + airplan.ProtectedFilename,
+			size:         10,
+			lastModified: when,
+		},
+	)
+	fake := newFakeRemoteS3(t, objects, nil, nil)
+	config := filepath.Join(t.TempDir(), "config.toml")
+	data := "endpoint = \"" + fake.server.URL + "\"\n" +
+		"bucket = \"plans\"\n" +
+		"timeout = \"0\"\n"
+	if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeCommand(t, "", "",
+		"purge", "--remote", "--all", "--dry-run",
+		"--config", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || !strings.Contains(stderr, "public_base_url") ||
+		!strings.Contains(stderr, "skipping protected upload") ||
+		fake.deleteCalls() != 0 {
 		t.Fatalf("stdout = %q, stderr = %q, deletes = %d",
 			stdout, stderr, fake.deleteCalls())
 	}
@@ -436,7 +469,7 @@ func TestPurgeRemotePartialDeleteFailure(t *testing.T) {
 		"purge", "--remote", "--all", "--yes",
 		"--config", writeCLIConfig(t, fake.server.URL))
 	if err == nil || stdout != "" ||
-		!strings.Contains(stderr, "purged 1 uploads (1 failed)") ||
+		!strings.Contains(stderr, "purged 1 uploads (0 protected, 1 failed)") ||
 		fake.deleteCalls() != 1 || fake.markerDeleteCalls() != 1 {
 		t.Fatalf("stdout = %q, stderr = %q, error = %v, deletes = %d/%d",
 			stdout, stderr, err, fake.deleteCalls(), fake.markerDeleteCalls())
@@ -761,7 +794,7 @@ func TestPurgeYesDeletesAndTombstones(t *testing.T) {
 	if stdout != "" {
 		t.Fatalf("stdout = %q, want empty", stdout)
 	}
-	if !strings.Contains(stderr, "purged 2 uploads (0 failed)") {
+	if !strings.Contains(stderr, "purged 2 uploads (0 protected, 0 failed)") {
 		t.Fatalf("stderr = %q, want purge summary", stderr)
 	}
 	if fake.deleteCalls() != 2 {
@@ -858,7 +891,7 @@ func TestPurgePartialFailureLeavesFailedUploadActive(t *testing.T) {
 		t.Fatalf("stdout = %q, want empty", stdout)
 	}
 	if !strings.Contains(stderr, "airplan: error: delete") ||
-		!strings.Contains(stderr, "purged 2 uploads (1 failed)") {
+		!strings.Contains(stderr, "purged 2 uploads (0 protected, 1 failed)") {
 		t.Fatalf("stderr = %q, want error line and summary", stderr)
 	}
 

@@ -33,8 +33,8 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 		localFiles bool
 		wantTools  int
 	}{
-		{name: "stdio", localFiles: true, wantTools: 8},
-		{name: "hosted HTTP", localFiles: false, wantTools: 7},
+		{name: "stdio", localFiles: true, wantTools: 10},
+		{name: "hosted HTTP", localFiles: false, wantTools: 9},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -168,6 +168,32 @@ func TestMCPListEmptyStorageSerializesArray(t *testing.T) {
 	if !ok || string(storage) != "[]" {
 		t.Fatalf("output = %s, want storage: []", encoded)
 	}
+}
+
+func TestMCPListProtectedFilter(t *testing.T) {
+	list := func(t *testing.T, protected bool) []string {
+		t.Helper()
+		transport := &mcpTestTransport{listResult: &ManifestList{
+			Records: []ManifestRecord{
+				{Type: "upload", Title: "plain"},
+				{Type: "upload", Title: "kept", Protected: true},
+			},
+		}}
+		client := &Client{cfg: &Config{}, remote: transport}
+		encoded := callMCPListUploads(t, client, true, map[string]any{
+			"source": "manifest", "protected": protected,
+		})
+		var output struct {
+			Manifest ManifestList `json:"manifest"`
+		}
+		if err := json.Unmarshal(encoded, &output); err != nil {
+			t.Fatalf("json.Unmarshal %s: %v", encoded, err)
+		}
+		return recordTitles(output.Manifest.Records)
+	}
+
+	assertTitles(t, list(t, true), "kept")
+	assertTitles(t, list(t, false), "plain")
 }
 
 // TestMCPListUploadsFilters covers filter parity with the CLI: the MCP tool
@@ -538,6 +564,73 @@ func TestMCPPartialResultsRetainStructuredContent(t *testing.T) {
 	}
 }
 
+// TestMCPProtectionToolsForwardArguments exercises the protect_upload,
+// unprotect_upload, and delete_upload handler bodies. The tool surface test
+// only counts registered tools, so without this a broken argument binding or a
+// handler wired to the wrong operation stays green (SPEC.md §11).
+func TestMCPProtectionToolsForwardArguments(t *testing.T) {
+	const target = "https://plans.example.com/aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html"
+	transport := &mcpTestTransport{}
+	client := &Client{cfg: &Config{}, remote: transport}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", true)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	call := func(t *testing.T, name string, args map[string]any) {
+		t.Helper()
+		result, err := session.CallTool(ctx,
+			&mcp.CallToolParams{Name: name, Arguments: args})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.IsError {
+			t.Fatalf("%s result = %+v", name, result)
+		}
+	}
+
+	call(t, "protect_upload", map[string]any{
+		"url_or_key": target, "reason": "README demo link",
+	})
+	if transport.protectTarget != target ||
+		transport.protectReason != "README demo link" {
+		t.Fatalf("protect forwarded target %q reason %q",
+			transport.protectTarget, transport.protectReason)
+	}
+
+	call(t, "unprotect_upload", map[string]any{"url_or_key": target})
+	if transport.unprotectTarget != target {
+		t.Fatalf("unprotect forwarded target %q", transport.unprotectTarget)
+	}
+
+	// force defaults to false and must be forwarded when set, otherwise the
+	// tool could never delete a protected upload.
+	call(t, "delete_upload", map[string]any{"url_or_key": target})
+	if transport.deleteTarget != target || transport.deleteOptions.Force {
+		t.Fatalf("delete without force = %q %+v",
+			transport.deleteTarget, transport.deleteOptions)
+	}
+	call(t, "delete_upload", map[string]any{
+		"url_or_key": target, "force": true,
+	})
+	if !transport.deleteOptions.Force {
+		t.Fatalf("delete did not forward force: %+v", transport.deleteOptions)
+	}
+}
+
 func TestHostedMCPHidesServerPaths(t *testing.T) {
 	const privatePath = "/private/airplan/template.html"
 	for _, test := range []struct {
@@ -593,6 +686,49 @@ func TestHostedMCPHidesServerPaths(t *testing.T) {
 				t.Fatalf("server path leaked: %+v", result)
 			}
 		})
+	}
+}
+
+func TestHostedMCPHidesProtectedPurgeWarnings(t *testing.T) {
+	const privatePath = "/private/airplan/manifest.jsonl"
+	client := &Client{cfg: &Config{}, remote: &mcpTestTransport{
+		planResult: &PurgePlan{
+			Candidates: []PurgeCandidate{},
+			Protected: []PurgeCandidate{{
+				UploadID: "aaaaaaaaaaaaaaaaaaaaaaaaaa",
+				Warnings: []string{"read " + privatePath + ": denied"},
+			}},
+		},
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", false)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "preview_purge", Arguments: map[string]any{"all": true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(result.StructuredContent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), privatePath) {
+		t.Fatalf("server path leaked in protected warning: %s", encoded)
 	}
 }
 
@@ -827,9 +963,18 @@ type mcpTestTransport struct {
 	syncErr      error
 	purgeResult  *PurgeResult
 	purgeErr     error
+	planResult   *PurgePlan
+	planErr      error
 	listResult   *ManifestList
 	listCalls    int
 	remoteResult []RemoteUpload
+
+	// Protection call recording for the protect/unprotect/delete tools.
+	protectTarget   string
+	protectReason   string
+	unprotectTarget string
+	deleteTarget    string
+	deleteOptions   DeleteOptions
 }
 
 func (t *mcpTestTransport) ListManifest(
@@ -880,6 +1025,31 @@ func callMCPListUploads(
 	return encoded
 }
 
+func (t *mcpTestTransport) ProtectUpload(
+	_ context.Context, urlOrKey, reason string,
+) (*ProtectionResult, error) {
+	t.protectTarget = urlOrKey
+	t.protectReason = reason
+	return &ProtectionResult{
+		ID: urlOrKey, Protected: true, Reason: reason,
+	}, nil
+}
+
+func (t *mcpTestTransport) UnprotectUpload(
+	_ context.Context, urlOrKey string,
+) (*ProtectionResult, error) {
+	t.unprotectTarget = urlOrKey
+	return &ProtectionResult{ID: urlOrKey}, nil
+}
+
+func (t *mcpTestTransport) DeleteUpload(
+	_ context.Context, urlOrKey string, opts DeleteOptions,
+) (*DeleteResult, error) {
+	t.deleteTarget = urlOrKey
+	t.deleteOptions = opts
+	return &DeleteResult{PageKey: urlOrKey}, nil
+}
+
 func (t *mcpTestTransport) Upload(context.Context, Input) (*Result, error) {
 	return t.uploadResult, t.uploadErr
 }
@@ -894,6 +1064,12 @@ func (t *mcpTestTransport) Purge(
 	context.Context, PurgeRequest,
 ) (*PurgeResult, error) {
 	return t.purgeResult, t.purgeErr
+}
+
+func (t *mcpTestTransport) PlanPurge(
+	context.Context, PurgePlanOptions,
+) (*PurgePlan, error) {
+	return t.planResult, t.planErr
 }
 
 type bearerRoundTripper struct {

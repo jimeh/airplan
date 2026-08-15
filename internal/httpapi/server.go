@@ -305,6 +305,34 @@ func (s *Server) DeleteUpload(
 	return generated.DeleteUpload200JSONResponse(result), nil
 }
 
+// ProtectUpload implements the generated operation.
+func (s *Server) ProtectUpload(
+	ctx context.Context, request generated.ProtectUploadRequestObject,
+) (generated.ProtectUploadResponseObject, error) {
+	if request.Body == nil || request.Body.URLOrKey == "" {
+		return nil, invalidRequest("url_or_key is required")
+	}
+	result, err := s.operations.ProtectUpload(ctx, *request.Body)
+	if err != nil {
+		return nil, err
+	}
+	return generated.ProtectUpload200JSONResponse(result), nil
+}
+
+// UnprotectUpload implements the generated operation.
+func (s *Server) UnprotectUpload(
+	ctx context.Context, request generated.UnprotectUploadRequestObject,
+) (generated.UnprotectUploadResponseObject, error) {
+	if request.Body == nil || request.Body.URLOrKey == "" {
+		return nil, invalidRequest("url_or_key is required")
+	}
+	result, err := s.operations.UnprotectUpload(ctx, *request.Body)
+	if err != nil {
+		return nil, err
+	}
+	return generated.UnprotectUpload200JSONResponse(result), nil
+}
+
 // ListManifestUploads implements the generated operation.
 func (s *Server) ListManifestUploads(
 	ctx context.Context, _ generated.ListManifestUploadsRequestObject,

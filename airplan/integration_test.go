@@ -5,6 +5,7 @@ package airplan
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net/http/httptest"
 	"path/filepath"
@@ -419,6 +420,8 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		t.Fatalf("collection delete = %+v, %v", collectionDeleted, err)
 	}
 
+	testPurgeProtectionLifecycle(ctx, t, client)
+
 	remote, err = client.ListRemote(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -428,6 +431,123 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	}
 
 	testHTTPBackendRoundTrip(ctx, t, cfg)
+}
+
+// testPurgeProtectionLifecycle covers the purge-protection contract against
+// real storage: protect → remote purge skips → delete refuses → forced
+// delete succeeds, and protect → unprotect → purge deletes (SPEC.md §9).
+func testPurgeProtectionLifecycle(
+	ctx context.Context, t *testing.T, client *Client,
+) {
+	t.Helper()
+	protectedDoc, err := client.Upload(ctx, Input{
+		Reader: strings.NewReader("# Keep\n"), Name: "keep-plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	victim, err := client.Upload(ctx, Input{
+		Reader: strings.NewReader("# Victim\n"), Name: "victim-plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	protection, err := client.ProtectUpload(
+		ctx, protectedDoc.URL, "integration keep",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !protection.Protected ||
+		protection.SentinelKey != protectedDoc.ID+"/"+ProtectedFilename {
+		t.Fatalf("protection = %+v", protection)
+	}
+
+	inspection, err := client.InspectUpload(ctx, protectedDoc.URL)
+	if err != nil || !inspection.Protected ||
+		inspection.ProtectReason != "integration keep" {
+		t.Fatalf("protected inspection = %+v, %v", inspection, err)
+	}
+
+	plan, err := client.PlanPurge(ctx, PurgePlanOptions{
+		Source: UploadSourceStorage, All: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Protected) != 1 ||
+		plan.Protected[0].UploadID != protectedDoc.ID {
+		t.Fatalf("purge plan protected = %+v", plan.Protected)
+	}
+	ids := make([]string, 0, len(plan.Candidates))
+	sawVictim := false
+	for _, candidate := range plan.Candidates {
+		if candidate.UploadID == protectedDoc.ID {
+			t.Fatalf("protected upload selected as candidate: %+v", candidate)
+		}
+		sawVictim = sawVictim || candidate.UploadID == victim.ID
+		ids = append(ids, candidate.UploadID)
+	}
+	if !sawVictim {
+		t.Fatalf("victim missing from purge candidates: %+v", plan.Candidates)
+	}
+	if _, err := client.Purge(ctx, PurgeRequest{UploadIDs: ids}); err != nil {
+		t.Fatal(err)
+	}
+
+	// A delete-time skip: purging the protected ID directly is refused by
+	// the sentinel, reported as a skip rather than a failure.
+	purged, err := client.Purge(ctx, PurgeRequest{
+		UploadIDs: []string{protectedDoc.ID},
+	})
+	if err != nil || len(purged.Items) != 1 || !purged.Items[0].Protected {
+		t.Fatalf("protected purge = %+v, %v", purged, err)
+	}
+
+	_, err = client.DeleteUpload(ctx, protectedDoc.URL)
+	var protectedErr *UploadProtectedError
+	if !errors.As(err, &protectedErr) ||
+		protectedErr.Reason != "integration keep" {
+		t.Fatalf("delete error = %v, want protected refusal", err)
+	}
+	forced, err := client.DeleteUploadWithOptions(
+		ctx, protectedDoc.URL, DeleteOptions{Force: true},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(forced.Keys) < 3 ||
+		forced.Keys[len(forced.Keys)-1] != protectedDoc.MarkerKey ||
+		forced.Keys[len(forced.Keys)-2] != protection.SentinelKey {
+		t.Fatalf("forced delete order = %v", forced.Keys)
+	}
+
+	// Protect then unprotect: ordinary purge deletes the upload again.
+	cycled, err := client.Upload(ctx, Input{
+		Reader: strings.NewReader("# Cycle\n"), Name: "cycle-plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ProtectUpload(ctx, cycled.URL, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.UnprotectUpload(ctx, cycled.URL); err != nil {
+		t.Fatal(err)
+	}
+	plan, err = client.PlanPurge(ctx, PurgePlanOptions{
+		Source: UploadSourceStorage, All: true,
+	})
+	if err != nil || len(plan.Protected) != 0 {
+		t.Fatalf("post-unprotect plan = %+v, %v", plan, err)
+	}
+	if len(plan.Candidates) != 1 || plan.Candidates[0].UploadID != cycled.ID {
+		t.Fatalf("post-unprotect candidates = %+v", plan.Candidates)
+	}
+	purged, err = client.Purge(ctx, PurgeRequest{UploadIDs: []string{cycled.ID}})
+	if err != nil || len(purged.Items) != 1 || purged.Items[0].Deleted == nil {
+		t.Fatalf("post-unprotect purge = %+v, %v", purged, err)
+	}
 }
 
 func testHTTPBackendRoundTrip(

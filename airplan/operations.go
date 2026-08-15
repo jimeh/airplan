@@ -22,7 +22,9 @@ type operationTransport interface {
 	InspectRemoteUploads(context.Context, []RemoteUpload, int) ([]RemoteInspectionResult, error)
 	GetUploadTo(context.Context, string, GetOptions, io.Writer) (string, error)
 	GetUpload(context.Context, string, GetOptions) (*GetResult, error)
-	DeleteUpload(context.Context, string) (*DeleteResult, error)
+	DeleteUpload(context.Context, string, DeleteOptions) (*DeleteResult, error)
+	ProtectUpload(context.Context, string, string) (*ProtectionResult, error)
+	UnprotectUpload(context.Context, string) (*ProtectionResult, error)
 	PlanPurge(context.Context, PurgePlanOptions) (*PurgePlan, error)
 	Purge(context.Context, PurgeRequest) (*PurgeResult, error)
 	SyncManifest(context.Context, SyncManifestOptions) (*SyncManifestResult, error)
@@ -161,8 +163,11 @@ type PurgeCandidate struct {
 // PurgePlan is the result of non-mutating candidate selection.
 type PurgePlan struct {
 	Candidates []PurgeCandidate `json:"candidates"`
-	Invalid    int              `json:"invalid"`
-	Warnings   []string         `json:"warnings,omitempty"`
+	// Protected contains matching uploads excluded from candidacy by purge
+	// protection (SPEC.md §9). They are reported as skips, never failures.
+	Protected []PurgeCandidate `json:"protected"`
+	Invalid   int              `json:"invalid"`
+	Warnings  []string         `json:"warnings,omitempty"`
 }
 
 // PurgeRequest executes deletion of explicit server-issued upload IDs.
@@ -174,7 +179,10 @@ type PurgeRequest struct {
 type PurgeItemResult struct {
 	UploadID string        `json:"upload_id"`
 	Deleted  *DeleteResult `json:"deleted,omitempty"`
-	Error    string        `json:"error,omitempty"`
+	// Protected reports a delete-time protection skip: the upload was
+	// neither deleted nor failed (SPEC.md §9).
+	Protected bool   `json:"protected,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 // PurgeResult reports every requested deletion in input order.
@@ -242,9 +250,14 @@ func (c *Client) PlanPurge(
 				plan.Invalid++
 				continue
 			}
-			plan.Candidates = append(plan.Candidates, PurgeCandidate{
-				UploadID: id, Record: rec,
-			})
+			candidate := PurgeCandidate{UploadID: id, Record: rec}
+			// The manifest projection makes offline dry-run accurate; the
+			// delete-time listing guard remains authoritative (SPEC.md §9).
+			if rec.Protected {
+				plan.Protected = append(plan.Protected, candidate)
+				continue
+			}
+			plan.Candidates = append(plan.Candidates, candidate)
 		}
 		if otherBuckets > 0 {
 			plan.Warnings = append(plan.Warnings, fmt.Sprintf(
@@ -282,17 +295,27 @@ func (c *Client) PlanPurge(
 			if !purgeRecordMatches(rec, opts) {
 				continue
 			}
-			plan.Candidates = append(plan.Candidates, PurgeCandidate{
+			candidate := PurgeCandidate{
 				UploadID: item.Upload.Dir,
 				Record:   rec, Inspection: inspection,
 				Warnings: append([]string(nil), inspection.Warnings...),
-			})
+			}
+			// Protection was detected on the LIST snapshot every candidate
+			// came from, so filtering costs no extra requests (SPEC.md §9).
+			if item.Upload.Protected {
+				plan.Protected = append(plan.Protected, candidate)
+				continue
+			}
+			plan.Candidates = append(plan.Candidates, candidate)
 		}
 	default:
 		return nil, fmt.Errorf("airplan: invalid purge source %q", opts.Source)
 	}
 	if plan.Candidates == nil {
 		plan.Candidates = []PurgeCandidate{}
+	}
+	if plan.Protected == nil {
+		plan.Protected = []PurgeCandidate{}
 	}
 	return plan, nil
 }
@@ -321,6 +344,9 @@ func manifestRecordFromInspection(
 		Profile: cfg.Profile, Format: inspection.Format,
 		Kind: string(inspection.Kind), Title: inspection.Title,
 		Repo: inspection.Repo, MarkerVersion: inspection.MarkerVersion,
+		Protected:     inspection.Protected,
+		ProtectedAt:   inspection.ProtectedAt,
+		ProtectReason: inspection.ProtectReason,
 	}
 	if inspection.Page != nil {
 		rec.Key = inspection.Page.Key
@@ -371,13 +397,19 @@ func (c *Client) Purge(
 			result.Items = append(result.Items, item)
 			continue
 		}
-		deleted, err := c.DeleteUpload(
-			ctx, BuildKey(c.cfg.KeyPrefix, id, ""),
+		deleted, err := c.DeleteUploadWithOptions(
+			ctx, BuildKey(c.cfg.KeyPrefix, id, ""), DeleteOptions{},
 		)
-		if err != nil {
+		var protectedErr *UploadProtectedError
+		switch {
+		case errors.As(err, &protectedErr):
+			// A delete-time protection skip is progress, not a failure: it
+			// catches protection set after planning (SPEC.md §9).
+			item.Protected = true
+		case err != nil:
 			item.Error = err.Error()
 			failed++
-		} else {
+		default:
 			item.Deleted = deleted
 		}
 		result.Items = append(result.Items, item)

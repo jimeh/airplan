@@ -322,6 +322,9 @@ func TestUploadMarkerV3ObjectValidation(t *testing.T) {
 		{"collection marker collision", func(o *MarkerObject) {
 			o.Name = CollectionMarkerFilename
 		}},
+		{"protection sentinel collision", func(o *MarkerObject) {
+			o.Name = ProtectedFilename
+		}},
 		{"unknown role", func(o *MarkerObject) { o.Role = "thumbnail" }},
 		{"missing content type", func(o *MarkerObject) { o.ContentType = "" }},
 		{"unnormalized content type", func(o *MarkerObject) {

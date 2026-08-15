@@ -394,8 +394,9 @@ func TestListTableWideShowsEveryLocalColumn(t *testing.T) {
 	}
 	table := parseListTable(t, stdout)
 	table.assertHeader(t,
-		"DATE", "PROFILE", "STATE", "KIND", "TITLE", "SLUG", "OBJECTS",
-		"SIZE", "PAGE SIZE", "DIRECTORY", "FORMAT", "REPO", "BUCKET", "URL",
+		"DATE", "PROFILE", "STATE", "KIND", "TITLE", "SLUG",
+		"OBJECTS", "SIZE", "PAGE SIZE", "DIRECTORY", "FORMAT", "REPO",
+		"BUCKET", "URL",
 	)
 	table.assertColumn(t, "KIND", "document", "collection")
 	table.assertColumn(t, "SLUG", "plan", "-")
@@ -486,6 +487,11 @@ func TestListColumnFlagErrors(t *testing.T) {
 			`unknown list column "nope"`,
 		},
 		{
+			"removed protected column",
+			[]string{"--columns", "protected"},
+			`unknown list column "protected"`,
+		},
+		{
 			"unknown name lists valid columns",
 			[]string{"--columns", "nope"},
 			"valid columns: date, profile, state, kind, title, slug, " +
@@ -511,7 +517,7 @@ func TestListColumnFlagErrors(t *testing.T) {
 			"every column removed",
 			[]string{
 				"--columns",
-				"-date,-profile,-kind,-title,-objects,-size,-url",
+				"-date,-profile,-state,-kind,-title,-objects,-size,-url",
 			},
 			"--columns left no columns to print",
 		},
@@ -599,7 +605,7 @@ func TestListRemoteColumnFlagErrors(t *testing.T) {
 		{
 			"unknown name lists remote columns",
 			[]string{"--columns", "nope"},
-			"valid columns: date, kind, slug, objects, size, dir, url",
+			"valid columns: date, state, kind, slug, objects, size, dir, url",
 		},
 	}
 	for _, tt := range tests {
@@ -738,6 +744,11 @@ func writeFilterManifest(t *testing.T, path string) {
 			`"kind":"document"`, `"slug":"plan-gamma"`, `"format":"md"`,
 			`"title":"Gamma"`, `"bytes":10`, `"marker_version":3`,
 		),
+		`{"type":"protect","time":"2026-07-10T12:00:00Z",` +
+			`"key":"` + deleteDirB + `/index.html",` +
+			`"marker_key":"` + deleteDirB + `/` +
+			airplan.CollectionMarkerFilename + `",` +
+			`"bucket":"plans","profile":"work","protect_reason":"keep"}`,
 	}, "\n")+"\n")
 }
 
@@ -810,6 +821,12 @@ func TestListFiltersSelectRecords(t *testing.T) {
 			[]string{"--kind", "collection"},
 			[]string{"Beta"},
 		},
+		{"protected", []string{"--protected"}, []string{"Beta"}},
+		{
+			"not protected",
+			[]string{"--no-protected"},
+			[]string{"Alpha", "Gamma"},
+		},
 		{"slug exact", []string{"--slug", "plan-alpha"}, []string{"Alpha"}},
 		{
 			"slug glob",
@@ -876,6 +893,44 @@ func TestListFiltersSelectRecords(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestListProtectionFiltersForceColumn(t *testing.T) {
+	path := setListState(t)
+	writeFilterManifest(t, path)
+
+	for _, test := range []struct {
+		name string
+		flag string
+		want []string
+	}{
+		{name: "protected", flag: "--protected", want: []string{"protected"}},
+		{name: "unprotected", flag: "--no-protected", want: []string{"managed", "managed"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stdout, stderr, err := executeList(t, test.flag)
+			if err != nil || stderr != "" {
+				t.Fatalf("stdout = %q, stderr = %q, error = %v",
+					stdout, stderr, err)
+			}
+			parseListTable(t, stdout).assertColumn(t, "STATE", test.want...)
+		})
+	}
+}
+
+func TestListProtectionFilterAllowsExplicitColumnRemoval(t *testing.T) {
+	path := setListState(t)
+	writeFilterManifest(t, path)
+
+	stdout, stderr, err := executeList(t,
+		"--no-protected", "--columns", "-state")
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	table := parseListTable(t, stdout)
+	if table.index("STATE") >= 0 || len(table.rows) != 2 {
+		t.Fatalf("header = %q, rows = %q", table.header, table.rows)
 	}
 }
 
@@ -960,6 +1015,11 @@ func TestListFilterFlagErrors(t *testing.T) {
 			"all-profiles with profile",
 			[]string{"--all-profiles", "--profile", "work"},
 			"--all-profiles cannot be combined with --profile",
+		},
+		{
+			"both protection states",
+			[]string{"--protected", "--no-protected"},
+			"--protected cannot be combined with --no-protected",
 		},
 	}
 	for _, tt := range tests {
@@ -1129,6 +1189,103 @@ func TestListJSONShowsActiveUploads(t *testing.T) {
 	}
 }
 
+// TestListShowsDerivedProtection covers the manifest-backed listing side
+// of SPEC.md §9: reduced upload records carry derived protected, protected_at,
+// and protect_reason, surfaced by list --json. The fields are reduction
+// output rather than stored columns, so nothing else asserts they reach the
+// CLI. The human table renders the same state as a yes/no column.
+func TestListShowsDerivedProtection(t *testing.T) {
+	const dir = "aaaaaaaaaaaaaaaaaaaaaaaaaa"
+	upload := `{"type":"upload","time":"2026-07-08T14:03:11Z",` +
+		`"key":"` + dir + `/plan.html",` +
+		`"marker_key":"` + dir + `/.airplan.json",` +
+		`"url":"https://plans.example.com/` + dir + `/plan.html",` +
+		`"bucket":"plans","profile":"work","kind":"document","slug":"plan",` +
+		`"title":"Active plan","bytes":18432,"marker_version":3}`
+	protect := `{"type":"protect","time":"2026-07-09T09:00:00Z",` +
+		`"key":"` + dir + `/plan.html",` +
+		`"marker_key":"` + dir + `/.airplan.json",` +
+		`"bucket":"plans","profile":"work",` +
+		`"protect_reason":"README demo link"}`
+	unprotect := `{"type":"unprotect","time":"2026-07-10T09:00:00Z",` +
+		`"key":"` + dir + `/plan.html",` +
+		`"marker_key":"` + dir + `/.airplan.json",` +
+		`"bucket":"plans","profile":"work"}`
+
+	listJSON := func(t *testing.T, lines ...string) (
+		map[string]json.RawMessage, airplan.ManifestRecord,
+	) {
+		t.Helper()
+		path := setListState(t)
+		writeManifest(t, path, strings.Join(lines, "\n")+"\n")
+		stdout, stderr, err := executeList(t, "-j")
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+		var fields []map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(stdout), &fields); err != nil {
+			t.Fatalf("json.Unmarshal fields: %v\nstdout: %s", err, stdout)
+		}
+		var records []airplan.ManifestRecord
+		if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+			t.Fatalf("json.Unmarshal records: %v\nstdout: %s", err, stdout)
+		}
+		if len(fields) != 1 || len(records) != 1 {
+			t.Fatalf("got %d records, want 1\nstdout: %s", len(records), stdout)
+		}
+		return fields[0], records[0]
+	}
+
+	t.Run("protected", func(t *testing.T) {
+		fields, record := listJSON(t, upload, protect)
+		if !record.Protected {
+			t.Fatalf("protected = false, want true: %+v", record)
+		}
+		if record.ProtectReason != "README demo link" {
+			t.Fatalf("protect_reason = %q", record.ProtectReason)
+		}
+		if record.ProtectedAt.IsZero() {
+			t.Fatalf("protected_at is zero: %+v", record)
+		}
+		for _, field := range []string{
+			"protected", "protected_at", "protect_reason",
+		} {
+			if _, ok := fields[field]; !ok {
+				t.Fatalf("field %q missing: %+v", field, fields)
+			}
+		}
+	})
+
+	t.Run("unprotect clears the projection", func(t *testing.T) {
+		fields, record := listJSON(t, upload, protect, unprotect)
+		if record.Protected || record.ProtectReason != "" ||
+			!record.ProtectedAt.IsZero() {
+			t.Fatalf("protection survived unprotect: %+v", record)
+		}
+		for _, field := range []string{
+			"protected", "protected_at", "protect_reason",
+		} {
+			if _, ok := fields[field]; ok {
+				t.Fatalf("field %q must be omitted when unprotected: %+v",
+					field, fields)
+			}
+		}
+	})
+
+	t.Run("table reports protection", func(t *testing.T) {
+		path := setListState(t)
+		writeManifest(t, path, upload+"\n"+protect+"\n")
+		stdout, stderr, err := executeList(t)
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		parseListTable(t, stdout).assertColumn(t, "STATE", "protected")
+	})
+}
+
 func TestListWarnsForTornLine(t *testing.T) {
 	path := setListState(t)
 	writeManifest(t, path, strings.Join([]string{
@@ -1283,6 +1440,10 @@ func remoteListFixture() []remoteFakeObject {
 		},
 		{key: deleteDirA + "/plan.html", size: 18432, lastModified: when},
 		{
+			key:  deleteDirA + "/" + airplan.ProtectedFilename,
+			size: 96, lastModified: when,
+		},
+		{
 			key:  deleteDirC + "/" + airplan.CollectionMarkerFilename,
 			size: 10, lastModified: later,
 		},
@@ -1292,42 +1453,55 @@ func remoteListFixture() []remoteFakeObject {
 
 func TestListRemoteTableColumns(t *testing.T) {
 	tests := []struct {
-		name string
-		args []string
-		want []string
-		date []string
+		name  string
+		args  []string
+		want  []string
+		date  []string
+		state []string
 	}{
 		{
 			"default",
 			nil,
-			[]string{"DATE", "KIND", "SLUG", "OBJECTS", "SIZE", "URL"},
+			[]string{
+				"DATE", "STATE", "KIND", "SLUG", "OBJECTS", "SIZE", "URL",
+			},
 			[]string{"2026-07-08 14:03", "2026-07-08 16:03"},
+			[]string{"protected", "unprotected"},
 		},
 		{
 			"wide",
 			[]string{"--wide"},
 			[]string{
-				"DATE", "KIND", "SLUG", "OBJECTS", "SIZE", "DIRECTORY", "URL",
+				"DATE", "STATE", "KIND", "SLUG", "OBJECTS", "SIZE",
+				"DIRECTORY", "URL",
 			},
 			[]string{"2026-07-08 14:03", "2026-07-08 16:03"},
+			[]string{"protected", "unprotected"},
 		},
 		{
 			"absolute columns",
 			[]string{"--columns", "objects,date"},
 			[]string{"DATE", "OBJECTS"},
 			[]string{"2026-07-08 14:03", "2026-07-08 16:03"},
+			nil,
 		},
 		{
 			"additive columns",
 			[]string{"--columns", "+dir,-slug"},
-			[]string{"DATE", "KIND", "OBJECTS", "SIZE", "DIRECTORY", "URL"},
+			[]string{
+				"DATE", "STATE", "KIND", "OBJECTS", "SIZE", "DIRECTORY", "URL",
+			},
 			[]string{"2026-07-08 14:03", "2026-07-08 16:03"},
+			[]string{"protected", "unprotected"},
 		},
 		{
 			"reverse",
 			[]string{"--reverse"},
-			[]string{"DATE", "KIND", "SLUG", "OBJECTS", "SIZE", "URL"},
+			[]string{
+				"DATE", "STATE", "KIND", "SLUG", "OBJECTS", "SIZE", "URL",
+			},
 			[]string{"2026-07-08 16:03", "2026-07-08 14:03"},
+			[]string{"unprotected", "protected"},
 		},
 	}
 	for _, tt := range tests {
@@ -1346,6 +1520,9 @@ func TestListRemoteTableColumns(t *testing.T) {
 			table := parseListTable(t, stdout)
 			table.assertHeader(t, tt.want...)
 			table.assertColumn(t, "DATE", tt.date...)
+			if tt.state != nil {
+				table.assertColumn(t, "STATE", tt.state...)
+			}
 		})
 	}
 }
@@ -1375,7 +1552,8 @@ func TestListRemoteAutoDirColumnForUninferableURL(t *testing.T) {
 	}
 	table := parseListTable(t, stdout)
 	table.assertHeader(t,
-		"DATE", "KIND", "SLUG", "OBJECTS", "SIZE", "DIRECTORY", "URL")
+		"DATE", "STATE", "KIND", "SLUG", "OBJECTS", "SIZE",
+		"DIRECTORY", "URL")
 	table.assertColumn(t, "DIRECTORY", deleteDirA, deleteDirB, deleteDirC)
 	table.assertColumn(t, "KIND", "document", "conflict", "collection")
 	table.assertColumn(t, "SLUG", "plan", "-", "-")
@@ -1414,6 +1592,12 @@ func TestListRemoteFilters(t *testing.T) {
 		{
 			"kind collection",
 			[]string{"--kind", "collection"},
+			[]string{collection},
+		},
+		{"protected", []string{"--protected"}, []string{document}},
+		{
+			"not protected",
+			[]string{"--no-protected"},
 			[]string{collection},
 		},
 		{
@@ -1481,6 +1665,18 @@ func TestListRemoteFilters(t *testing.T) {
 	}
 }
 
+func TestListRemoteProtectionFilterForcesColumn(t *testing.T) {
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, remoteListFixture(), nil, nil)
+	stdout, stderr, err := executeList(t,
+		"--remote", "--no-protected",
+		"--config", writeCLIConfig(t, fake.server.URL))
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	parseListTable(t, stdout).assertColumn(t, "STATE", "unprotected")
+}
+
 func TestListRemoteRejectsAllProfiles(t *testing.T) {
 	isolateEnv(t)
 	fake := newFakeRemoteS3(t, remoteListFixture(), nil, nil)
@@ -1497,6 +1693,91 @@ func TestListRemoteRejectsAllProfiles(t *testing.T) {
 	if fake.listCalls() != 0 {
 		t.Fatalf("LIST calls = %d, want none", fake.listCalls())
 	}
+}
+
+// TestListRemoteJSONReportsProtection locks in the purge-protection contract
+// for remote listings (SPEC.md §9): the JSON field appears when the sentinel
+// is listed and the human table renders the same state. Protected is a *bool
+// so an absent field is distinguishable from an explicit false — protection
+// is a conditional presence flag like conflict,
+// not a stable field.
+func TestListRemoteJSONReportsProtection(t *testing.T) {
+	when := time.Date(2026, 7, 8, 14, 3, 0, 0, time.UTC)
+	key := deleteDirA + "/plan.html"
+	markerKey := deleteDirA + "/" + airplan.MarkerFilename
+	sentinelKey := deleteDirA + "/" + airplan.ProtectedFilename
+	objects := []remoteFakeObject{
+		{key: markerKey, size: 100, lastModified: when},
+		{key: key, size: 18432, lastModified: when.Add(time.Minute)},
+	}
+
+	decode := func(t *testing.T, stdout string) *bool {
+		t.Helper()
+		var records []struct {
+			Dir       string `json:"dir"`
+			Protected *bool  `json:"protected"`
+		}
+		if err := json.Unmarshal([]byte(stdout), &records); err != nil {
+			t.Fatalf("json.Unmarshal: %v\nstdout: %s", err, stdout)
+		}
+		if len(records) != 1 || records[0].Dir != deleteDirA {
+			t.Fatalf("records = %+v, want one record for %s",
+				records, deleteDirA)
+		}
+		return records[0].Protected
+	}
+
+	t.Run("protected", func(t *testing.T) {
+		isolateEnv(t)
+		listed := append(objects,
+			remoteFakeObject{key: sentinelKey, size: 96, lastModified: when})
+		fake := newFakeRemoteS3(t, listed, nil, nil)
+
+		stdout, stderr, err := executeList(t,
+			"--remote", "--json",
+			"--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		protected := decode(t, stdout)
+		if protected == nil || !*protected {
+			t.Fatalf("protected = %v, want true\nstdout: %s",
+				protected, stdout)
+		}
+	})
+
+	t.Run("unprotected omits the field", func(t *testing.T) {
+		isolateEnv(t)
+		fake := newFakeRemoteS3(t, objects, nil, nil)
+
+		stdout, stderr, err := executeList(t,
+			"--remote", "--json",
+			"--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		if protected := decode(t, stdout); protected != nil {
+			t.Fatalf("protected = %v, want the field omitted\nstdout: %s",
+				*protected, stdout)
+		}
+	})
+
+	t.Run("table reports protection", func(t *testing.T) {
+		isolateEnv(t)
+		listed := append(objects,
+			remoteFakeObject{key: sentinelKey, size: 96, lastModified: when})
+		fake := newFakeRemoteS3(t, listed, nil, nil)
+
+		stdout, stderr, err := executeList(t,
+			"--remote", "--config", writeCLIConfig(t, fake.server.URL))
+		if err != nil {
+			t.Fatalf("Execute returned error: %v\nstderr:\n%s", err, stderr)
+		}
+		if stderr != "" {
+			t.Fatalf("stderr = %q, want empty", stderr)
+		}
+		parseListTable(t, stdout).assertColumn(t, "STATE", "protected")
+	})
 }
 
 func TestListRemoteFallbackURLWarnsOnce(t *testing.T) {

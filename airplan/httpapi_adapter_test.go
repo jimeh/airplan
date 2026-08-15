@@ -306,6 +306,48 @@ func TestHostedAdapterSafetyAndRequiredArrays(t *testing.T) {
 	}
 }
 
+func TestAPIOperationErrorClassifiesProtectedUpload(t *testing.T) {
+	got := apiOperationError(&UploadProtectedError{Target: "dir"})
+	var problem *httpapi.ProblemError
+	if !errors.As(got, &problem) ||
+		problem.Problem.Status != http.StatusConflict ||
+		problem.Problem.Code != "upload_protected" {
+		t.Fatalf("problem = %+v, error = %v", problem, got)
+	}
+}
+
+func TestAPIOperationErrorClassifiesInvalidProtectReason(t *testing.T) {
+	fake := newProtectStorage(t)
+	client := newProtectTestClient(
+		t, fake.server.URL, t.TempDir()+"/manifest.jsonl",
+	)
+	_, err := client.ProtectUpload(
+		context.Background(), testDir,
+		strings.Repeat("x", MaxProtectReasonRunes+1),
+	)
+	got := apiOperationError(err)
+	var problem *httpapi.ProblemError
+	if !errors.As(got, &problem) ||
+		problem.Problem.Status != http.StatusUnprocessableEntity ||
+		problem.Problem.Code != "invalid_protect_reason" {
+		t.Fatalf("problem = %+v, error = %v", problem, got)
+	}
+}
+
+func TestWireProtectionResultRequiredArrays(t *testing.T) {
+	wire := wireProtectionResult(&ProtectionResult{
+		ID: "dir", Protected: true,
+	})
+	if wire.Warnings == nil || !wire.Protected || wire.ProtectedAt != nil {
+		t.Fatalf("wire = %+v", wire)
+	}
+	at := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	wire = wireProtectionResult(&ProtectionResult{ProtectedAt: at})
+	if wire.ProtectedAt == nil || !wire.ProtectedAt.Equal(at) {
+		t.Fatalf("wire = %+v", wire)
+	}
+}
+
 func TestAPIOperationErrorDoesNotClassifyStorageText(t *testing.T) {
 	storageErr := errors.New("bucket not found: InvalidAccessKeyId")
 	if got := apiOperationError(storageErr); !errors.Is(got, storageErr) {
@@ -375,6 +417,8 @@ func TestHostedEndpointsRejectSemanticInvalidTargets(t *testing.T) {
 		{endpoint: "/api/v1/uploads/inspect", target: dir + "/nested/file"},
 		{endpoint: "/api/v1/uploads/get", target: dir + "/other.html"},
 		{endpoint: "/api/v1/uploads/delete", target: dir + "/other.html"},
+		{endpoint: "/api/v1/uploads/protect", target: dir + "/other.html"},
+		{endpoint: "/api/v1/uploads/unprotect", target: dir + "/other.html"},
 	} {
 		t.Run(test.endpoint, func(t *testing.T) {
 			body, err := json.Marshal(map[string]string{

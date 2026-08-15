@@ -111,7 +111,17 @@ func TestGeneratedClientInvokesEveryGeneratedServerOperation(t *testing.T) {
 		ctx, generated.GetUploadRequest{URLOrKey: target.URLOrKey},
 	)
 	assertGeneratedResponse(t, download, err)
-	deleted, err := client.DeleteUploadWithResponse(ctx, target)
+	protectedResult, err := client.ProtectUploadWithResponse(
+		ctx, generated.ProtectRequest{
+			URLOrKey: target.URLOrKey, Reason: "keep",
+		},
+	)
+	assertGeneratedResponse(t, protectedResult, err)
+	unprotected, err := client.UnprotectUploadWithResponse(ctx, target)
+	assertGeneratedResponse(t, unprotected, err)
+	deleted, err := client.DeleteUploadWithResponse(
+		ctx, generated.DeleteRequest{URLOrKey: target.URLOrKey, Force: true},
+	)
 	assertGeneratedResponse(t, deleted, err)
 	manifest, err := client.ListManifestUploadsWithResponse(ctx)
 	assertGeneratedResponse(t, manifest, err)

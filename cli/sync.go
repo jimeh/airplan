@@ -77,6 +77,9 @@ func runSync(cmd *cobra.Command, opts *syncOptions) error {
 	if result.Tombstoned == nil {
 		result.Tombstoned = []airplan.ManifestRecord{}
 	}
+	if result.Protection == nil {
+		result.Protection = []airplan.ManifestRecord{}
+	}
 	if result.Failures == nil {
 		result.Failures = []airplan.SyncFailure{}
 	}
@@ -99,14 +102,17 @@ func runSync(cmd *cobra.Command, opts *syncOptions) error {
 	verb := "synced"
 	enrichVerb := "enriched"
 	tombstoneVerb := "tombstoned"
+	protectionVerb := "updated protection on"
 	if opts.dryRun {
 		verb = "would sync"
 		enrichVerb = "would enrich"
 		tombstoneVerb = "would tombstone"
+		protectionVerb = "would update protection on"
 	}
-	fmt.Fprintf(stderr, "%s %d uploads, %s %d, %s %d\n",
+	fmt.Fprintf(stderr, "%s %d uploads, %s %d, %s %d, %s %d\n",
 		verb, len(result.Added), enrichVerb, len(result.Enriched),
-		tombstoneVerb, len(result.Tombstoned))
+		tombstoneVerb, len(result.Tombstoned),
+		protectionVerb, len(result.Protection))
 	fmt.Fprintf(stderr,
 		"(%d unchanged, %d deferred, %d incomplete, %d invalid, "+
 			"%d retained, %d failed)\n",
@@ -116,33 +122,37 @@ func runSync(cmd *cobra.Command, opts *syncOptions) error {
 }
 
 type syncJSONResult struct {
-	Added            int                      `json:"added"`
-	Enriched         int                      `json:"enriched"`
-	Tombstoned       int                      `json:"tombstoned"`
-	Unchanged        int                      `json:"unchanged"`
-	Deferred         int                      `json:"deferred"`
-	Incomplete       int                      `json:"incomplete"`
-	Invalid          int                      `json:"invalid"`
-	Retained         int                      `json:"retained"`
-	Failed           int                      `json:"failed"`
-	AddedRecords     []airplan.ManifestRecord `json:"added_records"`
-	EnrichedRecords  []airplan.ManifestRecord `json:"enriched_records"`
-	TombstoneRecords []airplan.ManifestRecord `json:"tombstone_records"`
-	Failures         []airplan.SyncFailure    `json:"failures"`
-	Warnings         []string                 `json:"warnings,omitempty"`
+	Added             int                      `json:"added"`
+	Enriched          int                      `json:"enriched"`
+	Tombstoned        int                      `json:"tombstoned"`
+	Protection        int                      `json:"protection"`
+	Unchanged         int                      `json:"unchanged"`
+	Deferred          int                      `json:"deferred"`
+	Incomplete        int                      `json:"incomplete"`
+	Invalid           int                      `json:"invalid"`
+	Retained          int                      `json:"retained"`
+	Failed            int                      `json:"failed"`
+	AddedRecords      []airplan.ManifestRecord `json:"added_records"`
+	EnrichedRecords   []airplan.ManifestRecord `json:"enriched_records"`
+	TombstoneRecords  []airplan.ManifestRecord `json:"tombstone_records"`
+	ProtectionRecords []airplan.ManifestRecord `json:"protection_records"`
+	Failures          []airplan.SyncFailure    `json:"failures"`
+	Warnings          []string                 `json:"warnings,omitempty"`
 }
 
 func syncJSONFromResult(result *airplan.SyncManifestResult) syncJSONResult {
 	return syncJSONResult{
 		Added: len(result.Added), Enriched: len(result.Enriched),
 		Tombstoned: len(result.Tombstoned),
+		Protection: len(result.Protection),
 		Unchanged:  result.Unchanged, Deferred: result.Deferred,
 		Incomplete: result.Incomplete,
 		Invalid:    result.Invalid, Retained: result.Retained,
 		Failed: len(result.Failures), AddedRecords: result.Added,
 		EnrichedRecords:  result.Enriched,
 		TombstoneRecords: result.Tombstoned, Failures: result.Failures,
-		Warnings: result.Warnings,
+		ProtectionRecords: result.Protection,
+		Warnings:          result.Warnings,
 	}
 }
 

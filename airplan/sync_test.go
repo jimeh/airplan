@@ -297,6 +297,247 @@ func TestSyncManifestConcurrencyLimit(t *testing.T) {
 	}
 }
 
+func TestSyncManifestReconcilesProtectionBothWays(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("p", 26)
+	fake.addUpload(t, UploadMarker{
+		Schema: MarkerSchema, Version: 1, Directory: dir,
+		CreatedAt: when, Format: "html", Page: "plan.html",
+	}, []byte("page"))
+	sentinel, err := encodeProtectionSentinel(when, "keep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.addObject(dir+"/"+ProtectedFilename, sentinel, when)
+
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := newSyncClient(t, fake.server.URL, manifest)
+
+	// Import: a protected remote directory yields upload + protect records.
+	result, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Added) != 1 || len(result.Protection) != 1 ||
+		result.Protection[0].Type != "protect" ||
+		result.Protection[0].ProtectReason != "keep" ||
+		!result.Protection[0].Time.Equal(when) {
+		t.Fatalf("import result = %+v", result)
+	}
+	active := mustActiveUploads(t, manifest)
+	if len(active) != 1 || !active[0].Protected ||
+		active[0].ProtectReason != "keep" {
+		t.Fatalf("active = %+v", active)
+	}
+
+	// Converged: no further protection records.
+	second, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil || len(second.Protection) != 0 || second.Unchanged != 1 {
+		t.Fatalf("second sync = %+v, %v", second, err)
+	}
+
+	// Remote unprotected while locally protected appends unprotect.
+	fake.removeMarker(dir + "/" + ProtectedFilename)
+	third, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil || len(third.Protection) != 1 ||
+		third.Protection[0].Type != "unprotect" {
+		t.Fatalf("third sync = %+v, %v", third, err)
+	}
+	active = mustActiveUploads(t, manifest)
+	if len(active) != 1 || active[0].Protected {
+		t.Fatalf("active = %+v", active)
+	}
+
+	// Remote protected while locally unprotected appends protect. The
+	// already-active path is presence-based, so no reason is recorded.
+	fake.addObject(dir+"/"+ProtectedFilename, sentinel, when)
+	fourth, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil || len(fourth.Protection) != 1 ||
+		fourth.Protection[0].Type != "protect" ||
+		fourth.Protection[0].ProtectReason != "" {
+		t.Fatalf("fourth sync = %+v, %v", fourth, err)
+	}
+	active = mustActiveUploads(t, manifest)
+	if len(active) != 1 || !active[0].Protected {
+		t.Fatalf("active = %+v", active)
+	}
+}
+
+// TestSyncManifestReconcilesCollectionProtection covers the collection path of
+// protection reconciliation. Sync-generated protection records carry the
+// collection marker key but no explicit kind, so this asserts the reduced
+// record round trips without warnings — mustActiveUploads fails on any — and
+// that its identity resolves to the collection marker rather than the document
+// one (SPEC.md §9).
+func TestSyncManifestReconcilesCollectionProtection(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("c", 26)
+	fake.addUpload(t, UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: when, Kind: UploadKindCollection,
+		Objects: []MarkerObject{
+			{
+				Name: "index.html", Role: MarkerRolePage, Bytes: 8,
+				ContentType: pageContentType,
+			},
+			{
+				Name: "shot.png", Role: MarkerRoleFile, Bytes: 3,
+				ContentType: "image/png",
+			},
+		},
+	}, []byte("overview"))
+	fake.addObject(dir+"/shot.png", []byte("png"), when)
+	sentinel, err := encodeProtectionSentinel(when, "keep")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.addObject(dir+"/"+ProtectedFilename, sentinel, when)
+
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := newSyncClient(t, fake.server.URL, manifest)
+
+	result, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Added) != 1 || len(result.Protection) != 1 ||
+		result.Protection[0].Type != "protect" {
+		t.Fatalf("import result = %+v", result)
+	}
+	markerKey := dir + "/" + CollectionMarkerFilename
+	if result.Protection[0].MarkerKey != markerKey {
+		t.Fatalf("protection marker key = %q, want %q",
+			result.Protection[0].MarkerKey, markerKey)
+	}
+	active := mustActiveUploads(t, manifest)
+	if len(active) != 1 || !active[0].Protected ||
+		active[0].Kind != string(UploadKindCollection) {
+		t.Fatalf("active = %+v", active)
+	}
+
+	// The unprotect direction must round trip cleanly for collections too.
+	fake.removeMarker(dir + "/" + ProtectedFilename)
+	second, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{Prune: true})
+	if err != nil || len(second.Protection) != 1 ||
+		second.Protection[0].Type != "unprotect" ||
+		second.Protection[0].MarkerKey != markerKey {
+		t.Fatalf("second sync = %+v, %v", second, err)
+	}
+	active = mustActiveUploads(t, manifest)
+	if len(active) != 1 || active[0].Protected {
+		t.Fatalf("active = %+v", active)
+	}
+}
+
+func TestSyncManifestProtectionDryRunWritesNothing(t *testing.T) {
+	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("q", 26)
+	fake.addUpload(t, UploadMarker{
+		Schema: MarkerSchema, Version: 1, Directory: dir,
+		CreatedAt: when, Format: "html", Page: "plan.html",
+	}, []byte("page"))
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := newSyncClient(t, fake.server.URL, manifest)
+	if _, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fake.addObject(dir+"/"+ProtectedFilename, nil, when)
+	result, err := client.SyncManifest(context.Background(),
+		SyncManifestOptions{DryRun: true})
+	if err != nil || len(result.Protection) != 1 ||
+		result.Protection[0].Type != "protect" {
+		t.Fatalf("dry run = %+v, %v", result, err)
+	}
+	after, err := os.ReadFile(manifest)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("manifest changed during dry run: %v", err)
+	}
+}
+
+func TestCommitSyncManifestSkipsConcurrentlyReconciledProtection(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		// planned is the stale protection record built before a concurrent
+		// protect record landed in the manifest.
+		planned string
+	}{
+		// Same direction: the concurrent record makes the plan redundant.
+		{name: "duplicate protect", planned: "protect"},
+		// Opposite direction: the plan came from a snapshot taken before
+		// the concurrent protect, so its disagreement is stale and must
+		// not overwrite the fresher local record.
+		{name: "stale unprotect", planned: "unprotect"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := strings.Repeat("s", 26)
+			markerKey := dir + "/" + MarkerFilename
+			pageKey := dir + "/plan.html"
+			manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+			when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+			upload := ManifestRecord{
+				Type: "upload", Time: when, Key: pageKey, MarkerKey: markerKey,
+				URL:    "https://plans.example.com/" + pageKey,
+				Bucket: "plans", Profile: "work", Format: "html", Bytes: 4,
+				MarkerVersion: MarkerVersion,
+			}
+			if err := appendManifestRecord(
+				context.Background(), manifest, upload,
+			); err != nil {
+				t.Fatal(err)
+			}
+			initialRecords, _, err := ReadManifest(manifest)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// A concurrent protect lands between planning and commit.
+			if err := appendManifestRecord(context.Background(), manifest,
+				ManifestRecord{
+					Type: "protect", Time: when.Add(time.Minute), Key: pageKey,
+					MarkerKey: markerKey, Bucket: "plans", Profile: "work",
+				}); err != nil {
+				t.Fatal(err)
+			}
+			result := &SyncManifestResult{Protection: []ManifestRecord{{
+				Type: tt.planned, Time: when.Add(2 * time.Minute),
+				Key: pageKey, MarkerKey: markerKey,
+				Bucket: "plans", Profile: "work",
+			}}}
+			client := &Client{cfg: &Config{Bucket: "plans", Profile: "work"}}
+			if err := client.commitSyncManifest(context.Background(), manifest,
+				len(initialRecords), result); err != nil {
+				t.Fatal(err)
+			}
+			if len(result.Protection) != 0 {
+				t.Fatalf("stale protection appended = %+v", result.Protection)
+			}
+			records, _, err := ReadManifest(manifest)
+			if err != nil || len(records) != 2 {
+				t.Fatalf("records = %+v, error = %v", records, err)
+			}
+			active := ActiveUploads(records)
+			if len(active) != 1 || !active[0].Protected {
+				t.Fatalf("active = %+v, want protected upload", active)
+			}
+		})
+	}
+}
+
 type syncStorage struct {
 	server      *httptest.Server
 	mu          sync.Mutex

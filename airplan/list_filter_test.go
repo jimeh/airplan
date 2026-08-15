@@ -159,6 +159,34 @@ func TestListFilterKind(t *testing.T) {
 	}
 }
 
+func TestListFilterProtected(t *testing.T) {
+	records := filterTestRecords()
+	records[1].Protected = true
+	protected := true
+	unprotected := false
+
+	assertTitles(t, recordTitles(
+		(ListFilter{Protected: &protected}).FilterManifestRecords(records),
+	), "b")
+	assertTitles(t, recordTitles(
+		(ListFilter{Protected: &unprotected}).FilterManifestRecords(records),
+	), "a", "c")
+
+	uploads := []RemoteUpload{
+		{Dir: "a", Protected: false},
+		{Dir: "b", Protected: true},
+		{Dir: "c", Protected: false},
+	}
+	filtered := (ListFilter{Protected: &protected}).FilterRemoteUploads(uploads)
+	if len(filtered) != 1 || filtered[0].Dir != "b" {
+		t.Fatalf("protected remote uploads = %+v, want b", filtered)
+	}
+	filtered = (ListFilter{Protected: &unprotected}).FilterRemoteUploads(uploads)
+	if len(filtered) != 2 || filtered[0].Dir != "a" || filtered[1].Dir != "c" {
+		t.Fatalf("unprotected remote uploads = %+v, want a and c", filtered)
+	}
+}
+
 func TestManifestRecordKindInfersOnlyLegacyDocuments(t *testing.T) {
 	tests := []struct {
 		name   string

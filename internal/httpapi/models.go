@@ -13,6 +13,9 @@ type (
 	CollectionMetadata        = generated.CollectionMetadata
 	TargetRequest             = generated.TargetRequest
 	GetUploadRequest          = generated.GetUploadRequest
+	DeleteRequest             = generated.DeleteRequest
+	ProtectRequest            = generated.ProtectRequest
+	ProtectionResult          = generated.ProtectionResult
 	FileResult                = generated.FileResult
 	UploadResult              = generated.UploadResult
 	InspectedObject           = generated.InspectedObject
@@ -37,6 +40,7 @@ type (
 	CapabilitiesAPIVersion    = generated.CapabilitiesAPIVersion
 	UploadResultKind          = generated.UploadResultKind
 	DeleteResultKind          = generated.DeleteResultKind
+	ProtectionResultKind      = generated.ProtectionResultKind
 	DocumentMetadataFormat    = generated.DocumentMetadataFormat
 	ManifestRecordKind        = generated.ManifestRecordKind
 	ManifestRecordType        = generated.ManifestRecordType

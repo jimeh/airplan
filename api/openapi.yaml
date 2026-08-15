@@ -176,6 +176,53 @@ paths:
       description: |
         Permanently deletes one marker-managed upload. Payloads are deleted
         before the ownership marker and the manifest receives a tombstone.
+        A purge-protected upload is refused unless force is true.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteRequest"
+      responses:
+        "200":
+          description: The upload was deleted or reconciled as already absent.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteResult"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/uploads/protect:
+    post:
+      operationId: protectUpload
+      tags: [uploads]
+      description: |
+        Marks one marker-managed upload as purge-protected by writing its
+        protection sentinel object. Protecting an already protected upload
+        succeeds and rewrites the sentinel.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProtectRequest"
+      responses:
+        "200":
+          description: The upload is purge-protected.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProtectionResult"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/uploads/unprotect:
+    post:
+      operationId: unprotectUpload
+      tags: [uploads]
+      description: |
+        Removes purge protection from one marker-managed upload by deleting
+        its protection sentinel object. Unprotecting an unprotected upload
+        succeeds.
       requestBody:
         required: true
         content:
@@ -184,11 +231,11 @@ paths:
               $ref: "#/components/schemas/TargetRequest"
       responses:
         "200":
-          description: The upload was deleted or reconciled as already absent.
+          description: The upload is no longer purge-protected.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/DeleteResult"
+                $ref: "#/components/schemas/ProtectionResult"
         default:
           $ref: "#/components/responses/Problem"
   /api/v1/uploads:
@@ -328,6 +375,12 @@ components:
           pattern: "^[a-z][a-z0-9_]*$"
         request_id:
           type: string
+        protect_reason:
+          type: string
+          maxLength: 256
+          description: >-
+            Advisory purge-protection reason accompanying the
+            upload_protected code, when the sentinel body could be read.
     Capabilities:
       type: object
       additionalProperties: false
@@ -436,6 +489,56 @@ components:
         source:
           type: boolean
           default: false
+    DeleteRequest:
+      type: object
+      additionalProperties: false
+      required: [url_or_key]
+      properties:
+        url_or_key:
+          type: string
+          minLength: 1
+        force:
+          type: boolean
+          default: false
+    ProtectRequest:
+      type: object
+      additionalProperties: false
+      required: [url_or_key]
+      properties:
+        url_or_key:
+          type: string
+          minLength: 1
+        reason:
+          type: string
+          maxLength: 256
+    ProtectionResult:
+      type: object
+      additionalProperties: false
+      required: [id, marker_key, sentinel_key, page_key, kind, protected, warnings]
+      properties:
+        id:
+          type: string
+        marker_key:
+          type: string
+        sentinel_key:
+          type: string
+        page_key:
+          type: string
+        kind:
+          type: string
+          enum: [document, collection]
+        protected:
+          type: boolean
+        protected_at:
+          type: string
+          format: date-time
+          x-go-type-skip-optional-pointer: false
+        reason:
+          type: string
+        warnings:
+          type: array
+          items:
+            type: string
     UploadResult:
       type: object
       additionalProperties: false
@@ -594,6 +697,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/InspectedObject"
+        protected:
+          type: boolean
+        protected_at:
+          type: string
+          format: date-time
+          x-go-type-skip-optional-pointer: false
+        protect_reason:
+          type: string
         warnings:
           type: array
           items:
@@ -629,7 +740,7 @@ components:
       properties:
         type:
           type: string
-          enum: [upload, delete]
+          enum: [upload, delete, protect, unprotect]
         time:
           type: string
           format: date-time
@@ -670,6 +781,14 @@ components:
           type: string
         marker_version:
           type: integer
+        protect_reason:
+          type: string
+        protected:
+          type: boolean
+        protected_at:
+          type: string
+          format: date-time
+          x-go-type-skip-optional-pointer: false
     ManifestList:
       type: object
       additionalProperties: false
@@ -691,6 +810,7 @@ components:
         - marker_key
         - kind
         - conflict
+        - protected
         - keys
         - objects
         - bytes
@@ -704,6 +824,8 @@ components:
           type: string
           enum: [document, collection]
         conflict:
+          type: boolean
+        protected:
           type: boolean
         slug:
           type: string
@@ -772,6 +894,7 @@ components:
         - added_records
         - enriched_records
         - tombstone_records
+        - protection_records
         - unchanged
         - deferred
         - incomplete
@@ -790,6 +913,10 @@ components:
           items:
             $ref: "#/components/schemas/ManifestRecord"
         tombstone_records:
+          type: array
+          items:
+            $ref: "#/components/schemas/ManifestRecord"
+        protection_records:
           type: array
           items:
             $ref: "#/components/schemas/ManifestRecord"
@@ -858,9 +985,13 @@ components:
     PurgePreview:
       type: object
       additionalProperties: false
-      required: [candidates, invalid, warnings]
+      required: [candidates, protected, invalid, warnings]
       properties:
         candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurgeCandidate"
+        protected:
           type: array
           items:
             $ref: "#/components/schemas/PurgeCandidate"
@@ -893,6 +1024,8 @@ components:
         deleted:
           $ref: "#/components/schemas/DeleteResult"
           x-go-type-skip-optional-pointer: false
+        protected:
+          type: boolean
         error:
           type: string
     PurgeResult:
