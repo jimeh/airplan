@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.35.0**
+**Spec version: 0.36.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -272,13 +272,13 @@ described below.
     the page follows the system preference and does not show the control. The
     theme toggle follows the file controls. At wider sizes the rendered/source
     toggle aligns left while file controls align right, with the theme toggle
-    at the far-right edge and a quiet divider separating it from the file
-    controls. At narrow sizes the rendered/source and theme toggles share the
-    first row at opposite edges, with available file controls clustered and
-    left-aligned below. When no rendered/source toggle is available, the file
-    controls instead occupy the first row opposite the theme toggle. Toolbar
-    controls update immediately without color or background transitions when
-    their active state or the page theme changes.
+    at the far-right edge behind a quiet divider. At 48rem and below the
+    rendered/source and theme toggles share the first row at opposite edges,
+    with available file controls clustered and left-aligned below. When no
+    rendered/source toggle is available, the file controls instead occupy the
+    first row opposite the theme toggle. Toolbar controls update immediately
+    without color or background transitions when their active state or the
+    page theme changes.
   - Rendered/source toggle: switch between the rendered plan and a
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter
@@ -916,12 +916,18 @@ to 64 KiB. A missing object means standalone; invalid metadata disables only
 revision navigation, not an otherwise complete payload.
 
 The built-in page fetches metadata relative to itself with `no-store` and a
-per-load nonce. Valid metadata adds an accessible selector, previous/next
-links, a highlighted latest action and stale notice, plus the server-highlighted
-Changes view and raw diff link. It validates same-origin Airplan-shaped URLs
-and inserts metadata text through DOM text APIs. Failure leaves the document,
-source, theme, ToC, print, and Mermaid behavior intact. Anyone who can read one
-chain URL learns every linked capability URL; this is intentional.
+per-load nonce. Valid metadata turns the muted revision indicator above the
+rendered content into the sole revision selector, adding a small downward
+chevron while retaining its existing typography. Older pages use a
+content-width stale-warning treatment labeled `Revision N of M`; the latest
+page is labeled `Revision N (Latest)`. The whole indicator opens a native
+select; the toolbar contains no revision control and there are no previous,
+next, or latest shortcut links.
+Valid metadata also adds the server-highlighted Changes view and raw diff
+link. It validates same-origin Airplan-shaped URLs and inserts metadata text
+through DOM text APIs. Failure leaves the document, source, theme, ToC, print,
+and Mermaid behavior intact. Anyone who can read one chain URL learns every
+linked capability URL; this is intentional.
 
 `get --diff` fetches the declared adjacent diff from a directory target and is
 mutually exclusive with `--source`. `show` exposes revision identity, latest

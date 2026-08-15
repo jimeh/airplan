@@ -176,7 +176,7 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		})
 		for _, fragment := range []string{
 			`<meta name="airplan-revision" content="2">`,
-			`data-current-revision="2"`,
+			`data-revision-heading`,
 			`Revision 2 of 3`,
 			`data-view="changes"`,
 			`class="content changes-view"`,

@@ -32,8 +32,6 @@
     }
   }
   function renderVersions(metadata) {
-    var context = d.querySelector('.revision-context');
-    if (!context) throw new Error('revision context is unavailable');
     var currentMeta = d.querySelector('meta[name="airplan-revision"]');
     var embedded = currentMeta ? Number(currentMeta.content) :
       Number(metadata.current_revision);
@@ -89,31 +87,29 @@
 
     if (live.length < 2) return;
 
-    context.replaceChildren();
-    context.hidden = false;
-    context.classList.remove('js-only');
-    var previous = live.filter(function (revision) {
-      return revision.number < embedded;
-    }).pop();
-    var next = live.find(function (revision) {
-      return revision.number > embedded;
-    });
-    function navigation(label, revision, className) {
-      var link = d.createElement('a');
-      link.className = className;
-      link.textContent = label;
-      link.href = revision.safeURL;
-      return link;
+    var heading = d.querySelector('[data-revision-heading]');
+    if (!heading) {
+      heading = d.createElement('p');
+      heading.className = 'revision-heading';
+      heading.setAttribute('data-revision-heading', '');
+      var renderedView = d.getElementById('rendered');
+      if (!renderedView) throw new Error('rendered view is unavailable');
+      renderedView.prepend(heading);
     }
-    if (previous) context.appendChild(navigation('Previous', previous, 'revision-previous'));
-    var label = d.createElement('label');
-    label.textContent = 'Revision ';
+    var stale = embedded < latest;
+    var label = stale ? 'Revision ' + embedded + ' of ' + latest :
+      'Revision ' + embedded + ' (Latest)';
+    var visualLabel = d.createElement('span');
+    visualLabel.className = 'revision-picker-label';
+    visualLabel.textContent = label;
     var select = d.createElement('select');
     select.setAttribute('aria-label', 'Document revision');
     live.forEach(function (revision) {
       var option = d.createElement('option');
       option.value = revision.safeURL;
-      option.textContent = revision.number + ' of ' + latest;
+      option.textContent = revision.number === latest ?
+        'Revision ' + revision.number + ' (Latest)' :
+        'Revision ' + revision.number + ' of ' + latest;
       option.selected = revision.number === embedded;
       select.appendChild(option);
     });
@@ -122,28 +118,10 @@
       if (selected < 0 || selected >= live.length) return;
       window.location.assign(live[selected].safeURL);
     });
-    label.appendChild(select);
-    context.appendChild(label);
-    if (next) context.appendChild(navigation('Next', next, 'revision-next'));
-    var heading = d.querySelector('[data-revision-heading]');
-    if (!heading) {
-      heading = d.createElement('p');
-      heading.className = 'revision-heading';
-      heading.setAttribute('data-revision-heading', '');
-      var renderedView = d.getElementById('rendered');
-      if (renderedView) renderedView.prepend(heading);
-    }
-    if (heading) heading.textContent = 'Revision ' + embedded + ' of ' + latest;
-    if (embedded < latest) {
-      d.body.classList.add('airplan-stale-revision');
-      context.appendChild(navigation('Latest: revision ' + latest,
-        live.find(function (revision) { return revision.number === latest; }),
-        'revision-latest'));
-      if (heading) {
-        heading.classList.add('is-stale');
-        heading.textContent += ' — an older revision';
-      }
-    }
+    heading.replaceChildren(visualLabel, select);
+    heading.classList.add('is-picker');
+    heading.classList.toggle('is-stale', stale);
+    d.body.classList.toggle('airplan-stale-revision', stale);
   }
   if (versionsMeta) {
     var versionsURL = new URL(versionsMeta.content, window.location.href);

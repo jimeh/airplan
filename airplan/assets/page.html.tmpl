@@ -26,14 +26,6 @@
 <body>
 <div class="page-shell">
 <nav class="toolbar" aria-label="Document controls">
-{{- if .Revision}}
-  <div class="revision-context" data-current-revision="{{.Revision}}"
-    data-rendered-revision-count="{{.RevisionCount}}">
-    <span class="revision-fallback">Revision {{.Revision}}{{if .RevisionCount}} of {{.RevisionCount}}{{end}}</span>
-  </div>
-{{- else if eq .Format "md"}}
-  <div class="revision-context" hidden></div>
-{{- end}}
 {{- if and (eq .Format "md") .HighlightedSourceHTML}}
   <div class="viewtoggle mode-toggle js-only" hidden>
     <button type="button" class="active" data-view="rendered"

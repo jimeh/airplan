@@ -251,38 +251,6 @@ body.toc-dialog-open {
   margin-right: auto;
 }
 
-.revision-context {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  margin-right: auto;
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.revision-context select {
-  min-height: 2rem;
-  color: var(--fg);
-  background: var(--control-active);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 0.2rem 1.6rem 0.2rem 0.5rem;
-}
-
-.revision-context a {
-  color: var(--link);
-  white-space: nowrap;
-}
-
-.revision-latest {
-  border-radius: 6px;
-  padding: 0.35rem 0.55rem;
-  color: var(--on-link) !important;
-  background: var(--link);
-  font-weight: 600;
-  text-decoration: none;
-}
-
 .revision-heading {
   margin: 0 0 1rem;
   color: var(--muted);
@@ -290,11 +258,54 @@ body.toc-dialog-open {
   font-weight: 600;
 }
 
+.revision-heading.is-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.revision-heading.is-picker::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  opacity: 0.75;
+  transform: translateY(-1px) rotate(45deg);
+}
+
+.revision-heading.is-picker:hover {
+  color: var(--fg);
+}
+
+.revision-heading.is-picker:focus-within {
+  outline: 2px solid var(--link);
+  outline-offset: 3px;
+}
+
+.revision-heading.is-picker select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
 .revision-heading.is-stale {
   border-left: 3px solid var(--alert-warning);
   padding: 0.5rem 0.75rem;
   color: var(--fg);
   background: var(--alert-warning-bg);
+}
+
+.revision-heading.is-stale select {
+  left: -3px;
+  width: calc(100% + 3px);
 }
 
 .changes-view pre {
@@ -747,7 +758,7 @@ mark {
   }
 }
 
-@media (max-width: 36rem) {
+@media (max-width: 48rem) {
   .toolbar {
     display: grid;
     grid-template-columns: max-content 1fr max-content;
@@ -765,6 +776,11 @@ mark {
     grid-column: 3;
     grid-row: 1;
     justify-self: end;
+    margin-left: 0;
+  }
+
+  .toolbar .themetoggle::before {
+    display: none;
   }
 
   .toolbar .file-actions {

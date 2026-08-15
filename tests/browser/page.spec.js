@@ -408,7 +408,7 @@ test('standalone Markdown performs cache-busted dormant revision discovery',
     }
   });
 
-test('revision metadata renders picker and stale latest navigation',
+test('revision metadata renders a compact picker and stale notice',
   async ({ page }) => {
     const dirs = ['a'.repeat(26), 'b'.repeat(26), 'c'.repeat(26)];
     const revisions = dirs.map((dir, index) => ({
@@ -419,24 +419,61 @@ test('revision metadata renders picker and stale latest navigation',
         diff_url: `${baseURL}/${dir}/.airplan-changes.diff`,
       }),
     }));
-    await page.route('**/.airplan-versions.json?*', (route) => route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        schema: 'airplan-versions', version: 1,
-        chain_id: 'd'.repeat(26), current_revision: 1,
-        latest_revision: 3, last_assigned_revision: 3, revisions,
-      }),
-    }));
+    await page.route('**/.airplan-versions.json?*', (route) => {
+      const requestURL = new URL(route.request().url());
+      const currentDir = requestURL.pathname.split('/').at(-2);
+      const currentRevision = dirs.indexOf(currentDir) + 1;
+      return route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          schema: 'airplan-versions', version: 1,
+          chain_id: 'd'.repeat(26), current_revision: currentRevision,
+          latest_revision: 3, last_assigned_revision: 3, revisions,
+        }),
+      });
+    });
     await page.goto(`${baseURL}/${dirs[0]}/plan.html`);
     const picker = page.getByRole('combobox', { name: 'Document revision' });
     await expect(picker).toHaveValue(revisions[0].url);
     await expect(picker.locator('option')).toHaveCount(3);
-    await expect(page.getByRole('link', { name: 'Next' }))
-      .toHaveAttribute('href', revisions[1].url);
-    await expect(page.getByRole('link', { name: 'Latest: revision 3' }))
-      .toHaveAttribute('href', revisions[2].url);
+    await expect(picker.locator('option')).toHaveText([
+      'Revision 1 of 3', 'Revision 2 of 3', 'Revision 3 (Latest)',
+    ]);
+    await expect(page.getByRole('link', { name: 'Previous' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Next' })).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Latest: revision/ }))
+      .toHaveCount(0);
+    await expect(page.locator('.toolbar').getByRole('combobox'))
+      .toHaveCount(0);
+    const heading = page.locator('[data-revision-heading]');
+    await expect(heading.getByRole('combobox')).toBeVisible();
+    await expect(page.locator('.revision-picker-label'))
+      .toHaveText('Revision 1 of 3');
+    const coverage = await heading.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      const select = element.querySelector('select').getBoundingClientRect();
+      const chevron = getComputedStyle(element, '::after');
+      return {
+        top: select.top - bounds.top,
+        right: bounds.right - select.right,
+        bottom: bounds.bottom - select.bottom,
+        left: select.left - bounds.left,
+        chevronWidth: Number.parseFloat(chevron.width),
+        width: bounds.width,
+      };
+    });
+    expect(coverage).toMatchObject({
+      top: 0, right: 0, bottom: 0, left: 0, chevronWidth: 6,
+    });
+    expect(coverage.width).toBeLessThan(180);
+    await Promise.all([
+      page.waitForURL(revisions[2].url),
+      picker.selectOption(revisions[2].url),
+    ]);
+    await expect(page.locator('.revision-picker-label'))
+      .toHaveText('Revision 3 (Latest)');
     await expect(page.locator('[data-revision-heading]'))
-      .toContainText('an older revision');
+      .not.toHaveClass(/is-stale/);
   });
 
 test('revision metadata rejects same-origin URLs outside the current key prefix',
@@ -558,6 +595,22 @@ test('revision Changes view switches and exposes its adjacent raw diff',
       }),
     }));
     await page.goto(revisions[1].url);
+    await page.setViewportSize({ width: 700, height: 800 });
+    const toolbarLayout = await page.locator('.toolbar').evaluate((element) => {
+      const view = element.querySelector('.viewtoggle').getBoundingClientRect();
+      const files = element.querySelector('.file-actions').getBoundingClientRect();
+      const theme = element.querySelector('.themetoggle').getBoundingClientRect();
+      return {
+        display: getComputedStyle(element).display,
+        viewCenter: view.top + view.height / 2,
+        themeCenter: theme.top + theme.height / 2,
+        firstRowBottom: Math.max(view.bottom, theme.bottom),
+        filesTop: files.top,
+      };
+    });
+    expect(toolbarLayout.display).toBe('grid');
+    expect(toolbarLayout.viewCenter).toBeCloseTo(toolbarLayout.themeCenter, 0);
+    expect(toolbarLayout.filesTop).toBeGreaterThan(toolbarLayout.firstRowBottom);
     const changesButton = page.getByRole('button', { name: 'Changes view' });
     await expect(changesButton).toBeVisible();
     await changesButton.click();
