@@ -288,7 +288,7 @@ func outputManifestList(
 
 	autoColumns := autoLocalListColumns(uploads)
 	if filter.Protected != nil {
-		autoColumns["protected"] = true
+		autoColumns["state"] = true
 	}
 	columns, err := selectListColumns(
 		listModeLocal, opts.columnRequest(cmd), autoColumns,
@@ -338,7 +338,7 @@ func runRemoteList(
 
 	autoColumns := autoRemoteListColumns(uploads)
 	if filter.Protected != nil {
-		autoColumns["protected"] = true
+		autoColumns["state"] = true
 	}
 	columns, err := selectListColumns(
 		listModeRemote, opts.columnRequest(cmd), autoColumns,

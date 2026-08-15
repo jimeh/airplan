@@ -69,10 +69,6 @@ var listColumnRegistry = []listColumn{
 	},
 	{
 		name: "state", header: "STATE",
-		local: listColumnAuto, remote: listColumnUnavailable,
-	},
-	{
-		name: "protected", header: "PROTECTED",
 		local: listColumnAuto, remote: listColumnAuto,
 	},
 	{
@@ -355,18 +351,16 @@ func checkListColumnName(mode listMode, name string) error {
 
 // autoLocalListColumns reports which auto columns apply to manifest records
 // (SPEC.md §9): profile when the set spans more than one profile, state when
-// it holds legacy history, protected when any row is protected, and dir when
-// a row has no URL to identify it by.
+// it holds legacy or protected history, and dir when a row has no URL to
+// identify it by.
 func autoLocalListColumns(records []airplan.ManifestRecord) map[string]bool {
 	auto := map[string]bool{}
 	profiles := map[string]bool{}
 	for _, record := range records {
 		profiles[record.Profile] = true
-		if !airplan.IsSupportedMarkerVersion(record.MarkerVersion) {
+		if !airplan.IsSupportedMarkerVersion(record.MarkerVersion) ||
+			record.Protected {
 			auto["state"] = true
-		}
-		if record.Protected {
-			auto["protected"] = true
 		}
 		if record.URL == "" {
 			auto["dir"] = true
@@ -379,13 +373,13 @@ func autoLocalListColumns(records []airplan.ManifestRecord) map[string]bool {
 }
 
 // autoRemoteListColumns reports which auto columns apply to a remote listing
-// (SPEC.md §9). Protected applies when the LIST snapshot contains a sentinel;
-// dir applies when a conflict or collection has no inferable URL.
+// (SPEC.md §9). State applies when the LIST snapshot contains a protection
+// sentinel; dir applies when a conflict or collection has no inferable URL.
 func autoRemoteListColumns(uploads []airplan.RemoteUpload) map[string]bool {
 	auto := map[string]bool{}
 	for _, upload := range uploads {
 		if upload.Protected {
-			auto["protected"] = true
+			auto["state"] = true
 		}
 		if upload.URL == "" {
 			auto["dir"] = true
@@ -408,15 +402,17 @@ func localListCell(name string, record airplan.ManifestRecord) string {
 		}
 		return record.Profile
 	case "state":
-		if airplan.IsSupportedMarkerVersion(record.MarkerVersion) {
+		legacy := !airplan.IsSupportedMarkerVersion(record.MarkerVersion)
+		switch {
+		case legacy && record.Protected:
+			return "legacy+protected"
+		case record.Protected:
+			return "protected"
+		case legacy:
+			return "legacy"
+		default:
 			return "managed"
 		}
-		return "legacy"
-	case "protected":
-		if record.Protected {
-			return "yes"
-		}
-		return "no"
 	case "kind":
 		return listCellOrDash(string(airplan.ManifestRecordKind(record)))
 	case "title":
@@ -457,11 +453,11 @@ func remoteListCell(name string, upload airplan.RemoteUpload) string {
 	switch name {
 	case "date":
 		return upload.LastModified.UTC().Format(listDateLayout)
-	case "protected":
+	case "state":
 		if upload.Protected {
-			return "yes"
+			return "protected"
 		}
-		return "no"
+		return "unprotected"
 	case "kind":
 		if upload.Conflict {
 			return "conflict"

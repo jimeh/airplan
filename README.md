@@ -528,10 +528,12 @@ request deletion of everything.
 Table shape is controlled separately: `--columns date,title,url` selects an
 exact set, `--columns +dir,-title` adjusts the default one, `--wide` prints
 every column a mode offers, and `--reverse` prints newest first. `PROFILE`,
-`STATE`, `PROTECTED`, and `DIRECTORY` appear automatically only when relevant —
-more than one profile, legacy history, a protected row or active protection
-filter, or a row with no URL. `PROTECTED` renders `yes` or `no`. Column flags are
-table-only and are rejected with `--json`, while `--reverse` reorders both.
+`STATE`, and `DIRECTORY` appear automatically only when relevant — more than
+one profile, legacy or protected history (or an active protection filter), or
+a row with no URL. Local `STATE` values are `managed`, `legacy`, `protected`,
+or `legacy+protected`; remote values are `protected` or `unprotected`. Column
+flags are table-only and are rejected with `--json`, while `--reverse` reorders
+both.
 
 `--remote` reads storage through the selected backend instead, so it can find
 uploads from other machines.

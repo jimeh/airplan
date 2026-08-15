@@ -1406,22 +1406,23 @@ machine) and must be safe:
   size; storage-observed remote values can differ as described below. Both
   read `-` for history that predates them, which `sync` fills in. The wide
   `PAGE SIZE` column always reports the primary page alone,
-  and `bytes` keeps that meaning in `--json`. `STATE` is `managed` for the supported
-  `marker_version` and `legacy` when the field is absent. Both appear in
-  history without warning; legacy entries remain ineligible for delete
-  reconciliation and purge.
+  and `bytes` keeps that meaning in `--json`. In local tables, `STATE` is
+  `managed` for the supported `marker_version`, `legacy` when the field is
+  absent, `protected` for a protected managed upload, and `legacy+protected`
+  when both conditions apply. These states appear in history without warning;
+  legacy entries remain ineligible for delete reconciliation and purge.
 - Table columns are one vocabulary shared by local and remote listing, and
-  always print in the canonical order `date`, `profile`, `state`, `protected`,
-  `kind`, `title`, `slug`, `objects`, `size`, `page-size`, `dir`, `format`,
-  `repo`, `bucket`, `url`. Local listing offers every one of them; remote
-  listing offers `date`, `protected`, `kind`, `slug`, `objects`, `size`, `dir`,
-  and `url`. `PROTECTED` renders `yes` or `no` from the listing's protection
-  projection. Four columns are automatic: `profile` when the printed rows span
-  more than one profile, `state` when any row is legacy history, `protected`
-  when any row is protected or either protection filter was used, and `dir`
-  when any row has no URL to identify it by. They appear in the default set
-  only when their rule holds, so a column never occupies width without carrying
-  information or confirming an explicit protection selection.
+  always print in the canonical order `date`, `profile`, `state`, `kind`,
+  `title`, `slug`, `objects`, `size`, `page-size`, `dir`, `format`, `repo`,
+  `bucket`, `url`. Local listing offers every one of them; remote listing offers
+  `date`, `state`, `kind`, `slug`, `objects`, `size`, `dir`, and `url`. Remote
+  `STATE` is `protected` or `unprotected`; remote listing does not fetch marker
+  bodies, so it cannot classify rows as managed or legacy. Three columns are
+  automatic: `profile` when the printed rows span more than one profile,
+  `state` when any row is legacy or protected or either protection filter was
+  used, and `dir` when any row has no URL to identify it by. They appear in the
+  default set only when their rule holds, so a column never occupies width
+  without carrying information or confirming an explicit protection selection.
   `--columns date,title,url` selects an absolute set and suppresses automatic
   columns; `--columns +dir,-title` adjusts the mode's default set instead. The
   two forms do not mix, requested order does not change the canonical order,
@@ -1523,8 +1524,8 @@ machine) and must be safe:
   sentinel presence is the whole contract;
   `slug`, `key`, and `url` appear only when inferred. These entries describe
   marker-key presence and occupancy, not validated uploads. Both human tables
-  expose the same state through their automatic `PROTECTED` column when any
-  displayed row is protected or a protection filter was used.
+  expose protection through their automatic `STATE` column when any displayed
+  row is protected or a protection filter was used.
   A malformed, oversized, or unsupported marker remains visible here
   because ordinary remote listing never reads it.
 - `airplan show <url|key>` performs targeted inspection of one remote marker

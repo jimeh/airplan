@@ -264,7 +264,7 @@ func TestListSurfacesProtection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	parseListTable(t, stdout).assertColumn(t, "PROTECTED", "yes")
+	parseListTable(t, stdout).assertColumn(t, "STATE", "protected")
 }
 
 func TestShowReportsProtection(t *testing.T) {
