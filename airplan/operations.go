@@ -423,13 +423,13 @@ func (c *Client) Purge(
 		if !req.IncludeVersioned {
 			inspection, inspectErr := c.InspectUpload(ctx,
 				BuildKey(c.cfg.KeyPrefix, id, ""))
-			if inspectErr != nil {
+			if inspectErr != nil && !errors.Is(inspectErr, errOwnershipMarkerMissing) {
 				item.Error = inspectErr.Error()
 				failed++
 				result.Items = append(result.Items, item)
 				continue
 			}
-			if inspection.Revision > 0 {
+			if inspection != nil && inspection.Revision > 0 {
 				item.Versioned = true
 				result.Items = append(result.Items, item)
 				continue

@@ -21,8 +21,9 @@ func generateRevisionDiff(
 	if previousRevision <= 0 || currentRevision <= previousRevision {
 		return nil, fmt.Errorf("airplan: ordered positive revision numbers are required")
 	}
-	previousLines, previousMissingNewline := revisionDiffLines(previous)
-	currentLines, currentMissingNewline := revisionDiffLines(current)
+	newlineMarker := missingNewlineMarker(previous, current)
+	previousLines := revisionDiffLines(previous, newlineMarker)
+	currentLines := revisionDiffLines(current, newlineMarker)
 	diff, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
 		A:        previousLines,
 		B:        currentLines,
@@ -37,12 +38,7 @@ func generateRevisionDiff(
 	// The dependency emits LF with Eol above; normalize defensively so output
 	// remains byte-identical when callers provide CRLF source.
 	diff = strings.ReplaceAll(diff, "\r\n", "\n")
-	if previousMissingNewline && len(previousLines) > 0 {
-		diff = annotateMissingFinalNewline(diff, "-", previousLines[len(previousLines)-1])
-	}
-	if currentMissingNewline && len(currentLines) > 0 {
-		diff = annotateMissingFinalNewline(diff, "+", currentLines[len(currentLines)-1])
-	}
+	diff = strings.ReplaceAll(diff, newlineMarker+"\n", "\n\\ No newline at end of file\n")
 	if len(diff) == 0 {
 		return nil, errors.New("airplan: identical sources do not have a revision diff")
 	}
@@ -53,9 +49,26 @@ func generateRevisionDiff(
 	return []byte(diff), nil
 }
 
-func revisionDiffLines(source []byte) ([]string, bool) {
+func missingNewlineMarker(sources ...[]byte) string {
+	marker := "\x00airplan-missing-final-newline\x00"
+	for suffix := 1; ; suffix++ {
+		found := false
+		for _, source := range sources {
+			if strings.Contains(string(source), marker) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return marker
+		}
+		marker = fmt.Sprintf("\x00airplan-missing-final-newline-%d\x00", suffix)
+	}
+}
+
+func revisionDiffLines(source []byte, newlineMarker string) []string {
 	if len(source) == 0 {
-		return nil, false
+		return nil
 	}
 	missing := source[len(source)-1] != '\n'
 	lines := strings.SplitAfter(string(source), "\n")
@@ -63,17 +76,7 @@ func revisionDiffLines(source []byte) ([]string, bool) {
 		lines = lines[:len(lines)-1]
 	}
 	if missing {
-		lines[len(lines)-1] += "\n"
+		lines[len(lines)-1] += newlineMarker + "\n"
 	}
-	return lines, missing
-}
-
-func annotateMissingFinalNewline(diff, prefix, line string) string {
-	needle := prefix + line
-	index := strings.LastIndex(diff, needle)
-	if index < 0 {
-		return diff
-	}
-	end := index + len(needle)
-	return diff[:end] + "\\ No newline at end of file\n" + diff[end:]
+	return lines
 }

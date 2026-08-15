@@ -191,14 +191,22 @@ func (c *Client) PlanUpgradeDocument(
 	if pageETag == "" {
 		return nil, errors.New("airplan: rendered page has no ETag; conditional upgrade is unavailable")
 	}
-	sourceBody, sourceETag, _, err := c.st.getBytesWithETag(ctx, sourceKey, DefaultMaxInputSize)
+	sourceLimit := int64(DefaultMaxInputSize)
+	sourceObject, sourceDeclared := markerObjectForRole(marker, MarkerRoleSource)
+	if sourceDeclared {
+		sourceLimit = sourceObject.Bytes
+	}
+	sourceBody, sourceETag, _, err := c.st.getBytesWithETag(ctx, sourceKey, sourceLimit)
 	if err != nil {
 		return nil, err
 	}
 	if sourceETag == "" {
 		return nil, errors.New("airplan: Markdown source has no ETag; conditional upgrade is unavailable")
 	}
-	if len(sourceBody) > DefaultMaxInputSize {
+	if sourceDeclared && int64(len(sourceBody)) != sourceObject.Bytes {
+		return nil, errors.New("airplan: Markdown source size does not match its marker")
+	}
+	if !sourceDeclared && len(sourceBody) > DefaultMaxInputSize {
 		return nil, fmt.Errorf("airplan: source exceeds the maximum input size")
 	}
 	protection, protected, err := c.optionalUpgradeControlObject(
@@ -236,9 +244,14 @@ func (c *Client) PlanUpgradeDocument(
 			return plan, nil
 		}
 		if marker.Revision.Number > 1 {
-			diffKey := dirPrefix + DiffFilename
-			plan.diff, err = c.st.getBytes(ctx, diffKey, MaxDiffSize)
-			if err != nil || len(plan.diff) > MaxDiffSize {
+			diffObject, declared := markerObjectForRole(marker, MarkerRoleDiff)
+			if !declared {
+				plan.State, plan.Reason = UpgradeStateInvalid, "revision diff is missing or invalid"
+				return plan, nil
+			}
+			diffKey := dirPrefix + diffObject.Name
+			plan.diff, err = c.st.getBytes(ctx, diffKey, diffObject.Bytes)
+			if err != nil || int64(len(plan.diff)) != diffObject.Bytes {
 				plan.State, plan.Reason = UpgradeStateInvalid, "revision diff is missing or invalid"
 				return plan, nil
 			}
@@ -310,8 +323,12 @@ func (c *Client) UpgradeDocument(
 		return nil, ErrConflict
 	}
 	plan = *fresh
+	sourceLimit := int64(DefaultMaxInputSize)
+	if sourceObject, ok := markerObjectForRole(plan.marker, MarkerRoleSource); ok {
+		sourceLimit = sourceObject.Bytes
+	}
 	currentSource, currentSourceETag, _, err := c.st.getBytesWithETag(
-		ctx, plan.SourceKey, DefaultMaxInputSize,
+		ctx, plan.SourceKey, sourceLimit,
 	)
 	if err != nil {
 		return nil, err
@@ -349,7 +366,7 @@ func (c *Client) UpgradeDocument(
 		return nil, errors.New("airplan: upgraded page verification failed: content changed")
 	}
 	verifiedSource, _, _, err := c.st.getBytesWithETag(
-		ctx, plan.SourceKey, DefaultMaxInputSize,
+		ctx, plan.SourceKey, sourceLimit,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("airplan: upgraded source verification failed: %w", err)
@@ -390,7 +407,7 @@ func resultFromUpgradePlan(cfg *Config, plan UpgradeDocumentPlan) Result {
 		pageBytes = int64(len(plan.newPage))
 	}
 	sourceURL, _, _ := PublicURL(cfg, plan.SourceKey)
-	return Result{
+	result := Result{
 		ID: marker.Directory, URL: plan.URL, Key: plan.PageKey,
 		SourceURL: sourceURL, SourceKey: plan.SourceKey, Bucket: cfg.Bucket,
 		Bytes: pageBytes, ContentType: pageContentType,
@@ -399,6 +416,12 @@ func resultFromUpgradePlan(cfg *Config, plan UpgradeDocumentPlan) Result {
 		Format: marker.Format, Kind: string(marker.Kind), Slug: marker.Slug,
 		RepositoryURL: marker.Repo,
 	}
+	if marker.Revision != nil {
+		result.RevisionChainID = marker.Revision.ChainID
+		result.Revision = marker.Revision.Number
+		result.LatestRevision = revisionLatest(plan.versions, cfg, plan.PageKey)
+	}
+	return result
 }
 
 func (c *Client) materializeUpgrade(plan *UpgradeDocumentPlan) error {
@@ -552,21 +575,18 @@ func (c *Client) recordUpgrade(ctx context.Context, res *Result, markerBody []by
 			return
 		}
 	}
-	rec := ManifestRecord{
-		Type: "upgrade", Time: time.Now().UTC().Truncate(time.Second),
-		CreatedAt: res.CreatedAt, Key: res.Key, SourceKey: res.SourceKey,
-		MarkerKey: res.MarkerKey, URL: res.URL, Bucket: res.Bucket,
-		Profile: c.cfg.Profile, Format: res.Format, Kind: res.Kind,
-		Slug: res.Slug, Title: res.Title, Repo: res.RepositoryURL,
-		Bytes: res.Bytes, MarkerVersion: MarkerVersion,
-		ProducerVersion: producerVersion(c.cfg.ProducerVersion),
-		RendererVersion: RendererGeneration,
-	}
+	declared := declaredTotals{}
+	producer := producerVersion(c.cfg.ProducerVersion)
+	renderer := RendererGeneration
 	if marker, err := DecodeUploadMarker(markerBody, res.ID); err == nil {
-		declared := markerDeclaredTotals(*marker, markerBody)
-		rec.Objects = declared.objects
-		rec.TotalBytes = declared.bytes
+		declared = markerDeclaredTotals(*marker, markerBody)
+		producer = marker.Producer.Version
+		if marker.Render != nil {
+			renderer = marker.Render.Generation
+		}
 	}
+	rec := completeManifestProjection(c.cfg, "upgrade",
+		time.Now().UTC().Truncate(time.Second), res, declared, producer, renderer)
 	if err := appendManifestRecord(ctx, manifestPath, rec); err != nil {
 		res.Warnings = append(res.Warnings, "manifest not recorded: "+err.Error())
 	}

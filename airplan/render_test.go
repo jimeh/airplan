@@ -83,6 +83,15 @@ func TestRenderMarkdownGolden(t *testing.T) {
 	}
 }
 
+func TestPageRevisionNavigationUsesValidatedInMemoryURL(t *testing.T) {
+	if strings.Contains(pageJS, "select.value") {
+		t.Fatal("revision navigation rereads an attacker-mutable URL from the DOM")
+	}
+	if !strings.Contains(pageJS, "live[selected].safeURL") {
+		t.Fatal("revision navigation does not use the validated in-memory URL")
+	}
+}
+
 func TestRenderMarkdownPageFeatures(t *testing.T) {
 	src := []byte("# Hi\n\nsome *text*\n")
 

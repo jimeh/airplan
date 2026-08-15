@@ -875,6 +875,15 @@ deleted. REST reports this as `revision_conflict` with status 409. After that
 point, retries repair interrupted promotion or replication rather than
 allocating another revision.
 
+A first update and a concurrent standalone delete contend on a conditional
+reservation at the predecessor's versions key. The delete reservation is not
+valid versions metadata and remains as a tiny permanent deletion tombstone
+after payload and marker removal. It keeps stale, preflighted updates from
+subsequently winning `If-None-Match`; an update that observes it fails closed.
+Marker-based listing and sync ignore the otherwise empty tombstone-only prefix.
+Thus exactly one transition can win, including when both operations first
+observed the standalone marker.
+
 Every linked v4 Markdown marker contains an immutable `revision` descriptor
 with a 26-character lowercase RFC 4648 base32 `chain_id`, positive `number`,
 and, after revision 1, the previous page URL. Revisions greater than 1 declare
@@ -910,6 +919,12 @@ revision/URL, diff state, validated versions metadata, and a separate advisory
 metadata error. Manifest projections may carry `revision_chain_id`, `revision`,
 and `latest_revision`; sync reconstructs them from v4 markers and bounded
 metadata reads.
+
+Successful `update --json` output extends the upload result with
+`previous_url`, `diff_url`, and `unchanged`. A newly appended revision includes
+both URLs and `unchanged: false`; an identical-source retry returns the current
+latest upload with `unchanged: true`. A standalone identical-source result may
+omit `revision` and `latest_revision` because no revision chain exists yet.
 
 Protection remains per directory. Purge skips linked revisions unless
 `--include-versioned` explicitly acknowledges history removal; protection
@@ -976,14 +991,14 @@ airplan list|ls [--remote] [--json] [--columns SET] [--wide] [--reverse]
                 [--protected|--no-protected]
                 [-p NAME|--profile NAME|--profile=] [-A|--all-profiles]
 airplan show [--json] <url|key>
-airplan get [--output PATH] [--source] <url|key>
+airplan get [--output PATH] [--source|--diff] <url|key>
 airplan delete [--force] <url|key>
 airplan protect [--reason TEXT] <url|key>
 airplan unprotect <url|key>
 airplan upgrade [--check] [--force] [--template PATH] [--json] <url|key>
 airplan upgrade --all [--dry-run] [--yes] [--concurrency N]
-airplan update [--title TITLE] [--max-size SIZE] [--json] <url|key> [file|-]
                 [--all-profiles] [--json]
+airplan update [--title TITLE] [--max-size SIZE] [--json] <url|key> [file|-]
 airplan purge [--remote] [--older-than 30d|2026-01-01] [--include-versioned]
               [--all] [--dry-run] [--yes] [--concurrency N]
 airplan sync [--config PATH] [--profile NAME] [--concurrency N]
@@ -1491,6 +1506,16 @@ conforming implementations can share a manifest:
  "slug":"plan","format":"md","title":"Refactor auth",
  "bytes":19200,"marker_version":4,"producer_version":"0.8.0",
  "renderer_version":1}
+{"type":"link","time":"2026-08-15T10:05:00Z",
+ "created_at":"2026-07-21T12:00:00Z",
+ "key":"vq3n.../plan.html","source_key":"vq3n.../plan.md",
+ "marker_key":"vq3n.../.airplan.json",
+ "url":"https://plans.example.com/vq3n.../plan.html",
+ "bucket":"plans","profile":"work","kind":"document",
+ "slug":"plan","format":"md","title":"Refactor auth",
+ "bytes":19200,"objects":4,"total_bytes":20120,"marker_version":4,
+ "producer_version":"0.8.0","renderer_version":1,
+ "revision_chain_id":"d2x4...","revision":1,"latest_revision":2}
 ```
 
 (Shown wrapped for readability; on disk each record is one line.)
@@ -1531,6 +1556,10 @@ conforming implementations can share a manifest:
   producer/renderer versions.
   Reduction treats them like upload refreshes without clearing protection or
   making the document appear newly created.
+- `link` events carry the same complete projection as `upgrade`, plus
+  `revision_chain_id`, `revision`, and `latest_revision`. They refresh every
+  surviving member after append or tombstone propagation without changing its
+  original `created_at`, object totals, or other orthogonal fields.
 - Manifest history reduces chronologically. The latest event for an upload
   identity wins, duplicate uploads collapse to their latest record, and a
   later upload reactivates an earlier tombstone. A legacy key-only tombstone

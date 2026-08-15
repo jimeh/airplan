@@ -439,6 +439,73 @@ test('revision metadata renders picker and stale latest navigation',
       .toContainText('an older revision');
   });
 
+test('revision metadata rejects same-origin URLs outside the current key prefix',
+  async ({ page }) => {
+    const currentDir = 'e'.repeat(26);
+    const otherDir = 'f'.repeat(26);
+    await page.route('**/.airplan-versions.json?*', (route) => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schema: 'airplan-versions', version: 1,
+        chain_id: 'g'.repeat(26), current_revision: 1,
+        latest_revision: 2, last_assigned_revision: 2,
+        revisions: [
+          {
+            number: 1,
+            url: `${baseURL}/${currentDir}/plan.html`,
+            created_at: '2026-08-15T10:00:00Z',
+          },
+          {
+            number: 2,
+            url: `${baseURL}/other/${otherDir}/plan.html`,
+            created_at: '2026-08-15T10:10:00Z',
+            diff_url: `${baseURL}/other/${otherDir}/.airplan-changes.diff`,
+          },
+        ],
+      }),
+    }));
+    await page.goto(`${baseURL}/${currentDir}/plan.html`);
+    await expect(page.getByRole('combobox', { name: 'Document revision' }))
+      .toHaveCount(0);
+    await expect(page.locator('.revision-context')).toBeHidden();
+    await expect(page.getByRole('heading', { name: 'Browser smoke plan' }))
+      .toBeVisible();
+  });
+
+test('valid revision metadata with one live member stays silently dormant',
+  async ({ page }) => {
+    const currentDir = 'h'.repeat(26);
+    const warnings = [];
+    page.on('console', (message) => {
+      if (message.type() === 'warning') warnings.push(message.text());
+    });
+    await page.route('**/.airplan-versions.json?*', (route) => route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        schema: 'airplan-versions', version: 1,
+        chain_id: 'i'.repeat(26), current_revision: 2,
+        latest_revision: 2, last_assigned_revision: 2,
+        revisions: [
+          {
+            number: 1, deleted: true,
+            deleted_at: '2026-08-15T10:20:00Z',
+          },
+          {
+            number: 2,
+            url: `${baseURL}/${currentDir}/plan.html`,
+            created_at: '2026-08-15T10:10:00Z',
+            diff_url: `${baseURL}/${currentDir}/.airplan-changes.diff`,
+          },
+        ],
+      }),
+    }));
+    await page.goto(`${baseURL}/${currentDir}/plan.html`);
+    await expect(page.getByRole('combobox', { name: 'Document revision' }))
+      .toHaveCount(0);
+    await expect(page.locator('.revision-context')).toBeHidden();
+    expect(warnings).toEqual([]);
+  });
+
 test('revision Changes view switches and exposes its adjacent raw diff',
   async ({ page }) => {
     const firstDir = 'q'.repeat(26);
@@ -475,6 +542,10 @@ test('revision Changes view switches and exposes its adjacent raw diff',
     await expect(page.locator('#changes')).toContainText('+Revised');
     await expect(page.getByRole('link', { name: 'Open raw diff' }))
       .toHaveAttribute('href', './.airplan-changes.diff');
+    await page.emulateMedia({ media: 'print' });
+    await expect(page.locator('#changes')).toBeHidden();
+    await expect(page.locator('#rendered')).toBeVisible();
+    await page.emulateMedia({ media: 'screen' });
     await page.getByRole('button', { name: 'Rendered view' }).click();
     await expect(page.locator('#rendered')).toBeVisible();
     await expect(page.locator('#changes')).toBeHidden();

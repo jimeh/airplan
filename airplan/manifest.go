@@ -341,10 +341,10 @@ func validateManifestRecord(rec ManifestRecord) error {
 		}
 		if rec.Type == "upgrade" || rec.Type == "link" {
 			if rec.MarkerVersion != MarkerVersion {
-				return errors.New("upgrade events require the current marker version")
+				return fmt.Errorf("%s events require the current marker version", rec.Type)
 			}
 			if rec.CreatedAt.IsZero() {
-				return errors.New("upgrade events require created_at")
+				return fmt.Errorf("%s events require created_at", rec.Type)
 			}
 		}
 		if !rec.CreatedAt.IsZero() {
@@ -473,6 +473,23 @@ func markerDeclaredTotals(
 	return declaredTotals{objects: objects, bytes: total}
 }
 
+func completeManifestProjection(
+	cfg *Config, eventType string, eventTime time.Time, res *Result,
+	declared declaredTotals, producer string, renderer int,
+) ManifestRecord {
+	return ManifestRecord{
+		Type: eventType, Time: eventTime, CreatedAt: res.CreatedAt,
+		Key: res.Key, SourceKey: res.SourceKey, MarkerKey: res.MarkerKey,
+		URL: res.URL, Bucket: res.Bucket, Profile: cfg.Profile,
+		Format: res.Format, Kind: res.Kind, Slug: res.Slug,
+		Title: res.Title, Repo: res.RepositoryURL, Bytes: res.Bytes,
+		Objects: declared.objects, TotalBytes: declared.bytes,
+		MarkerVersion: res.MarkerVersion, ProducerVersion: producer,
+		RendererVersion: renderer, RevisionChainID: res.RevisionChainID,
+		Revision: res.Revision, LatestRevision: res.LatestRevision,
+	}
+}
+
 // recordUpload appends an upload record for res, best-effort: manifest
 // failures degrade to a warning on the result, never a failed upload
 // (SPEC.md §9 — the manifest is convenience, not a source of truth).
@@ -494,34 +511,13 @@ func (c *Client) recordUpload(
 		}
 	}
 
-	rec := ManifestRecord{
-		Type:            "upload",
-		Time:            res.CreatedAt,
-		Key:             res.Key,
-		SourceKey:       res.SourceKey,
-		MarkerKey:       res.MarkerKey,
-		URL:             res.URL,
-		Bucket:          res.Bucket,
-		Profile:         c.cfg.Profile,
-		Format:          res.Format,
-		Kind:            res.Kind,
-		Slug:            res.Slug,
-		Title:           res.Title,
-		Repo:            res.RepositoryURL,
-		Bytes:           res.Bytes,
-		Objects:         declared.objects,
-		TotalBytes:      declared.bytes,
-		MarkerVersion:   res.MarkerVersion,
-		CreatedAt:       res.CreatedAt,
-		ProducerVersion: producerVersion(c.cfg.ProducerVersion),
-		RevisionChainID: res.RevisionChainID,
-		Revision:        res.Revision,
-		LatestRevision:  res.LatestRevision,
-	}
+	renderer := 0
 	if res.Kind == string(UploadKindCollection) ||
 		(res.Kind == string(UploadKindDocument) && res.Format != "html") {
-		rec.RendererVersion = RendererGeneration
+		renderer = RendererGeneration
 	}
+	rec := completeManifestProjection(c.cfg, "upload", res.CreatedAt, res,
+		declared, producerVersion(c.cfg.ProducerVersion), renderer)
 	if err := appendManifestRecord(ctx, path, rec); err != nil {
 		res.Warnings = append(res.Warnings,
 			"manifest not recorded: "+err.Error())

@@ -155,8 +155,8 @@ func (c *Client) InspectUpload(
 	markerBody, err := c.st.getBytes(ctx, markerKey, MaxMarkerSize)
 	if err != nil {
 		if errors.Is(err, errObjectNotFound) {
-			return nil, fmt.Errorf("airplan: ownership marker %q is missing",
-				markerKey)
+			return nil, fmt.Errorf("airplan: ownership marker %q is missing: %w",
+				markerKey, errOwnershipMarkerMissing)
 		}
 		return nil, err
 	}
@@ -201,8 +201,8 @@ func (c *Client) inspectListedUpload(
 	markerBody, err := c.st.getBytes(ctx, upload.MarkerKey, MaxMarkerSize)
 	if err != nil {
 		if errors.Is(err, errObjectNotFound) {
-			return nil, fmt.Errorf("airplan: ownership marker %q is missing",
-				upload.MarkerKey)
+			return nil, fmt.Errorf("airplan: ownership marker %q is missing: %w",
+				upload.MarkerKey, errOwnershipMarkerMissing)
 		}
 		return nil, err
 	}

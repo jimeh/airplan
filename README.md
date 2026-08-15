@@ -503,6 +503,9 @@ still have no versions object. Later updates may target any member and resolve
 the latest revision before appending. Each revision after 1 owns a deterministic
 `.airplan-changes.diff`, rendered as a highlighted Changes view. Anyone with
 one chain URL can navigate to every linked revision URL.
+The JSON result includes `previous_url`, `diff_url`, and `unchanged`; revision
+numbers are omitted only for an unchanged standalone document that has not yet
+formed a chain.
 
 ### Preview without uploading
 
@@ -527,7 +530,7 @@ beside staged input files when its local media links need to work.
 airplan list                     # uploads known to the local manifest
 airplan ls -r                    # airplan uploads currently in the bucket
 airplan show <url-or-key>         # validate and inspect one remote upload
-airplan get [--source] <url-or-key>  # raw page or source bytes
+airplan get [--source|--diff] <url-or-key>  # raw page, source, or adjacent diff
 airplan delete <url-or-key>      # delete one upload
 airplan list --newer-than 7d     # only recent uploads (also --kind, --slug)
 airplan list --protected         # only purge-protected uploads
@@ -535,6 +538,7 @@ airplan list --all-profiles      # uploads recorded under every profile
 airplan protect <url-or-key>     # mark one upload purge-protected
 airplan unprotect <url-or-key>   # remove purge protection
 airplan purge --older-than 30d   # review and delete older uploads
+airplan purge --all --include-versioned  # explicitly include revision history
 airplan sync                     # reconcile remote uploads into local history
 ```
 

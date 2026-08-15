@@ -76,6 +76,18 @@ type MarkerObject struct {
 	SHA256      string     `json:"sha256,omitempty"`
 }
 
+func markerObjectForRole(marker *UploadMarker, role MarkerRole) (MarkerObject, bool) {
+	if marker == nil {
+		return MarkerObject{}, false
+	}
+	for _, object := range marker.Objects {
+		if object.Role == role {
+			return object, true
+		}
+	}
+	return MarkerObject{}, false
+}
+
 // Producer identifies the Airplan release that produced a v4 marker.
 type Producer struct {
 	Name    string `json:"name"`

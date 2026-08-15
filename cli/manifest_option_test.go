@@ -68,6 +68,23 @@ func TestGlobalManifestRejectedByAirplanBackend(t *testing.T) {
 	}
 }
 
+func TestGlobalManifestUpdateRejectedByAirplanBackend(t *testing.T) {
+	isolateEnv(t)
+	config := filepath.Join(t.TempDir(), "config.toml")
+	data := "backend = \"airplan\"\n" +
+		"api_url = \"https://airplan.example\"\n" +
+		"api_token = \"01234567890123456789012345678901\"\n"
+	if err := os.WriteFile(config, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := executeCommand(t, "# Update\n", "", "--manifest", "custom.jsonl",
+		"update", "https://airplan.example/upload", "--config", config)
+	if err == nil || !strings.Contains(err.Error(),
+		"cannot be used with the airplan backend") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestGlobalManifestRejectedByDefaultAirplanBackend(t *testing.T) {
 	isolateEnv(t)
 	config := filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "airplan", "config.toml")

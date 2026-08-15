@@ -119,7 +119,7 @@ func validatePersistentOptions(cmd *cobra.Command, _ []string) error {
 	switch cmd.CommandPath() {
 	case "airplan", "airplan list", "airplan show", "airplan get",
 		"airplan delete", "airplan protect", "airplan unprotect",
-		"airplan purge", "airplan sync", "airplan upgrade", "airplan serve",
+		"airplan purge", "airplan sync", "airplan upgrade", "airplan update", "airplan serve",
 		"airplan mcp":
 		return nil
 	default:

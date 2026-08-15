@@ -187,8 +187,12 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	// dry-run and confirmation both reflect what purge will actually touch
 	// (SPEC.md §9). Skips are notes, never failures.
 	protected := len(plan.Protected)
+	versioned := len(plan.Versioned)
 	if len(plan.Versioned) > 0 {
 		fmt.Fprintf(stderr, "airplan: note: skipped %d linked revision(s); use --include-versioned to include them\n", len(plan.Versioned))
+		for _, item := range plan.Versioned {
+			printVersionedSkip(stderr, item.Record)
+		}
 	}
 	for _, item := range plan.Protected {
 		printProtectedSkip(stderr, item.Record)
@@ -200,14 +204,21 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	}
 
 	if len(candidates) == 0 {
-		fmt.Fprintf(stderr, "purged 0 uploads (%d protected, 0 failed)\n",
-			protected)
+		printPurgeSummary(stderr, 0, protected, 0, versioned)
 		return nil
 	}
 
 	if !opts.yes {
 		printPurgeCandidates(stderr, candidates)
-		ok, err := confirmPurge(cmd, len(candidates))
+		includedVersioned := 0
+		if opts.includeVersioned {
+			for _, candidate := range plan.Candidates {
+				if candidate.Record.RevisionChainID != "" {
+					includedVersioned++
+				}
+			}
+		}
+		ok, err := confirmPurge(cmd, len(candidates), includedVersioned)
 		if err != nil {
 			return err
 		}
@@ -234,6 +245,7 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 	for index, item := range result.Items {
 		if item.Versioned {
 			fmt.Fprintf(stderr, "airplan: note: skipped linked revision %s; use --include-versioned to include it\n", item.UploadID)
+			versioned++
 			continue
 		}
 		if item.Protected {
@@ -258,9 +270,25 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 			target, item.Error)
 	}
 
-	fmt.Fprintf(stderr, "purged %d uploads (%d protected, %d failed)\n",
-		purged, protected, failed)
+	printPurgeSummary(stderr, purged, protected, failed, versioned)
 	return purgeErr
+}
+
+func printVersionedSkip(w io.Writer, rec airplan.ManifestRecord) {
+	fmt.Fprintf(w,
+		"airplan: note: skipping linked revision %s (chain %s, revision %d of %d)\n",
+		purgeTarget(rec), rec.RevisionChainID, rec.Revision, rec.LatestRevision)
+}
+
+func printPurgeSummary(w io.Writer, purged, protected, failed, versioned int) {
+	if versioned > 0 {
+		fmt.Fprintf(w,
+			"purged %d uploads (%d protected, %d versioned, %d failed)\n",
+			purged, protected, versioned, failed)
+		return
+	}
+	fmt.Fprintf(w, "purged %d uploads (%d protected, %d failed)\n",
+		purged, protected, failed)
 }
 
 func printProtectedSkip(w io.Writer, rec airplan.ManifestRecord) {
@@ -319,9 +347,15 @@ func purgeTarget(rec airplan.ManifestRecord) string {
 	return rec.Key
 }
 
-func confirmPurge(cmd *cobra.Command, count int) (bool, error) {
+func confirmPurge(cmd *cobra.Command, count, versioned int) (bool, error) {
 	stderr := cmd.ErrOrStderr()
-	fmt.Fprintf(stderr, "Delete %d uploads? [y/N] ", count)
+	if versioned > 0 {
+		fmt.Fprintf(stderr,
+			"Delete %d uploads, including %d linked revision-history target(s)? [y/N] ",
+			count, versioned)
+	} else {
+		fmt.Fprintf(stderr, "Delete %d uploads? [y/N] ", count)
+	}
 
 	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {

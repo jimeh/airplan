@@ -7,6 +7,8 @@
   // 404 is the ordinary dormant state. A nonce and no-store prevent a cached
   // negative response from hiding linkage added after this page was opened.
   var versionsMeta = d.querySelector('meta[name="airplan-versions"]');
+  var currentPathParts = window.location.pathname.split('/').filter(Boolean);
+  var servicePathParts = currentPathParts.slice(0, -2);
   function safeRevisionURL(raw, diff) {
     if (typeof raw !== 'string') return null;
     try {
@@ -14,7 +16,10 @@
       if (parsed.origin !== window.location.origin || parsed.username ||
           parsed.password || parsed.search || parsed.hash) return null;
       var parts = parsed.pathname.split('/').filter(Boolean);
-      if (parts.length < 2 || !/^[a-z2-7]{26}$/.test(parts[parts.length - 2])) {
+      if (parts.length !== servicePathParts.length + 2 ||
+          !servicePathParts.every(function (part, index) {
+            return parts[index] === part;
+          }) || !/^[a-z2-7]{26}$/.test(parts[parts.length - 2])) {
         return null;
       }
       var name = parts[parts.length - 1];
@@ -66,7 +71,7 @@
       return true;
     });
     if (invalidEntry || metadata.revisions[0].number !== 1 ||
-        live.length < 2 || !live.some(function (revision) {
+        !live.some(function (revision) {
       return revision.number === embedded;
     })) throw new Error('revision entries are invalid');
     var current = live.find(function (revision) {
@@ -80,6 +85,8 @@
       return revision.number;
     }));
     if (latest !== metadata.latest_revision) throw new Error('latest is invalid');
+
+    if (live.length < 2) return;
 
     context.replaceChildren();
     context.hidden = false;
@@ -110,7 +117,9 @@
       select.appendChild(option);
     });
     select.addEventListener('change', function () {
-      window.location.assign(select.value);
+      var selected = select.selectedIndex;
+      if (selected < 0 || selected >= live.length) return;
+      window.location.assign(live[selected].safeURL);
     });
     label.appendChild(select);
     context.appendChild(label);

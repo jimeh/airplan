@@ -370,7 +370,7 @@ func (t *httpTransport) GetUploadTo(
 	ctx context.Context, target string, opts GetOptions, dst io.Writer,
 ) (string, error) {
 	download, err := t.client.GetUpload(ctx, httpapi.GetUploadRequest{
-		URLOrKey: target, Source: opts.Source,
+		URLOrKey: target, Source: opts.Source, Diff: opts.Diff,
 	})
 	if err != nil {
 		return "", transportError(err)

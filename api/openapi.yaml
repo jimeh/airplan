@@ -840,19 +840,56 @@ components:
           format: int64
           minimum: 1
     UpdateDocumentResult:
-      allOf:
-        - $ref: "#/components/schemas/UploadResult"
-        - type: object
-          required: [revision, latest_revision, unchanged]
-          properties:
-            previous_url:
-              type: string
-              format: uri
-            diff_url:
-              type: string
-              format: uri
-            unchanged:
-              type: boolean
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - kind
+        - url
+        - key
+        - bucket
+        - bytes
+        - content_type
+        - created_at
+        - marker_version
+        - marker_key
+        - warnings
+        - unchanged
+      properties:
+        id: {type: string}
+        kind:
+          type: string
+          enum: [document, collection]
+        url: {type: string, format: uri}
+        key: {type: string}
+        source_url: {type: string, format: uri}
+        source_key: {type: string}
+        bucket: {type: string}
+        bytes: {type: integer, format: int64, minimum: 0}
+        content_type: {type: string}
+        title: {type: string}
+        created_at:
+          type: string
+          format: date-time
+          x-go-type-skip-optional-pointer: false
+        marker_version: {type: integer, minimum: 1}
+        marker_key: {type: string}
+        format: {type: string}
+        slug: {type: string}
+        repository_url: {type: string, format: uri}
+        revision_chain_id: {type: string}
+        revision: {type: integer, minimum: 1}
+        latest_revision: {type: integer, minimum: 1}
+        warnings:
+          type: array
+          items: {type: string}
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileResult"
+        previous_url: {type: string, format: uri}
+        diff_url: {type: string, format: uri}
+        unchanged: {type: boolean}
     FileResult:
       type: object
       additionalProperties: false

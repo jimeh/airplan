@@ -79,6 +79,69 @@ func TestPurgeCommandFilters(t *testing.T) {
 	}
 }
 
+func TestPurgeDryRunIdentifiesSkippedRevisionHistoryMembers(t *testing.T) {
+	isolateEnv(t)
+	record := uploadRecord(deleteDirA, "alpha", "", time.Now().Add(-time.Hour))
+	record.RevisionChainID = strings.Repeat("c", 26)
+	record.Revision = 2
+	record.LatestRevision = 3
+	writeDefaultManifest(t, []airplan.ManifestRecord{record})
+
+	stdout, stderr, err := executeCommand(t, "", "", "purge", "--all", "--dry-run")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"skipped 1 linked revision(s)",
+		"skipping linked revision " + record.URL,
+		"chain " + record.RevisionChainID + ", revision 2 of 3",
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("stderr = %q, want %q", stderr, want)
+		}
+	}
+	if stdout != "" {
+		t.Fatalf("stdout = %q", stdout)
+	}
+}
+
+func TestPurgeSummaryCountsSkippedRevisionHistoryMembers(t *testing.T) {
+	isolateEnv(t)
+	record := uploadRecord(deleteDirA, "alpha", "", time.Now().Add(-time.Hour))
+	record.RevisionChainID = strings.Repeat("c", 26)
+	record.Revision = 1
+	record.LatestRevision = 2
+	writeDefaultManifest(t, []airplan.ManifestRecord{record})
+
+	_, stderr, err := executeCommand(t, "", "", "purge", "--all", "--yes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr, "purged 0 uploads (0 protected, 1 versioned, 0 failed)") {
+		t.Fatalf("stderr = %q", stderr)
+	}
+}
+
+func TestPurgeConfirmationCallsOutIncludedRevisionHistoryTargets(t *testing.T) {
+	isolateEnv(t)
+	record := uploadRecord(deleteDirA, "alpha", "", time.Now().Add(-time.Hour))
+	record.RevisionChainID = strings.Repeat("c", 26)
+	record.Revision = 2
+	record.LatestRevision = 3
+	writeDefaultManifest(t, []airplan.ManifestRecord{record})
+
+	stdout, stderr, err := executeCommand(t, "n\n", "", "purge", "--all",
+		"--include-versioned")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdout != "" || !strings.Contains(stderr,
+		"including 1 linked revision-history target(s)? [y/N]") ||
+		!strings.Contains(stderr, "aborted") {
+		t.Fatalf("stdout = %q, stderr = %q", stdout, stderr)
+	}
+}
+
 func TestPurgeRejectsExplicitEmptyProfile(t *testing.T) {
 	isolateEnv(t)
 	_, _, err := executeCommand(

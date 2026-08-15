@@ -97,6 +97,26 @@ func TestUpdatePrintsOnlyNewRevisionURLAndJSONDescribesChain(t *testing.T) {
 	}
 }
 
+func TestUpdateAcceptsExplicitManifestWithDirectS3Backend(t *testing.T) {
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, nil, nil, nil)
+	dir := strings.Repeat("m", 26)
+	seedCLICurrentDocument(t, fake, dir)
+	manifest := filepath.Join(t.TempDir(), "custom.jsonl")
+	target := "https://plans.example.com/" + dir + "/plan.html"
+
+	stdout, stderr, err := executeCommand(t, "# Plan\n\nRevised.\n", "",
+		"--manifest", manifest, "update", "--config", writeCLIConfig(t, fake.server.URL),
+		target)
+	if err != nil || stderr != "" || stdout == "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	records, warnings, err := airplan.ReadManifest(manifest)
+	if err != nil || len(warnings) != 0 || len(records) == 0 {
+		t.Fatalf("manifest records = %+v, warnings = %v, error = %v", records, warnings, err)
+	}
+}
+
 func TestBulkUpgradeJSONReportsFailureWithNonzeroStatus(t *testing.T) {
 	isolateEnv(t)
 	fake := newFakeRemoteS3(t, nil, nil, nil)

@@ -825,6 +825,26 @@ func apiOperationError(err error) error {
 			"The target is not a valid marker-managed Airplan upload.",
 		)
 	}
+	var updateRefusal *updateRefusalError
+	if errors.As(err, &updateRefusal) {
+		switch updateRefusal.kind {
+		case updateRefusalMissing:
+			return httpapi.NewProblemError(
+				http.StatusNotFound, "upload_not_found", "Upload not found",
+				"The marker-managed upload could not be found.",
+			)
+		case updateRefusalInvalidUpload:
+			return httpapi.NewProblemError(
+				http.StatusUnprocessableEntity, "invalid_upload", "Invalid upload",
+				"The revision chain cannot be safely reconciled.",
+			)
+		default:
+			return httpapi.NewProblemError(
+				http.StatusUnprocessableEntity, "invalid_target", "Invalid upload target",
+				"The document is not eligible for a linked revision update.",
+			)
+		}
+	}
 	var refusal *upgradeRefusalError
 	if errors.As(err, &refusal) {
 		switch refusal.state {

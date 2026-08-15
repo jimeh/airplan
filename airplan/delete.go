@@ -9,6 +9,10 @@ import (
 	"time"
 )
 
+var standaloneDeleteReservationBody = []byte(
+	`{"schema":"airplan-standalone-delete-reservation","version":1}`,
+)
+
 // DeleteResult describes a completed delete (SPEC.md §9).
 type DeleteResult struct {
 	// Keys are the object keys removed, in operation order. The marker is last.
@@ -135,8 +139,18 @@ func (c *Client) DeleteUploadWithOptions(
 		}
 		return nil, &UploadProtectedError{Target: urlOrKey, Reason: reason}
 	}
+	standaloneReserved := false
+	if marker.Version == MarkerVersion && marker.Kind == UploadKindDocument &&
+		marker.Format == "md" && marker.Source != "" && marker.Render != nil &&
+		marker.Revision == nil {
+		if err := c.reserveStandaloneDelete(ctx, dirPrefix); err != nil {
+			return nil, err
+		}
+		standaloneReserved = true
+	}
 	var survivingVersions *VersionsMetadata
 	interruptedLinkedDelete := false
+	unannouncedCandidate := false
 	if marker.Revision != nil {
 		survivingVersions, err = c.tombstoneLinkedRevision(ctx, dirPrefix, marker)
 		if err != nil {
@@ -149,18 +163,35 @@ func (c *Client) DeleteUploadWithOptions(
 					}
 				}
 			}
-			if !errors.Is(err, errObjectNotFound) || declaredPayloadPresent {
+			switch {
+			case errors.Is(err, errObjectNotFound) && !declaredPayloadPresent:
+				// Tombstones precede payload deletion. No local metadata and no
+				// declared payload is the recoverable marker-last interruption.
+				interruptedLinkedDelete = true
+			case errors.Is(err, errObjectNotFound):
+				unannouncedCandidate, err = c.revisionCandidateIsUnannounced(
+					ctx, dirPrefix, marker,
+				)
+				if err != nil {
+					return nil, err
+				}
+				if unannouncedCandidate {
+					survivingVersions = nil
+					// The candidate marker was deliberately created first, but its
+					// predecessor never announced it. It is a managed rollback orphan.
+				} else {
+					return nil, errObjectNotFound
+				}
+			default:
 				return nil, err
 			}
-			// Tombstones are propagated before any payload deletion. A linked
-			// marker with none of its declared payloads or local metadata left is
-			// therefore the recoverable marker-last interruption state.
-			interruptedLinkedDelete = true
 		}
 	}
 	payloadKeys := make([]string, 0, len(objects))
+	reservationKey := dirPrefix + VersionsFilename
 	for _, object := range objects {
-		if object.Key != resolved.Key && object.Key != sentinelKey {
+		if object.Key != resolved.Key && object.Key != sentinelKey &&
+			(!standaloneReserved || object.Key != reservationKey) {
 			payloadKeys = append(payloadKeys, object.Key)
 		}
 	}
@@ -168,8 +199,9 @@ func (c *Client) DeleteUploadWithOptions(
 		return nil, err
 	}
 	deletedKeys := payloadKeys
-	// The sentinel outlives every payload. If marker deletion later fails, the
-	// only unprotected remnant is the ownership marker itself (SPEC.md §9).
+	// The protection sentinel outlives every payload. If marker deletion later
+	// fails, the marker remains protected; a standalone delete reservation is a
+	// separate durable tombstone and is never removed (SPEC.md §9).
 	if protected {
 		if err := c.st.deleteObject(ctx, sentinelKey); err != nil {
 			return nil, err
@@ -190,11 +222,70 @@ func (c *Client) DeleteUploadWithOptions(
 		res.Warnings = append(res.Warnings,
 			"completed an interrupted linked-revision deletion")
 	}
+	if unannouncedCandidate {
+		res.Warnings = append(res.Warnings,
+			"removed an unannounced revision candidate left by rollback")
+	}
 	c.recordDelete(ctx, res)
 	if survivingVersions != nil {
 		c.recordSurvivingRevisionLinks(ctx, res, *survivingVersions)
 	}
 	return res, nil
+}
+
+func (c *Client) revisionCandidateIsUnannounced(
+	ctx context.Context, targetDirPrefix string, marker *UploadMarker,
+) (bool, error) {
+	if marker == nil || marker.Revision == nil || marker.Revision.Number <= 1 ||
+		marker.Revision.PreviousURL == "" {
+		return false, nil
+	}
+	previous, err := c.loadRevisionDocument(ctx, marker.Revision.PreviousURL)
+	if err != nil {
+		return false, fmt.Errorf("airplan: inspect revision candidate predecessor: %w", err)
+	}
+	if previous.versions == nil {
+		return marker.Revision.Number == 2 && previous.marker.Revision == nil, nil
+	}
+	if previous.versions.ChainID != marker.Revision.ChainID ||
+		previous.versions.CurrentRevision != marker.Revision.Number-1 {
+		return false, nil
+	}
+	pageURL, _, err := PublicURL(c.cfg, targetDirPrefix+marker.Page)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range previous.versions.Revisions {
+		if !entry.Deleted && entry.URL == pageURL {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func (c *Client) reserveStandaloneDelete(
+	ctx context.Context, dirPrefix string,
+) error {
+	key := dirPrefix + VersionsFilename
+	err := c.st.putIfAbsent(ctx, object{
+		Key: key, Body: standaloneDeleteReservationBody,
+		ContentType: markerContentType,
+	})
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, ErrConflict) {
+		return fmt.Errorf("airplan: reserve standalone deletion: %w", err)
+	}
+	existing, readErr := c.st.getBytes(ctx, key, MaxVersionsMetadataSize)
+	if readErr == nil && bytes.Equal(existing, standaloneDeleteReservationBody) {
+		return nil
+	}
+	if readErr != nil {
+		return fmt.Errorf("airplan: inspect standalone deletion reservation: %w", readErr)
+	}
+	return fmt.Errorf("airplan: standalone document changed while deletion was starting: %w",
+		ErrConflict)
 }
 
 func (c *Client) tombstoneLinkedRevision(
@@ -392,18 +483,14 @@ func (c *Client) recordSurvivingRevisionLinks(
 			result.Warnings = append(result.Warnings, "manifest chain links not fully recorded")
 			return
 		}
-		rec := ManifestRecord{
-			Type: "link", Time: time.Now().UTC().Truncate(time.Second),
-			CreatedAt: doc.marker.CreatedAt, Key: doc.pageKey, SourceKey: doc.sourceKey,
-			MarkerKey: doc.dirPrefix + MarkerFilename, URL: doc.pageURL,
-			Bucket: c.cfg.Bucket, Profile: c.cfg.Profile, Format: doc.marker.Format,
-			Kind: string(doc.marker.Kind), Slug: doc.marker.Slug, Title: doc.marker.Title,
-			Repo: doc.marker.Repo, Bytes: int64(len(doc.pageBody)), MarkerVersion: MarkerVersion,
-			ProducerVersion: doc.marker.Producer.Version,
-			RendererVersion: doc.marker.Render.Generation,
-			RevisionChainID: metadata.ChainID, Revision: revision.Number,
-			LatestRevision: metadata.LatestRevision,
-		}
+		projection := c.updateResultFromDocument(doc).Result
+		projection.RevisionChainID = metadata.ChainID
+		projection.Revision = revision.Number
+		projection.LatestRevision = metadata.LatestRevision
+		declared := markerDeclaredTotals(*doc.marker, doc.markerBody)
+		rec := completeManifestProjection(c.cfg, "link",
+			time.Now().UTC().Truncate(time.Second), &projection, declared,
+			doc.marker.Producer.Version, doc.marker.Render.Generation)
 		if err := appendManifestRecord(ctx, manifestPath, rec); err != nil {
 			result.Warnings = append(result.Warnings, "manifest link not recorded: "+err.Error())
 			return

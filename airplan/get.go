@@ -212,7 +212,7 @@ func resolveGetTarget(
 			key == dirPrefix+object.Name {
 			if opts.Source || opts.Diff {
 				return "", invalidTargetf(
-					"airplan: --source cannot be used with an explicit child target",
+					"airplan: --source or --diff cannot be used with an explicit child target",
 				)
 			}
 			return key, nil

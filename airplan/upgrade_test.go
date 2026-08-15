@@ -88,6 +88,62 @@ func TestUpgradeDocumentMigratesV3WithoutVersionsMetadata(t *testing.T) {
 	}
 }
 
+func TestUpgradeManifestEventPreservesRevisionAndCompleteProjection(t *testing.T) {
+	store := newUpgradeStore(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := store.client(t, manifest)
+	dir := strings.Repeat("v", 26)
+	chain := strings.Repeat("c", 26)
+	page := []byte("<html>revised</html>")
+	source := []byte("# Revised\n")
+	diff := []byte("--- revision-1/plan.md\n+++ revision-2/plan.md\n")
+	marker := UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second), Kind: UploadKindDocument,
+		Slug: "plan", Format: "md", Title: "Revised",
+		Repo:     "https://github.com/jimeh/airplan",
+		Producer: Producer{Name: "airplan", Version: "0.8.0"},
+		Render: &RenderRecipe{
+			Generation: RendererGeneration,
+			Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
+		},
+		Revision: &RevisionDescriptor{
+			ChainID: chain, Number: 2,
+			PreviousURL: "https://plans.example.com/" + strings.Repeat("p", 26) + "/plan.html",
+		},
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+			{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType},
+		},
+	}
+	markerBody, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := Result{
+		ID: dir, URL: "https://plans.example.com/" + dir + "/plan.html",
+		Key: dir + "/plan.html", SourceKey: dir + "/plan.md", Bucket: "plans",
+		Bytes: int64(len(page)), ContentType: pageContentType, Title: marker.Title,
+		CreatedAt: marker.CreatedAt, MarkerVersion: MarkerVersion,
+		MarkerKey: dir + "/" + MarkerFilename, Format: "md",
+		Kind: string(UploadKindDocument), Slug: "plan", RepositoryURL: marker.Repo,
+		RevisionChainID: chain, Revision: 2, LatestRevision: 3,
+	}
+	client.recordUpgrade(context.Background(), &result, markerBody)
+	records, warnings, err := ReadManifest(manifest)
+	if err != nil || len(warnings) != 0 || len(records) != 1 {
+		t.Fatalf("records = %+v, warnings = %v, err = %v", records, warnings, err)
+	}
+	record := records[0]
+	if record.Type != "upgrade" || record.RevisionChainID != chain ||
+		record.Revision != 2 || record.LatestRevision != 3 || record.Objects != 4 ||
+		record.TotalBytes <= record.Bytes || record.SourceKey != result.SourceKey ||
+		record.Repo != marker.Repo || record.Title != marker.Title {
+		t.Fatalf("upgrade projection = %+v", record)
+	}
+}
+
 func TestUpgradeRetryRepairsEqualLengthPageAfterMarkerFirstInterruption(t *testing.T) {
 	store := newUpgradeStore(t)
 	dir := strings.Repeat("i", 26)
@@ -612,10 +668,17 @@ type upgradeStore struct {
 	putKeys                 []string
 	putAttempts             int
 	failPutAttempt          int
+	failPutKey              string
 	failPutSuffix           string
+	failDeleteKeys          bool
+	failMarkerDelete        bool
 	getAttempts             int
 	conditionalBarrier      chan struct{}
 	conditionalBarrierCount int
+	pauseIfNoneKey          string
+	pauseIfNoneReached      chan struct{}
+	pauseIfNoneRelease      chan struct{}
+	pauseIfNoneUsed         bool
 	ifMatchBarrier          chan struct{}
 	ifMatchBarrierCount     int
 }
@@ -657,6 +720,18 @@ func (s *upgradeStore) get(key string) ([]byte, bool) {
 func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.URL.Path, "/plans/")
 	if r.Method == http.MethodPut && r.Header.Get("If-None-Match") == "*" {
+		s.mu.Lock()
+		var targetedRelease chan struct{}
+		if key == s.pauseIfNoneKey && !s.pauseIfNoneUsed {
+			s.pauseIfNoneUsed = true
+			close(s.pauseIfNoneReached)
+			targetedRelease = s.pauseIfNoneRelease
+		}
+		s.mu.Unlock()
+		if targetedRelease != nil {
+			<-targetedRelease
+		}
+
 		s.mu.Lock()
 		barrier := s.conditionalBarrier
 		if barrier != nil {
@@ -734,8 +809,9 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.putAttempts++
-		if s.failPutAttempt == s.putAttempts ||
+		if s.failPutAttempt == s.putAttempts || s.failPutKey == key ||
 			(s.failPutSuffix != "" && strings.HasSuffix(key, s.failPutSuffix)) {
+			s.failPutKey = ""
 			s.failPutSuffix = ""
 			w.WriteHeader(http.StatusPreconditionFailed)
 			return
@@ -747,6 +823,11 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", `"updated"`)
 		w.WriteHeader(http.StatusOK)
 	case http.MethodPost:
+		if s.failDeleteKeys {
+			s.failDeleteKeys = false
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		var request struct {
 			Objects []struct {
 				Key string `xml:"Key"`
@@ -764,6 +845,11 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 		_, _ = io.WriteString(w, `<?xml version="1.0"?><DeleteResult></DeleteResult>`)
 	case http.MethodDelete:
+		if s.failMarkerDelete {
+			s.failMarkerDelete = false
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		delete(s.objects, key)
 		delete(s.etags, key)
 		w.WriteHeader(http.StatusNoContent)

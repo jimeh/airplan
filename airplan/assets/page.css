@@ -799,7 +799,8 @@ mark {
   .toc-trigger,
   .toc-dialog,
   .codecopy,
-  .source-view {
+  .source-view,
+  .changes-view {
     display: none !important;
   }
 

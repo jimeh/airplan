@@ -446,8 +446,13 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(objects) != 0 {
-		t.Fatalf("objects remain after delete: %+v", objects)
+	if len(objects) != 1 || objects[0].Key != dirPrefix+VersionsFilename {
+		t.Fatalf("unexpected objects remain after delete: %+v", objects)
+	}
+	if got := getObject(ctx, t, st, dirPrefix+VersionsFilename); !bytes.Equal(
+		got.body, standaloneDeleteReservationBody,
+	) {
+		t.Fatalf("standalone delete tombstone = %q", got.body)
 	}
 	synced, err = syncClient.SyncManifest(ctx, SyncManifestOptions{Prune: true})
 	if err != nil || len(synced.Tombstoned) != 1 {

@@ -179,6 +179,39 @@ func TestAirplanBackendMapsProtectedProblemToTypedError(t *testing.T) {
 	}
 }
 
+func TestAirplanBackendForwardsDiffDownloadSelection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v1/uploads/get" {
+				t.Fatalf("path = %q", r.URL.Path)
+			}
+			var request httpapi.GetUploadRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
+			if request.URLOrKey != "dir/plan.html" || !request.Diff || request.Source {
+				t.Fatalf("request = %+v", request)
+			}
+			w.Header().Set("X-Airplan-Object-Key", "dir/"+DiffFilename)
+			_, _ = io.WriteString(w, "diff body")
+		},
+	))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL,
+		APIToken: "01234567890123456789012345678901", Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	key, err := client.GetUploadTo(context.Background(), "dir/plan.html",
+		GetOptions{Diff: true}, &output)
+	if err != nil || key != "dir/"+DiffFilename || output.String() != "diff body" {
+		t.Fatalf("key = %q, body = %q, error = %v", key, output.String(), err)
+	}
+}
+
 func TestAirplanBackendDropsInvalidProtectionReasons(t *testing.T) {
 	const invalid = "keep\n\x1b[31mPROTECTED no"
 	inspection := coreInspection(httpapi.UploadInspection{
