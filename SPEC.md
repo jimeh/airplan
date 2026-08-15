@@ -1488,7 +1488,7 @@ conforming implementations can share a manifest:
  "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
  "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":4,
- "producer_version":"0.8.0","renderer_version":1}
+ "producer_version":"0.8.0","renderer_version":2}
 {"type":"upload","time":"2026-07-21T12:03:00Z",
  "created_at":"2026-07-21T12:03:00Z",
  "key":"gaj4.../index.html",
@@ -1497,7 +1497,7 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"collection",
  "title":"login.png and 1 more","bytes":9216,"objects":4,
  "total_bytes":203512,"marker_version":4,
- "producer_version":"0.8.0","renderer_version":1}
+ "producer_version":"0.8.0","renderer_version":2}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
@@ -1515,7 +1515,7 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
  "bytes":19200,"marker_version":4,"producer_version":"0.8.0",
- "renderer_version":1}
+ "renderer_version":2}
 {"type":"link","time":"2026-08-15T10:05:00Z",
  "created_at":"2026-07-21T12:00:00Z",
  "key":"vq3n.../plan.html","source_key":"vq3n.../plan.md",
@@ -1524,7 +1524,7 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
  "bytes":19200,"objects":4,"total_bytes":20120,"marker_version":4,
- "producer_version":"0.8.0","renderer_version":1,
+ "producer_version":"0.8.0","renderer_version":2,
  "revision_chain_id":"d2x4...","revision":1,"latest_revision":2}
 ```
 

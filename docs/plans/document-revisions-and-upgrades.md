@@ -411,7 +411,12 @@ Revision numbers are strictly positive. New chains begin at `1`; each
 successful append consumes the next never-before-assigned integer. Deletion
 creates a tombstone and never permits reuse. Standalone-delete reservations are
 permanent, intentionally accumulate, and are never removed by Airplan
-lifecycle commands.
+lifecycle commands. Each reservation is one 62-byte payload object plus the
+storage provider's per-object metadata, so growth is linear in deleted
+standalone Markdown uploads rather than document size. Operators with storage
+cost or object-count limits should monitor the reserved `.airplan-versions.json`
+objects alongside normal bucket usage; compaction or retention is intentionally
+unsupported because removing a reservation would reopen the stale-update race.
 
 ### 7.4 Object roles
 

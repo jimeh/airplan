@@ -527,7 +527,7 @@ test('empty revision metadata fails closed without breaking the document',
     await expect(page.locator('.revision-context')).toBeHidden();
     await expect(page.getByRole('heading', { name: 'Browser smoke plan' }))
       .toBeVisible();
-    expect(warnings).toContain(
+    await expect.poll(() => warnings).toContain(
       'airplan: revision metadata is unavailable or invalid',
     );
   });

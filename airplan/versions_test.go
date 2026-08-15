@@ -323,6 +323,8 @@ func TestMarkerV4RevisionPreviousURLMustBeAbsoluteHTTPHTML(t *testing.T) {
 		"plan.html", "ftp://plans.example.com/plan.html",
 		"https://plans.example.com/plan.md",
 		"https://plans.example.com/plan.html?changed=1",
+		"https://plans.example.com/plan.html#changes",
+		"https://user:pass@plans.example.com/plan.html",
 	} {
 		marker := validDocumentMarker()
 		marker.Revision = &RevisionDescriptor{

@@ -741,6 +741,7 @@ func TestManifestUploadsIgnoresStaleRevisionEventsAfterDeleteTombstone(t *testin
 		}
 	}
 	staleRevisionFour := records[3]
+	staleRevisionFour.Time = when.Add(5 * time.Second)
 	records = append(records, ManifestRecord{
 		Type: "delete", Time: when.Add(4 * time.Second),
 		Key: records[3].Key, MarkerKey: records[3].MarkerKey, Bucket: "plans",
