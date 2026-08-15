@@ -55,7 +55,11 @@ let collectionHTML;
 const versionRequests = [];
 
 function isVersionManifestURL(url) {
-  return /\/\.airplan-versions\.json(?:\?|$)/.test(url);
+  try {
+    return new URL(url).pathname.endsWith('/.airplan-versions.json');
+  } catch {
+    return false;
+  }
 }
 
 const test = base.extend({
@@ -604,6 +608,9 @@ test('revision 404 filtering does not match unrelated resources', () => {
   )).toBe(true);
   expect(isVersionManifestURL(
     'https://plans.example.com/id/missing.png',
+  )).toBe(false);
+  expect(isVersionManifestURL(
+    'https://plans.example.com/id/missing.png?redirect=/.airplan-versions.json?nonce=1',
   )).toBe(false);
 });
 
