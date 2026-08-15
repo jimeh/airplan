@@ -68,7 +68,9 @@ The design preserves these core properties:
     document revision. The source bytes, public page URL, original creation
     time, purge-protection state, and chain identity remain unchanged.
 11. An identical proposed Markdown source is a successful no-op. It returns the
-    existing latest result and does not consume a revision number.
+    existing latest result and does not consume a revision number. A consistent
+    chain performs no writes; an identical-source retry may first repair an
+    interrupted promotion or metadata replication.
 12. The local manifest selects bulk-upgrade candidates but never authorizes
     remote mutation. Every candidate is revalidated from its remote marker and
     payload before any write.
@@ -152,8 +154,9 @@ metadata without changing the existing result field meanings:
 }
 ```
 
-For an identical source, `url` identifies the existing latest page,
-`unchanged` is true, and no storage or manifest write occurs.
+For an identical source, `url` identifies the existing latest page and
+`unchanged` is true. An already-consistent chain performs no storage or
+manifest writes, while a retry may repair interrupted chain replication.
 
 ### 5.2 Page controls
 
@@ -406,7 +409,9 @@ safe re-rendering machinery.
 
 Revision numbers are strictly positive. New chains begin at `1`; each
 successful append consumes the next never-before-assigned integer. Deletion
-creates a tombstone and never permits reuse.
+creates a tombstone and never permits reuse. Standalone-delete reservations are
+permanent, intentionally accumulate, and are never removed by Airplan
+lifecycle commands.
 
 ### 7.4 Object roles
 

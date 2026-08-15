@@ -863,8 +863,10 @@ that parseable result on stdout and make the command non-zero.
 source-backed Markdown document. It resolves any supplied chain member to the
 latest live revision, compares exact UTF-8 source bytes, and uploads a complete
 ordinary document under a new random directory. Identical content is a
-successful no-op returning the existing latest URL without storage or manifest
-writes. Revision numbers are positive integers beginning at 1 and never reused.
+successful no-op returning the existing latest URL. An already-consistent
+chain performs no storage or manifest writes; an identical-source retry may
+first repair interrupted predecessor promotion or metadata replication.
+Revision numbers are positive integers beginning at 1 and never reused.
 
 A standalone upload has no `.airplan-versions.json`. Its first real update
 conditionally creates that object in the predecessor and candidate, promotes
@@ -881,8 +883,9 @@ valid versions metadata and remains as a tiny permanent deletion tombstone
 after payload and marker removal. It keeps stale, preflighted updates from
 subsequently winning `If-None-Match`; an update that observes it fails closed.
 Marker-based listing and sync ignore the otherwise empty tombstone-only prefix.
-Thus exactly one transition can win, including when both operations first
-observed the standalone marker.
+These tombstones intentionally accumulate and Airplan lifecycle commands never
+remove them. Thus exactly one transition can win, including when both
+operations first observed the standalone marker.
 
 Every linked v4 Markdown marker contains an immutable `revision` descriptor
 with a 26-character lowercase RFC 4648 base32 `chain_id`, positive `number`,
@@ -1771,7 +1774,9 @@ machine) and must be safe:
   `oversized`, `malformed_json`, `unsupported_version`, `invalid_fields`, or
   `conflicting_markers`; it never exposes untrusted marker fields. Human
   output presents the same information as a labeled detail block.
-- `airplan get <url|key>` fetches one object from a marker-managed upload.
+- `airplan get <url|key>` fetches one object from a marker-managed upload;
+  `--source` selects the declared source and `--diff` selects the declared
+  adjacent revision diff. The selectors are mutually exclusive.
   Full URLs, bare keys, random directories, configured prefixes, and
   path-style endpoint URLs obey the same connection, bucket, and prefix
   rules as `delete`. Before returning bytes, `get` concurrently probes both
@@ -1779,8 +1784,9 @@ machine) and must be safe:
   absent, and validates the existing marker. This preserves object-read-only
   credentials without requiring LIST permission. A timeout, authorization
   failure, or ambiguous probe fails closed. A random-directory target selects
-  the primary page, or the document source under `--source`; requesting source
-  from a collection or source-less document is an error. An explicit declared
+  the primary page, the document source under `--source`, or the adjacent diff
+  under `--diff`; requesting either capability when it is not declared is an
+  error. An explicit declared
   page, document source, collection file, or existing marker fetches that exact
   object. Any undeclared child is rejected, as is `--source` with an explicit
   child. A missing selected object is an error naming its full key.

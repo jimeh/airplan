@@ -148,6 +148,138 @@ func TestVersionsMetadataRejectsNoncanonicalAndNonAirplanURLs(t *testing.T) {
 	}
 }
 
+func TestVersionsMetadataMonotonicProgression(t *testing.T) {
+	when := time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC)
+	live := func(number int, dir string) VersionsRevision {
+		revision := VersionsRevision{
+			Number: number, URL: "https://plans.example.com/" + strings.Repeat(dir, 26) + "/plan.html",
+			CreatedAt: when,
+		}
+		if number > 1 {
+			revision.DiffURL = "https://plans.example.com/" + strings.Repeat(dir, 26) + "/" + DiffFilename
+		}
+		return revision
+	}
+	tombstone := func(number int) VersionsRevision {
+		return VersionsRevision{Number: number, Deleted: true, DeletedAt: when.Add(time.Hour)}
+	}
+	base := VersionsMetadata{
+		Schema: "airplan-versions", Version: 1, ChainID: strings.Repeat("a", 26),
+		CurrentRevision: 1, LatestRevision: 2, LastAssignedRevision: 2,
+		Revisions: []VersionsRevision{live(1, "b"), live(2, "c")},
+	}
+	clone := func(metadata VersionsMetadata) VersionsMetadata {
+		metadata.Revisions = append([]VersionsRevision(nil), metadata.Revisions...)
+		return metadata
+	}
+	appendRevision := func(metadata *VersionsMetadata, revision VersionsRevision) {
+		metadata.Revisions = append(metadata.Revisions, revision)
+		metadata.LastAssignedRevision = revision.Number
+		if !revision.Deleted {
+			metadata.LatestRevision = revision.Number
+		}
+	}
+	tests := []struct {
+		name   string
+		before func() VersionsMetadata
+		after  func() VersionsMetadata
+		want   bool
+	}{
+		{"equal", func() VersionsMetadata { return clone(base) }, func() VersionsMetadata { return clone(base) }, true},
+		{"append", func() VersionsMetadata { return clone(base) }, func() VersionsMetadata {
+			value := clone(base)
+			appendRevision(&value, live(3, "d"))
+			return value
+		}, true},
+		{"tombstone", func() VersionsMetadata { return clone(base) }, func() VersionsMetadata {
+			value := clone(base)
+			value.Revisions[1] = tombstone(2)
+			value.LatestRevision = 1
+			return value
+		}, true},
+		{"tombstone and append", func() VersionsMetadata { return clone(base) }, func() VersionsMetadata {
+			value := clone(base)
+			value.Revisions[1] = tombstone(2)
+			appendRevision(&value, live(3, "d"))
+			return value
+		}, true},
+		{"preserved tombstone and append", func() VersionsMetadata {
+			value := clone(base)
+			value.Revisions[1] = tombstone(2)
+			value.LatestRevision = 1
+			return value
+		}, func() VersionsMetadata {
+			value := clone(base)
+			value.Revisions[1] = tombstone(2)
+			appendRevision(&value, live(3, "d"))
+			return value
+		}, true},
+		{"resurrection", func() VersionsMetadata {
+			value := clone(base)
+			value.Revisions[1] = tombstone(2)
+			return value
+		}, func() VersionsMetadata { return clone(base) }, false},
+		{"changed live URL", func() VersionsMetadata { return clone(base) }, func() VersionsMetadata {
+			value := clone(base)
+			value.Revisions[1].URL = live(2, "e").URL
+			return value
+		}, false},
+		{"changed live timestamp", func() VersionsMetadata { return clone(base) }, func() VersionsMetadata {
+			value := clone(base)
+			value.Revisions[1].CreatedAt = when.Add(time.Minute)
+			return value
+		}, false},
+		{"changed live diff", func() VersionsMetadata { return clone(base) }, func() VersionsMetadata {
+			value := clone(base)
+			value.Revisions[1].DiffURL = live(2, "e").DiffURL
+			return value
+		}, false},
+		{"changed tombstone", func() VersionsMetadata {
+			value := clone(base)
+			value.Revisions[1] = tombstone(2)
+			return value
+		}, func() VersionsMetadata {
+			value := clone(base)
+			value.Revisions[1] = tombstone(2)
+			value.Revisions[1].DeletedAt = when.Add(2 * time.Hour)
+			return value
+		}, false},
+		{"chain change", func() VersionsMetadata { return clone(base) }, func() VersionsMetadata {
+			value := clone(base)
+			value.ChainID = strings.Repeat("z", 26)
+			return value
+		}, false},
+		{"schema change", func() VersionsMetadata { return clone(base) }, func() VersionsMetadata {
+			value := clone(base)
+			value.Schema = "other"
+			return value
+		}, false},
+		{"decreasing high water", func() VersionsMetadata {
+			value := clone(base)
+			appendRevision(&value, live(3, "d"))
+			return value
+		}, func() VersionsMetadata { return clone(base) }, false},
+		{"divergent appended entry", func() VersionsMetadata {
+			value := clone(base)
+			appendRevision(&value, live(3, "d"))
+			return value
+		}, func() VersionsMetadata {
+			value := clone(base)
+			appendRevision(&value, live(3, "e"))
+			return value
+		}, false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			before, after := test.before(), test.after()
+			if got := versionsMetadataMonotonicallyPrecedes(&before, &after); got != test.want {
+				t.Fatalf("monotonic relation = %t, want %t\nbefore: %+v\nafter: %+v",
+					got, test.want, before, after)
+			}
+		})
+	}
+}
+
 func TestMarkerV4RevisionDiffRole(t *testing.T) {
 	dir := strings.Repeat("a", 26)
 	marker := UploadMarker{

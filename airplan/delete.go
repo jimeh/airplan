@@ -140,9 +140,8 @@ func (c *Client) DeleteUploadWithOptions(
 		return nil, &UploadProtectedError{Target: urlOrKey, Reason: reason}
 	}
 	standaloneReserved := false
-	if marker.Version == MarkerVersion && marker.Kind == UploadKindDocument &&
-		marker.Format == "md" && marker.Source != "" && marker.Render != nil &&
-		marker.Revision == nil {
+	if marker.Kind == UploadKindDocument && marker.Format == "md" &&
+		marker.Source != "" && marker.Revision == nil {
 		if err := c.reserveStandaloneDelete(ctx, dirPrefix); err != nil {
 			return nil, err
 		}
@@ -239,6 +238,25 @@ func (c *Client) revisionCandidateIsUnannounced(
 	if marker == nil || marker.Revision == nil || marker.Revision.Number <= 1 ||
 		marker.Revision.PreviousURL == "" {
 		return false, nil
+	}
+	previousKey, err := KeyFromURLOrKey(c.cfg, marker.Revision.PreviousURL)
+	if err != nil {
+		return false, err
+	}
+	previousPrefix, err := uploadDirPrefixForKeyPrefix(previousKey, c.cfg.KeyPrefix)
+	if err != nil {
+		return false, err
+	}
+	reservation, reservationErr := c.st.getBytes(
+		ctx, previousPrefix+VersionsFilename, MaxVersionsMetadataSize,
+	)
+	if marker.Revision.Number == 2 && reservationErr == nil &&
+		bytes.Equal(reservation, standaloneDeleteReservationBody) {
+		return true, nil
+	}
+	if reservationErr != nil && !errors.Is(reservationErr, errObjectNotFound) {
+		return false, fmt.Errorf("airplan: inspect revision candidate predecessor reservation: %w",
+			reservationErr)
 	}
 	previous, err := c.loadRevisionDocument(ctx, marker.Revision.PreviousURL)
 	if err != nil {
@@ -420,8 +438,8 @@ func (c *Client) tombstoneLinkedRevision(
 			continue
 		}
 		observed, decodeErr := DecodeVersionsMetadata(current, c.cfg, key)
-		if decodeErr != nil || !metadataPrecedesRevisionDeletion(
-			observed, metadata, marker.Revision.Number,
+		if decodeErr != nil || !versionsMetadataMonotonicallyPrecedes(
+			observed, metadata,
 		) {
 			return nil, errors.New("airplan: revision chain changed during tombstone propagation")
 		}
@@ -433,31 +451,6 @@ func (c *Client) tombstoneLinkedRevision(
 		}
 	}
 	return metadata, nil
-}
-
-func metadataPrecedesRevisionDeletion(
-	observed, deleted *VersionsMetadata, targetRevision int,
-) bool {
-	if observed.Schema != deleted.Schema || observed.Version != deleted.Version ||
-		observed.ChainID != deleted.ChainID ||
-		observed.LastAssignedRevision != deleted.LastAssignedRevision ||
-		len(observed.Revisions) != len(deleted.Revisions) {
-		return false
-	}
-	for index := range observed.Revisions {
-		before := observed.Revisions[index]
-		after := deleted.Revisions[index]
-		if before.Number == targetRevision {
-			if before.Deleted || !after.Deleted || before.Number != after.Number {
-				return false
-			}
-			continue
-		}
-		if before != after {
-			return false
-		}
-	}
-	return true
 }
 
 func (c *Client) recordSurvivingRevisionLinks(

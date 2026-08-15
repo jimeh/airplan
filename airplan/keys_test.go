@@ -218,9 +218,9 @@ func TestDeleteUploadMarkerLast(t *testing.T) {
 		res.Keys[len(res.Keys)-1] != testDir+"/"+MarkerFilename {
 		t.Fatalf("result = %+v", res)
 	}
-	if got := fake.operationOrder(); len(got) != 5 ||
+	if got := fake.operationOrder(); len(got) != 6 ||
 		!markerProbes(got[:2]) || strings.Join(got[2:], ",") !=
-		"list,payload-delete,marker-delete" {
+		"list,reserve-delete,payload-delete,marker-delete" {
 		t.Fatalf("operations = %v", got)
 	}
 	records, warnings, err := ReadManifest(manifest)
@@ -620,6 +620,9 @@ func (f *deleteLifecycleS3) handle(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/xml")
 		_, _ = io.WriteString(w,
 			`<?xml version="1.0"?><DeleteResult></DeleteResult>`)
+	case r.Method == http.MethodPut:
+		f.record("reserve-delete")
+		w.WriteHeader(http.StatusOK)
 	case r.Method == http.MethodDelete:
 		f.record("marker-delete")
 		f.mu.Lock()

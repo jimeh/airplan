@@ -679,6 +679,10 @@ type upgradeStore struct {
 	pauseIfNoneReached      chan struct{}
 	pauseIfNoneRelease      chan struct{}
 	pauseIfNoneUsed         bool
+	pauseListPrefix         string
+	pauseListReached        chan struct{}
+	pauseListRelease        chan struct{}
+	pauseListUsed           bool
 	ifMatchBarrier          chan struct{}
 	ifMatchBarrierCount     int
 }
@@ -719,6 +723,20 @@ func (s *upgradeStore) get(key string) ([]byte, bool) {
 
 func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.URL.Path, "/plans/")
+	if r.Method == http.MethodGet && r.URL.Query().Get("list-type") == "2" {
+		s.mu.Lock()
+		var listRelease chan struct{}
+		if s.pauseListReached != nil &&
+			r.URL.Query().Get("prefix") == s.pauseListPrefix && !s.pauseListUsed {
+			s.pauseListUsed = true
+			close(s.pauseListReached)
+			listRelease = s.pauseListRelease
+		}
+		s.mu.Unlock()
+		if listRelease != nil {
+			<-listRelease
+		}
+	}
 	if r.Method == http.MethodPut && r.Header.Get("If-None-Match") == "*" {
 		s.mu.Lock()
 		var targetedRelease chan struct{}

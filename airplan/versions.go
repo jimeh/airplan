@@ -249,3 +249,38 @@ func isUTCSecond(value time.Time) bool {
 	_, offset := value.Zone()
 	return offset == 0 && value.Nanosecond() == 0
 }
+
+// versionsMetadataMonotonicallyPrecedes reports whether canonical can be
+// reached from observed only by preserving entries, tombstoning live entries,
+// and appending newly assigned entries. CurrentRevision is replica-local and
+// deliberately does not participate in the relation.
+func versionsMetadataMonotonicallyPrecedes(
+	observed, canonical *VersionsMetadata,
+) bool {
+	if observed == nil || canonical == nil ||
+		observed.Schema != canonical.Schema || observed.Version != canonical.Version ||
+		observed.ChainID != canonical.ChainID ||
+		observed.LastAssignedRevision > canonical.LastAssignedRevision ||
+		len(observed.Revisions) != observed.LastAssignedRevision ||
+		len(canonical.Revisions) != canonical.LastAssignedRevision ||
+		len(observed.Revisions) > len(canonical.Revisions) {
+		return false
+	}
+	for index := range observed.Revisions {
+		before := observed.Revisions[index]
+		after := canonical.Revisions[index]
+		if before.Number != after.Number {
+			return false
+		}
+		if before.Deleted {
+			if before != after {
+				return false
+			}
+			continue
+		}
+		if !after.Deleted && before != after {
+			return false
+		}
+	}
+	return true
+}

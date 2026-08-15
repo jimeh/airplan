@@ -483,8 +483,20 @@ func (c *Client) repairFirstRevisionPromotionFromMember(
 		member.marker.Revision.PreviousURL == "" || member.versions == nil {
 		return nil
 	}
-	first := liveVersionsRevision(member.versions, 1)
-	if first == nil || first.URL != member.marker.Revision.PreviousURL {
+	var first *VersionsRevision
+	for index := range member.versions.Revisions {
+		if member.versions.Revisions[index].Number == 1 {
+			first = &member.versions.Revisions[index]
+			break
+		}
+	}
+	if first == nil {
+		return errors.New("airplan: first revision predecessor cannot be reconciled")
+	}
+	if first.Deleted {
+		return nil
+	}
+	if first.URL != member.marker.Revision.PreviousURL {
 		return errors.New("airplan: first revision predecessor cannot be reconciled")
 	}
 	predecessor, err := c.loadRevisionDocument(ctx, first.URL)
@@ -495,6 +507,17 @@ func (c *Client) repairFirstRevisionPromotionFromMember(
 		if predecessor.marker.Revision.ChainID != member.versions.ChainID ||
 			predecessor.marker.Revision.Number != 1 {
 			return errors.New("airplan: first revision predecessor marker conflicts with chain")
+		}
+		if predecessor.needsPageRepair {
+			predecessor, err = c.repairRevisionPage(ctx, predecessor)
+			if err != nil {
+				return fmt.Errorf("airplan: repair first revision predecessor page: %w", err)
+			}
+			if predecessor.needsPageRepair || predecessor.marker.Revision == nil ||
+				predecessor.marker.Revision.ChainID != member.versions.ChainID ||
+				predecessor.marker.Revision.Number != 1 {
+				return errors.New("airplan: verify first revision predecessor page repair failed")
+			}
 		}
 		return nil
 	}
@@ -815,6 +838,15 @@ func (c *Client) propagateVersionsMetadata(
 		current, etag, _, err := c.st.getBytesWithETag(ctx, metadataKey, MaxVersionsMetadataSize)
 		if err != nil {
 			if errors.Is(err, errObjectNotFound) {
+				authoritativeKey := serializedKey
+				if newKey != "" {
+					authoritativeKey = newKey
+				}
+				if err := c.verifySerializationBody(
+					ctx, metadata, bodies, authoritativeKey,
+				); err != nil {
+					return err
+				}
 				resolved, markerErr := c.resolveMarker(ctx, dirPrefix)
 				if markerErr != nil {
 					return errors.New("airplan: revision metadata recreation refused because the member marker is unavailable")
@@ -840,7 +872,7 @@ func (c *Client) propagateVersionsMetadata(
 			continue
 		}
 		observed, decodeErr := DecodeVersionsMetadata(current, c.cfg, key)
-		if decodeErr != nil || !metadataStrictlyPrecedes(observed, &metadata) {
+		if decodeErr != nil || !versionsMetadataMonotonicallyPrecedes(observed, &metadata) {
 			return errors.New("airplan: revision chain changed during metadata propagation")
 		}
 		if err := c.st.putConditional(ctx, object{
@@ -853,22 +885,36 @@ func (c *Client) propagateVersionsMetadata(
 	return nil
 }
 
-func metadataStrictlyPrecedes(observed, canonical *VersionsMetadata) bool {
-	if observed == nil || canonical == nil ||
-		observed.Schema != canonical.Schema || observed.Version != canonical.Version ||
-		observed.ChainID != canonical.ChainID ||
-		observed.LastAssignedRevision >= canonical.LastAssignedRevision ||
-		len(observed.Revisions) != observed.LastAssignedRevision ||
-		len(canonical.Revisions) != canonical.LastAssignedRevision ||
-		len(observed.Revisions) >= len(canonical.Revisions) {
-		return false
-	}
-	for index := range observed.Revisions {
-		if observed.Revisions[index] != canonical.Revisions[index] {
-			return false
+func (c *Client) verifySerializationBody(
+	ctx context.Context, metadata VersionsMetadata, bodies map[int][]byte,
+	serializedKey string,
+) error {
+	for _, revision := range metadata.Revisions {
+		if revision.Deleted {
+			continue
 		}
+		key, err := KeyFromURLOrKey(c.cfg, revision.URL)
+		if err != nil {
+			return err
+		}
+		dirPrefix, err := uploadDirPrefixForKeyPrefix(key, c.cfg.KeyPrefix)
+		if err != nil {
+			return err
+		}
+		if dirPrefix+VersionsFilename != serializedKey {
+			continue
+		}
+		expected, ok := bodies[revision.Number]
+		if !ok {
+			break
+		}
+		actual, err := c.st.getBytes(ctx, serializedKey, MaxVersionsMetadataSize)
+		if err != nil || !bytes.Equal(actual, expected) {
+			return errors.New("airplan: revision serialization point changed during metadata repair")
+		}
+		return nil
 	}
-	return true
+	return errors.New("airplan: revision serialization point is not a live chain member")
 }
 
 func (c *Client) verifyRevisionChain(
@@ -915,8 +961,11 @@ func (c *Client) reconcileRevisionMetadata(ctx context.Context, latest *revision
 	if err != nil {
 		return err
 	}
-	return c.propagateVersionsMetadata(ctx, *latest.versions, bodies,
-		latest.dirPrefix+VersionsFilename, "")
+	if err := c.propagateVersionsMetadata(ctx, *latest.versions, bodies,
+		latest.dirPrefix+VersionsFilename, ""); err != nil {
+		return err
+	}
+	return c.verifyRevisionChain(ctx, *latest.versions, bodies)
 }
 
 func (c *Client) updateResultFromDocument(doc *revisionDocument) *UpdateDocumentResult {
