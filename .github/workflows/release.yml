@@ -608,8 +608,10 @@ jobs:
           done
 
           for architecture in amd64 arm64; do
+            platform_digest="$(scripts/container/release.sh \
+              platform-digest index.json "$architecture")"
             scripts/container/release.sh verify-binary \
-              "$reference" \
+              "$IMAGE_NAME@$platform_digest" \
               "$architecture" \
               "dist/container/linux/$architecture/airplan"
           done

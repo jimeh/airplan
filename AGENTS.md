@@ -190,6 +190,11 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Container binaries are GoReleaser artifacts**: never compile Go in the
   Dockerfile. Keep its context normalized through `artifacts.json`, with no
   target-platform `RUN` instruction and no QEMU setup.
+- **Multi-platform image verification uses child digests**: Docker's classic
+  graph-driver store cannot pull two platform variants through one image-index
+  digest and fails with `cannot overwrite digest`. Resolve each platform's
+  child manifest from the index before native binary verification; keep the
+  index digest as the provenance subject and release-tag target.
 - **Container runtime stays shell-free**: its exact `CMD` is `serve`, with
   host, port, and non-loopback defaults resolved by the executable rather than
   a baked listen argument or entrypoint interpolation.
