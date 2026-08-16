@@ -235,6 +235,73 @@ func TestSyncManifestReconstructsRevisionProjections(t *testing.T) {
 	}
 }
 
+func TestSyncManifestLinksExistingStandaloneAfterRemotePromotion(t *testing.T) {
+	store := newUpgradeStore(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	local := store.client(t, manifest)
+	remoteWriter := store.client(t, "")
+	first, err := local.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := remoteWriter.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := local.SyncManifest(context.Background(), SyncManifestOptions{})
+	if err != nil || len(result.Added) != 1 || len(result.Enriched) != 1 {
+		t.Fatalf("promotion sync = %+v, %v", result, err)
+	}
+	link := result.Enriched[0]
+	if link.Type != "link" || link.MarkerKey != first.MarkerKey ||
+		link.RevisionChainID != second.RevisionChainID || link.Revision != 1 ||
+		link.LatestRevision != 2 {
+		t.Fatalf("standalone promotion link = %+v", link)
+	}
+	records, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uploads := ManifestUploads(records)
+	if len(uploads) != 2 {
+		t.Fatalf("promoted active uploads = %+v", uploads)
+	}
+	for _, upload := range uploads {
+		if upload.RevisionChainID != second.RevisionChainID ||
+			upload.LatestRevision != 2 {
+			t.Fatalf("promoted projection = %+v", upload)
+		}
+	}
+
+	if _, err := remoteWriter.DeleteUpload(context.Background(), first.URL); err != nil {
+		t.Fatalf("remote delete first revision: %v", err)
+	}
+	pruned, err := local.SyncManifest(context.Background(), SyncManifestOptions{Prune: true})
+	if err != nil || len(pruned.Tombstoned) != 1 ||
+		pruned.Tombstoned[0].RevisionChainID != second.RevisionChainID ||
+		pruned.Tombstoned[0].Revision != 1 {
+		t.Fatalf("promoted revision prune = %+v, %v", pruned, err)
+	}
+	link.Time = time.Now().UTC().Truncate(time.Second)
+	if err := appendManifestRecord(context.Background(), manifest, link); err != nil {
+		t.Fatal(err)
+	}
+	records, _, err = ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uploads = ManifestUploads(records)
+	if len(uploads) != 1 || uploads[0].MarkerKey != second.MarkerKey ||
+		uploads[0].LatestRevision != 2 {
+		t.Fatalf("stale link resurrected pruned revision: %+v", uploads)
+	}
+}
+
 func TestSyncManifestDoesNotDuplicateManifestWarnings(t *testing.T) {
 	when := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 	fake := newSyncStorage(t)
@@ -378,6 +445,57 @@ func TestCommitSyncManifestDoesNotTombstoneConcurrentRestoration(t *testing.T) {
 		len(active) != 1 || active[0].Title != restored.Title {
 		t.Fatalf("records = %+v, active = %+v, warnings = %v, error = %v",
 			records, active, warnings, err)
+	}
+}
+
+func TestCommitSyncManifestDoesNotTombstoneConcurrentRevisionLink(t *testing.T) {
+	dir := strings.Repeat("l", 26)
+	chain := strings.Repeat("c", 26)
+	markerKey := dir + "/" + MarkerFilename
+	pageKey := dir + "/plan.html"
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	initial := ManifestRecord{
+		Type: "upload", Time: time.Date(2026, 8, 16, 9, 0, 0, 0, time.UTC),
+		Key: pageKey, SourceKey: dir + "/plan.md", MarkerKey: markerKey,
+		URL:    "https://plans.example.com/" + pageKey,
+		Bucket: "plans", Profile: "work", Format: "md",
+		Kind: string(UploadKindDocument), Slug: "plan", Bytes: 4,
+		MarkerVersion: MarkerVersion, Objects: 3, TotalBytes: 10,
+	}
+	if err := appendManifestRecord(context.Background(), manifest, initial); err != nil {
+		t.Fatal(err)
+	}
+	initialRecords, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := initial
+	link.Type = "link"
+	link.Time = initial.Time.Add(time.Minute)
+	link.CreatedAt = initial.Time
+	link.RevisionChainID = chain
+	link.Revision = 1
+	link.LatestRevision = 2
+	if err := appendManifestRecord(context.Background(), manifest, link); err != nil {
+		t.Fatal(err)
+	}
+	result := &SyncManifestResult{Tombstoned: []ManifestRecord{{
+		Type: "delete", Time: link.Time.Add(time.Minute), Key: pageKey,
+		MarkerKey: markerKey, Bucket: "plans", Profile: "work",
+		Reason: "remote_missing",
+	}}}
+	client := &Client{cfg: &Config{Bucket: "plans", Profile: "work"}}
+	if err := client.commitSyncManifest(context.Background(), manifest,
+		len(initialRecords), result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Tombstoned) != 0 {
+		t.Fatalf("stale tombstones appended = %+v", result.Tombstoned)
+	}
+	records, _, err := ReadManifest(manifest)
+	active := ManifestUploads(records)
+	if err != nil || len(active) != 1 || active[0].RevisionChainID != chain {
+		t.Fatalf("active after concurrent link = %+v, %v", active, err)
 	}
 }
 

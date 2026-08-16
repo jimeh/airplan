@@ -806,6 +806,11 @@ type upgradeStore struct {
 	failMarkerDelete        bool
 	failGetKey              string
 	failGetKeyOnce          string
+	pauseGetKey             string
+	pauseGetReached         chan struct{}
+	pauseGetRelease         chan struct{}
+	pauseGetUsed            bool
+	pauseGetAfterCommit     bool
 	failHeadKey             string
 	getAttempts             int
 	conditionalBarrier      chan struct{}
@@ -941,6 +946,20 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 			case <-time.After(5 * time.Second):
 				s.t.Error("conditional-update barrier never released")
 			}
+		}
+	}
+	if r.Method == http.MethodGet && r.URL.Query().Get("list-type") != "2" {
+		s.mu.Lock()
+		var targetedRelease chan struct{}
+		if s.pauseGetReached != nil && key == s.pauseGetKey && !s.pauseGetUsed &&
+			(!s.pauseGetAfterCommit || s.commitPutThenFailKey == "") {
+			s.pauseGetUsed = true
+			close(s.pauseGetReached)
+			targetedRelease = s.pauseGetRelease
+		}
+		s.mu.Unlock()
+		if targetedRelease != nil {
+			<-targetedRelease
 		}
 	}
 	s.mu.Lock()

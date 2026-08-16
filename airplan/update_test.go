@@ -253,7 +253,7 @@ func TestUpdateDocumentCandidateFailureRollsBackPublishedMarker(t *testing.T) {
 	}
 }
 
-func TestUpdateDocumentRollbackSurvivesCallerCancellation(t *testing.T) {
+func TestUpdateDocumentRecoversAmbiguousFirstLinkAfterCallerCancellation(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")
 	first, err := client.Upload(context.Background(), Input{
@@ -269,18 +269,25 @@ func TestUpdateDocumentRollbackSurvivesCallerCancellation(t *testing.T) {
 	store.cancelOnPutKey = store.failPutKey
 	store.cancelOnPut = cancel
 	store.mu.Unlock()
-	_, err = client.UpdateDocument(ctx, UpdateDocumentInput{
+	result, err := client.UpdateDocument(ctx, UpdateDocumentInput{
 		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
 	})
-	if err == nil || strings.Contains(err.Error(), "candidate rollback failed") {
-		t.Fatalf("update error = %v, want primary failure with successful rollback", err)
+	if err != nil || result.Revision != 2 || result.LatestRevision != 2 {
+		t.Fatalf("recovered update = %+v, %v", result, err)
+	}
+	if ctx.Err() == nil {
+		t.Fatal("fixture did not cancel the caller context")
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	markers := 0
 	for key := range store.objects {
-		if strings.HasSuffix(key, "/"+MarkerFilename) && key != first.MarkerKey {
-			t.Fatalf("cancelled update left candidate marker %q", key)
+		if strings.HasSuffix(key, "/"+MarkerFilename) {
+			markers++
 		}
+	}
+	if markers != 2 {
+		t.Fatalf("recovered update has %d markers, want 2", markers)
 	}
 }
 
@@ -383,6 +390,147 @@ func TestUpdateDocumentRepairsAmbiguousSerializationResponse(t *testing.T) {
 				t.Fatalf("committed candidate inspection = %+v, %v", inspection, err)
 			}
 		})
+	}
+}
+
+func TestAmbiguousAppendReconcilesFromCandidateAfterPredecessorDelete(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serializationKey := second.ID + "/" + VersionsFilename
+	reached := make(chan struct{})
+	release := make(chan struct{})
+	store.mu.Lock()
+	store.commitPutThenFailKey = serializationKey
+	store.pauseGetKey = serializationKey
+	store.pauseGetReached = reached
+	store.pauseGetRelease = release
+	store.pauseGetAfterCommit = true
+	store.mu.Unlock()
+
+	updateDone := make(chan struct {
+		result *UpdateDocumentResult
+		err    error
+	}, 1)
+	go func() {
+		result, updateErr := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+			Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+		})
+		updateDone <- struct {
+			result *UpdateDocumentResult
+			err    error
+		}{result: result, err: updateErr}
+	}()
+	select {
+	case <-reached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ambiguous append did not reach reconciliation")
+	}
+
+	store.mu.Lock()
+	candidateMarkerKey := ""
+	for key := range store.objects {
+		if strings.HasSuffix(key, "/"+MarkerFilename) &&
+			key != first.MarkerKey && key != second.MarkerKey {
+			candidateMarkerKey = key
+			break
+		}
+	}
+	store.mu.Unlock()
+	if candidateMarkerKey == "" {
+		t.Fatal("committed candidate marker is missing")
+	}
+	candidatePageKey := strings.TrimSuffix(candidateMarkerKey, MarkerFilename) + "plan.html"
+	candidateURL, _, err := PublicURL(client.cfg, candidatePageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repaired, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: candidateURL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil || !repaired.Unchanged || repaired.Revision != 3 {
+		t.Fatalf("candidate repair = %+v, %v", repaired, err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), second.URL); err != nil {
+		t.Fatalf("delete serialization predecessor: %v", err)
+	}
+	close(release)
+
+	select {
+	case completed := <-updateDone:
+		if completed.err != nil || completed.result.Revision != 3 {
+			t.Fatalf("original ambiguous append = %+v, %v", completed.result, completed.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("original ambiguous append did not finish")
+	}
+	inspection, err := client.InspectUpload(context.Background(), candidateURL)
+	if err != nil || inspection.LatestRevision != 3 || inspection.Versions == nil {
+		t.Fatalf("surviving candidate inspection = %+v, %v", inspection, err)
+	}
+	for _, revision := range inspection.Versions.Revisions {
+		if revision.Number == 2 && !revision.Deleted {
+			t.Fatalf("deleted predecessor remains live: %+v", revision)
+		}
+	}
+}
+
+func TestAmbiguousExistingChainFailureClaimsCleanupBeforeRollback(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataKey := second.ID + "/" + VersionsFilename
+	before, ok := store.get(metadataKey)
+	if !ok {
+		t.Fatal("latest metadata is missing")
+	}
+	store.mu.Lock()
+	store.failPutKey = metadataKey
+	store.mu.Unlock()
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err == nil {
+		t.Fatal("ambiguous append unexpectedly succeeded")
+	}
+	after, ok := store.get(metadataKey)
+	if !ok || bytes.Equal(before, after) {
+		t.Fatal("rollback did not first take a byte-distinct cleanup claim")
+	}
+	beforeMetadata, beforeErr := DecodeVersionsMetadata(before, client.cfg, second.Key)
+	afterMetadata, afterErr := DecodeVersionsMetadata(after, client.cfg, second.Key)
+	if beforeErr != nil || afterErr != nil || !sameVersionsMetadata(beforeMetadata, afterMetadata) {
+		t.Fatalf("cleanup claim changed semantics: before=%v after=%v", beforeErr, afterErr)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	for key := range store.objects {
+		if strings.HasSuffix(key, "/"+MarkerFilename) &&
+			key != first.MarkerKey && key != second.MarkerKey {
+			t.Fatalf("rollback left candidate marker %q", key)
+		}
 	}
 }
 
@@ -641,6 +789,161 @@ func TestRevisionDeleteManifestTombstoneCarriesChainProjection(t *testing.T) {
 	if tombstone == nil || tombstone.RevisionChainID != third.RevisionChainID ||
 		tombstone.Revision != 3 || tombstone.LatestRevision != 2 {
 		t.Fatalf("revision delete tombstone = %+v", tombstone)
+	}
+}
+
+func TestDeleteLatestRevisionRetryRepairsReservationBeforePropagation(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.failGetKeyOnce = first.ID + "/" + VersionsFilename
+	store.mu.Unlock()
+	if _, err := client.DeleteUpload(context.Background(), second.URL); err == nil {
+		t.Fatal("interrupted latest delete unexpectedly succeeded")
+	}
+	deleted, err := client.DeleteUpload(context.Background(), second.URL)
+	if err != nil {
+		t.Fatalf("retry latest delete: %v", err)
+	}
+	if deleted.revision != 2 || deleted.latestRevision != 1 {
+		t.Fatalf("retry delete result = %+v", deleted)
+	}
+	inspection, err := client.InspectUpload(context.Background(), first.URL)
+	if err != nil || inspection.Versions == nil || inspection.LatestRevision != 1 {
+		t.Fatalf("survivor inspection = %+v, %v", inspection, err)
+	}
+	if revision := inspection.Versions.Revisions[1]; !revision.Deleted {
+		t.Fatalf("retry did not tombstone revision 2: %+v", revision)
+	}
+}
+
+func TestDeleteAnnouncedRevisionRepairsMissingReplicaAndFirstPromotion(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.failPutKey = first.MarkerKey
+	store.mu.Unlock()
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "predecessor promotion failed") {
+		t.Fatalf("interrupted first update error = %v", err)
+	}
+	store.mu.Lock()
+	candidateMarkerKey := ""
+	for key := range store.objects {
+		if strings.HasSuffix(key, "/"+MarkerFilename) && key != first.MarkerKey {
+			candidateMarkerKey = key
+			break
+		}
+	}
+	store.mu.Unlock()
+	if candidateMarkerKey == "" {
+		t.Fatal("announced revision marker is missing")
+	}
+	candidateURL, _, err := PublicURL(client.cfg,
+		strings.TrimSuffix(candidateMarkerKey, MarkerFilename)+"plan.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), candidateURL); err != nil {
+		t.Fatalf("delete announced revision with missing replica: %v", err)
+	}
+	inspection, err := client.InspectUpload(context.Background(), first.URL)
+	if err != nil || inspection.Revision != 1 || inspection.LatestRevision != 1 ||
+		inspection.Versions == nil {
+		t.Fatalf("repaired first revision = %+v, %v", inspection, err)
+	}
+}
+
+func TestMarkerOnlyRollbackOrphanDoesNotSuppressReusedRevision(t *testing.T) {
+	store := newUpgradeStore(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := store.client(t, manifest)
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondMarkerBody, ok := store.get(second.MarkerKey)
+	if !ok {
+		t.Fatal("second marker is missing")
+	}
+	secondMarker, err := DecodeUploadMarker(secondMarkerBody, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphanDir := strings.Repeat("o", 26)
+	orphan := *secondMarker
+	orphan.Directory = orphanDir
+	orphan.CreatedAt = time.Now().UTC().Truncate(time.Second)
+	orphan.Revision = &RevisionDescriptor{
+		ChainID: second.RevisionChainID, Number: 3, PreviousURL: second.URL,
+	}
+	orphanBody, err := EncodeUploadMarker(orphan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphanMarkerKey := orphanDir + "/" + MarkerFilename
+	store.set(orphanMarkerKey, orphanBody)
+	deleted, err := client.DeleteUpload(context.Background(), orphanMarkerKey)
+	if err != nil {
+		t.Fatalf("delete marker-only rollback orphan: %v", err)
+	}
+	if !strings.Contains(strings.Join(deleted.Warnings, "\n"), "unannounced revision candidate") {
+		t.Fatalf("orphan delete warnings = %v", deleted.Warnings)
+	}
+	records, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	last := records[len(records)-1]
+	if last.Type != "delete" || last.RevisionChainID != "" || last.Revision != 0 {
+		t.Fatalf("marker-only orphan tombstone = %+v", last)
+	}
+	third, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil || third.Revision != 3 {
+		t.Fatalf("reused revision update = %+v, %v", third, err)
+	}
+	records, _, err = ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, record := range ManifestUploads(records) {
+		if record.MarkerKey == third.MarkerKey && record.Revision == 3 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("legitimate reused revision was suppressed by orphan cleanup")
 	}
 }
 

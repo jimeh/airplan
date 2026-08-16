@@ -193,41 +193,33 @@ func (c *Client) DeleteUploadWithOptions(
 	unannouncedCandidate := false
 	if marker.Revision != nil {
 		survivingVersions, err = c.tombstoneLinkedRevision(ctx, dirPrefix, marker)
-		if err != nil {
-			declaredPayloadPresent := false
-			for _, observed := range objects {
-				for _, declared := range marker.Objects {
-					if observed.Key == dirPrefix+declared.Name {
-						declaredPayloadPresent = true
-						break
-					}
-				}
+		if err != nil && errors.Is(err, errObjectNotFound) {
+			state, stateErr := c.classifyRevisionCandidate(ctx, dirPrefix, marker)
+			if stateErr != nil {
+				return nil, stateErr
 			}
-			switch {
-			case errors.Is(err, errObjectNotFound) && !declaredPayloadPresent:
-				// Tombstones precede payload deletion. No local metadata and no
-				// declared payload is the recoverable marker-last interruption.
+			switch state {
+			case revisionCandidateUnannounced:
+				unannouncedCandidate = true
+				survivingVersions = nil
+				err = nil
+			case revisionCandidateAnnouncedDeleted:
 				interruptedLinkedDelete = true
-			case errors.Is(err, errObjectNotFound):
-				unannouncedCandidate, err = c.revisionCandidateIsUnannounced(
+				survivingVersions = nil
+				err = nil
+			case revisionCandidateAnnouncedLive:
+				survivingVersions, err = c.repairAndTombstoneAnnouncedRevision(
 					ctx, dirPrefix, marker,
 				)
-				if err != nil {
-					return nil, err
-				}
-				if unannouncedCandidate {
-					survivingVersions = nil
-					// The candidate marker was deliberately created first, but its
-					// predecessor never announced it. It is a managed rollback orphan.
-				} else {
-					return nil, fmt.Errorf(
-						"airplan: revision candidate is unannounced and may still be committing: %w",
-						errObjectNotFound,
-					)
-				}
 			default:
-				return nil, err
+				return nil, fmt.Errorf(
+					"airplan: revision candidate announcement cannot be determined: %w",
+					errObjectNotFound,
+				)
 			}
+		}
+		if err != nil {
+			return nil, err
 		}
 	}
 	payloadKeys := make([]string, 0, len(objects))
@@ -283,20 +275,29 @@ func (c *Client) DeleteUploadWithOptions(
 	return res, nil
 }
 
-func (c *Client) revisionCandidateIsUnannounced(
+type revisionCandidateState int
+
+const (
+	revisionCandidateUnknown revisionCandidateState = iota
+	revisionCandidateUnannounced
+	revisionCandidateAnnouncedLive
+	revisionCandidateAnnouncedDeleted
+)
+
+func (c *Client) classifyRevisionCandidate(
 	ctx context.Context, targetDirPrefix string, marker *UploadMarker,
-) (bool, error) {
+) (revisionCandidateState, error) {
 	if marker == nil || marker.Revision == nil || marker.Revision.Number <= 1 ||
 		marker.Revision.PreviousURL == "" {
-		return false, nil
+		return revisionCandidateUnknown, nil
 	}
 	previousKey, err := KeyFromURLOrKey(c.cfg, marker.Revision.PreviousURL)
 	if err != nil {
-		return false, err
+		return revisionCandidateUnknown, err
 	}
 	previousPrefix, err := uploadDirPrefixForKeyPrefix(previousKey, c.cfg.KeyPrefix)
 	if err != nil {
-		return false, err
+		return revisionCandidateUnknown, err
 	}
 	reservation, reservationErr := c.st.getBytes(
 		ctx, previousPrefix+VersionsFilename, MaxVersionsMetadataSize,
@@ -304,56 +305,73 @@ func (c *Client) revisionCandidateIsUnannounced(
 	if reservationErr == nil {
 		finalReservation, ok, decodeErr := decodeFinalRevisionDeleteReservation(reservation)
 		if decodeErr != nil {
-			return false, decodeErr
+			return revisionCandidateUnknown, decodeErr
 		}
 		if ok {
-			return finalReservation.ChainID == marker.Revision.ChainID &&
-				marker.Revision.Number > finalReservation.LastAssignedRevision, nil
+			if finalReservation.ChainID == marker.Revision.ChainID &&
+				marker.Revision.Number > finalReservation.LastAssignedRevision {
+				return revisionCandidateUnannounced, nil
+			}
+			return revisionCandidateUnknown, nil
 		}
 	}
-	if marker.Revision.Number == 2 && reservationErr == nil &&
-		bytes.Equal(reservation, standaloneDeleteReservationBody) {
-		return true, nil
+	if reservationErr == nil && bytes.Equal(reservation, standaloneDeleteReservationBody) {
+		if marker.Revision.Number == 2 {
+			return revisionCandidateUnannounced, nil
+		}
+		return revisionCandidateUnknown, errors.New(
+			"airplan: standalone deletion reservation cannot classify a later revision candidate",
+		)
 	}
 	if reservationErr != nil && !errors.Is(reservationErr, errObjectNotFound) {
-		return false, fmt.Errorf("airplan: inspect revision candidate predecessor reservation: %w",
+		return revisionCandidateUnknown, fmt.Errorf("airplan: inspect revision candidate predecessor reservation: %w",
 			reservationErr)
 	}
 	previous, err := c.loadRevisionDocument(ctx, marker.Revision.PreviousURL)
 	if err != nil {
-		return false, fmt.Errorf("airplan: inspect revision candidate predecessor: %w", err)
+		if errors.Is(err, errOwnershipMarkerMissing) {
+			return revisionCandidateUnannounced, nil
+		}
+		return revisionCandidateUnknown, fmt.Errorf("airplan: inspect revision candidate predecessor: %w", err)
 	}
 	if previous.versions == nil {
 		// A live standalone predecessor still has an updater that may win its
 		// If-None-Match transition. Without a shared conditional object there is
 		// no safe way for generic cleanup to distinguish that writer from an
 		// abandoned revision-2 candidate, so fail closed.
-		return false, nil
+		return revisionCandidateUnknown, nil
 	}
 	if previous.versions.ChainID != marker.Revision.ChainID {
-		return false, nil
+		return revisionCandidateUnknown, nil
 	}
 	pageURL, _, err := PublicURL(c.cfg, targetDirPrefix+marker.Page)
 	if err != nil {
-		return false, err
+		return revisionCandidateUnknown, err
 	}
 	for _, entry := range previous.versions.Revisions {
-		if !entry.Deleted && entry.URL == pageURL {
-			return false, nil
+		if entry.Number != marker.Revision.Number {
+			continue
 		}
+		if entry.Deleted {
+			return revisionCandidateAnnouncedDeleted, nil
+		}
+		if entry.URL == pageURL {
+			return revisionCandidateAnnouncedLive, nil
+		}
+		return revisionCandidateUnannounced, nil
 	}
 	if marker.Revision.Number <= previous.versions.LastAssignedRevision {
 		// The high-water mark already consumed this integer for another URL (or
 		// tombstoned it), which is durable proof that this candidate lost.
-		return true, nil
+		return revisionCandidateUnannounced, nil
 	}
 	if marker.Revision.Number != previous.versions.LastAssignedRevision+1 ||
 		previous.versions.CurrentRevision != previous.versions.LatestRevision {
-		return false, nil
+		return revisionCandidateUnknown, nil
 	}
 	claimBody, err := revisionCandidateCleanupClaimBody(previous.versionsBody)
 	if err != nil {
-		return false, err
+		return revisionCandidateUnknown, err
 	}
 	// Rewriting semantically identical metadata with an alternate top-level
 	// field order changes content-derived S3 ETags. It serializes cleanup against
@@ -363,9 +381,39 @@ func (c *Client) revisionCandidateIsUnannounced(
 		Key: previous.dirPrefix + VersionsFilename, Body: claimBody,
 		ContentType: markerContentType,
 	}, previous.versionsETag); err != nil {
-		return false, fmt.Errorf("airplan: claim revision candidate cleanup: %w", err)
+		return revisionCandidateUnknown, fmt.Errorf("airplan: claim revision candidate cleanup: %w", err)
 	}
-	return true, nil
+	return revisionCandidateUnannounced, nil
+}
+
+func (c *Client) revisionCandidateIsUnannounced(
+	ctx context.Context, targetDirPrefix string, marker *UploadMarker,
+) (bool, error) {
+	state, err := c.classifyRevisionCandidate(ctx, targetDirPrefix, marker)
+	return state == revisionCandidateUnannounced, err
+}
+
+func (c *Client) repairAndTombstoneAnnouncedRevision(
+	ctx context.Context, targetDirPrefix string, marker *UploadMarker,
+) (*VersionsMetadata, error) {
+	pageURL, _, err := PublicURL(c.cfg, targetDirPrefix+marker.Page)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := c.loadRevisionDocument(ctx, pageURL)
+	if err != nil {
+		return nil, fmt.Errorf("airplan: load announced revision for metadata repair: %w", err)
+	}
+	if doc.needsMetadata {
+		doc, err = c.repairMissingRevisionMetadata(ctx, doc, nil)
+		if err != nil {
+			return nil, fmt.Errorf("airplan: repair announced revision metadata before delete: %w", err)
+		}
+	}
+	if err := c.repairFirstRevisionPromotionFromMember(ctx, doc); err != nil {
+		return nil, fmt.Errorf("airplan: repair first revision promotion before delete: %w", err)
+	}
+	return c.tombstoneLinkedRevision(ctx, targetDirPrefix, marker)
 }
 
 func revisionCandidateCleanupClaimBody(body []byte) ([]byte, error) {
@@ -501,7 +549,7 @@ func (c *Client) loadCanonicalAfterDeleteReservation(
 		foundTarget := false
 		for _, entry := range doc.versions.Revisions {
 			if entry.Number == target.Number {
-				foundTarget = entry.Deleted
+				foundTarget = true
 				break
 			}
 		}
@@ -565,7 +613,6 @@ func (c *Client) tombstoneLinkedRevision(
 		serializationKey = canonical.dirPrefix + VersionsFilename
 		serializationBody = canonical.versionsBody
 		serializationETag = canonical.versionsETag
-		targetReserved = false
 	}
 
 	seen := map[string]bool{serializationKey: true}
@@ -602,11 +649,7 @@ func (c *Client) tombstoneLinkedRevision(
 		if revision.Number == marker.Revision.Number {
 			foundTarget = true
 			alreadyTombstoned = revision.Deleted
-			if targetReserved {
-				if !revision.Deleted {
-					return nil, errors.New("airplan: invalid linked-delete reservation")
-				}
-			} else if !revision.Deleted {
+			if !revision.Deleted {
 				revision.URL = ""
 				revision.DiffURL = ""
 				revision.CreatedAt = time.Time{}

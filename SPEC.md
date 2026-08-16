@@ -897,12 +897,16 @@ already at or below the chain high-water mark is durably known to have lost and
 needs no additional claim.
 A serialization request failure is ambiguous until a fresh bounded read of the
 serialization object proves whether the intended revision URL was published.
-An observed intended or monotonic successor body continues post-commit repair;
-a successfully read older or conflicting body permits rollback. A failed
-reconciliation read leaves the discoverable candidate intact rather than
-risking deletion of an announced revision. Semantically identical metadata
-with the cleanup claim's alternate field order remains valid for no-op repair
-and verification.
+An observed intended or monotonic successor body in either the serialization
+object or the candidate's own replica continues post-commit repair. For an
+existing chain, an observed older body permits rollback only after the updater
+wins the same conditional cleanup claim used by third-party cleanup. A failed
+read or cleanup claim leaves the discoverable candidate intact rather than
+risking deletion of an announced revision. For a first link whose versions
+object remains absent, the updater retries the idempotent conditional creation;
+winning that retry completes the append rather than reporting a failure.
+Semantically identical metadata with the cleanup claim's alternate field order
+remains valid for no-op repair and verification.
 A revision-2 candidate beside a still-live standalone predecessor fails closed
 because no versions object exists on which cleanup can safely contend. A
 standalone deletion reservation or missing predecessor is durable proof that
@@ -984,8 +988,13 @@ still wins. Targeted delete conditionally tombstones the revision in every
 surviving member before deleting payloads. The greatest remaining live revision
 becomes latest while the assignment high-water mark never decreases.
 An interrupted delete whose target still carries its invalid-current reservation
-re-derives canonical state from a surviving member, so later appends cannot
-wedge the retry. Deleting the final live member conditionally replaces its
+re-derives canonical state from a surviving member whether that replica still
+lists the target live or already tombstoned, then completes propagation. An
+announced member whose own replica is missing repairs it from its predecessor;
+revision 2 also completes any interrupted revision-1 marker/page promotion
+before deletion. Marker-only candidates that were never announced are removed
+without writing a revision tombstone, so their unused integer can still be
+assigned by a later append. Deleting the final live member conditionally replaces its
 versions object with a strict invalid transition reservation before removing
 the directory; this both excludes new updaters and makes already-preflighted
 appends lose their stale ETag. With no survivor, the manifest delete tombstone
@@ -2048,6 +2057,13 @@ machine) and must be safe:
   invalid, or without declared sizes, is counted as deferred and named in a
   warning, and a later sync retries it. Otherwise one unreadable marker would
   fail every later run, because the record keeps qualifying.
+  A complete source-backed v4 Markdown record without a revision projection is
+  also inspected because another writer may have promoted its marker from
+  standalone to revision 1. A discovered complete versions index appends a
+  `link` projection with chain, revision, and latest values. A still-standalone
+  record remains unchanged and eligible for the same lightweight check on a
+  later sync; once promoted, the link converges it permanently. The manifest
+  lock recheck prevents a concurrent delete or link from being overwritten.
   By default, active scoped local records absent from LIST are considered for
   pruning, but airplan performs a targeted marker GET before appending a
   `remote_missing` tombstone. Only a definite not-found response confirms
@@ -2067,9 +2083,9 @@ machine) and must be safe:
   counters.
   Enriched records complete uploads already in history, so they are never
   counted as additions. `unchanged` counts scoped records already complete
-  locally; a record selected for enrichment is reported by its outcome,
-  enriched or deferred, and never also as unchanged. A partial failure exits
-  nonzero after
+  locally, including an inspected v4 Markdown record that remains standalone;
+  a totals-enrichment candidate is reported as enriched or deferred and never
+  also as unchanged. A partial failure exits nonzero after
   writing the result. Sync provides eventual active-inventory convergence;
   it neither uploads deletion history nor makes historical JSONL files
   identical across machines.

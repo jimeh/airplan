@@ -399,6 +399,7 @@ func (c *Client) updateDocument(
 	}
 
 	latestMetadataKey := latest.dirPrefix + VersionsFilename
+	newMetadataKey := BuildKey(c.cfg.KeyPrefix, dir, VersionsFilename)
 	latestBody := memberBodies[previousRevision]
 	if latest.versions == nil {
 		err = c.st.putIfAbsent(ctx, object{
@@ -415,8 +416,9 @@ func (c *Client) updateDocument(
 		originalErr := err
 		reconcileCtx, cancel := cleanupContext()
 		observed, committed, reconcileErr := c.reconcileRevisionAppendCommit(
-			reconcileCtx, latestMetadataKey, latest.pageKey, metadata,
-			newRevision, pageURL,
+			reconcileCtx, latestMetadataKey, latest.pageKey, latestBody,
+			newMetadataKey, pageKey, metadata, newRevision, pageURL,
+			latest.versions == nil, originalErr,
 		)
 		cancel()
 		if reconcileErr != nil {
@@ -445,11 +447,13 @@ func (c *Client) updateDocument(
 
 	// Once the latest metadata transition succeeds, this append has won. Any
 	// subsequent error is repairable and deliberately does not roll it back.
+	postCommitCtx, postCommitCancel := cleanupContext()
+	defer postCommitCancel()
 	if latest.versions == nil {
-		if err := c.promoteStandaloneRevision(ctx, latest, chainID, metadata); err != nil {
+		if err := c.promoteStandaloneRevision(postCommitCtx, latest, chainID, metadata); err != nil {
 			return nil, err
 		}
-		promoted, loadErr := c.loadRevisionDocument(ctx, latest.pageURL)
+		promoted, loadErr := c.loadRevisionDocument(postCommitCtx, latest.pageURL)
 		if loadErr != nil || promoted.needsPromotion || promoted.needsPageRepair ||
 			promoted.marker.Revision == nil || promoted.marker.Revision.ChainID != chainID ||
 			promoted.marker.Revision.Number != 1 {
@@ -460,22 +464,21 @@ func (c *Client) updateDocument(
 		}
 		latest = promoted
 	}
-	newMetadataKey := BuildKey(c.cfg.KeyPrefix, dir, VersionsFilename)
-	if err := c.st.putIfAbsent(ctx, object{
+	if err := c.st.putIfAbsent(postCommitCtx, object{
 		Key:  newMetadataKey,
 		Body: memberBodies[newRevision], ContentType: markerContentType,
 	}); err != nil {
-		actual, readErr := c.st.getBytes(ctx, newMetadataKey, MaxVersionsMetadataSize)
+		actual, readErr := c.st.getBytes(postCommitCtx, newMetadataKey, MaxVersionsMetadataSize)
 		if !errors.Is(err, ErrConflict) || readErr != nil ||
 			!c.revisionMetadataAtLeast(actual, memberBodies[newRevision], pageKey) {
 			return nil, fmt.Errorf("airplan: revision committed but metadata propagation failed: %w", err)
 		}
 	}
-	if err := c.propagateVersionsMetadata(ctx, metadata, memberBodies,
+	if err := c.propagateVersionsMetadata(postCommitCtx, metadata, memberBodies,
 		latestMetadataKey, newMetadataKey); err != nil {
 		return nil, fmt.Errorf("airplan: revision committed but metadata propagation failed: %w", err)
 	}
-	if err := c.verifyRevisionChain(ctx, metadata, memberBodies); err != nil {
+	if err := c.verifyRevisionChain(postCommitCtx, metadata, memberBodies); err != nil {
 		return nil, err
 	}
 
@@ -495,33 +498,112 @@ func (c *Client) updateDocument(
 	if fallback {
 		result.Warnings = append(result.Warnings, PublicURLFallbackWarning)
 	}
-	c.recordRevisionAppend(ctx, result, markerBody, chainID, metadata)
+	c.recordRevisionAppend(postCommitCtx, result, markerBody, chainID, metadata)
 	return result, nil
 }
 
 func (c *Client) reconcileRevisionAppendCommit(
 	ctx context.Context, metadataKey, containingPageKey string,
+	expectedSerializationBody []byte, candidateMetadataKey, candidatePageKey string,
 	expected VersionsMetadata, newRevision int, newURL string,
+	standalone bool, originalErr error,
 ) (*VersionsMetadata, bool, error) {
-	body, err := c.st.getBytes(ctx, metadataKey, MaxVersionsMetadataSize)
+	committedMetadata := func(body []byte, pageKey string) *VersionsMetadata {
+		observed, err := DecodeVersionsMetadata(body, c.cfg, pageKey)
+		if err != nil {
+			return nil
+		}
+		entry := liveVersionsRevision(observed, newRevision)
+		if observed.ChainID != expected.ChainID || entry == nil || entry.URL != newURL ||
+			!versionsMetadataMonotonicallyPrecedes(&expected, observed) {
+			return nil
+		}
+		return observed
+	}
+	inspectCandidate := func() (*VersionsMetadata, bool, error) {
+		body, err := c.st.getBytes(ctx, candidateMetadataKey, MaxVersionsMetadataSize)
+		if errors.Is(err, errObjectNotFound) {
+			return nil, false, nil
+		}
+		if err != nil {
+			return nil, false, fmt.Errorf(
+				"airplan: inspect ambiguous revision candidate: %w", err,
+			)
+		}
+		observed := committedMetadata(body, candidatePageKey)
+		return observed, observed != nil, nil
+	}
+
+	body, etag, _, err := c.st.getBytesWithETag(
+		ctx, metadataKey, MaxVersionsMetadataSize,
+	)
 	if errors.Is(err, errObjectNotFound) {
-		return nil, false, nil
+		if observed, committed, candidateErr := inspectCandidate(); candidateErr != nil {
+			return nil, false, candidateErr
+		} else if committed {
+			return observed, true, nil
+		}
+		if errors.Is(originalErr, ErrConflict) {
+			return nil, false, nil
+		}
+		if standalone {
+			putErr := c.st.putIfAbsent(ctx, object{
+				Key: metadataKey, Body: expectedSerializationBody,
+				ContentType: markerContentType,
+			})
+			if putErr == nil {
+				return &expected, true, nil
+			}
+			if errors.Is(putErr, ErrConflict) {
+				actual, readErr := c.st.getBytes(
+					ctx, metadataKey, MaxVersionsMetadataSize,
+				)
+				if readErr == nil {
+					if observed := committedMetadata(actual, containingPageKey); observed != nil {
+						return observed, true, nil
+					}
+					return nil, false, nil
+				}
+			}
+			return nil, false, fmt.Errorf(
+				"airplan: retry ambiguous first revision append: %w", putErr,
+			)
+		}
+		return nil, false, errors.New(
+			"airplan: revision serialization object disappeared during append reconciliation",
+		)
 	}
 	if err != nil {
 		return nil, false, fmt.Errorf("airplan: inspect ambiguous revision append: %w", err)
 	}
-	observed, err := DecodeVersionsMetadata(body, c.cfg, containingPageKey)
-	if err != nil {
-		// A successful strongly-consistent read of another valid control state is
-		// durable proof that this append did not publish its metadata transition.
+	if observed := committedMetadata(body, containingPageKey); observed != nil {
+		return observed, true, nil
+	}
+	if observed, committed, candidateErr := inspectCandidate(); candidateErr != nil {
+		return nil, false, candidateErr
+	} else if committed {
+		return observed, true, nil
+	}
+	if errors.Is(originalErr, ErrConflict) {
 		return nil, false, nil
 	}
-	entry := liveVersionsRevision(observed, newRevision)
-	if observed.ChainID != expected.ChainID || entry == nil || entry.URL != newURL ||
-		!versionsMetadataMonotonicallyPrecedes(&expected, observed) {
+	if _, decodeErr := DecodeVersionsMetadata(body, c.cfg, containingPageKey); decodeErr != nil {
+		return nil, false, errors.New(
+			"airplan: revision serialization state is invalid during append reconciliation",
+		)
+	}
+	claimBody, claimErr := revisionCandidateCleanupClaimBody(body)
+	if claimErr != nil {
+		return nil, false, claimErr
+	}
+	if claimErr = c.st.putConditional(ctx, object{
+		Key: metadataKey, Body: claimBody, ContentType: markerContentType,
+	}, etag); claimErr == nil {
 		return nil, false, nil
 	}
-	return observed, true, nil
+	return nil, false, fmt.Errorf(
+		"airplan: claim ambiguous revision candidate cleanup: %w", claimErr,
+	)
 }
 
 func validateUpdateDocumentInput(input UpdateDocumentInput) error {

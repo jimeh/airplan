@@ -258,9 +258,12 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   Markers carry immutable chain descriptors and diff inventory, while the
   separately versioned 64 KiB metadata index is conditionally replicated to
   each live member. The old latest metadata write is the append serialization
-  point; ambiguous write responses are reconciled by a fresh control-object
-  read before scoped rollback is allowed. Delete reservations rebase from live
-  survivors after interrupted operations, while final-member deletion uses an
+  point; ambiguous write responses are reconciled from both the serialization
+  object and candidate replica. Existing-chain rollback first takes the same
+  ETag cleanup claim as orphan collection, while first-link reconciliation
+  idempotently completes the conditional creation. Delete reservations rebase
+  from live survivors after interrupted operations, repairing missing member
+  replicas and first-promotion state, while final-member deletion uses an
   invalid transition reservation to exclude new and stale appenders. Adjacent
   exact source bytes are diffed with pure-Go go-difflib and Chroma renders the
   immutable diff into the built-in page's Changes view.
@@ -282,7 +285,9 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   worker pool for marker GETs and targeted absence confirmation. Imports and
   tombstones are sorted, then the manifest is locked, reread, and rechecked
   before whole-line appends. Definite object-not-found is the only pruning
-  signal; failures retain local state and return partial progress.
+  signal; failures retain local state and return partial progress. Active v4
+  Markdown records without revision identity are re-inspected so a promotion by
+  another writer appends a revision-aware `link` projection.
 - Remote deletion: the marker must decode and authorize the supplied direct
   target. Payload objects are removed with batched `DeleteObjects`, then the
   marker is removed in a separate final `DeleteObject`. Invalid and markerless
