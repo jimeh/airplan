@@ -105,6 +105,18 @@ func TestPurgeDryRunIdentifiesSkippedRevisionHistoryMembers(t *testing.T) {
 	}
 }
 
+func TestPrintVersionedSkipOmitsUnknownLatestRevision(t *testing.T) {
+	record := uploadRecord(deleteDirA, "alpha", "", time.Now())
+	record.RevisionChainID = strings.Repeat("c", 26)
+	record.Revision = 2
+	var output strings.Builder
+	printVersionedSkip(&output, record)
+	if got := output.String(); !strings.Contains(got, "revision 2)") ||
+		strings.Contains(got, "of 0") {
+		t.Fatalf("output = %q", got)
+	}
+}
+
 func TestPurgeSummaryCountsSkippedRevisionHistoryMembers(t *testing.T) {
 	isolateEnv(t)
 	record := uploadRecord(deleteDirA, "alpha", "", time.Now().Add(-time.Hour))

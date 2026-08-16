@@ -368,6 +368,13 @@ against):
 | `.FrontMatterTitle`           | string    | usable frontmatter title or empty    |
 | `.HighlightedFrontMatterHTML` | raw HTML  | highlighted frontmatter block        |
 | `.RepositoryURL`              | string    | resolved canonical repository URL    |
+| `.Revision`                   | integer   | this page's revision, or zero        |
+| `.RevisionCount`              | integer   | chain size known when rendered       |
+| `.PreviousRevision`           | integer   | adjacent predecessor, or zero        |
+| `.VersionsPath`               | string    | relative versions metadata path      |
+| `.DiffPath`                   | string    | relative adjacent diff path          |
+| `.DiffText`                   | string    | inline adjacent diff, or empty       |
+| `.HighlightedDiffHTML`        | raw HTML  | highlighted inline adjacent diff     |
 
 Each heading has `.Level` (1–6), `.ID`, `.Text`, and `.IsTitle`.
 `.IsTitle` is true only for a leading H1 that the built-in table of
@@ -1005,8 +1012,9 @@ second `deleted_at` fields. It is not valid versions metadata. Linked deletion
 preserves either this final reservation or the deleted member's invalid-current
 versions body through marker removal as a permanent receipt, just as standalone
 deletion preserves its reservation. A marker-last retry can therefore prove the
-revision identity after every payload is gone. Marker-based listing and sync
-ignore the resulting tombstone-only prefix.
+revision identity after every payload is gone, even when local history missed
+the first-link projection and still describes revision 1 as standalone.
+Marker-based listing and sync ignore the resulting tombstone-only prefix.
 
 `--json` output (single line, stable schema):
 
@@ -2065,12 +2073,18 @@ machine) and must be safe:
   standalone to revision 1. A discovered complete versions index appends a
   `link` projection with chain, revision, and latest values. A still-standalone
   record remains unchanged and eligible for the same lightweight check on a
-  later sync; once promoted, the link converges it permanently. The manifest
-  lock recheck prevents a concurrent delete or link from being overwritten.
+  later sync; once promoted, the link converges it permanently. New imports
+  likewise record revision identity only when a complete versions index proves
+  the marker's revision was announced; a marker-only rollback candidate remains
+  unversioned locally so its unused integer can be reassigned. The manifest lock
+  recheck prevents a concurrent delete or link from being overwritten.
   By default, active scoped local records absent from LIST are considered for
   pruning, but airplan performs a targeted marker GET before appending a
   `remote_missing` tombstone. Only a definite not-found response confirms
-  absence. A returned marker is retained regardless of its contents; timeout,
+  absence. Revision identity is retained only from a complete announced local
+  projection; an incomplete candidate projection cannot permanently suppress a
+  later legitimate reuse of the same integer. A returned marker is retained
+  regardless of its contents; timeout,
   authentication, transport, and ambiguous storage errors retain the record
   and fail the sync partially. `--no-prune` makes sync additive-only.
   `--concurrency N` defaults to 8 and accepts 1 through 64 across marker

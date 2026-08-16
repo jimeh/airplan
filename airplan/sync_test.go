@@ -235,6 +235,49 @@ func TestSyncManifestReconstructsRevisionProjections(t *testing.T) {
 	}
 }
 
+func TestSyncManifestDoesNotProjectUnannouncedRevisionCandidate(t *testing.T) {
+	when := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	fake := newSyncStorage(t)
+	dir := strings.Repeat("u", 26)
+	previousDir := strings.Repeat("v", 26)
+	chainID := strings.Repeat("w", 26)
+	page := []byte("candidate")
+	source := []byte("candidate\n")
+	diff := []byte("--- revision-1/plan.md\n+++ revision-2/plan.md\n")
+	fake.addUpload(t, UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: when, Kind: UploadKindDocument, Slug: "plan", Format: "md",
+		Producer: Producer{Name: "airplan", Version: "test"},
+		Render: &RenderRecipe{
+			Generation: RendererGeneration,
+			Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
+		},
+		Revision: &RevisionDescriptor{
+			ChainID: chainID, Number: 2,
+			PreviousURL: "https://plans.example.com/" + previousDir + "/plan.html",
+		},
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+			{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType},
+		},
+	}, page)
+	fake.addObject(dir+"/plan.md", source, when)
+	fake.addObject(dir+"/"+DiffFilename, diff, when)
+
+	client := newSyncClient(t, fake.server.URL,
+		filepath.Join(t.TempDir(), "manifest.jsonl"))
+	result, err := client.SyncManifest(context.Background(), SyncManifestOptions{})
+	if err != nil || len(result.Added) != 1 || len(result.Warnings) != 1 {
+		t.Fatalf("sync result = %+v, %v", result, err)
+	}
+	record := result.Added[0]
+	if record.RevisionChainID != "" || record.Revision != 0 ||
+		record.LatestRevision != 0 {
+		t.Fatalf("unannounced candidate projection = %+v", record)
+	}
+}
+
 func TestSyncManifestLinksExistingStandaloneAfterRemotePromotion(t *testing.T) {
 	store := newUpgradeStore(t)
 	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
@@ -397,6 +440,26 @@ func TestSyncPruneTombstonesMissingLatestRevisionByChainIdentity(t *testing.T) {
 		if upload.LatestRevision != 2 {
 			t.Fatalf("revision %d latest = %d, want 2", upload.Revision, upload.LatestRevision)
 		}
+	}
+}
+
+func TestSyncPruneOmitsUnannouncedRevisionIdentity(t *testing.T) {
+	dir := strings.Repeat("o", 26)
+	record := ManifestRecord{
+		Type: "upload", Time: time.Now().UTC().Truncate(time.Second),
+		Key: dir + "/plan.html", MarkerKey: dir + "/" + MarkerFilename,
+		URL:    "https://plans.example.com/" + dir + "/plan.html",
+		Bucket: "plans", Profile: "work", Bytes: 1,
+		MarkerVersion:   MarkerVersion,
+		RevisionChainID: strings.Repeat("c", 26), Revision: 2,
+	}
+	fake := newSyncStorage(t)
+	client := newSyncClient(t, fake.server.URL,
+		filepath.Join(t.TempDir(), "manifest.jsonl"))
+	job := client.syncPrune(context.Background(), record)
+	if job.tombstone == nil || job.tombstone.RevisionChainID != "" ||
+		job.tombstone.Revision != 0 {
+		t.Fatalf("unannounced candidate tombstone = %+v", job.tombstone)
 	}
 }
 

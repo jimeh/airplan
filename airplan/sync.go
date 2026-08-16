@@ -317,9 +317,11 @@ func (c *Client) syncImport(
 		MarkerVersion:   inspection.MarkerVersion,
 		ProducerVersion: inspection.ProducerVersion,
 		RendererVersion: inspection.RendererGeneration,
-		RevisionChainID: inspection.RevisionChainID,
-		Revision:        inspection.Revision,
-		LatestRevision:  inspection.LatestRevision,
+	}
+	if inspection.Versions != nil {
+		record.RevisionChainID = inspection.RevisionChainID
+		record.Revision = inspection.Revision
+		record.LatestRevision = inspection.LatestRevision
 	}
 	if inspection.Kind == UploadKindDocument {
 		record.Slug, _ = pageSlug(path.Base(inspection.Page.Key))
@@ -511,8 +513,10 @@ func (c *Client) syncPrune(
 		Type: "delete", Time: time.Now().UTC().Truncate(time.Second),
 		Key: record.Key, MarkerKey: markerKey, Bucket: c.cfg.Bucket,
 		Profile: c.cfg.Profile, Reason: "remote_missing", Kind: record.Kind,
-		RevisionChainID: record.RevisionChainID,
-		Revision:        record.Revision,
+	}
+	if manifestRecordHasAnnouncedRevision(record) {
+		tombstone.RevisionChainID = record.RevisionChainID
+		tombstone.Revision = record.Revision
 	}
 	return syncJobResult{tombstone: &tombstone}
 }

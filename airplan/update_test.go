@@ -1206,6 +1206,109 @@ func TestRevisionDeleteMissingMarkerRetryOmitsUnknownLatestProjection(t *testing
 	}
 }
 
+func TestRevisionDeleteMissingMarkerRetryRecoversIdentityFromReceipt(t *testing.T) {
+	store := newUpgradeStore(t)
+	manifestDir := t.TempDir()
+	client := store.client(t, filepath.Join(manifestDir, "complete.jsonl"))
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	initialRecords, _, err := ReadManifest(client.cfg.ManifestPath)
+	if err != nil || len(initialRecords) != 1 {
+		t.Fatalf("initial records = %+v, %v", initialRecords, err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	linkedRecords, _, err := ReadManifest(client.cfg.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var staleLink ManifestRecord
+	for _, record := range linkedRecords {
+		if record.Type == "link" && record.MarkerKey == first.MarkerKey {
+			staleLink = record
+		}
+	}
+	if staleLink.MarkerKey == "" {
+		t.Fatal("revision 1 link projection is missing")
+	}
+
+	// Model a different client whose local history missed the best-effort
+	// first-link projection and still describes revision 1 as standalone.
+	staleManifest := filepath.Join(manifestDir, "stale.jsonl")
+	if err := appendManifestRecord(
+		context.Background(), staleManifest, initialRecords[0],
+	); err != nil {
+		t.Fatal(err)
+	}
+	client.cfg.ManifestPath = staleManifest
+	lock := flock.New(staleManifest + ".lock")
+	if err := lock.Lock(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	deleted, err := client.DeleteUpload(ctx, first.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(deleted.Warnings, "\n"), "tombstone not recorded") {
+		t.Fatalf("delete warnings = %v", deleted.Warnings)
+	}
+	if err := lock.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+
+	retry, err := client.DeleteUpload(context.Background(), first.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if retry.revisionChainID != second.RevisionChainID || retry.revision != 1 ||
+		retry.latestRevision != 0 {
+		t.Fatalf("missing-marker retry = %+v", retry)
+	}
+	staleLink.Time = time.Now().UTC().Add(time.Second).Truncate(time.Second)
+	if err := appendManifestRecord(
+		context.Background(), staleManifest, staleLink,
+	); err != nil {
+		t.Fatal(err)
+	}
+	records, warnings, err := ReadManifest(staleManifest)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("records = %+v, warnings = %v, err = %v", records, warnings, err)
+	}
+	for _, upload := range ManifestUploads(records) {
+		if upload.MarkerKey == first.MarkerKey {
+			t.Fatalf("stale link resurrected receipt-recovered revision: %+v", upload)
+		}
+	}
+}
+
+func TestMissingMarkerRevisionIdentityOmitsUnannouncedManifestProjection(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	if err := client.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dirPrefix := strings.Repeat("o", 26) + "/"
+	chainID, revision, err := client.missingMarkerRevisionIdentity(
+		context.Background(), dirPrefix, ManifestRecord{
+			RevisionChainID: strings.Repeat("c", 26), Revision: 2,
+		},
+	)
+	if err != nil || chainID != "" || revision != 0 {
+		t.Fatalf("unannounced manifest identity = %q, %d, %v",
+			chainID, revision, err)
+	}
+}
+
 func TestUpdateDocumentRetryRecreatesMissingSiblingMetadata(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")

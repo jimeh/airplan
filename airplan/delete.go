@@ -862,11 +862,17 @@ func (c *Client) reconcileMissingMarker(
 			target, err,
 		)
 	}
+	revisionChainID, revision, err := c.missingMarkerRevisionIdentity(
+		ctx, dirPrefix, record,
+	)
+	if err != nil {
+		return nil, err
+	}
 	res := &DeleteResult{
 		PageKey: record.Key, MarkerKey: manifestMarkerKey(record),
 		Kind:            UploadKind(record.Kind),
-		revisionChainID: record.RevisionChainID,
-		revision:        record.Revision,
+		revisionChainID: revisionChainID,
+		revision:        revision,
 	}
 	res.Warnings = append(res.Warnings, fmt.Sprintf(
 		"ownership marker is already absent under %q; recording the completed deletion",
@@ -874,6 +880,72 @@ func (c *Client) reconcileMissingMarker(
 	))
 	c.recordDelete(ctx, res)
 	return res, nil
+}
+
+// missingMarkerRevisionIdentity recovers linked-delete identity from the
+// durable versions receipt when local history predates or missed the first
+// link projection. A malformed or conflicting receipt fails closed rather
+// than weakening the manifest tombstone that prevents stale link resurrection.
+func (c *Client) missingMarkerRevisionIdentity(
+	ctx context.Context, dirPrefix string, record ManifestRecord,
+) (string, int, error) {
+	chainID := ""
+	revision := 0
+	if manifestRecordHasAnnouncedRevision(record) {
+		chainID = record.RevisionChainID
+		revision = record.Revision
+	}
+	body, err := c.st.getBytes(
+		ctx, dirPrefix+VersionsFilename, MaxVersionsMetadataSize,
+	)
+	if errors.Is(err, errObjectNotFound) {
+		return chainID, revision, nil
+	}
+	if err != nil {
+		return "", 0, fmt.Errorf(
+			"airplan: inspect missing-marker delete receipt: %w", err,
+		)
+	}
+	if bytes.Equal(body, standaloneDeleteReservationBody) {
+		if chainID != "" {
+			return "", 0, errors.New(
+				"airplan: local manifest and standalone delete receipt conflict",
+			)
+		}
+		return chainID, revision, nil
+	}
+
+	receiptChainID := ""
+	receiptRevision := 0
+	reservation, reserved, err := decodeFinalRevisionDeleteReservation(body)
+	if err != nil {
+		return "", 0, err
+	}
+	if reserved {
+		receiptChainID = reservation.ChainID
+		receiptRevision = reservation.Revision
+	} else {
+		metadata, decodeErr := decodeVersionsMetadata(body, c.cfg, "", true)
+		if decodeErr != nil {
+			return "", 0, fmt.Errorf(
+				"airplan: invalid missing-marker delete receipt: %w", decodeErr,
+			)
+		}
+		current := &metadata.Revisions[metadata.CurrentRevision-1]
+		if !current.Deleted {
+			return "", 0, errors.New(
+				"airplan: missing-marker versions object is not a delete receipt",
+			)
+		}
+		receiptChainID = metadata.ChainID
+		receiptRevision = metadata.CurrentRevision
+	}
+	if chainID != "" && (chainID != receiptChainID || revision != receiptRevision) {
+		return "", 0, errors.New(
+			"airplan: local manifest and missing-marker delete receipt conflict",
+		)
+	}
+	return receiptChainID, receiptRevision, nil
 }
 
 // recordDelete appends a delete tombstone, best-effort: marker deletion has

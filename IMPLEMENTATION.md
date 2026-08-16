@@ -266,7 +266,8 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   replicas and first-promotion state, while final-member deletion uses an
   invalid transition reservation to exclude new and stale appenders. The
   deleted member's control body remains as a markerless durable receipt for
-  marker-last recovery. Adjacent
+  marker-last recovery, including when local history missed the first-link
+  projection and must recover chain identity from the receipt. Adjacent
   exact source bytes are diffed with pure-Go go-difflib and Chroma renders the
   immutable diff into the built-in page's Changes view.
 - Collection storage: `UploadFiles` accepts known-size `io.ReadSeeker` members,

@@ -275,6 +275,12 @@ func runPurge(cmd *cobra.Command, opts *purgeOptions) error {
 }
 
 func printVersionedSkip(w io.Writer, rec airplan.ManifestRecord) {
+	if rec.LatestRevision < rec.Revision {
+		fmt.Fprintf(w,
+			"airplan: note: skipping linked revision %s (chain %s, revision %d)\n",
+			purgeTarget(rec), rec.RevisionChainID, rec.Revision)
+		return
+	}
 	fmt.Fprintf(w,
 		"airplan: note: skipping linked revision %s (chain %s, revision %d of %d)\n",
 		purgeTarget(rec), rec.RevisionChainID, rec.Revision, rec.LatestRevision)

@@ -568,6 +568,11 @@ func ManifestRecordKind(rec ManifestRecord) UploadKind {
 	return ""
 }
 
+func manifestRecordHasAnnouncedRevision(rec ManifestRecord) bool {
+	return rec.RevisionChainID != "" && rec.Revision > 0 &&
+		rec.LatestRevision >= rec.Revision
+}
+
 // ManifestRecordSlug returns a record's document slug (SPEC.md §9): the
 // recorded value, or the slug derived from its page key for valid older
 // records that omit one. Collections have no slug and return "".
