@@ -8,8 +8,7 @@ import (
 	"time"
 )
 
-func oversizedVersionsMetadata() VersionsMetadata {
-	const count = 1200
+func revisionMetadataWithTombstones(count int) VersionsMetadata {
 	when := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
 	revisions := make([]VersionsRevision, count)
 	for index := range revisions {
@@ -28,6 +27,10 @@ func oversizedVersionsMetadata() VersionsMetadata {
 		ChainID: strings.Repeat("y", 26), CurrentRevision: count,
 		LatestRevision: count, LastAssignedRevision: count, Revisions: revisions,
 	}
+}
+
+func oversizedVersionsMetadata() VersionsMetadata {
+	return revisionMetadataWithTombstones(1200)
 }
 
 func TestEncodeVersionsMetadataReportsRevisionHistoryCapacity(t *testing.T) {

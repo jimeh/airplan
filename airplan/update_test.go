@@ -1817,13 +1817,72 @@ func TestUpdateDocumentDiffLimitFailsBeforeMutation(t *testing.T) {
 func TestRevisionMetadataCapacityPreflightDoesNotMutateStorage(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")
-	if err := client.ensureStorage(context.Background()); err != nil {
+	dir := strings.Repeat("z", 26)
+	pageKey := dir + "/plan.html"
+	pageURL := "https://plans.example.com/" + pageKey
+	newDir := strings.Repeat("x", 26)
+	newRevisionURL := "https://plans.example.com/" + newDir + "/plan.html"
+	newDiffURL := "https://plans.example.com/" + newDir + "/" + DiffFilename
+	createdAt := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+
+	var metadata VersionsMetadata
+	var metadataBody []byte
+	for count := 2; count < 2000; count++ {
+		candidate := revisionMetadataWithTombstones(count)
+		body, err := EncodeVersionsMetadata(candidate, client.cfg, pageKey)
+		if err != nil {
+			continue
+		}
+		appended := client.nextVersionsMetadata(
+			&revisionDocument{versions: &candidate}, candidate.ChainID, count+1,
+			newRevisionURL, newDiffURL, createdAt.Add(time.Second),
+		)
+		appended.CurrentRevision = count
+		if _, err := EncodeVersionsMetadata(appended, client.cfg, pageKey); errors.Is(err, ErrRevisionHistoryFull) {
+			metadata, metadataBody = candidate, body
+			break
+		}
+	}
+	if metadataBody == nil {
+		t.Fatal("could not construct near-capacity revision metadata")
+	}
+
+	source := []byte("one\n")
+	page := []byte("<html>one</html>")
+	diff := []byte("--- revision-1/plan.md\n+++ revision-current/plan.md\n")
+	markerBody, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: createdAt, Kind: UploadKindDocument, Slug: "plan",
+		Format: "md", Title: "Plan",
+		Producer: Producer{Name: "airplan", Version: "test"},
+		Render: &RenderRecipe{
+			Generation: RendererGeneration,
+			Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
+		},
+		Revision: &RevisionDescriptor{
+			ChainID: metadata.ChainID, Number: metadata.CurrentRevision,
+			PreviousURL: "https://plans.example.com/" + strings.Repeat("p", 26) + "/plan.html",
+		},
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+			{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType},
+		},
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
+	store.set(dir+"/"+MarkerFilename, markerBody)
+	store.set(pageKey, page)
+	store.set(dir+"/plan.md", source)
+	store.set(dir+"/"+DiffFilename, diff)
+	store.set(dir+"/"+VersionsFilename, metadataBody)
 	store.mu.Lock()
 	putsBefore := store.puts
 	store.mu.Unlock()
-	_, err := client.encodeMemberMetadata(oversizedVersionsMetadata())
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: pageURL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
 	if !errors.Is(err, ErrRevisionHistoryFull) {
 		t.Fatalf("capacity error = %v", err)
 	}
