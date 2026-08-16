@@ -258,7 +258,10 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   Markers carry immutable chain descriptors and diff inventory, while the
   separately versioned 64 KiB metadata index is conditionally replicated to
   each live member. The old latest metadata write is the append serialization
-  point; candidates created before a lost race use scoped rollback. Adjacent
+  point; ambiguous write responses are reconciled by a fresh control-object
+  read before scoped rollback is allowed. Delete reservations rebase from live
+  survivors after interrupted operations, while final-member deletion uses an
+  invalid transition reservation to exclude new and stale appenders. Adjacent
   exact source bytes are diffed with pure-Go go-difflib and Chroma renders the
   immutable diff into the built-in page's Changes view.
 - Collection storage: `UploadFiles` accepts known-size `io.ReadSeeker` members,

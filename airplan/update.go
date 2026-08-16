@@ -94,6 +94,26 @@ func (c *Client) updateDocument(
 		return nil, err
 	}
 
+	limit := input.Input.MaxSize
+	if limit == 0 {
+		limit = DefaultMaxInputSize
+	} else if limit < 0 {
+		limit = 0
+	}
+	proposed, err := readInput(ctx, input.Input.Reader, limit)
+	if err != nil {
+		return nil, err
+	}
+	if len(proposed) == 0 {
+		return nil, ErrEmptyInput
+	}
+	if !utf8.Valid(proposed) {
+		return nil, ErrInvalidUTF8
+	}
+	if IsBinary(proposed) {
+		return nil, ErrBinaryInput
+	}
+
 	target, err := c.loadRevisionDocument(ctx, input.Target)
 	if err != nil {
 		if errors.Is(err, errRevisionTransitionReserved) {
@@ -226,25 +246,6 @@ func (c *Client) updateDocument(
 		}
 	}
 
-	limit := input.Input.MaxSize
-	if limit == 0 {
-		limit = DefaultMaxInputSize
-	} else if limit < 0 {
-		limit = 0
-	}
-	proposed, err := readInput(ctx, input.Input.Reader, limit)
-	if err != nil {
-		return nil, err
-	}
-	if len(proposed) == 0 {
-		return nil, ErrEmptyInput
-	}
-	if !utf8.Valid(proposed) {
-		return nil, ErrInvalidUTF8
-	}
-	if IsBinary(proposed) {
-		return nil, ErrBinaryInput
-	}
 	if bytes.Equal(proposed, latest.sourceBody) {
 		if err := c.reconcileRevisionMetadata(ctx, latest); err != nil {
 			return nil, err
@@ -361,13 +362,16 @@ func (c *Client) updateDocument(
 
 	markerKey := BuildKey(c.cfg.KeyPrefix, dir, MarkerFilename)
 	candidateKeys := []string{sourceKey, diffKey, pageKey}
-	rollback := func() error {
+	cleanupContext := func() (context.Context, context.CancelFunc) {
 		rollbackCtx := context.WithoutCancel(ctx)
 		rollbackTimeout := c.cfg.Timeout
 		if rollbackTimeout <= 0 {
 			rollbackTimeout = DefaultTimeout
 		}
-		rollbackCtx, cancel := context.WithTimeout(rollbackCtx, rollbackTimeout)
+		return context.WithTimeout(rollbackCtx, rollbackTimeout)
+	}
+	rollback := func() error {
+		rollbackCtx, cancel := cleanupContext()
 		defer cancel()
 		if deleteErr := c.st.deleteKeys(rollbackCtx, candidateKeys); deleteErr != nil {
 			return deleteErr
@@ -408,14 +412,35 @@ func (c *Client) updateDocument(
 		}, latest.versionsETag)
 	}
 	if err != nil {
-		if errors.Is(err, ErrConflict) {
-			err = &revisionAppendConflictError{err: err}
+		originalErr := err
+		reconcileCtx, cancel := cleanupContext()
+		observed, committed, reconcileErr := c.reconcileRevisionAppendCommit(
+			reconcileCtx, latestMetadataKey, latest.pageKey, metadata,
+			newRevision, pageURL,
+		)
+		cancel()
+		if reconcileErr != nil {
+			return nil, fmt.Errorf(
+				"%w; revision candidate state is uncertain and was not rolled back: %v",
+				originalErr, reconcileErr,
+			)
 		}
-		cleanupErr := rollback()
-		if cleanupErr != nil {
-			return nil, fmt.Errorf("%w; candidate rollback failed: %v", err, cleanupErr)
+		if committed {
+			metadata = *observed
+			memberBodies, err = c.encodeMemberMetadata(metadata)
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			if errors.Is(originalErr, ErrConflict) {
+				originalErr = &revisionAppendConflictError{err: originalErr}
+			}
+			cleanupErr := rollback()
+			if cleanupErr != nil {
+				return nil, fmt.Errorf("%w; candidate rollback failed: %v", originalErr, cleanupErr)
+			}
+			return nil, originalErr
 		}
-		return nil, err
 	}
 
 	// Once the latest metadata transition succeeds, this append has won. Any
@@ -440,7 +465,11 @@ func (c *Client) updateDocument(
 		Key:  newMetadataKey,
 		Body: memberBodies[newRevision], ContentType: markerContentType,
 	}); err != nil {
-		return nil, fmt.Errorf("airplan: revision committed but metadata propagation failed: %w", err)
+		actual, readErr := c.st.getBytes(ctx, newMetadataKey, MaxVersionsMetadataSize)
+		if !errors.Is(err, ErrConflict) || readErr != nil ||
+			!c.revisionMetadataAtLeast(actual, memberBodies[newRevision], pageKey) {
+			return nil, fmt.Errorf("airplan: revision committed but metadata propagation failed: %w", err)
+		}
 	}
 	if err := c.propagateVersionsMetadata(ctx, metadata, memberBodies,
 		latestMetadataKey, newMetadataKey); err != nil {
@@ -459,7 +488,7 @@ func (c *Client) updateDocument(
 			MarkerKey: markerKey, Format: "md", Kind: string(UploadKindDocument),
 			Slug: marker.Slug, RepositoryURL: marker.Repo,
 			RevisionChainID: chainID, Revision: newRevision,
-			LatestRevision: newRevision,
+			LatestRevision: metadata.LatestRevision,
 		},
 		PreviousURL: latest.pageURL, DiffURL: diffURL,
 	}
@@ -468,6 +497,31 @@ func (c *Client) updateDocument(
 	}
 	c.recordRevisionAppend(ctx, result, markerBody, chainID, metadata)
 	return result, nil
+}
+
+func (c *Client) reconcileRevisionAppendCommit(
+	ctx context.Context, metadataKey, containingPageKey string,
+	expected VersionsMetadata, newRevision int, newURL string,
+) (*VersionsMetadata, bool, error) {
+	body, err := c.st.getBytes(ctx, metadataKey, MaxVersionsMetadataSize)
+	if errors.Is(err, errObjectNotFound) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("airplan: inspect ambiguous revision append: %w", err)
+	}
+	observed, err := DecodeVersionsMetadata(body, c.cfg, containingPageKey)
+	if err != nil {
+		// A successful strongly-consistent read of another valid control state is
+		// durable proof that this append did not publish its metadata transition.
+		return nil, false, nil
+	}
+	entry := liveVersionsRevision(observed, newRevision)
+	if observed.ChainID != expected.ChainID || entry == nil || entry.URL != newURL ||
+		!versionsMetadataMonotonicallyPrecedes(&expected, observed) {
+		return nil, false, nil
+	}
+	return observed, true, nil
 }
 
 func validateUpdateDocumentInput(input UpdateDocumentInput) error {
@@ -763,7 +817,7 @@ func (c *Client) nextVersionsMetadata(
 	if latest.versions == nil {
 		metadata.Revisions = []VersionsRevision{{
 			Number: 1, URL: latest.pageURL,
-			CreatedAt: latest.marker.CreatedAt,
+			CreatedAt: latest.marker.CreatedAt.Truncate(time.Second),
 		}}
 	} else {
 		metadata.Revisions = append([]VersionsRevision(nil), latest.versions.Revisions...)
@@ -943,7 +997,16 @@ func (c *Client) verifyObjectBody(
 	ctx context.Context, key string, expected []byte,
 ) error {
 	actual, err := c.st.getBytes(ctx, key, MaxVersionsMetadataSize)
-	if err != nil || !bytes.Equal(actual, expected) {
+	if err != nil {
+		return errors.New("airplan: revision serialization point changed during metadata repair")
+	}
+	if bytes.Equal(actual, expected) {
+		return nil
+	}
+	actualMetadata, actualErr := decodeVersionsMetadata(actual, c.cfg, "", true)
+	expectedMetadata, expectedErr := decodeVersionsMetadata(expected, c.cfg, "", true)
+	if actualErr != nil || expectedErr != nil ||
+		!sameVersionsMetadata(actualMetadata, expectedMetadata) {
 		return errors.New("airplan: revision serialization point changed during metadata repair")
 	}
 	return nil
@@ -965,7 +1028,11 @@ func (c *Client) verifyRevisionChain(
 			return err
 		}
 		actual, err := c.st.getBytes(ctx, dirPrefix+VersionsFilename, MaxVersionsMetadataSize)
-		if err != nil || !bytes.Equal(actual, bodies[revision.Number]) {
+		if err != nil {
+			return errors.New("airplan: revision metadata verification failed")
+		}
+		expectedBody := bodies[revision.Number]
+		if !c.revisionMetadataAtLeast(actual, expectedBody, key) {
 			return errors.New("airplan: revision metadata verification failed")
 		}
 		resolved, err := c.resolveMarker(ctx, dirPrefix)
@@ -983,6 +1050,17 @@ func (c *Client) verifyRevisionChain(
 		}
 	}
 	return nil
+}
+
+func (c *Client) revisionMetadataAtLeast(actual, expected []byte, containingKey string) bool {
+	if bytes.Equal(actual, expected) {
+		return true
+	}
+	observed, observedErr := DecodeVersionsMetadata(actual, c.cfg, containingKey)
+	want, expectedErr := DecodeVersionsMetadata(expected, c.cfg, containingKey)
+	return observedErr == nil && expectedErr == nil &&
+		(sameVersionsMetadata(observed, want) ||
+			versionsMetadataMonotonicallyPrecedes(want, observed))
 }
 
 func (c *Client) reconcileRevisionMetadata(ctx context.Context, latest *revisionDocument) error {

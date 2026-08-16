@@ -743,9 +743,8 @@ func testRevisionRoundTrip(
 	if _, err := client.DeleteUpload(ctx, first.URL); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.DeleteUpload(ctx, fourth.URL); err == nil ||
-		!strings.Contains(err.Error(), "final live revision") {
-		t.Fatalf("final revision delete error = %v", err)
+	if _, err := client.DeleteUpload(ctx, fourth.URL); err != nil {
+		t.Fatalf("delete final revision: %v", err)
 	}
 
 	// This helper is part of a larger shared-bucket test. Remove the remaining

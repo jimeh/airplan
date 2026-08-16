@@ -612,7 +612,9 @@ transaction. Use conditional requests and a recoverable order:
    metadata plus its ETag for an existing chain; confirm metadata absence for a
    standalone target.
 2. Render the proposed document and generate its adjacent diff locally.
-3. Return the existing latest result immediately when source bytes are equal.
+3. Validate the complete local input before any prerequisite upgrade or repair,
+   then return the existing latest result when source bytes are equal and chain
+   metadata is already consistent.
 4. Reserve `last_assigned_revision + 1` in memory and encode all future
    metadata bodies. For a standalone upload, assign the existing document
    revision `1`, assign the candidate revision `2`, and generate a new chain
@@ -623,9 +625,14 @@ transaction. Use conditional requests and a recoverable order:
    creates it with `If-None-Match: *`; later appends replace it with `If-Match`
    against the validated ETag. This transition to the new URL is the
    serialization point. A precondition failure means another writer won.
-7. On a lost race, delete the unannounced candidate upload as scoped rollback.
+7. On a proven lost race, delete the unannounced candidate upload as scoped rollback.
    Rollback uses a fresh bounded context so caller cancellation does not skip
    cleanup. Report any cleanup failure and leave the managed orphan visible.
+   A timeout, cancellation, retry conflict, or transport failure from the
+   serialization PUT is ambiguous: use that same fresh context to read the
+   control object. Continue repair when it contains the intended revision or a
+   monotonic successor; roll back only when the read proves loss, and retain the
+   candidate when reconciliation itself fails.
    Generic cleanup of an existing-chain candidate first conditionally rewrites
    semantically unchanged metadata with an alternate top-level JSON field
    order; the same-size byte-distinct body changes content-derived S3 ETags and
@@ -643,6 +650,10 @@ transaction. Use conditional requests and a recoverable order:
     promoted page and marker when this was the first link.
 11. Append local manifest upload/link events and return the new URL only after
     verification.
+
+Metadata verification compares decoded schema state as well as canonical bytes,
+so the byte-distinct cleanup-claim encoding remains a valid no-op and repair
+source.
 
 After the serialization point, a propagation failure returns an error but does
 not roll back the winning chain append. Retrying from any member detects the
@@ -824,6 +835,14 @@ fails after successful propagation, a retry observes the tombstone and either
 completes deletion or restores the live entry if the target remains complete.
 Specify and test this recovery decision rather than leaving a permanent hidden
 live upload.
+
+An invalid-current reservation on the target is only proof that its tombstone
+won. Retry derives current canonical state from any surviving live member before
+continuing, so intervening appends and deletes cannot permanently wedge the
+target. Deleting the final live member uses a strict invalid transition
+reservation at its versions key as the serialization point, then removes the
+whole directory and records a revision-aware manifest tombstone with no latest
+revision.
 
 Deleting the latest makes the greatest remaining live revision the displayed
 latest, but `last_assigned_revision` does not decrease. The next append uses a
@@ -1079,8 +1098,13 @@ Exercise:
 - deterministic diff headers and final-newline cases;
 - diff size failure before mutation;
 - conditional race with exactly one winner;
+- committed serialization with an ambiguous response;
 - candidate rollback after a lost race;
+- identical no-op after a byte-distinct cleanup claim;
 - partial metadata propagation followed by idempotent repair;
+- interrupted latest deletion rebased after later chain progression;
+- final-member delete/appender serialization and complete-chain purge;
+- revision-aware manifest suppression after marker-last retry;
 - no stdout URL before full verification; and
 - protection preservation.
 

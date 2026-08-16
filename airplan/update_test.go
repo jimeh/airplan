@@ -153,6 +153,47 @@ func TestUpdateDocumentCreatesLinkedRevisionsOnlyOnFirstUpdate(t *testing.T) {
 	}
 }
 
+func TestFirstRevisionTruncatesFractionalMarkerCreationTime(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerBody, ok := store.get(first.MarkerKey)
+	if !ok {
+		t.Fatal("first marker is missing")
+	}
+	marker, err := DecodeUploadMarker(markerBody, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker.CreatedAt = marker.CreatedAt.Add(500 * time.Millisecond)
+	markerBody, err = EncodeUploadMarker(*marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(first.MarkerKey, markerBody)
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataBody, ok := store.get(first.ID + "/" + VersionsFilename)
+	if !ok {
+		t.Fatal("promoted versions metadata is missing")
+	}
+	metadata, err := DecodeVersionsMetadata(metadataBody, client.cfg, first.Key)
+	if err != nil || metadata.Revisions[0].CreatedAt.Nanosecond() != 0 ||
+		second.Revision != 2 {
+		t.Fatalf("fractional promotion = %+v, result = %+v, error = %v",
+			metadata, second, err)
+	}
+}
+
 func TestUpdateDocumentPropagatesTransientRevisionDiffMetadataFailure(t *testing.T) {
 	t.Setenv("AWS_MAX_ATTEMPTS", "1")
 	store := newUpgradeStore(t)
@@ -264,6 +305,84 @@ func TestUpdateDocumentDoesNotReclassifyTransientCurrentReadFailure(t *testing.T
 	var refusal *updateRefusalError
 	if errors.As(err, &refusal) {
 		t.Fatalf("transient storage failure was reclassified as %s", refusal.kind)
+	}
+}
+
+func TestUpdateDocumentValidatesInputBeforePrerequisiteUpgrade(t *testing.T) {
+	store := newUpgradeStore(t)
+	dir := strings.Repeat("v", 26)
+	seedV3UpgradeDocument(t, store, dir)
+	before, ok := store.get(dir + "/" + MarkerFilename)
+	if !ok {
+		t.Fatal("seed marker is missing")
+	}
+	client := store.client(t, "")
+	_, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: "https://plans.example.com/" + dir + "/plan.html",
+		Input:  Input{Reader: strings.NewReader("")},
+	})
+	if !errors.Is(err, ErrEmptyInput) {
+		t.Fatalf("invalid update error = %v, want empty input", err)
+	}
+	after, ok := store.get(dir + "/" + MarkerFilename)
+	if !ok || !bytes.Equal(after, before) {
+		t.Fatal("invalid update mutated its prerequisite marker")
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.puts != 0 {
+		t.Fatalf("invalid update performed %d writes", store.puts)
+	}
+}
+
+func TestUpdateDocumentRepairsAmbiguousSerializationResponse(t *testing.T) {
+	for _, linked := range []bool{false, true} {
+		name := "first link"
+		if linked {
+			name = "existing chain"
+		}
+		t.Run(name, func(t *testing.T) {
+			store := newUpgradeStore(t)
+			client := store.client(t, "")
+			first, err := client.Upload(context.Background(), Input{
+				Reader: strings.NewReader("one\n"), Name: "plan.md",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			targetURL := first.URL
+			targetID := first.ID
+			content := "two\n"
+			wantRevision := 2
+			if linked {
+				second, updateErr := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+					Target: first.URL, Input: Input{Reader: strings.NewReader(content)},
+				})
+				if updateErr != nil {
+					t.Fatal(updateErr)
+				}
+				targetURL = second.URL
+				targetID = second.ID
+				content = "three\n"
+				wantRevision = 3
+			}
+			store.mu.Lock()
+			store.commitPutThenFailKey = targetID + "/" + VersionsFilename
+			store.mu.Unlock()
+
+			result, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+				Target: targetURL, Input: Input{Reader: strings.NewReader(content)},
+			})
+			if err != nil || result.Revision != wantRevision ||
+				result.LatestRevision != wantRevision {
+				t.Fatalf("ambiguous append result = %+v, %v", result, err)
+			}
+			inspection, err := client.InspectUpload(context.Background(), result.URL)
+			if err != nil || inspection.Revision != wantRevision ||
+				inspection.LatestRevision != wantRevision {
+				t.Fatalf("committed candidate inspection = %+v, %v", inspection, err)
+			}
+		})
 	}
 }
 
@@ -417,6 +536,39 @@ func TestUpdateDocumentFromOldURLResolvesLatestAndIdenticalIsNoop(t *testing.T) 
 	}
 }
 
+func TestIdenticalUpdateAcceptsCleanupClaimEncoding(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, err := client.loadRevisionDocument(context.Background(), second.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimBody, err := revisionCandidateCleanupClaimBody(doc.versionsBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(second.ID+"/"+VersionsFilename, claimBody)
+
+	result, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil || !result.Unchanged || result.Revision != 2 {
+		t.Fatalf("claim-encoded no-op = %+v, %v", result, err)
+	}
+}
+
 func TestRevisionLinkManifestEventsPreserveCompleteProjection(t *testing.T) {
 	store := newUpgradeStore(t)
 	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
@@ -489,6 +641,72 @@ func TestRevisionDeleteManifestTombstoneCarriesChainProjection(t *testing.T) {
 	if tombstone == nil || tombstone.RevisionChainID != third.RevisionChainID ||
 		tombstone.Revision != 3 || tombstone.LatestRevision != 2 {
 		t.Fatalf("revision delete tombstone = %+v", tombstone)
+	}
+}
+
+func TestInterruptedRevisionDeleteRetryPermanentlySuppressesStaleLinks(t *testing.T) {
+	t.Setenv("AWS_MAX_ATTEMPTS", "1")
+	store := newUpgradeStore(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := store.client(t, manifest)
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stale ManifestRecord
+	for _, record := range records {
+		if record.MarkerKey == second.MarkerKey && record.Type == "upload" {
+			stale = record
+		}
+	}
+	if stale.MarkerKey == "" {
+		t.Fatal("second revision manifest projection is missing")
+	}
+	store.mu.Lock()
+	store.failMarkerDelete = true
+	store.mu.Unlock()
+	if _, err := client.DeleteUpload(context.Background(), second.URL); err == nil {
+		t.Fatal("forced marker-last interruption unexpectedly succeeded")
+	}
+	if _, err := client.DeleteUpload(context.Background(), second.URL); err != nil {
+		t.Fatalf("complete interrupted revision delete: %v", err)
+	}
+	stale.Type = "link"
+	stale.Time = time.Now().UTC().Add(time.Second).Truncate(time.Second)
+	if err := appendManifestRecord(context.Background(), manifest, stale); err != nil {
+		t.Fatal(err)
+	}
+	records, warnings, err := ReadManifest(manifest)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("manifest records = %+v, warnings = %v, err = %v", records, warnings, err)
+	}
+	var tombstone *ManifestRecord
+	for index := range records {
+		if records[index].Type == "delete" && records[index].MarkerKey == second.MarkerKey {
+			tombstone = &records[index]
+		}
+	}
+	if tombstone == nil || tombstone.RevisionChainID != second.RevisionChainID ||
+		tombstone.Revision != 2 || tombstone.LatestRevision != 0 {
+		t.Fatalf("interrupted delete tombstone = %+v", tombstone)
+	}
+	active := ManifestUploads(records)
+	for _, record := range active {
+		if record.MarkerKey == second.MarkerKey {
+			t.Fatalf("stale link resurrected deleted revision: %+v", record)
+		}
 	}
 }
 
@@ -898,6 +1116,54 @@ func TestAppendHealsInterruptedDeleteAcrossTombstoneAndHighWaterProgression(t *t
 	}
 }
 
+func TestLatestDeleteRetryRebasesAfterChainProgression(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	thirdDoc, err := client.loadRevisionDocument(context.Background(), third.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.tombstoneLinkedRevision(
+		context.Background(), thirdDoc.dirPrefix, thirdDoc.marker,
+	); err != nil {
+		t.Fatal(err)
+	}
+	fourth, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("four\n")},
+	})
+	if err != nil || fourth.Revision != 4 {
+		t.Fatalf("post-reservation append = %+v, %v", fourth, err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), third.URL); err != nil {
+		t.Fatalf("latest delete retry after progression: %v", err)
+	}
+	if _, ok := store.get(third.MarkerKey); ok {
+		t.Fatal("retried latest deletion left its marker")
+	}
+	inspection, err := client.InspectUpload(context.Background(), fourth.URL)
+	if err != nil || inspection.LatestRevision != 4 {
+		t.Fatalf("surviving progressed chain = %+v, %v", inspection, err)
+	}
+}
+
 func TestGenerateRevisionDiffDeterministicAndPreservesNewlineSignal(t *testing.T) {
 	diff, err := GenerateRevisionDiff([]byte("one\ntwo\n"), []byte("one\nthree"), 1, 2)
 	if err != nil {
@@ -1235,9 +1501,94 @@ func TestUpdateViaRevisionTwoSucceedsAfterRevisionOneIsTombstoned(t *testing.T) 
 			t.Fatalf("delete surviving historical revision: %v", err)
 		}
 	}
-	if _, err := client.DeleteUpload(context.Background(), fourth.URL); err == nil ||
-		!strings.Contains(err.Error(), "final live revision") {
-		t.Fatalf("final live revision error = %v", err)
+	if _, err := client.DeleteUpload(context.Background(), fourth.URL); err != nil {
+		t.Fatalf("delete final live revision: %v", err)
+	}
+	if _, ok := store.get(fourth.MarkerKey); ok {
+		t.Fatal("final live revision marker remains")
+	}
+}
+
+func TestPurgeIncludeVersionedDeletesCompleteChain(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.Purge(context.Background(), PurgeRequest{
+		UploadIDs: []string{first.ID, second.ID, third.ID}, IncludeVersioned: true,
+	})
+	if err != nil || len(result.Items) != 3 {
+		t.Fatalf("complete-chain purge = %+v, %v", result, err)
+	}
+	for _, item := range result.Items {
+		if item.Error != "" || item.Deleted == nil {
+			t.Fatalf("purge item = %+v", item)
+		}
+	}
+	for _, markerKey := range []string{first.MarkerKey, second.MarkerKey, third.MarkerKey} {
+		if _, ok := store.get(markerKey); ok {
+			t.Fatalf("purged chain marker remains: %s", markerKey)
+		}
+	}
+}
+
+func TestFinalRevisionDeleteReservationResumes(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), first.URL); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := client.loadRevisionDocument(context.Background(), second.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata, err := client.tombstoneLinkedRevision(
+		context.Background(), doc.dirPrefix, doc.marker,
+	); err != nil || metadata != nil {
+		t.Fatalf("final reservation = %+v, %v", metadata, err)
+	}
+	body, ok := store.get(second.ID + "/" + VersionsFilename)
+	if !ok {
+		t.Fatal("final revision reservation is missing")
+	}
+	reservation, reserved, err := decodeFinalRevisionDeleteReservation(body)
+	if err != nil || !reserved || reservation.ChainID != second.RevisionChainID ||
+		reservation.Revision != 2 {
+		t.Fatalf("final reservation body = %+v, %t, %v", reservation, reserved, err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), second.URL); err != nil {
+		t.Fatalf("resume final revision deletion: %v", err)
+	}
+	if _, ok := store.get(second.MarkerKey); ok {
+		t.Fatal("resumed final revision deletion left marker")
 	}
 }
 
@@ -1828,5 +2179,73 @@ func TestConcurrentAppendAndTargetedDeleteHaveOneSerializationWinner(t *testing.
 					inspection.LatestRevision, test.deleteWinnerLast)
 			}
 		})
+	}
+}
+
+func TestConcurrentAppendAndFinalRevisionDeleteHaveOneWinner(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), first.URL); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.ifMatchBarrier = make(chan struct{})
+	store.mu.Unlock()
+
+	type outcome struct {
+		operation string
+		result    *UpdateDocumentResult
+		err       error
+	}
+	results := make(chan outcome, 2)
+	go func() {
+		result, updateErr := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+			Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+		})
+		results <- outcome{operation: "append", result: result, err: updateErr}
+	}()
+	go func() {
+		_, deleteErr := client.DeleteUpload(context.Background(), second.URL)
+		results <- outcome{operation: "delete", err: deleteErr}
+	}()
+
+	var winner outcome
+	for range 2 {
+		result := <-results
+		if result.err == nil {
+			if winner.operation != "" {
+				t.Fatal("both final delete and append succeeded")
+			}
+			winner = result
+		} else if !errors.Is(result.err, ErrConflict) &&
+			!errors.Is(result.err, errRevisionTransitionReserved) {
+			t.Fatalf("%s error = %v, want conflict", result.operation, result.err)
+		}
+	}
+	if winner.operation == "" {
+		t.Fatal("neither final delete nor append won")
+	}
+	if winner.operation == "append" {
+		if winner.result == nil || winner.result.Revision != 3 {
+			t.Fatalf("append winner = %+v", winner.result)
+		}
+		inspection, err := client.InspectUpload(context.Background(), winner.result.URL)
+		if err != nil || inspection.LatestRevision != 3 {
+			t.Fatalf("append winner chain = %+v, %v", inspection, err)
+		}
+	} else if _, ok := store.get(second.MarkerKey); ok {
+		t.Fatal("final delete winner left its marker")
 	}
 }

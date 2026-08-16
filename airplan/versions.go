@@ -300,3 +300,20 @@ func sameVersionsRevision(left, right VersionsRevision) bool {
 		left.DiffURL == right.DiffURL && left.Deleted == right.Deleted &&
 		left.CreatedAt.Equal(right.CreatedAt) && left.DeletedAt.Equal(right.DeletedAt)
 }
+
+func sameVersionsMetadata(left, right *VersionsMetadata) bool {
+	if left == nil || right == nil || left.Schema != right.Schema ||
+		left.Version != right.Version || left.ChainID != right.ChainID ||
+		left.CurrentRevision != right.CurrentRevision ||
+		left.LatestRevision != right.LatestRevision ||
+		left.LastAssignedRevision != right.LastAssignedRevision ||
+		len(left.Revisions) != len(right.Revisions) {
+		return false
+	}
+	for index := range left.Revisions {
+		if !sameVersionsRevision(left.Revisions[index], right.Revisions[index]) {
+			return false
+		}
+	}
+	return true
+}

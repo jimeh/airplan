@@ -3,8 +3,10 @@ package airplan
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"time"
@@ -13,6 +15,17 @@ import (
 var standaloneDeleteReservationBody = []byte(
 	`{"schema":"airplan-standalone-delete-reservation","version":1}`,
 )
+
+const finalRevisionDeleteReservationSchema = "airplan-final-revision-delete-reservation"
+
+type finalRevisionDeleteReservation struct {
+	Schema               string    `json:"schema"`
+	Version              int       `json:"version"`
+	ChainID              string    `json:"chain_id"`
+	Revision             int       `json:"revision"`
+	LastAssignedRevision int       `json:"last_assigned_revision"`
+	DeletedAt            time.Time `json:"deleted_at"`
+}
 
 var errUploadBecameVersioned = errors.New(
 	"airplan: upload became versioned while purge deletion was starting",
@@ -248,10 +261,12 @@ func (c *Client) DeleteUploadWithOptions(
 		MarkerKey: resolved.Key,
 		Kind:      marker.Kind,
 	}
-	if survivingVersions != nil && marker.Revision != nil {
-		res.revisionChainID = survivingVersions.ChainID
+	if marker.Revision != nil && !unannouncedCandidate {
+		res.revisionChainID = marker.Revision.ChainID
 		res.revision = marker.Revision.Number
-		res.latestRevision = survivingVersions.LatestRevision
+		if survivingVersions != nil {
+			res.latestRevision = survivingVersions.LatestRevision
+		}
 	}
 	if interruptedLinkedDelete {
 		res.Warnings = append(res.Warnings,
@@ -286,6 +301,16 @@ func (c *Client) revisionCandidateIsUnannounced(
 	reservation, reservationErr := c.st.getBytes(
 		ctx, previousPrefix+VersionsFilename, MaxVersionsMetadataSize,
 	)
+	if reservationErr == nil {
+		finalReservation, ok, decodeErr := decodeFinalRevisionDeleteReservation(reservation)
+		if decodeErr != nil {
+			return false, decodeErr
+		}
+		if ok {
+			return finalReservation.ChainID == marker.Revision.ChainID &&
+				marker.Revision.Number > finalReservation.LastAssignedRevision, nil
+		}
+	}
 	if marker.Revision.Number == 2 && reservationErr == nil &&
 		bytes.Equal(reservation, standaloneDeleteReservationBody) {
 		return true, nil
@@ -370,6 +395,62 @@ func revisionCandidateCleanupClaimBody(body []byte) ([]byte, error) {
 	return claim, nil
 }
 
+func encodeFinalRevisionDeleteReservation(
+	chainID string, revision, lastAssigned int, deletedAt time.Time,
+) ([]byte, error) {
+	reservation := finalRevisionDeleteReservation{
+		Schema: finalRevisionDeleteReservationSchema, Version: 1,
+		ChainID: chainID, Revision: revision,
+		LastAssignedRevision: lastAssigned, DeletedAt: deletedAt,
+	}
+	if !isRandomDir(chainID) || revision <= 0 || lastAssigned < revision ||
+		deletedAt.IsZero() || !isUTCSecond(deletedAt) {
+		return nil, errors.New("airplan: invalid final revision delete reservation")
+	}
+	body, err := json.Marshal(reservation)
+	if err != nil {
+		return nil, fmt.Errorf("airplan: encode final revision delete reservation: %w", err)
+	}
+	return body, nil
+}
+
+func decodeFinalRevisionDeleteReservation(
+	body []byte,
+) (*finalRevisionDeleteReservation, bool, error) {
+	var envelope struct {
+		Schema string `json:"schema"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil ||
+		envelope.Schema != finalRevisionDeleteReservationSchema {
+		return nil, false, nil
+	}
+	if err := validateJSONNames(body); err != nil {
+		return nil, true, fmt.Errorf(
+			"airplan: final revision delete reservation is malformed: %w", err,
+		)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	var reservation finalRevisionDeleteReservation
+	if err := decoder.Decode(&reservation); err != nil {
+		return nil, true, fmt.Errorf(
+			"airplan: final revision delete reservation is malformed: %w", err,
+		)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return nil, true, errors.New(
+			"airplan: final revision delete reservation has trailing data",
+		)
+	}
+	if reservation.Version != 1 || !isRandomDir(reservation.ChainID) ||
+		reservation.Revision <= 0 ||
+		reservation.LastAssignedRevision < reservation.Revision ||
+		reservation.DeletedAt.IsZero() || !isUTCSecond(reservation.DeletedAt) {
+		return nil, true, errors.New("airplan: invalid final revision delete reservation")
+	}
+	return &reservation, true, nil
+}
+
 func (c *Client) reserveStandaloneDelete(
 	ctx context.Context, dirPrefix string,
 ) error {
@@ -395,6 +476,47 @@ func (c *Client) reserveStandaloneDelete(
 		ErrConflict)
 }
 
+func (c *Client) loadCanonicalAfterDeleteReservation(
+	ctx context.Context, reserved *VersionsMetadata, target *RevisionDescriptor,
+) (*revisionDocument, error) {
+	for index := len(reserved.Revisions) - 1; index >= 0; index-- {
+		revision := reserved.Revisions[index]
+		if revision.Deleted {
+			continue
+		}
+		doc, err := c.loadRevisionDocument(ctx, revision.URL)
+		if errors.Is(err, errOwnershipMarkerMissing) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf(
+				"airplan: resolve survivor after linked-delete reservation: %w", err,
+			)
+		}
+		if doc.versions == nil || doc.versions.ChainID != target.ChainID {
+			return nil, errors.New(
+				"airplan: surviving revision metadata conflicts with delete reservation",
+			)
+		}
+		foundTarget := false
+		for _, entry := range doc.versions.Revisions {
+			if entry.Number == target.Number {
+				foundTarget = entry.Deleted
+				break
+			}
+		}
+		if !foundTarget {
+			return nil, errors.New(
+				"airplan: surviving revision metadata lost the delete reservation",
+			)
+		}
+		return doc, nil
+	}
+	return nil, errors.New(
+		"airplan: linked-delete reservation has no surviving revision metadata",
+	)
+}
+
 func (c *Client) tombstoneLinkedRevision(
 	ctx context.Context, targetDirPrefix string, marker *UploadMarker,
 ) (*VersionsMetadata, error) {
@@ -403,6 +525,17 @@ func (c *Client) tombstoneLinkedRevision(
 		targetMetadataKey, MaxVersionsMetadataSize)
 	if err != nil {
 		return nil, fmt.Errorf("airplan: read revision metadata before delete: %w", err)
+	}
+	finalReservation, finalReserved, err := decodeFinalRevisionDeleteReservation(body)
+	if err != nil {
+		return nil, err
+	}
+	if finalReserved {
+		if finalReservation.ChainID != marker.Revision.ChainID ||
+			finalReservation.Revision != marker.Revision.Number {
+			return nil, errors.New("airplan: marker and final revision delete reservation conflict")
+		}
+		return nil, nil
 	}
 	metadata, err := DecodeVersionsMetadata(body, c.cfg,
 		targetDirPrefix+marker.Page)
@@ -418,11 +551,24 @@ func (c *Client) tombstoneLinkedRevision(
 		metadata.CurrentRevision != marker.Revision.Number {
 		return nil, errors.New("airplan: marker and revision metadata conflict")
 	}
-
 	serializationKey := targetMetadataKey
 	serializationETag := targetETag
 	serializationBody := body
-	seen := map[string]bool{targetMetadataKey: true}
+	if targetReserved {
+		canonical, loadErr := c.loadCanonicalAfterDeleteReservation(
+			ctx, metadata, marker.Revision,
+		)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		metadata = canonical.versions
+		serializationKey = canonical.dirPrefix + VersionsFilename
+		serializationBody = canonical.versionsBody
+		serializationETag = canonical.versionsETag
+		targetReserved = false
+	}
+
+	seen := map[string]bool{serializationKey: true}
 	for !targetReserved && metadata.CurrentRevision != metadata.LatestRevision {
 		latestEntry := liveVersionsRevision(metadata, metadata.LatestRevision)
 		if latestEntry == nil {
@@ -478,7 +624,20 @@ func (c *Client) tombstoneLinkedRevision(
 		return nil, errors.New("airplan: revision metadata does not contain the delete target")
 	}
 	if live == 0 {
-		return nil, errors.New("airplan: deleting the final live revision is not supported")
+		reservation, encodeErr := encodeFinalRevisionDeleteReservation(
+			metadata.ChainID, marker.Revision.Number,
+			metadata.LastAssignedRevision, deletedAt,
+		)
+		if encodeErr != nil {
+			return nil, encodeErr
+		}
+		if putErr := c.st.putConditional(ctx, object{
+			Key: targetMetadataKey, Body: reservation,
+			ContentType: markerContentType,
+		}, targetETag); putErr != nil {
+			return nil, fmt.Errorf("airplan: reserve final revision deletion: %w", putErr)
+		}
+		return nil, nil
 	}
 	metadata.LatestRevision = latest
 	bodies, err := c.encodeMemberMetadata(*metadata)

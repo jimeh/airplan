@@ -867,6 +867,11 @@ source-backed Markdown document. It resolves any supplied chain member to the
 latest live revision, compares exact UTF-8 source bytes, and uploads a complete
 ordinary document under a new random directory. A named input must resolve to
 the existing document slug; stdin or an omitted name preserves it implicitly.
+Local input size, emptiness, UTF-8, and binary validation completes before an
+eligible predecessor is upgraded or repaired. Update may then apply the same
+in-place upgrade machinery to an eligible older marker or renderer generation
+before comparing source bytes; this prerequisite maintenance is part of the
+requested update and remains independently recoverable.
 Identical content is a
 successful no-op returning the existing latest URL. An already-consistent
 chain performs no storage or manifest writes; an identical-source retry may
@@ -890,6 +895,14 @@ same-size byte-distinct body changes content-derived S3 ETags; either that claim
 wins or the append publishes first. A candidate whose assigned integer is
 already at or below the chain high-water mark is durably known to have lost and
 needs no additional claim.
+A serialization request failure is ambiguous until a fresh bounded read of the
+serialization object proves whether the intended revision URL was published.
+An observed intended or monotonic successor body continues post-commit repair;
+a successfully read older or conflicting body permits rollback. A failed
+reconciliation read leaves the discoverable candidate intact rather than
+risking deletion of an announced revision. Semantically identical metadata
+with the cleanup claim's alternate field order remains valid for no-op repair
+and verification.
 A revision-2 candidate beside a still-live standalone predecessor fails closed
 because no versions object exists on which cleanup can safely contend. A
 standalone deletion reservation or missing predecessor is durable proof that
@@ -970,6 +983,18 @@ Protection remains per directory. Purge skips linked revisions unless
 still wins. Targeted delete conditionally tombstones the revision in every
 surviving member before deleting payloads. The greatest remaining live revision
 becomes latest while the assignment high-water mark never decreases.
+An interrupted delete whose target still carries its invalid-current reservation
+re-derives canonical state from a surviving member, so later appends cannot
+wedge the retry. Deleting the final live member conditionally replaces its
+versions object with a strict invalid transition reservation before removing
+the directory; this both excludes new updaters and makes already-preflighted
+appends lose their stale ETag. With no survivor, the manifest delete tombstone
+retains chain and revision identity and omits `latest_revision`.
+The transition body uses schema `airplan-final-revision-delete-reservation`,
+version 1, and exact `chain_id`, `revision`, `last_assigned_revision`, and UTC
+second `deleted_at` fields. It is not valid versions metadata and is removed
+with the target directory; a retry may recognize it only to complete that same
+marker-authorized deletion.
 
 `--json` output (single line, stable schema):
 
@@ -1037,7 +1062,7 @@ airplan unprotect <url|key>
 airplan upgrade [--check] [--force] [--template PATH] [--json] <url|key>
 airplan upgrade --all [--dry-run] [--yes] [--concurrency N]
                 [--all-profiles] [--json]
-airplan update [--title TITLE] [--max-size SIZE] [--json] <url|key> [file|-]
+airplan update [--title TITLE] [--max-size SIZE] [--json] [--open] <url|key> [file|-]
 airplan purge [--remote] [--older-than 30d|2026-01-01] [--include-versioned]
               [--all] [--dry-run] [--yes] [--concurrency N]
 airplan sync [--config PATH] [--profile NAME] [--concurrency N]
@@ -2375,6 +2400,7 @@ The minimal tool set is:
 | Tool                | Stdio | HTTP | Effect                             |
 | ------------------- | ----- | ---- | ---------------------------------- |
 | `upload_document`   | yes   | yes  | Upload supplied text content       |
+| `update_document`   | yes   | yes  | Append a linked Markdown revision  |
 | `upload_files`      | yes   | no   | Upload local paths as a collection |
 | `list_uploads`      | yes   | yes  | List manifest or storage records   |
 | `inspect_upload`    | yes   | yes  | Validate one marker-managed upload |

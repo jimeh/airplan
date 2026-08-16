@@ -799,6 +799,7 @@ type upgradeStore struct {
 	failPutAttempt          int
 	failPutKey              string
 	failPutSuffix           string
+	commitPutThenFailKey    string
 	cancelOnPutKey          string
 	cancelOnPut             func()
 	failDeleteKeys          bool
@@ -1036,6 +1037,13 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 		s.etags[key]++
 		s.puts++
 		s.putKeys = append(s.putKeys, key)
+		if s.commitPutThenFailKey == key {
+			s.commitPutThenFailKey = ""
+			// Model an ambiguous response: storage committed the write, but the
+			// caller only receives a non-precondition failure.
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("ETag", `"updated"`)
 		w.WriteHeader(http.StatusOK)
 	case http.MethodPost:
