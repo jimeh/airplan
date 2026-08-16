@@ -59,7 +59,8 @@ type SyncManifestResult struct {
 	Incomplete int `json:"incomplete"`
 	// Invalid counts marker bodies that fail marker validation.
 	Invalid int `json:"invalid"`
-	// Retained counts local records kept after a listing inconsistency or error.
+	// Retained counts local records or revision tombstones kept after a listing
+	// inconsistency, stale remote restoration, or error.
 	Retained int `json:"retained"`
 	// Failures contains per-item request failures in deterministic order.
 	Failures []SyncFailure `json:"failures"`
@@ -111,6 +112,7 @@ func (c *Client) SyncManifest(
 	}
 	result := &SyncManifestResult{Warnings: append([]string(nil), warnings...)}
 	active := scopedActiveUploads(records, c.cfg)
+	deletedRevisions := manifestDeletedRevisions(records)
 	remote, err := c.ListRemote(ctx)
 	if err != nil {
 		return nil, err
@@ -211,6 +213,11 @@ func (c *Client) SyncManifest(
 	wg.Wait()
 
 	for _, item := range jobResults {
+		if item.upload != nil &&
+			manifestRevisionWasDeleted(deletedRevisions, *item.upload) {
+			result.Retained++
+			continue
+		}
 		switch item.state {
 		case UploadIncomplete:
 			result.Incomplete++
@@ -532,10 +539,14 @@ func (c *Client) commitSyncManifest(
 		}
 		result.Warnings = appendUniqueStrings(result.Warnings, warnings...)
 		active := scopedActiveUploads(current, c.cfg)
+		deletedRevisions := manifestDeletedRevisions(current)
 		appendedUploads := make([]ManifestRecord, 0, len(result.Added))
 		for _, rec := range result.Added {
 			markerKey := manifestMarkerKey(rec)
 			if _, exists := active[markerKey]; exists {
+				continue
+			}
+			if manifestRevisionWasDeleted(deletedRevisions, rec) {
 				continue
 			}
 			if hasConcurrentDelete(current, initialLen, rec) {

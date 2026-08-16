@@ -281,6 +281,84 @@ func TestSyncManifestDoesNotProjectUnannouncedRevisionCandidate(t *testing.T) {
 	}
 }
 
+func TestSyncManifestDoesNotReimportTombstonedRemoteRevision(t *testing.T) {
+	when := time.Date(2026, 8, 16, 14, 0, 0, 0, time.UTC)
+	dir := strings.Repeat("z", 26)
+	chain := strings.Repeat("y", 26)
+	page := []byte("revision one")
+	source := []byte("one\n")
+	url := "https://plans.example.com/" + dir + "/plan.html"
+	fake := newSyncStorage(t)
+	fake.addUpload(t, UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: when, Kind: UploadKindDocument, Slug: "plan", Format: "md",
+		Producer: Producer{Name: "airplan", Version: "test"},
+		Render: &RenderRecipe{
+			Generation: RendererGeneration,
+			Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
+		},
+		Revision: &RevisionDescriptor{ChainID: chain, Number: 1},
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+		},
+	}, page)
+	fake.addObject(dir+"/plan.md", source, when)
+	metadata := VersionsMetadata{
+		Schema: "airplan-versions", Version: 1, ChainID: chain,
+		CurrentRevision: 1, LatestRevision: 1, LastAssignedRevision: 2,
+		Revisions: []VersionsRevision{
+			{Number: 1, URL: url, CreatedAt: when},
+			{Number: 2, Deleted: true, DeletedAt: when.Add(time.Minute)},
+		},
+	}
+	body, err := EncodeVersionsMetadata(metadata,
+		&Config{PublicBaseURL: "https://plans.example.com"}, dir+"/plan.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.addObject(dir+"/"+VersionsFilename, body, when)
+
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	upload := ManifestRecord{
+		Type: "upload", Time: when, CreatedAt: when,
+		Key: dir + "/plan.html", SourceKey: dir + "/plan.md",
+		MarkerKey: dir + "/" + MarkerFilename, URL: url,
+		Bucket: "plans", Profile: "work", Format: "md",
+		Kind: string(UploadKindDocument), Slug: "plan", Bytes: int64(len(page)),
+		Objects: 3, TotalBytes: int64(len(page) + len(source) + len(body)),
+		MarkerVersion: MarkerVersion, RevisionChainID: chain,
+		Revision: 1, LatestRevision: 1,
+	}
+	if err := appendManifestRecord(context.Background(), manifest, upload); err != nil {
+		t.Fatal(err)
+	}
+	tombstone := ManifestRecord{
+		Type: "delete", Time: when.Add(time.Minute), Key: upload.Key,
+		MarkerKey: upload.MarkerKey, Bucket: upload.Bucket, Profile: upload.Profile,
+		Reason: "deleted", RevisionChainID: chain, Revision: 1,
+	}
+	if err := appendManifestRecord(context.Background(), manifest, tombstone); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client := newSyncClient(t, fake.server.URL, manifest)
+	for attempt := 1; attempt <= 2; attempt++ {
+		result, syncErr := client.SyncManifest(context.Background(), SyncManifestOptions{})
+		if syncErr != nil || len(result.Added) != 0 || result.Retained != 1 {
+			t.Fatalf("sync %d = %+v, %v", attempt, result, syncErr)
+		}
+		after, readErr := os.ReadFile(manifest)
+		if readErr != nil || string(after) != string(before) {
+			t.Fatalf("manifest changed on sync %d: %v", attempt, readErr)
+		}
+	}
+}
+
 func TestSyncManifestLinksExistingStandaloneAfterRemotePromotion(t *testing.T) {
 	store := newUpgradeStore(t)
 	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")

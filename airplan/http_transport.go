@@ -604,7 +604,7 @@ func transportError(err error) error {
 				"%w: server reported a conditional mutation conflict: %w",
 				ErrConflict, err,
 			)
-		case "input_too_large":
+		case "input_too_large", "request_too_large":
 			return fmt.Errorf("%w: %w", ErrInputTooLarge, err)
 		case "revision_history_full":
 			return fmt.Errorf("%w: %w", ErrRevisionHistoryFull, err)

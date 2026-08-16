@@ -2093,7 +2093,11 @@ machine) and must be safe:
   the marker's revision was announced; a marker-only rollback candidate remains
   unversioned locally so its unused integer can be reassigned. The manifest lock
   recheck prevents a concurrent delete or link from being overwritten.
-  By default, active scoped local records absent from LIST are considered for
+  Revision tombstones are scoped by profile, bucket, and chain identifier. A
+  remote marker for an already-tombstoned revision is retained as deleted and
+  is not re-imported or appended again, including under `--dry-run`; later syncs
+  therefore converge even if stale storage restores the marker. By default,
+  active scoped local records absent from LIST are considered for
   pruning, but airplan performs a targeted marker GET before appending a
   `remote_missing` tombstone. Only a definite not-found response confirms
   absence. Revision identity is retained only from a complete announced local
@@ -2112,7 +2116,8 @@ machine) and must be safe:
   emits exactly one object on stdout with deterministic `added_records`,
   `enriched_records`, `tombstone_records`, `protection_records`, and `failures`
   arrays plus `unchanged`, `deferred`, `incomplete`, `invalid`, and `retained`
-  counters.
+  counters. `retained` includes already-tombstoned remote revisions that sync
+  deliberately leaves suppressed.
   Enriched records complete uploads already in history, so they are never
   counted as additions. `unchanged` counts scoped records already complete
   locally, including an inspected v4 Markdown record that remains standalone;
@@ -2199,9 +2204,10 @@ invoke the server's operation service directly rather than calling loopback
 HTTP or duplicating business rules.
 
 HTTP problem codes preserve stable public error identity across backends:
-`input_too_large` maps to `ErrInputTooLarge`, `revision_history_full` maps to
-`ErrRevisionHistoryFull`, and conditional mutation conflict codes map to
-`ErrConflict`, while the server problem details remain available.
+`input_too_large` and the multipart-envelope `request_too_large` map to
+`ErrInputTooLarge`, `revision_history_full` maps to `ErrRevisionHistoryFull`,
+and conditional mutation conflict codes map to `ErrConflict`, while the server
+problem details remain available.
 
 For an `airplan` backend, request attributes such as format, title, slug,
 language, repository URL, and lower size limits remain portable. Explicit S3

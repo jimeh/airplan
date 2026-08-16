@@ -357,6 +357,7 @@ func TestTransportPreservesStableCapacityErrors(t *testing.T) {
 		sentinel error
 	}{
 		{code: "input_too_large", sentinel: ErrInputTooLarge},
+		{code: "request_too_large", sentinel: ErrInputTooLarge},
 		{code: "revision_history_full", sentinel: ErrRevisionHistoryFull},
 	} {
 		t.Run(test.code, func(t *testing.T) {
@@ -372,6 +373,34 @@ func TestTransportPreservesStableCapacityErrors(t *testing.T) {
 				t.Fatalf("error = %v, problem = %+v", err, got)
 			}
 		})
+	}
+}
+
+func TestAirplanBackendPreservesServerMultipartSizeRefusal(t *testing.T) {
+	const token = "01234567890123456789012345678901"
+	handler, err := httpapi.NewHandler(&HTTPOperations{Client: &Client{}},
+		httpapi.Options{Token: token, MaxDocumentBytes: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL, APIToken: token,
+		Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: "https://plans.example.com/aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html",
+		Input:  Input{Reader: strings.NewReader("four"), Name: "plan.md"},
+	})
+	var problem *httpapi.ProblemError
+	if !errors.Is(err, ErrInputTooLarge) || !errors.As(err, &problem) ||
+		problem.Problem.Code != "request_too_large" ||
+		problem.Problem.Status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("error = %v, problem = %+v", err, problem)
 	}
 }
 

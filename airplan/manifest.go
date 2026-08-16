@@ -573,6 +573,50 @@ func manifestRecordHasAnnouncedRevision(rec ManifestRecord) bool {
 		rec.LatestRevision >= rec.Revision
 }
 
+type manifestRevisionChainKey struct {
+	profile string
+	bucket  string
+	chainID string
+}
+
+func manifestRevisionChainIdentity(rec ManifestRecord) manifestRevisionChainKey {
+	return manifestRevisionChainKey{
+		profile: rec.Profile,
+		bucket:  rec.Bucket,
+		chainID: rec.RevisionChainID,
+	}
+}
+
+func manifestDeletedRevisions(
+	records []ManifestRecord,
+) map[manifestRevisionChainKey]map[int]struct{} {
+	deletedRevisions := make(map[manifestRevisionChainKey]map[int]struct{})
+	for _, rec := range records {
+		if rec.Type != "delete" || rec.RevisionChainID == "" || rec.Revision <= 0 {
+			continue
+		}
+		chain := manifestRevisionChainIdentity(rec)
+		deleted := deletedRevisions[chain]
+		if deleted == nil {
+			deleted = make(map[int]struct{})
+			deletedRevisions[chain] = deleted
+		}
+		deleted[rec.Revision] = struct{}{}
+	}
+	return deletedRevisions
+}
+
+func manifestRevisionWasDeleted(
+	deletedRevisions map[manifestRevisionChainKey]map[int]struct{},
+	rec ManifestRecord,
+) bool {
+	if !manifestRecordHasAnnouncedRevision(rec) {
+		return false
+	}
+	_, deleted := deletedRevisions[manifestRevisionChainIdentity(rec)][rec.Revision]
+	return deleted
+}
+
 // ManifestRecordSlug returns a record's document slug (SPEC.md §9): the
 // recorded value, or the slug derived from its page key for valid older
 // records that omit one. Collections have no slug and return "".
@@ -617,11 +661,11 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 	}
 	active := make(map[string]activeRecord)
 	protection := make(map[string]protectionState)
-	deletedRevisions := make(map[string]map[int]struct{})
+	deletedRevisions := make(map[manifestRevisionChainKey]map[int]struct{})
 	for index, rec := range records {
 		switch rec.Type {
 		case "upload", "upgrade", "link":
-			if deleted := deletedRevisions[rec.RevisionChainID]; rec.Revision > 0 && deleted != nil {
+			if deleted := deletedRevisions[manifestRevisionChainIdentity(rec)]; rec.Revision > 0 && deleted != nil {
 				if _, ok := deleted[rec.Revision]; ok {
 					continue
 				}
@@ -645,10 +689,11 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 			active[identity] = activeRecord{record: rec, order: order}
 		case "delete":
 			if rec.RevisionChainID != "" && rec.Revision > 0 {
-				deleted := deletedRevisions[rec.RevisionChainID]
+				chain := manifestRevisionChainIdentity(rec)
+				deleted := deletedRevisions[chain]
 				if deleted == nil {
 					deleted = make(map[int]struct{})
-					deletedRevisions[rec.RevisionChainID] = deleted
+					deletedRevisions[chain] = deleted
 				}
 				deleted[rec.Revision] = struct{}{}
 			}
@@ -677,10 +722,10 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 		out = append(out, record)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].order < out[j].order })
-	chainLatest := make(map[string]int)
+	chainLatest := make(map[manifestRevisionChainKey]int)
 	for _, record := range out {
 		if rec := record.record; manifestRecordHasAnnouncedRevision(rec) {
-			chain := rec.RevisionChainID
+			chain := manifestRevisionChainIdentity(rec)
 			latest := rec.LatestRevision
 			if latest > chainLatest[chain] {
 				chainLatest[chain] = latest
@@ -700,7 +745,7 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 	for _, record := range out {
 		rec := record.record
 		if manifestRecordHasAnnouncedRevision(rec) {
-			rec.LatestRevision = chainLatest[rec.RevisionChainID]
+			rec.LatestRevision = chainLatest[manifestRevisionChainIdentity(rec)]
 		}
 		// An upload never clears protection: a sync re-import of a still
 		// protected directory must not silently drop it. Protection state

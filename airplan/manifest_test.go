@@ -766,6 +766,61 @@ func TestManifestUploadsIgnoresStaleRevisionEventsAfterDeleteTombstone(t *testin
 	}
 }
 
+func TestManifestUploadsScopesRevisionTombstones(t *testing.T) {
+	when := time.Date(2026, 8, 16, 14, 0, 0, 0, time.UTC)
+	chain := strings.Repeat("c", 26)
+	for _, test := range []struct {
+		name         string
+		otherProfile string
+		otherBucket  string
+	}{
+		{name: "profile", otherProfile: "backup", otherBucket: "plans"},
+		{name: "bucket", otherProfile: "work", otherBucket: "archive"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			deletedDir := strings.Repeat("d", 26)
+			deleted := ManifestRecord{
+				Type: "upload", Time: when, Key: deletedDir + "/plan.html",
+				MarkerKey: deletedDir + "/" + MarkerFilename,
+				URL:       "https://plans.example.com/" + deletedDir + "/plan.html",
+				Bucket:    "plans", Profile: "work", Bytes: 1,
+				MarkerVersion: MarkerVersion, RevisionChainID: chain,
+				Revision: 2, LatestRevision: 2,
+			}
+			tombstone := ManifestRecord{
+				Type: "delete", Time: when.Add(time.Second),
+				Key: deleted.Key, MarkerKey: deleted.MarkerKey,
+				Bucket: "plans", Profile: "work",
+				RevisionChainID: chain, Revision: 2,
+			}
+
+			records := []ManifestRecord{deleted, tombstone}
+			for index := 1; index <= 2; index++ {
+				dir := strings.Repeat(string(rune('p'+index)), 26)
+				records = append(records, ManifestRecord{
+					Type: "upload", Time: when.Add(time.Duration(index+1) * time.Second),
+					Key: dir + "/plan.html", MarkerKey: dir + "/" + MarkerFilename,
+					URL:    "https://plans.example.com/" + dir + "/plan.html",
+					Bucket: test.otherBucket, Profile: test.otherProfile, Bytes: 1,
+					MarkerVersion: MarkerVersion, RevisionChainID: chain,
+					Revision: index, LatestRevision: 2,
+				})
+			}
+
+			uploads := ManifestUploads(records)
+			if len(uploads) != 2 {
+				t.Fatalf("uploads = %+v", uploads)
+			}
+			for _, upload := range uploads {
+				if upload.Profile != test.otherProfile ||
+					upload.Bucket != test.otherBucket || upload.LatestRevision != 2 {
+					t.Fatalf("cross-scope tombstone leaked: %+v", upload)
+				}
+			}
+		})
+	}
+}
+
 func TestReadManifestInfersKindlessCollectionTombstone(t *testing.T) {
 	dir := strings.Repeat("c", 26)
 	when := time.Date(2026, 7, 21, 1, 0, 0, 0, time.UTC)
