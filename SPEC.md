@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.36.0**
+**Spec version: 0.37.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -882,6 +882,21 @@ deleted. REST reports this as `revision_conflict` with status 409. After that
 point, retries repair interrupted promotion or replication rather than
 allocating another revision.
 
+Cleanup of a marker-first candidate that has not been announced must serialize
+against the same predecessor metadata ETag as append. For an existing chain,
+cleanup conditionally rewrites semantically unchanged metadata by using an
+alternate top-level JSON field order before deleting the candidate. The
+same-size byte-distinct body changes content-derived S3 ETags; either that claim
+wins or the append publishes first. A candidate whose assigned integer is
+already at or below the chain high-water mark is durably known to have lost and
+needs no additional claim.
+A revision-2 candidate beside a still-live standalone predecessor fails closed
+because no versions object exists on which cleanup can safely contend. A
+standalone deletion reservation or missing predecessor is durable proof that
+the first-link candidate lost. Candidate rollback uses a fresh bounded cleanup
+context so cancellation of the update request does not by itself strand the
+marker-first upload.
+
 A first update and a concurrent standalone delete contend on a conditional
 reservation at the predecessor's versions key. The delete reservation is not
 valid versions metadata and remains as a tiny permanent deletion tombstone
@@ -902,6 +917,10 @@ lines, deterministic LF output, and preserves final-newline distinctions. It is
 bounded to 32 MiB and generated before remote mutation. At most 512 KiB is
 embedded for server-highlighted display; larger diffs retain the Changes view
 and its raw sibling-object link without embedding the diff body in the page.
+The immutable `--- revision-N/plan.md` header remains the authoritative
+predecessor number when that predecessor has since become a metadata tombstone
+and its URL is no longer present in the chain index; re-rendering must not infer
+`current revision - 1` across an assignment gap.
 
 `.airplan-versions.json` is a mutable no-store control object with schema
 `airplan-versions`, version 1, chain ID, containing member's
@@ -921,7 +940,8 @@ rendered content into the sole revision selector, adding a small downward
 chevron while retaining its existing typography. Older pages use a
 content-width stale-warning treatment labeled `Revision N of M`; the latest
 page is labeled `Revision N (Latest)`. The whole indicator opens a native
-select; the toolbar contains no revision control and there are no previous,
+select, including a one-option selector when deletion leaves one live chain
+member; the toolbar contains no revision control and there are no previous,
 next, or latest shortcut links.
 Valid metadata also adds the server-highlighted Changes view and raw diff
 link. It validates same-origin Airplan-shaped URLs and inserts metadata text
@@ -936,11 +956,14 @@ metadata error. Manifest projections may carry `revision_chain_id`, `revision`,
 and `latest_revision`; sync reconstructs them from v4 markers and bounded
 metadata reads.
 
-Successful `update --json` output extends the upload result with
-`previous_url`, `diff_url`, and `unchanged`. A newly appended revision includes
-both URLs and `unchanged: false`; an identical-source retry returns the current
-latest upload with `unchanged: true`. A standalone identical-source result may
-omit `revision` and `latest_revision` because no revision chain exists yet.
+Successful `update --json` output extends the six-field document-upload JSON
+schema with `revision`, `latest_revision`, `previous_url`, `diff_url`, and
+`unchanged`. It does not expose the library result's management or provenance
+fields. A newly appended revision includes both URLs and `unchanged: false`;
+an identical-source retry returns the current latest upload with
+`unchanged: true`. A standalone identical-source result omits `revision`,
+`latest_revision`, `previous_url`, and `diff_url` because no revision chain
+exists yet.
 
 Protection remains per directory. Purge skips linked revisions unless
 `--include-versioned` explicitly acknowledges history removal; protection
@@ -1657,8 +1680,9 @@ machine) and must be safe:
   legacy entries remain ineligible for delete reconciliation and purge.
 - Table columns are one vocabulary shared by local and remote listing, and
   always print in the canonical order `date`, `profile`, `state`, `kind`,
-  `title`, `slug`, `objects`, `size`, `page-size`, `dir`, `format`, `repo`,
-  `bucket`, `url`. Local listing offers every one of them; remote listing offers
+  `title`, `slug`, `objects`, `size`, `page-size`, `dir`, `format`, `airplan`,
+  `renderer`, `revision`, `latest`, `repo`, `bucket`, `url`. Local listing
+  offers every one of them; remote listing offers
   `date`, `state`, `kind`, `slug`, `objects`, `size`, `dir`, and `url`. Remote
   `STATE` is `protected` or `unprotected`; remote listing does not fetch marker
   bodies, so it cannot classify rows as managed or legacy. Three columns are
@@ -1872,7 +1896,7 @@ machine) and must be safe:
   manifest record best-effort and prints a one-line stderr summary
   (`protected upload (key ...)` / `unprotected upload (key ...)`); stdout
   stays empty.
-- Before `show`, `get`, `delete`, `protect`, or `unprotect` resolves its
+- Before `show`, `get`, `delete`, `protect`, `unprotect`, `upgrade`, or `update` resolves its
   connection, it consults local
   history for exactly one matching active, marker-managed manifest record.
   When neither
@@ -1949,7 +1973,9 @@ machine) and must be safe:
   after planning is still caught by the delete-time sentinel guard and is
   reported the same way. Protected skips are never failures: the summary
   becomes `purged N uploads (P protected, F failed)` and skips do not
-  change the exit status.
+  change the exit status. When linked revisions are skipped because
+  `--include-versioned` was not supplied, the summary instead becomes
+  `purged N uploads (P protected, V versioned, F failed)`.
 - `purge --remote` starts from the same marker-key candidates as
   `list --remote`, but fetches and validates markers because it is a
   destructive operation. It may select both `complete` and
@@ -2241,6 +2267,7 @@ endpoints require `Authorization: Bearer <token>`:
 ```text
 GET    /api/v1/capabilities
 POST   /api/v1/uploads/documents
+POST   /api/v1/uploads/documents/update
 POST   /api/v1/uploads/collections
 POST   /api/v1/uploads/inspect
 POST   /api/v1/uploads/get
@@ -2292,6 +2319,12 @@ protected exclusions in a separate `protected` array, purge items report a
 delete-time skip as `protected: true` rather than a failure, and sync results
 include `protection_records`. The capabilities operation list includes
 `protect_upload` and `unprotect_upload` so clients can detect the feature.
+
+Document update uses bounded streaming `multipart/form-data` with metadata
+containing the target and optional name, title, and size limit. Refusal maps a
+missing upload to `upload_not_found` (404), an unreconcilable chain to
+`invalid_upload` (422), an ineligible document to `invalid_target` (422), and a
+lost append serialization race to `revision_conflict` (409).
 
 Purge is two-phase. `/purge/preview` applies the source and filters without
 deleting and returns explicit `upload_id` candidates. The CLI displays them

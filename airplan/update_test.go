@@ -212,6 +212,61 @@ func TestUpdateDocumentCandidateFailureRollsBackPublishedMarker(t *testing.T) {
 	}
 }
 
+func TestUpdateDocumentRollbackSurvivesCallerCancellation(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store.mu.Lock()
+	store.failPutKey = first.ID + "/" + VersionsFilename
+	store.cancelOnPutKey = store.failPutKey
+	store.cancelOnPut = cancel
+	store.mu.Unlock()
+	_, err = client.UpdateDocument(ctx, UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err == nil || strings.Contains(err.Error(), "candidate rollback failed") {
+		t.Fatalf("update error = %v, want primary failure with successful rollback", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	for key := range store.objects {
+		if strings.HasSuffix(key, "/"+MarkerFilename) && key != first.MarkerKey {
+			t.Fatalf("cancelled update left candidate marker %q", key)
+		}
+	}
+}
+
+func TestUpdateDocumentDoesNotReclassifyTransientCurrentReadFailure(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.failGetKeyOnce = first.MarkerKey
+	store.mu.Unlock()
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "get object") {
+		t.Fatalf("update error = %v, want transient storage failure", err)
+	}
+	var refusal *updateRefusalError
+	if errors.As(err, &refusal) {
+		t.Fatalf("transient storage failure was reclassified as %s", refusal.kind)
+	}
+}
+
 func TestUpdateDocumentRollbackFailureLeavesDiscoverableManagedCandidate(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")
@@ -243,13 +298,79 @@ func TestUpdateDocumentRollbackFailureLeavesDiscoverableManagedCandidate(t *test
 		t.Fatal("rollback failure did not leave a discoverable ownership marker")
 	}
 	candidateDir := strings.TrimSuffix(candidateMarkerKey, "/"+MarkerFilename)
+	if _, err := client.DeleteUpload(
+		context.Background(), candidateDir+"/plan.md",
+	); !errors.Is(err, errObjectNotFound) {
+		t.Fatalf("live-predecessor candidate delete error = %v, want fail closed", err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), first.URL); err != nil {
+		t.Fatalf("delete predecessor: %v", err)
+	}
 	deleted, err := client.DeleteUpload(context.Background(), candidateDir+"/plan.md")
 	if err != nil {
-		t.Fatalf("recover managed candidate: %v", err)
+		t.Fatalf("recover candidate after predecessor deletion: %v", err)
 	}
 	if deleted.MarkerKey != candidateMarkerKey ||
 		!strings.Contains(strings.Join(deleted.Warnings, "\n"), "unannounced revision candidate") {
 		t.Fatalf("recovery result = %+v", deleted)
+	}
+}
+
+func TestGappedChainRollbackCandidateCanBeDeleted(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), third.URL); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.failPutSuffix = ".html"
+	store.failDeleteKeys = true
+	store.mu.Unlock()
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("four\n")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "candidate rollback failed") {
+		t.Fatalf("update error = %v", err)
+	}
+	store.mu.Lock()
+	candidateMarkerKey := ""
+	for key := range store.objects {
+		if strings.HasSuffix(key, "/"+MarkerFilename) &&
+			key != first.MarkerKey && key != second.MarkerKey {
+			candidateMarkerKey = key
+			break
+		}
+	}
+	store.mu.Unlock()
+	if candidateMarkerKey == "" {
+		t.Fatal("gapped-chain rollback candidate marker is missing")
+	}
+	candidatePrefix := strings.TrimSuffix(candidateMarkerKey, MarkerFilename)
+	deleted, err := client.DeleteUpload(context.Background(), candidatePrefix+"plan.html")
+	if err != nil {
+		t.Fatalf("delete gapped-chain candidate: %v", err)
+	}
+	if !strings.Contains(strings.Join(deleted.Warnings, "\n"),
+		"unannounced revision candidate") {
+		t.Fatalf("candidate delete warnings = %v", deleted.Warnings)
 	}
 }
 
@@ -1551,6 +1672,84 @@ func TestStandaloneDeleteReservationMakesLaterFirstLinkFailClosed(t *testing.T) 
 	if body, ok := store.get(dirPrefix + VersionsFilename); !ok ||
 		!bytes.Equal(body, standaloneDeleteReservationBody) {
 		t.Fatal("reserved standalone delete did not retain its tombstone")
+	}
+}
+
+func TestUnannouncedCandidateDeleteSerializesAgainstAppendCommit(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reached := make(chan struct{})
+	release := make(chan struct{})
+	store.mu.Lock()
+	store.pauseIfMatchKey = second.ID + "/" + VersionsFilename
+	store.pauseIfMatchReached = reached
+	store.pauseIfMatchRelease = release
+	store.mu.Unlock()
+
+	updateDone := make(chan error, 1)
+	go func() {
+		_, updateErr := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+			Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+		})
+		updateDone <- updateErr
+	}()
+	select {
+	case <-reached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("append did not reach predecessor metadata commit")
+	}
+
+	store.mu.Lock()
+	candidateMarkerKey := ""
+	for key := range store.objects {
+		if strings.HasSuffix(key, "/"+MarkerFilename) &&
+			key != first.MarkerKey && key != second.MarkerKey {
+			candidateMarkerKey = key
+			break
+		}
+	}
+	store.mu.Unlock()
+	if candidateMarkerKey == "" {
+		t.Fatal("append candidate marker is missing")
+	}
+	candidatePrefix := strings.TrimSuffix(candidateMarkerKey, MarkerFilename)
+	deleteResult, deleteErr := client.DeleteUpload(
+		context.Background(), candidatePrefix+"plan.html",
+	)
+	close(release)
+	if deleteErr != nil {
+		t.Fatalf("candidate delete: %v", deleteErr)
+	}
+	if !strings.Contains(strings.Join(deleteResult.Warnings, "\n"),
+		"unannounced revision candidate") {
+		t.Fatalf("candidate delete warnings = %v", deleteResult.Warnings)
+	}
+	select {
+	case updateErr := <-updateDone:
+		if !errors.Is(updateErr, ErrConflict) {
+			t.Fatalf("append error = %v, want conflict", updateErr)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("append did not finish")
+	}
+	inspection, err := client.InspectUpload(context.Background(), second.URL)
+	if err != nil || inspection.LatestRevision != 2 {
+		t.Fatalf("surviving chain = %+v, %v", inspection, err)
+	}
+	if _, ok := store.get(candidateMarkerKey); ok {
+		t.Fatal("deleted candidate marker remains")
 	}
 }
 

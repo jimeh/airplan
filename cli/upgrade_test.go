@@ -86,6 +86,24 @@ func TestUpdatePrintsOnlyNewRevisionURLAndJSONDescribesChain(t *testing.T) {
 	if err != nil || stderr != "" {
 		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
 	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(stdout), &fields); err != nil {
+		t.Fatalf("stdout = %q: %v", stdout, err)
+	}
+	wantFields := map[string]bool{
+		"url": true, "key": true, "source_url": true, "bucket": true,
+		"bytes": true, "content_type": true, "revision": true,
+		"latest_revision": true, "previous_url": true, "diff_url": true,
+		"unchanged": true,
+	}
+	if len(fields) != len(wantFields) {
+		t.Fatalf("JSON fields = %v, want %v", fields, wantFields)
+	}
+	for name := range fields {
+		if !wantFields[name] {
+			t.Fatalf("unexpected update JSON field %q", name)
+		}
+	}
 	var result airplan.UpdateDocumentResult
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("stdout = %q: %v", stdout, err)

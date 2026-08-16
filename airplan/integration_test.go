@@ -641,6 +641,37 @@ func testRevisionRoundTrip(
 	if err != nil || third.Revision != 3 || third.PreviousURL != second.URL {
 		t.Fatalf("third revision = %+v, %v", third, err)
 	}
+	firstDoc, err := client.loadRevisionDocument(ctx, first.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimBody, err := revisionCandidateCleanupClaimBody(firstDoc.versionsBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataKey := firstDoc.dirPrefix + VersionsFilename
+	if err := st.putConditional(ctx, object{
+		Key: metadataKey, Body: claimBody, ContentType: markerContentType,
+	}, firstDoc.versionsETag); err != nil {
+		t.Fatalf("real conditional cleanup claim: %v", err)
+	}
+	claimedBody, claimedETag, _, err := st.getBytesWithETag(
+		ctx, metadataKey, MaxVersionsMetadataSize,
+	)
+	if err != nil || bytes.Equal(claimedBody, firstDoc.versionsBody) ||
+		claimedETag == firstDoc.versionsETag {
+		t.Fatalf("cleanup claim body/etag = changed %t/%t, %v",
+			!bytes.Equal(claimedBody, firstDoc.versionsBody),
+			claimedETag != firstDoc.versionsETag, err)
+	}
+	if _, err := DecodeVersionsMetadata(claimedBody, client.cfg, firstDoc.pageKey); err != nil {
+		t.Fatalf("cleanup claim metadata: %v", err)
+	}
+	if err := st.putConditional(ctx, object{
+		Key: metadataKey, Body: firstDoc.versionsBody, ContentType: markerContentType,
+	}, claimedETag); err != nil {
+		t.Fatalf("restore metadata after cleanup claim proof: %v", err)
+	}
 	inspection, err := client.InspectUpload(ctx, first.URL)
 	if err != nil || inspection.Revision != 1 || inspection.LatestRevision != 3 ||
 		inspection.Versions == nil || !inspection.Protected {

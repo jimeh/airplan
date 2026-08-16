@@ -85,8 +85,6 @@
     }));
     if (latest !== metadata.latest_revision) throw new Error('latest is invalid');
 
-    if (live.length < 2) return;
-
     var heading = d.querySelector('[data-revision-heading]');
     if (!heading) {
       heading = d.createElement('p');
@@ -102,6 +100,7 @@
     var visualLabel = d.createElement('span');
     visualLabel.className = 'revision-picker-label';
     visualLabel.textContent = label;
+    visualLabel.setAttribute('aria-hidden', 'true');
     var select = d.createElement('select');
     select.setAttribute('aria-label', 'Document revision');
     live.forEach(function (revision) {

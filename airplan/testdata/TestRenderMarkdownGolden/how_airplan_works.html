@@ -1989,8 +1989,6 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
     }));
     if (latest !== metadata.latest_revision) throw new Error('latest is invalid');
 
-    if (live.length < 2) return;
-
     var heading = d.querySelector('[data-revision-heading]');
     if (!heading) {
       heading = d.createElement('p');
@@ -2006,6 +2004,7 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
     var visualLabel = d.createElement('span');
     visualLabel.className = 'revision-picker-label';
     visualLabel.textContent = label;
+    visualLabel.setAttribute('aria-hidden', 'true');
     var select = d.createElement('select');
     select.setAttribute('aria-label', 'Document revision');
     live.forEach(function (revision) {

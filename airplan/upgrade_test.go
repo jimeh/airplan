@@ -236,8 +236,40 @@ func TestRevisionPreviousUsesContainingPageKeyWithDeletedIntermediate(t *testing
 	marker := &UploadMarker{Revision: &RevisionDescriptor{
 		ChainID: metadata.ChainID, Number: 3, PreviousURL: url1,
 	}}
-	if got := revisionPrevious(body, cfg, pageKey, marker); got != 1 {
-		t.Fatalf("previous revision = %d, want 1", got)
+	got, err := revisionPrevious(body, cfg, pageKey, marker,
+		[]byte("--- revision-1/plan.md\n+++ revision-3/plan.md\n"))
+	if err != nil || got != 1 {
+		t.Fatalf("previous revision = %d, %v; want 1", got, err)
+	}
+}
+
+func TestRevisionPreviousUsesDiffHeaderAfterPredecessorTombstone(t *testing.T) {
+	cfg := &Config{PublicBaseURL: "https://plans.example.com"}
+	when := time.Now().UTC().Truncate(time.Second)
+	dir2, dir4 := strings.Repeat("b", 26), strings.Repeat("d", 26)
+	url2 := "https://plans.example.com/" + dir2 + "/plan.html"
+	metadata := VersionsMetadata{
+		Schema: "airplan-versions", Version: 1, ChainID: strings.Repeat("c", 26),
+		CurrentRevision: 4, LatestRevision: 4, LastAssignedRevision: 4,
+		Revisions: []VersionsRevision{
+			{Number: 1, Deleted: true, DeletedAt: when},
+			{Number: 2, Deleted: true, DeletedAt: when.Add(time.Second)},
+			{Number: 3, Deleted: true, DeletedAt: when.Add(2 * time.Second)},
+			{Number: 4, URL: "https://plans.example.com/" + dir4 + "/plan.html", CreatedAt: when.Add(3 * time.Second), DiffURL: "https://plans.example.com/" + dir4 + "/" + DiffFilename},
+		},
+	}
+	pageKey := dir4 + "/plan.html"
+	body, err := EncodeVersionsMetadata(metadata, cfg, pageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := &UploadMarker{Revision: &RevisionDescriptor{
+		ChainID: metadata.ChainID, Number: 4, PreviousURL: url2,
+	}}
+	got, err := revisionPrevious(body, cfg, pageKey, marker,
+		[]byte("--- revision-2/plan.md\n+++ revision-4/plan.md\n@@ -1 +1 @@\n-old\n+new\n"))
+	if err != nil || got != 2 {
+		t.Fatalf("previous revision = %d, %v; want 2", got, err)
 	}
 }
 
@@ -767,9 +799,12 @@ type upgradeStore struct {
 	failPutAttempt          int
 	failPutKey              string
 	failPutSuffix           string
+	cancelOnPutKey          string
+	cancelOnPut             func()
 	failDeleteKeys          bool
 	failMarkerDelete        bool
 	failGetKey              string
+	failGetKeyOnce          string
 	failHeadKey             string
 	getAttempts             int
 	conditionalBarrier      chan struct{}
@@ -778,6 +813,10 @@ type upgradeStore struct {
 	pauseIfNoneReached      chan struct{}
 	pauseIfNoneRelease      chan struct{}
 	pauseIfNoneUsed         bool
+	pauseIfMatchKey         string
+	pauseIfMatchReached     chan struct{}
+	pauseIfMatchRelease     chan struct{}
+	pauseIfMatchUsed        bool
 	pauseListPrefix         string
 	pauseListAttempt        int
 	listAttempts            int
@@ -877,6 +916,13 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	if r.Method == http.MethodPut && r.Header.Get("If-Match") != "" {
 		s.mu.Lock()
+		var targetedRelease chan struct{}
+		if s.pauseIfMatchReached != nil && key == s.pauseIfMatchKey &&
+			!s.pauseIfMatchUsed {
+			s.pauseIfMatchUsed = true
+			close(s.pauseIfMatchReached)
+			targetedRelease = s.pauseIfMatchRelease
+		}
 		barrier := s.ifMatchBarrier
 		if barrier != nil {
 			s.ifMatchBarrierCount++
@@ -885,6 +931,9 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		s.mu.Unlock()
+		if targetedRelease != nil {
+			<-targetedRelease
+		}
 		if barrier != nil {
 			select {
 			case <-barrier:
@@ -914,6 +963,11 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 		s.getAttempts++
 		if s.failGetKey == key {
 			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if s.failGetKeyOnce == key {
+			s.failGetKeyOnce = ""
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		body, ok := s.objects[key]
@@ -960,6 +1014,11 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.putAttempts++
+		if s.cancelOnPutKey == key && s.cancelOnPut != nil {
+			s.cancelOnPut()
+			s.cancelOnPutKey = ""
+			s.cancelOnPut = nil
+		}
 		if s.failPutKey == key ||
 			(s.failPutSuffix != "" && strings.HasSuffix(key, s.failPutSuffix)) {
 			s.failPutKey = ""

@@ -160,19 +160,22 @@ manifest writes, while a retry may repair interrupted chain replication.
 
 ### 5.2 Page controls
 
-The built-in Markdown toolbar gains a revision control group when valid
-metadata describes at least two live revisions:
+Valid chain metadata turns the muted revision indicator above the rendered
+content into the sole revision selector:
 
-- `Revision N of M` selector with one option per non-deleted revision;
-- a prominent `Latest: revision M` action when viewing an older revision;
-- previous and next navigation where those live neighbours exist;
-- a distinct stale state in the toolbar and document heading area;
-- a `Changes` view for revisions greater than `1`; and
-- a raw diff link targeting `.airplan-changes.diff`.
+- older pages read `Revision N of M` with a compact stale-warning treatment;
+- the latest page reads `Revision N (Latest)`;
+- the whole indicator, including its subtle downward chevron, opens a native
+  select with one option per non-deleted revision;
+- a one-live-member chain retains a one-option latest selector after deletion;
+- the toolbar contains no revision selector or previous/next/latest shortcuts;
+- revisions greater than `1` retain a `Changes` view and raw diff link targeting
+  `.airplan-changes.diff`.
 
 The existing Rendered and Source views remain. A revision with a diff uses the
-view order Rendered, Source, Changes. Changes is labelled `Changes from
-revision N-1` so its direction is unambiguous.
+view order Rendered, Source, Changes. Changes names the predecessor recorded by
+the adjacent diff header so its direction remains correct across tombstone
+gaps.
 
 The page embeds its creation-time revision context as a no-JavaScript
 fallback. JavaScript fetches the replicated metadata to discover future
@@ -621,8 +624,14 @@ transaction. Use conditional requests and a recoverable order:
    against the validated ETag. This transition to the new URL is the
    serialization point. A precondition failure means another writer won.
 7. On a lost race, delete the unannounced candidate upload as scoped rollback.
-   Report any cleanup failure and leave the managed orphan visible to normal
-   cleanup tooling.
+   Rollback uses a fresh bounded context so caller cancellation does not skip
+   cleanup. Report any cleanup failure and leave the managed orphan visible.
+   Generic cleanup of an existing-chain candidate first conditionally rewrites
+   semantically unchanged metadata with an alternate top-level JSON field
+   order; the same-size byte-distinct body changes content-derived S3 ETags and
+   serializes cleanup against the candidate writer's pending append. Revision-2
+   cleanup beside a still-live standalone predecessor fails closed because there
+   is no shared versions object on which to contend.
 8. On the first link, conditionally replace the predecessor's standalone
    marker with its revision `1` marker and then replace its page with the
    revision-aware rendering. This is a repairable post-commit promotion; it
@@ -1048,8 +1057,8 @@ Extend Chromium smoke coverage across desktop/narrow and light/dark projects:
 - no picker when the versions metadata request returns 404;
 - a cache-busted discovery request finding metadata after an earlier 404;
 - picker population from mocked/fixture metadata;
-- stale highlight and latest navigation;
-- previous/next selection;
+- stale highlight, latest labeling, and one-live-member labeling;
+- revision selection with no previous/next/latest shortcut links;
 - Rendered, Source, and Changes view switching;
 - accessible labels, focus, and keyboard operation;
 - invalid/failed metadata preserving the document;

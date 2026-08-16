@@ -103,6 +103,9 @@ func (c *Client) updateDocument(
 		if planErr != nil {
 			return nil, err
 		}
+		if plan.State == UpgradeStateCurrent {
+			return nil, err
+		}
 		if plan.State != UpgradeStateUpgradeable {
 			kind := updateRefusalInvalidTarget
 			switch plan.State {
@@ -359,10 +362,17 @@ func (c *Client) updateDocument(
 	markerKey := BuildKey(c.cfg.KeyPrefix, dir, MarkerFilename)
 	candidateKeys := []string{sourceKey, diffKey, pageKey}
 	rollback := func() error {
-		if deleteErr := c.st.deleteKeys(ctx, candidateKeys); deleteErr != nil {
+		rollbackCtx := context.WithoutCancel(ctx)
+		rollbackTimeout := c.cfg.Timeout
+		if rollbackTimeout <= 0 {
+			rollbackTimeout = DefaultTimeout
+		}
+		rollbackCtx, cancel := context.WithTimeout(rollbackCtx, rollbackTimeout)
+		defer cancel()
+		if deleteErr := c.st.deleteKeys(rollbackCtx, candidateKeys); deleteErr != nil {
 			return deleteErr
 		}
-		return c.st.deleteMarker(ctx, markerKey)
+		return c.st.deleteMarker(rollbackCtx, markerKey)
 	}
 	for _, object := range []object{
 		{Key: markerKey, Body: markerBody, ContentType: markerContentType},

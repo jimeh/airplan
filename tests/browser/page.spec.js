@@ -449,6 +449,9 @@ test('revision metadata renders a compact picker and stale notice',
     await expect(heading.getByRole('combobox')).toBeVisible();
     await expect(page.locator('.revision-picker-label'))
       .toHaveText('Revision 1 of 3');
+    await expect(page.locator('.revision-picker-label'))
+      .toHaveAttribute('aria-hidden', 'true');
+    await expect(heading).toHaveClass(/is-stale/);
     const coverage = await heading.evaluate((element) => {
       const bounds = element.getBoundingClientRect();
       const select = element.querySelector('select').getBoundingClientRect();
@@ -504,12 +507,12 @@ test('revision metadata rejects same-origin URLs outside the current key prefix'
     await page.goto(`${baseURL}/${currentDir}/plan.html`);
     await expect(page.getByRole('combobox', { name: 'Document revision' }))
       .toHaveCount(0);
-    await expect(page.locator('.revision-context')).toBeHidden();
+    await expect(page.locator('.revision-heading.is-picker')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Browser smoke plan' }))
       .toBeVisible();
   });
 
-test('valid revision metadata with one live member stays silently dormant',
+test('valid revision metadata with one live member labels it as latest',
   async ({ page }) => {
     const currentDir = 'h'.repeat(26);
     const warnings = [];
@@ -537,9 +540,13 @@ test('valid revision metadata with one live member stays silently dormant',
       }),
     }));
     await page.goto(`${baseURL}/${currentDir}/plan.html`);
-    await expect(page.getByRole('combobox', { name: 'Document revision' }))
-      .toHaveCount(0);
-    await expect(page.locator('.revision-context')).toBeHidden();
+    const picker = page.getByRole('combobox', { name: 'Document revision' });
+    await expect(picker).toBeVisible();
+    await expect(picker.locator('option')).toHaveText(['Revision 2 (Latest)']);
+    await expect(page.locator('.revision-picker-label'))
+      .toHaveText('Revision 2 (Latest)');
+    await expect(page.locator('[data-revision-heading]'))
+      .not.toHaveClass(/is-stale/);
     expect(warnings).toEqual([]);
   });
 
@@ -561,7 +568,7 @@ test('empty revision metadata fails closed without breaking the document',
     await page.goto(`${baseURL}/${currentDir}/plan.html`);
     await expect(page.getByRole('combobox', { name: 'Document revision' }))
       .toHaveCount(0);
-    await expect(page.locator('.revision-context')).toBeHidden();
+    await expect(page.locator('.revision-heading.is-picker')).toHaveCount(0);
     await expect(page.getByRole('heading', { name: 'Browser smoke plan' }))
       .toBeVisible();
     await expect.poll(() => warnings).toContain(

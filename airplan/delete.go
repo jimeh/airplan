@@ -207,7 +207,10 @@ func (c *Client) DeleteUploadWithOptions(
 					// The candidate marker was deliberately created first, but its
 					// predecessor never announced it. It is a managed rollback orphan.
 				} else {
-					return nil, errObjectNotFound
+					return nil, fmt.Errorf(
+						"airplan: revision candidate is unannounced and may still be committing: %w",
+						errObjectNotFound,
+					)
 				}
 			default:
 				return nil, err
@@ -296,10 +299,13 @@ func (c *Client) revisionCandidateIsUnannounced(
 		return false, fmt.Errorf("airplan: inspect revision candidate predecessor: %w", err)
 	}
 	if previous.versions == nil {
-		return marker.Revision.Number == 2 && previous.marker.Revision == nil, nil
+		// A live standalone predecessor still has an updater that may win its
+		// If-None-Match transition. Without a shared conditional object there is
+		// no safe way for generic cleanup to distinguish that writer from an
+		// abandoned revision-2 candidate, so fail closed.
+		return false, nil
 	}
-	if previous.versions.ChainID != marker.Revision.ChainID ||
-		previous.versions.CurrentRevision != marker.Revision.Number-1 {
+	if previous.versions.ChainID != marker.Revision.ChainID {
 		return false, nil
 	}
 	pageURL, _, err := PublicURL(c.cfg, targetDirPrefix+marker.Page)
@@ -311,7 +317,57 @@ func (c *Client) revisionCandidateIsUnannounced(
 			return false, nil
 		}
 	}
+	if marker.Revision.Number <= previous.versions.LastAssignedRevision {
+		// The high-water mark already consumed this integer for another URL (or
+		// tombstoned it), which is durable proof that this candidate lost.
+		return true, nil
+	}
+	if marker.Revision.Number != previous.versions.LastAssignedRevision+1 ||
+		previous.versions.CurrentRevision != previous.versions.LatestRevision {
+		return false, nil
+	}
+	claimBody, err := revisionCandidateCleanupClaimBody(previous.versionsBody)
+	if err != nil {
+		return false, err
+	}
+	// Rewriting semantically identical metadata with an alternate top-level
+	// field order changes content-derived S3 ETags. It serializes cleanup against
+	// the candidate writer's pending append: cleanup wins this claim or the
+	// append publishes first.
+	if err := c.st.putConditional(ctx, object{
+		Key: previous.dirPrefix + VersionsFilename, Body: claimBody,
+		ContentType: markerContentType,
+	}, previous.versionsETag); err != nil {
+		return false, fmt.Errorf("airplan: claim revision candidate cleanup: %w", err)
+	}
 	return true, nil
+}
+
+func revisionCandidateCleanupClaimBody(body []byte) ([]byte, error) {
+	if len(body) == 0 {
+		return nil, errors.New("airplan: revision candidate cleanup metadata is empty")
+	}
+	const canonicalPrefix = `{"schema":"airplan-versions","version":1,`
+	const claimPrefix = `{"version":1,"schema":"airplan-versions",`
+	if bytes.HasPrefix(body, []byte(canonicalPrefix)) {
+		return append([]byte(claimPrefix), body[len(canonicalPrefix):]...), nil
+	}
+	if bytes.HasPrefix(body, []byte(claimPrefix)) {
+		return append([]byte(canonicalPrefix), body[len(claimPrefix):]...), nil
+	}
+	claim := append([]byte(nil), body...)
+	switch claim[len(claim)-1] {
+	case '\n':
+		claim[len(claim)-1] = ' '
+	case ' ', '\t', '\r':
+		claim[len(claim)-1] = '\n'
+	default:
+		if len(claim) >= MaxVersionsMetadataSize {
+			return nil, errors.New("airplan: revision candidate cleanup metadata has no claim capacity")
+		}
+		claim = append(claim, '\n')
+	}
+	return claim, nil
 }
 
 func (c *Client) reserveStandaloneDelete(

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -446,6 +447,12 @@ func (c *Client) materializeUpgrade(plan *UpgradeDocumentPlan) error {
 		recipe = &copyRecipe
 		recipe.Generation = RendererGeneration
 	}
+	previousRevision, err := revisionPrevious(
+		plan.versions, c.cfg, plan.PageKey, marker, plan.diff,
+	)
+	if err != nil {
+		return err
+	}
 	newPage, err := RenderMarkdown(plan.sourceBody, RenderOptions{
 		Title: marker.Title, Slug: marker.Slug, SourceName: marker.Source,
 		SourcePath: "./" + marker.Source, Indexable: recipe.Indexable,
@@ -454,7 +461,7 @@ func (c *Client) materializeUpgrade(plan *UpgradeDocumentPlan) error {
 		Template:         c.template,
 		Revision:         revisionNumber(marker),
 		RevisionCount:    revisionLatest(plan.versions, c.cfg, plan.PageKey),
-		PreviousRevision: revisionPrevious(plan.versions, c.cfg, plan.PageKey, marker),
+		PreviousRevision: previousRevision,
 		VersionsPath:     VersionsFilename,
 		DiffPath:         revisionDiffPath(marker), DiffText: inlineRevisionDiff(plan.diff),
 	})
@@ -511,21 +518,59 @@ func revisionLatest(body []byte, cfg *Config, pageKey string) int {
 }
 
 func revisionPrevious(
-	body []byte, cfg *Config, pageKey string, marker *UploadMarker,
-) int {
+	body []byte, cfg *Config, pageKey string, marker *UploadMarker, diff []byte,
+) (int, error) {
 	if marker == nil || marker.Revision == nil || marker.Revision.PreviousURL == "" {
-		return 0
+		return 0, nil
 	}
 	metadata, err := DecodeVersionsMetadata(body, cfg, pageKey)
-	if err != nil {
-		return marker.Revision.Number - 1
-	}
-	for _, revision := range metadata.Revisions {
-		if !revision.Deleted && revision.URL == marker.Revision.PreviousURL {
-			return revision.Number
+	if err == nil {
+		for _, revision := range metadata.Revisions {
+			if !revision.Deleted && revision.URL == marker.Revision.PreviousURL {
+				return revision.Number, nil
+			}
 		}
 	}
-	return marker.Revision.Number - 1
+	previous, current, err := revisionDiffRange(diff)
+	if err != nil {
+		return 0, fmt.Errorf("airplan: identify adjacent revision diff: %w", err)
+	}
+	if current != marker.Revision.Number {
+		return 0, errors.New("airplan: adjacent revision diff does not match its marker")
+	}
+	return previous, nil
+}
+
+func revisionDiffRange(diff []byte) (int, int, error) {
+	lines := strings.SplitN(string(diff), "\n", 3)
+	if len(lines) < 2 {
+		return 0, 0, errors.New("diff headers are missing")
+	}
+	parse := func(line, prefix string) (int, error) {
+		line = strings.TrimSuffix(line, "\r")
+		if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, "/plan.md") {
+			return 0, errors.New("diff header is invalid")
+		}
+		number, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(
+			line, prefix,
+		), "/plan.md"))
+		if err != nil || number <= 0 {
+			return 0, errors.New("diff revision number is invalid")
+		}
+		return number, nil
+	}
+	previous, err := parse(lines[0], "--- revision-")
+	if err != nil {
+		return 0, 0, err
+	}
+	current, err := parse(lines[1], "+++ revision-")
+	if err != nil {
+		return 0, 0, err
+	}
+	if current <= previous {
+		return 0, 0, errors.New("diff revision order is invalid")
+	}
+	return previous, current, nil
 }
 
 func (c *Client) upgradeTemplateMatches(recipe *RenderRecipe) bool {

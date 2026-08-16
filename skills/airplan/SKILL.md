@@ -70,7 +70,9 @@ targeted. The input filename stem must resolve to the existing document slug;
 reuse the original filename or pass the revised Markdown through stdin. Return
 the resulting revision URL. Byte-identical content is a successful no-op and
 does not consume a revision number. Linked pages expose
-previous/next/latest navigation and server-generated adjacent changes. Anyone
+one compact revision selector above the rendered content and server-generated
+adjacent changes. Older pages are visibly labeled with their revision while
+the latest is labeled `(Latest)`. Anyone
 who can read one linked URL learns the capability URLs for the surviving
 revision history. With MCP, use `update_document`.
 

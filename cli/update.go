@@ -16,6 +16,15 @@ type updateOptions struct {
 	json, open      bool
 }
 
+type updateJSONResult struct {
+	jsonResult
+	Revision       int    `json:"revision,omitempty"`
+	LatestRevision int    `json:"latest_revision,omitempty"`
+	PreviousURL    string `json:"previous_url,omitempty"`
+	DiffURL        string `json:"diff_url,omitempty"`
+	Unchanged      bool   `json:"unchanged"`
+}
+
 func newUpdateCmd() *cobra.Command {
 	opts := &updateOptions{}
 	cmd := &cobra.Command{
@@ -71,7 +80,17 @@ func runUpdate(cmd *cobra.Command, args []string, opts *updateOptions) error {
 		fmt.Fprintf(cmd.ErrOrStderr(), "airplan: warning: %s\n", warning)
 	}
 	if opts.json {
-		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
+		out := updateJSONResult{
+			jsonResult: jsonResult{
+				URL: result.URL, Key: result.Key, SourceURL: result.SourceURL,
+				Bucket: result.Bucket, Bytes: result.Bytes,
+				ContentType: result.ContentType,
+			},
+			Revision: result.Revision, LatestRevision: result.LatestRevision,
+			PreviousURL: result.PreviousURL, DiffURL: result.DiffURL,
+			Unchanged: result.Unchanged,
+		}
+		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(out); err != nil {
 			return err
 		}
 	} else if _, err := fmt.Fprintln(cmd.OutOrStdout(), result.URL); err != nil {
