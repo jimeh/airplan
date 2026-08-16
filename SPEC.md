@@ -1001,9 +1001,12 @@ appends lose their stale ETag. With no survivor, the manifest delete tombstone
 retains chain and revision identity and omits `latest_revision`.
 The transition body uses schema `airplan-final-revision-delete-reservation`,
 version 1, and exact `chain_id`, `revision`, `last_assigned_revision`, and UTC
-second `deleted_at` fields. It is not valid versions metadata and is removed
-with the target directory; a retry may recognize it only to complete that same
-marker-authorized deletion.
+second `deleted_at` fields. It is not valid versions metadata. Linked deletion
+preserves either this final reservation or the deleted member's invalid-current
+versions body through marker removal as a permanent receipt, just as standalone
+deletion preserves its reservation. A marker-last retry can therefore prove the
+revision identity after every payload is gone. Marker-based listing and sync
+ignore the resulting tombstone-only prefix.
 
 `--json` output (single line, stable schema):
 

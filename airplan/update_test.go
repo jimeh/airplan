@@ -1002,7 +1002,7 @@ func TestInterruptedRevisionDeleteRetryPermanentlySuppressesStaleLinks(t *testin
 		}
 	}
 	if tombstone == nil || tombstone.RevisionChainID != second.RevisionChainID ||
-		tombstone.Revision != 2 || tombstone.LatestRevision != 0 {
+		tombstone.Revision != 2 || tombstone.LatestRevision != 1 {
 		t.Fatalf("interrupted delete tombstone = %+v", tombstone)
 	}
 	active := ManifestUploads(records)
@@ -1010,6 +1010,130 @@ func TestInterruptedRevisionDeleteRetryPermanentlySuppressesStaleLinks(t *testin
 		if record.MarkerKey == second.MarkerKey {
 			t.Fatalf("stale link resurrected deleted revision: %+v", record)
 		}
+	}
+}
+
+func TestRevisionOneMarkerLastRetryUsesDurableDeleteReceipt(t *testing.T) {
+	t.Setenv("AWS_MAX_ATTEMPTS", "1")
+	store := newUpgradeStore(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := store.client(t, manifest)
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stale ManifestRecord
+	for _, record := range records {
+		if record.Type == "link" && record.MarkerKey == first.MarkerKey {
+			stale = record
+		}
+	}
+	if stale.MarkerKey == "" {
+		t.Fatal("revision 1 link projection is missing")
+	}
+	store.mu.Lock()
+	store.failMarkerDelete = true
+	store.mu.Unlock()
+	if _, err := client.DeleteUpload(context.Background(), first.URL); err == nil {
+		t.Fatal("forced revision 1 marker-last interruption unexpectedly succeeded")
+	}
+	receiptKey := first.ID + "/" + VersionsFilename
+	receiptBody, ok := store.get(receiptKey)
+	if !ok {
+		t.Fatal("revision 1 delete receipt was removed before the marker")
+	}
+	receipt, err := decodeVersionsMetadata(receiptBody, client.cfg, "", true)
+	if err != nil || receipt.CurrentRevision != 1 || !receipt.Revisions[0].Deleted {
+		t.Fatalf("revision 1 delete receipt = %+v, %v", receipt, err)
+	}
+	deleted, err := client.DeleteUpload(context.Background(), first.URL)
+	if err != nil || deleted.revision != 1 || deleted.latestRevision != 2 {
+		t.Fatalf("revision 1 delete retry = %+v, %v", deleted, err)
+	}
+	if _, ok := store.get(receiptKey); !ok {
+		t.Fatal("successful revision 1 delete removed its durable receipt")
+	}
+	stale.Time = time.Now().UTC().Add(time.Second).Truncate(time.Second)
+	if err := appendManifestRecord(context.Background(), manifest, stale); err != nil {
+		t.Fatal(err)
+	}
+	records, _, err = ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, record := range ManifestUploads(records) {
+		if record.MarkerKey == first.MarkerKey {
+			t.Fatalf("stale revision 1 link was resurrected: %+v", record)
+		}
+	}
+	if inspection, err := client.InspectUpload(context.Background(), second.URL); err != nil ||
+		inspection.LatestRevision != 2 {
+		t.Fatalf("surviving revision 2 = %+v, %v", inspection, err)
+	}
+}
+
+func TestFinalRevisionMarkerLastRetryUsesDurableDeleteReceipt(t *testing.T) {
+	t.Setenv("AWS_MAX_ATTEMPTS", "1")
+	store := newUpgradeStore(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := store.client(t, manifest)
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), first.URL); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.failMarkerDelete = true
+	store.mu.Unlock()
+	if _, err := client.DeleteUpload(context.Background(), second.URL); err == nil {
+		t.Fatal("forced final marker-last interruption unexpectedly succeeded")
+	}
+	receiptKey := second.ID + "/" + VersionsFilename
+	receiptBody, ok := store.get(receiptKey)
+	if !ok {
+		t.Fatal("final revision delete receipt was removed before the marker")
+	}
+	reservation, reserved, err := decodeFinalRevisionDeleteReservation(receiptBody)
+	if err != nil || !reserved || reservation.ChainID != second.RevisionChainID ||
+		reservation.Revision != 2 {
+		t.Fatalf("final revision delete receipt = %+v, %t, %v",
+			reservation, reserved, err)
+	}
+	deleted, err := client.DeleteUpload(context.Background(), second.URL)
+	if err != nil || deleted.revision != 2 || deleted.latestRevision != 0 {
+		t.Fatalf("final revision delete retry = %+v, %v", deleted, err)
+	}
+	if _, ok := store.get(receiptKey); !ok {
+		t.Fatal("successful final delete removed its durable receipt")
+	}
+	records, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ManifestUploads(records)) != 0 {
+		t.Fatalf("final chain remains active: %+v", ManifestUploads(records))
 	}
 }
 

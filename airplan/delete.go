@@ -224,9 +224,10 @@ func (c *Client) DeleteUploadWithOptions(
 	}
 	payloadKeys := make([]string, 0, len(objects))
 	reservationKey := dirPrefix + VersionsFilename
+	preserveDeleteReceipt := standaloneReserved || marker.Revision != nil
 	for _, object := range objects {
 		if object.Key != resolved.Key && object.Key != sentinelKey &&
-			(!standaloneReserved || object.Key != reservationKey) {
+			(!preserveDeleteReceipt || object.Key != reservationKey) {
 			payloadKeys = append(payloadKeys, object.Key)
 		}
 	}
@@ -235,8 +236,8 @@ func (c *Client) DeleteUploadWithOptions(
 	}
 	deletedKeys := payloadKeys
 	// The protection sentinel outlives every payload. If marker deletion later
-	// fails, the marker remains protected; a standalone delete reservation is a
-	// separate durable tombstone and is never removed (SPEC.md §9).
+	// fails, the marker remains protected. Standalone and linked delete receipts
+	// are separate durable tombstones and are never removed (SPEC.md §9).
 	if protected {
 		if err := c.st.deleteObject(ctx, sentinelKey); err != nil {
 			return nil, err
@@ -770,6 +771,20 @@ func (c *Client) tombstoneLinkedRevision(
 	}
 	if err := c.verifyRevisionChain(ctx, *metadata, bodies); err != nil {
 		return nil, err
+	}
+	if !targetReserved && serializationKey != targetMetadataKey {
+		receipt := *metadata
+		receipt.CurrentRevision = marker.Revision.Number
+		receiptBody, encodeErr := encodeVersionsMetadata(receipt, c.cfg, "", true)
+		if encodeErr != nil {
+			return nil, encodeErr
+		}
+		if putErr := c.st.putConditional(ctx, object{
+			Key: targetMetadataKey, Body: receiptBody,
+			ContentType: markerContentType,
+		}, targetETag); putErr != nil {
+			return nil, fmt.Errorf("airplan: preserve linked revision delete receipt: %w", putErr)
+		}
 	}
 	return metadata, nil
 }
