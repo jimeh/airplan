@@ -1298,10 +1298,17 @@ func TestMissingMarkerRevisionIdentityOmitsUnannouncedManifestProjection(t *test
 		t.Fatal(err)
 	}
 	dirPrefix := strings.Repeat("o", 26) + "/"
+	records := ActiveUploads([]ManifestRecord{{
+		Type: "upload", Time: time.Now().UTC().Truncate(time.Second),
+		Key: dirPrefix + "plan.html", MarkerKey: dirPrefix + MarkerFilename,
+		Bucket: "bucket", MarkerVersion: MarkerVersion,
+		RevisionChainID: strings.Repeat("c", 26), Revision: 2,
+	}})
+	if len(records) != 1 || records[0].LatestRevision != 0 {
+		t.Fatalf("reduced unannounced projection = %+v", records)
+	}
 	chainID, revision, err := client.missingMarkerRevisionIdentity(
-		context.Background(), dirPrefix, ManifestRecord{
-			RevisionChainID: strings.Repeat("c", 26), Revision: 2,
-		},
+		context.Background(), dirPrefix, records[0],
 	)
 	if err != nil || chainID != "" || revision != 0 {
 		t.Fatalf("unannounced manifest identity = %q, %d, %v",

@@ -453,10 +453,14 @@ func TestSyncPruneOmitsUnannouncedRevisionIdentity(t *testing.T) {
 		MarkerVersion:   MarkerVersion,
 		RevisionChainID: strings.Repeat("c", 26), Revision: 2,
 	}
+	active := ActiveUploads([]ManifestRecord{record})
+	if len(active) != 1 || active[0].LatestRevision != 0 {
+		t.Fatalf("reduced unannounced projection = %+v", active)
+	}
 	fake := newSyncStorage(t)
 	client := newSyncClient(t, fake.server.URL,
 		filepath.Join(t.TempDir(), "manifest.jsonl"))
-	job := client.syncPrune(context.Background(), record)
+	job := client.syncPrune(context.Background(), active[0])
 	if job.tombstone == nil || job.tombstone.RevisionChainID != "" ||
 		job.tombstone.Revision != 0 {
 		t.Fatalf("unannounced candidate tombstone = %+v", job.tombstone)

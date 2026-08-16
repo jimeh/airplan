@@ -109,6 +109,7 @@ func TestPrintVersionedSkipOmitsUnknownLatestRevision(t *testing.T) {
 	record := uploadRecord(deleteDirA, "alpha", "", time.Now())
 	record.RevisionChainID = strings.Repeat("c", 26)
 	record.Revision = 2
+	record = airplan.ManifestUploads([]airplan.ManifestRecord{record})[0]
 	var output strings.Builder
 	printVersionedSkip(&output, record)
 	if got := output.String(); !strings.Contains(got, "revision 2)") ||

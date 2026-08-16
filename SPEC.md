@@ -1661,6 +1661,9 @@ conforming implementations can share a manifest:
   the highest advertised revision that does not have a revision-aware delete
   tombstone, so partial local history preserves known remote members while
   completed deletions cannot be resurrected by out-of-order manifest writes.
+  Only records whose advertised latest is at least their own revision
+  participate in or receive this normalization; an incomplete marker-only
+  candidate retains `latest_revision: 0` and remains unannounced.
 - Protection reduces alongside uploads: the latest `protect`/`unprotect`
   event wins, a `delete` clears the identity's protection, and an `upload`
   event does **not** clear it — a sync re-import of a still protected
@@ -2019,7 +2022,15 @@ machine) and must be safe:
   reported the same way. Protected skips are never failures: the summary
   becomes `purged N uploads (P protected, F failed)` and skips do not
   change the exit status. When linked revisions are skipped because
-  `--include-versioned` was not supplied, the summary instead becomes
+  `--include-versioned` was not supplied, purge first prints
+  `airplan: note: skipped N linked revision(s); use --include-versioned to include them`,
+  then one `airplan: note: skipping linked revision <url> (chain <id>, revision X of Y)`
+  line per known complete projection. If the marker identifies revision X but
+  validated metadata did not establish the latest revision, that suffix is
+  `(chain <id>, revision X)` instead. A revision discovered only by the
+  delete-time recheck prints
+  `airplan: note: skipped linked revision <upload-id>; use --include-versioned to include it`.
+  The summary becomes
   `purged N uploads (P protected, V versioned, F failed)`.
 - `purge --remote` starts from the same marker-key candidates as
   `list --remote`, but fetches and validates markers because it is a

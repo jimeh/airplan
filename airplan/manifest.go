@@ -679,8 +679,9 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 	sort.Slice(out, func(i, j int) bool { return out[i].order < out[j].order })
 	chainLatest := make(map[string]int)
 	for _, record := range out {
-		if chain := record.record.RevisionChainID; chain != "" {
-			latest := max(record.record.Revision, record.record.LatestRevision)
+		if rec := record.record; manifestRecordHasAnnouncedRevision(rec) {
+			chain := rec.RevisionChainID
+			latest := rec.LatestRevision
 			if latest > chainLatest[chain] {
 				chainLatest[chain] = latest
 			}
@@ -698,7 +699,7 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 	uploads := make([]ManifestRecord, 0, len(out))
 	for _, record := range out {
 		rec := record.record
-		if rec.RevisionChainID != "" {
+		if manifestRecordHasAnnouncedRevision(rec) {
 			rec.LatestRevision = chainLatest[rec.RevisionChainID]
 		}
 		// An upload never clears protection: a sync re-import of a still
