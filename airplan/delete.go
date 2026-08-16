@@ -31,6 +31,10 @@ var errUploadBecameVersioned = errors.New(
 	"airplan: upload became versioned while purge deletion was starting",
 )
 
+var errTargetRevisionMetadataMissing = errors.New(
+	"airplan: target revision metadata is missing",
+)
+
 // DeleteResult describes a completed delete (SPEC.md §9).
 type DeleteResult struct {
 	// Keys are the object keys removed, in operation order. The marker is last.
@@ -193,7 +197,7 @@ func (c *Client) DeleteUploadWithOptions(
 	unannouncedCandidate := false
 	if marker.Revision != nil {
 		survivingVersions, err = c.tombstoneLinkedRevision(ctx, dirPrefix, marker)
-		if err != nil && errors.Is(err, errObjectNotFound) {
+		if err != nil && errors.Is(err, errTargetRevisionMetadataMissing) {
 			state, stateErr := c.classifyRevisionCandidate(ctx, dirPrefix, marker)
 			if stateErr != nil {
 				return nil, stateErr
@@ -573,6 +577,11 @@ func (c *Client) tombstoneLinkedRevision(
 	body, targetETag, _, err := c.st.getBytesWithETag(ctx,
 		targetMetadataKey, MaxVersionsMetadataSize)
 	if err != nil {
+		if errors.Is(err, errObjectNotFound) {
+			return nil, fmt.Errorf(
+				"%w: %w", errTargetRevisionMetadataMissing, err,
+			)
+		}
 		return nil, fmt.Errorf("airplan: read revision metadata before delete: %w", err)
 	}
 	finalReservation, finalReserved, err := decodeFinalRevisionDeleteReservation(body)

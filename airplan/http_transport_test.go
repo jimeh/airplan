@@ -351,6 +351,30 @@ func TestTransportUpgradeConflictPreservesProblemError(t *testing.T) {
 	}
 }
 
+func TestTransportPreservesStableCapacityErrors(t *testing.T) {
+	for _, test := range []struct {
+		code     string
+		sentinel error
+	}{
+		{code: "input_too_large", sentinel: ErrInputTooLarge},
+		{code: "revision_history_full", sentinel: ErrRevisionHistoryFull},
+	} {
+		t.Run(test.code, func(t *testing.T) {
+			problem := httpapi.NewProblemError(
+				http.StatusUnprocessableEntity, test.code, "Capacity refusal", "full",
+			)
+			problem.Problem.RequestID = "request-123"
+			err := transportError(problem)
+			var got *httpapi.ProblemError
+			if !errors.Is(err, test.sentinel) || !errors.As(err, &got) ||
+				got.Problem.Code != test.code ||
+				got.Problem.RequestID != "request-123" {
+				t.Fatalf("error = %v, problem = %+v", err, got)
+			}
+		})
+	}
+}
+
 func TestAirplanBackendStreamsDocumentMultipart(t *testing.T) {
 	const token = "01234567890123456789012345678901"
 	server := httptest.NewServer(http.HandlerFunc(

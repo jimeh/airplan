@@ -1431,6 +1431,57 @@ func TestRevisionValidationReadsDiffMetadataWithoutFetchingBody(t *testing.T) {
 	}
 }
 
+func TestDeleteAnnouncedHistoricalRevisionFailsClosedOnMissingLatestPayload(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), first.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	store.mu.Lock()
+	delete(store.objects, third.SourceKey)
+	delete(store.etags, third.SourceKey)
+	store.mu.Unlock()
+
+	if _, err := client.DeleteUpload(context.Background(), second.URL); err == nil {
+		t.Fatal("announced revision deletion succeeded with incomplete latest payload")
+	}
+	for _, key := range []string{
+		second.MarkerKey, second.Key, second.SourceKey,
+	} {
+		if _, ok := store.get(key); !ok {
+			t.Fatalf("failed-closed delete removed %s", key)
+		}
+	}
+	metadataBody, ok := store.get(third.ID + "/" + VersionsFilename)
+	if !ok {
+		t.Fatal("latest revision metadata is missing")
+	}
+	metadata, err := DecodeVersionsMetadata(metadataBody, client.cfg, third.Key)
+	entry := liveVersionsRevision(metadata, second.Revision)
+	if err != nil || entry == nil || entry.URL != second.URL {
+		t.Fatalf("announced historical revision = %+v, %v", entry, err)
+	}
+}
+
 func TestStandaloneCorruptVersionsMetadataIsNotDeleteReservation(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")

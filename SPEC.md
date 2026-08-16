@@ -1001,9 +1001,11 @@ re-derives canonical state from a surviving member whether that replica still
 lists the target live or already tombstoned, then completes propagation. An
 announced member whose own replica is missing repairs it from its predecessor;
 revision 2 also completes any interrupted revision-1 marker/page promotion
-before deletion. Marker-only candidates that were never announced are removed
-without writing a revision tombstone, so their unused integer can still be
-assigned by a later append. Deleting the final live member conditionally replaces its
+before deletion. Candidate classification applies only when the target's own
+versions object is absent; a not-found while resolving any other chain member
+fails closed without deleting target payloads. Marker-only candidates that were
+never announced are removed without writing a revision tombstone, so their
+unused integer can still be assigned by a later append. Deleting the final live member conditionally replaces its
 versions object with a strict invalid transition reservation before removing
 the directory; this both excludes new updaters and makes already-preflighted
 appends lose their stale ETag. With no survivor, the manifest delete tombstone
@@ -2195,6 +2197,11 @@ execution, and `sync`. `list` means the operation service's manifest;
 appends local upload or tombstone records. Server REST and hosted MCP adapters
 invoke the server's operation service directly rather than calling loopback
 HTTP or duplicating business rules.
+
+HTTP problem codes preserve stable public error identity across backends:
+`input_too_large` maps to `ErrInputTooLarge`, `revision_history_full` maps to
+`ErrRevisionHistoryFull`, and conditional mutation conflict codes map to
+`ErrConflict`, while the server problem details remain available.
 
 For an `airplan` backend, request attributes such as format, title, slug,
 language, repository URL, and lower size limits remain portable. Explicit S3

@@ -597,12 +597,18 @@ func transportError(err error) error {
 		return err
 	}
 	var problem *httpapi.ProblemError
-	if errors.As(err, &problem) &&
-		(problem.Problem.Code == "upgrade_conflict" ||
-			problem.Problem.Code == "revision_conflict") {
-		return fmt.Errorf(
-			"%w: server reported a conditional mutation conflict: %w", ErrConflict, err,
-		)
+	if errors.As(err, &problem) {
+		switch problem.Problem.Code {
+		case "upgrade_conflict", "revision_conflict":
+			return fmt.Errorf(
+				"%w: server reported a conditional mutation conflict: %w",
+				ErrConflict, err,
+			)
+		case "input_too_large":
+			return fmt.Errorf("%w: %w", ErrInputTooLarge, err)
+		case "revision_history_full":
+			return fmt.Errorf("%w: %w", ErrRevisionHistoryFull, err)
+		}
 	}
 	return fmt.Errorf("airplan: server: %w", err)
 }
