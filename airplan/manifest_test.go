@@ -610,6 +610,217 @@ func TestManifestUpgradeRequiresUTCCreatedAt(t *testing.T) {
 	}
 }
 
+func TestManifestLinkRequiresCompleteRevisionProjection(t *testing.T) {
+	when := time.Now().UTC().Truncate(time.Second)
+	dir := strings.Repeat("l", 26)
+	base := ManifestRecord{
+		Type: "link", Time: when, CreatedAt: when,
+		Key: dir + "/plan.html", MarkerKey: dir + "/" + MarkerFilename,
+		URL:    "https://plans.example.com/" + dir + "/plan.html",
+		Bucket: "plans", Bytes: 1, MarkerVersion: MarkerVersion,
+		RevisionChainID: strings.Repeat("c", 26), Revision: 1, LatestRevision: 2,
+	}
+	if err := validateManifestRecord(base); err != nil {
+		t.Fatalf("complete link record: %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*ManifestRecord)
+	}{
+		{"missing chain", func(record *ManifestRecord) { record.RevisionChainID = "" }},
+		{"missing revision", func(record *ManifestRecord) { record.Revision = 0 }},
+		{"missing latest", func(record *ManifestRecord) { record.LatestRevision = 0 }},
+		{"latest before revision", func(record *ManifestRecord) {
+			record.Revision, record.LatestRevision = 2, 1
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			record := base
+			test.mutate(&record)
+			if err := validateManifestRecord(record); err == nil {
+				t.Fatal("incomplete link record was accepted")
+			}
+		})
+	}
+}
+
+func TestManifestUploadsDerivesLatestRevisionAcrossChain(t *testing.T) {
+	when := time.Now().UTC().Truncate(time.Second)
+	chain := strings.Repeat("c", 26)
+	records := make([]ManifestRecord, 3)
+	for index := range records {
+		dir := strings.Repeat(string(rune('a'+index)), 26)
+		records[index] = ManifestRecord{
+			Type: "upload", Time: when.Add(time.Duration(index) * time.Second),
+			Key: dir + "/plan.html", MarkerKey: dir + "/" + MarkerFilename,
+			URL:    "https://plans.example.com/" + dir + "/plan.html",
+			Bucket: "plans", Bytes: 1, MarkerVersion: MarkerVersion,
+			RevisionChainID: chain, Revision: index + 1,
+			LatestRevision: index + 1,
+		}
+	}
+	records[0].LatestRevision = 2
+	records[1].LatestRevision = 2
+	uploads := ManifestUploads(records)
+	if len(uploads) != 3 {
+		t.Fatalf("uploads = %+v", uploads)
+	}
+	for _, record := range uploads {
+		if record.LatestRevision != 3 {
+			t.Fatalf("revision %d latest = %d, want 3", record.Revision, record.LatestRevision)
+		}
+	}
+}
+
+func TestManifestUploadsPreservesKnownLatestRevisionForPartialChain(t *testing.T) {
+	when := time.Now().UTC().Truncate(time.Second)
+	chain := strings.Repeat("c", 26)
+	dir := strings.Repeat("a", 26)
+	uploads := ManifestUploads([]ManifestRecord{{
+		Type: "link", Time: when, Key: dir + "/plan.html",
+		MarkerKey: dir + "/" + MarkerFilename,
+		URL:       "https://plans.example.com/" + dir + "/plan.html",
+		Bucket:    "plans", Bytes: 1, MarkerVersion: MarkerVersion,
+		RevisionChainID: chain, Revision: 1, LatestRevision: 3,
+	}})
+	if len(uploads) != 1 || uploads[0].LatestRevision != 3 {
+		t.Fatalf("partial-chain uploads = %+v", uploads)
+	}
+}
+
+func TestManifestUploadsUsesNewestChainProjectionAfterPartialDeleteLinks(t *testing.T) {
+	when := time.Now().UTC().Truncate(time.Second)
+	chain := strings.Repeat("c", 26)
+	records := make([]ManifestRecord, 3)
+	for index := range records {
+		dir := strings.Repeat(string(rune('a'+index)), 26)
+		records[index] = ManifestRecord{
+			Type: "upload", Time: when.Add(time.Duration(index) * time.Second),
+			CreatedAt: when.Add(time.Duration(index) * time.Second),
+			Key:       dir + "/plan.html", MarkerKey: dir + "/" + MarkerFilename,
+			URL:    "https://plans.example.com/" + dir + "/plan.html",
+			Bucket: "plans", Bytes: 1, MarkerVersion: MarkerVersion,
+			RevisionChainID: chain, Revision: index + 1, LatestRevision: 3,
+		}
+	}
+	records = append(records, ManifestRecord{
+		Type: "delete", Time: when.Add(3 * time.Second),
+		Key: records[2].Key, MarkerKey: records[2].MarkerKey, Bucket: "plans",
+		RevisionChainID: chain, Revision: 3, LatestRevision: 2,
+	})
+	link := records[0]
+	link.Type = "link"
+	link.Time = when.Add(4 * time.Second)
+	link.LatestRevision = 2
+	records = append(records, link)
+
+	uploads := ManifestUploads(records)
+	if len(uploads) != 2 {
+		t.Fatalf("uploads = %+v", uploads)
+	}
+	for _, upload := range uploads {
+		if upload.LatestRevision != 2 {
+			t.Fatalf("revision %d latest = %d, want 2", upload.Revision, upload.LatestRevision)
+		}
+	}
+}
+
+func TestManifestUploadsIgnoresStaleRevisionEventsAfterDeleteTombstone(t *testing.T) {
+	when := time.Now().UTC().Truncate(time.Second)
+	chain := strings.Repeat("c", 26)
+	records := make([]ManifestRecord, 4)
+	for index := range records {
+		dir := strings.Repeat(string(rune('a'+index)), 26)
+		records[index] = ManifestRecord{
+			Type: "upload", Time: when.Add(time.Duration(index) * time.Second),
+			CreatedAt: when.Add(time.Duration(index) * time.Second),
+			Key:       dir + "/plan.html", MarkerKey: dir + "/" + MarkerFilename,
+			URL:    "https://plans.example.com/" + dir + "/plan.html",
+			Bucket: "plans", Bytes: 1, MarkerVersion: MarkerVersion,
+			RevisionChainID: chain, Revision: index + 1, LatestRevision: 4,
+		}
+	}
+	staleRevisionFour := records[3]
+	staleRevisionFour.Time = when.Add(5 * time.Second)
+	records = append(records, ManifestRecord{
+		Type: "delete", Time: when.Add(4 * time.Second),
+		Key: records[3].Key, MarkerKey: records[3].MarkerKey, Bucket: "plans",
+		RevisionChainID: chain, Revision: 4, LatestRevision: 3,
+	})
+	records = append(records, staleRevisionFour)
+	for index := 0; index < 3; index++ {
+		staleLink := records[index]
+		staleLink.Type = "link"
+		staleLink.Time = when.Add(time.Duration(6+index) * time.Second)
+		records = append(records, staleLink)
+	}
+
+	uploads := ManifestUploads(records)
+	if len(uploads) != 3 {
+		t.Fatalf("uploads = %+v", uploads)
+	}
+	for _, upload := range uploads {
+		if upload.Revision == 4 || upload.LatestRevision != 3 {
+			t.Fatalf("stale post-delete projection survived: %+v", upload)
+		}
+	}
+}
+
+func TestManifestUploadsScopesRevisionTombstones(t *testing.T) {
+	when := time.Date(2026, 8, 16, 14, 0, 0, 0, time.UTC)
+	chain := strings.Repeat("c", 26)
+	for _, test := range []struct {
+		name         string
+		otherProfile string
+		otherBucket  string
+	}{
+		{name: "profile", otherProfile: "backup", otherBucket: "plans"},
+		{name: "bucket", otherProfile: "work", otherBucket: "archive"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			deletedDir := strings.Repeat("d", 26)
+			deleted := ManifestRecord{
+				Type: "upload", Time: when, Key: deletedDir + "/plan.html",
+				MarkerKey: deletedDir + "/" + MarkerFilename,
+				URL:       "https://plans.example.com/" + deletedDir + "/plan.html",
+				Bucket:    "plans", Profile: "work", Bytes: 1,
+				MarkerVersion: MarkerVersion, RevisionChainID: chain,
+				Revision: 2, LatestRevision: 2,
+			}
+			tombstone := ManifestRecord{
+				Type: "delete", Time: when.Add(time.Second),
+				Key: deleted.Key, MarkerKey: deleted.MarkerKey,
+				Bucket: "plans", Profile: "work",
+				RevisionChainID: chain, Revision: 2,
+			}
+
+			records := []ManifestRecord{deleted, tombstone}
+			for index := 1; index <= 2; index++ {
+				dir := strings.Repeat(string(rune('p'+index)), 26)
+				records = append(records, ManifestRecord{
+					Type: "upload", Time: when.Add(time.Duration(index+1) * time.Second),
+					Key: dir + "/plan.html", MarkerKey: dir + "/" + MarkerFilename,
+					URL:    "https://plans.example.com/" + dir + "/plan.html",
+					Bucket: test.otherBucket, Profile: test.otherProfile, Bytes: 1,
+					MarkerVersion: MarkerVersion, RevisionChainID: chain,
+					Revision: index, LatestRevision: 2,
+				})
+			}
+
+			uploads := ManifestUploads(records)
+			if len(uploads) != 2 {
+				t.Fatalf("uploads = %+v", uploads)
+			}
+			for _, upload := range uploads {
+				if upload.Profile != test.otherProfile ||
+					upload.Bucket != test.otherBucket || upload.LatestRevision != 2 {
+					t.Fatalf("cross-scope tombstone leaked: %+v", upload)
+				}
+			}
+		})
+	}
+}
+
 func TestReadManifestInfersKindlessCollectionTombstone(t *testing.T) {
 	dir := strings.Repeat("c", 26)
 	when := time.Date(2026, 7, 21, 1, 0, 0, 0, time.UTC)

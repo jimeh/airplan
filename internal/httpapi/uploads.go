@@ -117,6 +117,85 @@ func (s *Server) parseDocumentUpload(
 	}, cleanup, nil
 }
 
+func (s *Server) parseUpdateDocumentUpload(
+	requestReader *multipart.Reader,
+) (UpdateDocumentUpload, func(), error) {
+	reader, err := parseMultipartReader(requestReader)
+	if err != nil {
+		return UpdateDocumentUpload{}, func() {}, err
+	}
+	var metadata UpdateDocumentMetadata
+	var gotMetadata bool
+	var document *spooledFile
+	cleanup := func() { cleanupSpooled(document) }
+	for parts := 0; ; parts++ {
+		part, nextErr := reader.NextPart()
+		if errors.Is(nextErr, io.EOF) {
+			break
+		}
+		if nextErr != nil {
+			cleanup()
+			return UpdateDocumentUpload{}, func() {}, invalidMultipart(nextErr)
+		}
+		if parts >= 2 {
+			_ = part.Close()
+			cleanup()
+			return UpdateDocumentUpload{}, func() {}, invalidRequest("document update contains too many parts")
+		}
+		switch part.FormName() {
+		case "metadata":
+			if gotMetadata || part.FileName() != "" {
+				_ = part.Close()
+				cleanup()
+				return UpdateDocumentUpload{}, func() {}, invalidRequest("metadata must be one non-file part")
+			}
+			if err = decodeLimitedJSON(part, maxMetadataBytes, &metadata); err != nil {
+				_ = part.Close()
+				cleanup()
+				return UpdateDocumentUpload{}, func() {}, err
+			}
+			gotMetadata = true
+		case "document":
+			if document != nil {
+				_ = part.Close()
+				cleanup()
+				return UpdateDocumentUpload{}, func() {}, invalidRequest("document part is duplicated")
+			}
+			document, err = s.spoolPart(part, s.options.MaxDocumentBytes)
+			if err != nil {
+				_ = part.Close()
+				cleanup()
+				return UpdateDocumentUpload{}, func() {}, err
+			}
+		default:
+			_ = part.Close()
+			cleanup()
+			return UpdateDocumentUpload{}, func() {}, invalidRequest("document update contains an unknown part")
+		}
+		_ = part.Close()
+	}
+	if !gotMetadata || document == nil || strings.TrimSpace(metadata.Target) == "" {
+		cleanup()
+		return UpdateDocumentUpload{}, func() {}, invalidRequest("document update requires target metadata and document parts")
+	}
+	if err = validateDocumentMetadata(DocumentMetadata{
+		Name: metadata.Name, MaxSize: metadata.MaxSize,
+	}); err != nil {
+		cleanup()
+		return UpdateDocumentUpload{}, func() {}, err
+	}
+	limit := lowerLimit(s.options.MaxDocumentBytes, metadata.MaxSize)
+	if document.size > limit {
+		cleanup()
+		return UpdateDocumentUpload{}, func() {}, requestTooLarge("document exceeds the effective size limit")
+	}
+	if _, err = document.file.Seek(0, io.SeekStart); err != nil {
+		cleanup()
+		return UpdateDocumentUpload{}, func() {}, err
+	}
+	return UpdateDocumentUpload{Metadata: metadata, Document: document.file}, cleanup, nil
+}
+
 func (s *Server) parseCollectionUpload(
 	requestReader *multipart.Reader,
 ) (CollectionUpload, func(), error) {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -72,6 +73,7 @@ type UpgradeDocumentPlan struct {
 	newPage    []byte
 	protection []byte
 	versions   []byte
+	diff       []byte
 	protected  bool
 	versioned  bool
 }
@@ -190,14 +192,21 @@ func (c *Client) PlanUpgradeDocument(
 	if pageETag == "" {
 		return nil, errors.New("airplan: rendered page has no ETag; conditional upgrade is unavailable")
 	}
-	sourceBody, sourceETag, _, err := c.st.getBytesWithETag(ctx, sourceKey, DefaultMaxInputSize)
+	sourceLimit := upgradeSourceReadLimit(marker)
+	sourceObject, sourceDeclared := markerObjectForRole(marker, MarkerRoleSource)
+	sourceBody, sourceETag, _, err := c.st.getBytesWithETag(ctx, sourceKey, sourceLimit)
 	if err != nil {
 		return nil, err
 	}
 	if sourceETag == "" {
 		return nil, errors.New("airplan: Markdown source has no ETag; conditional upgrade is unavailable")
 	}
-	if len(sourceBody) > DefaultMaxInputSize {
+	if sourceDeclared && sourceObject.Bytes > 0 &&
+		int64(len(sourceBody)) != sourceObject.Bytes {
+		return nil, errors.New("airplan: Markdown source size does not match its marker")
+	}
+	if (!sourceDeclared || sourceObject.Bytes == 0) &&
+		len(sourceBody) > DefaultMaxInputSize {
 		return nil, fmt.Errorf("airplan: source exceeds the maximum input size")
 	}
 	protection, protected, err := c.optionalUpgradeControlObject(
@@ -207,7 +216,7 @@ func (c *Client) PlanUpgradeDocument(
 		return nil, err
 	}
 	versions, versioned, err := c.optionalUpgradeControlObject(
-		ctx, dirPrefix+".airplan-versions.json", DefaultMaxInputSize,
+		ctx, dirPrefix+VersionsFilename, MaxVersionsMetadataSize,
 	)
 	if err != nil {
 		return nil, err
@@ -223,6 +232,38 @@ func (c *Client) PlanUpgradeDocument(
 	plan.protection, plan.versions = protection, versions
 	plan.protected, plan.versioned = protected, versioned
 	plan.marker = marker
+	if marker.Revision != nil {
+		if !versioned {
+			plan.State, plan.Reason = UpgradeStateInvalid, "linked document is missing versions metadata"
+			return plan, nil
+		}
+		metadata, decodeErr := DecodeVersionsMetadata(versions, c.cfg, pageKey)
+		if decodeErr != nil || metadata.ChainID != marker.Revision.ChainID ||
+			metadata.CurrentRevision != marker.Revision.Number {
+			plan.State, plan.Reason = UpgradeStateInvalid, "revision metadata is invalid"
+			return plan, nil
+		}
+		if marker.Revision.Number > 1 {
+			diffObject, declared := markerObjectForRole(marker, MarkerRoleDiff)
+			if !declared {
+				plan.State, plan.Reason = UpgradeStateInvalid, "revision diff is missing or invalid"
+				return plan, nil
+			}
+			diffKey := dirPrefix + diffObject.Name
+			plan.diff, err = c.st.getBytes(ctx, diffKey, diffObject.Bytes)
+			if err != nil {
+				if !errors.Is(err, errObjectNotFound) {
+					return nil, err
+				}
+				plan.State, plan.Reason = UpgradeStateInvalid, "revision diff is missing or invalid"
+				return plan, nil
+			}
+			if int64(len(plan.diff)) != diffObject.Bytes {
+				plan.State, plan.Reason = UpgradeStateInvalid, "revision diff is missing or invalid"
+				return plan, nil
+			}
+		}
+	}
 	pageContentCurrent := marker.PageBytes == int64(len(pageBody)) &&
 		(marker.Version < MarkerVersion ||
 			marker.PageSHA256 == contentSHA256(pageBody))
@@ -289,8 +330,9 @@ func (c *Client) UpgradeDocument(
 		return nil, ErrConflict
 	}
 	plan = *fresh
+	sourceLimit := upgradeSourceReadLimit(plan.marker)
 	currentSource, currentSourceETag, _, err := c.st.getBytesWithETag(
-		ctx, plan.SourceKey, DefaultMaxInputSize,
+		ctx, plan.SourceKey, sourceLimit,
 	)
 	if err != nil {
 		return nil, err
@@ -328,7 +370,7 @@ func (c *Client) UpgradeDocument(
 		return nil, errors.New("airplan: upgraded page verification failed: content changed")
 	}
 	verifiedSource, _, _, err := c.st.getBytesWithETag(
-		ctx, plan.SourceKey, DefaultMaxInputSize,
+		ctx, plan.SourceKey, sourceLimit,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("airplan: upgraded source verification failed: %w", err)
@@ -343,7 +385,7 @@ func (c *Client) UpgradeDocument(
 		return nil, err
 	}
 	if err := c.verifyUpgradeControlObject(
-		ctx, dirPrefix+".airplan-versions.json", plan.versions, plan.versioned, DefaultMaxInputSize,
+		ctx, dirPrefix+VersionsFilename, plan.versions, plan.versioned, MaxVersionsMetadataSize,
 	); err != nil {
 		return nil, err
 	}
@@ -353,6 +395,13 @@ func (c *Client) UpgradeDocument(
 		Result: result, State: UpgradeStateCurrent, Upgraded: true,
 		Reason: plan.Reason,
 	}, nil
+}
+
+func upgradeSourceReadLimit(marker *UploadMarker) int64 {
+	if sourceObject, ok := markerObjectForRole(marker, MarkerRoleSource); ok && sourceObject.Bytes > 0 {
+		return sourceObject.Bytes
+	}
+	return DefaultMaxInputSize
 }
 
 func resultFromUpgradePlan(cfg *Config, plan UpgradeDocumentPlan) Result {
@@ -369,7 +418,7 @@ func resultFromUpgradePlan(cfg *Config, plan UpgradeDocumentPlan) Result {
 		pageBytes = int64(len(plan.newPage))
 	}
 	sourceURL, _, _ := PublicURL(cfg, plan.SourceKey)
-	return Result{
+	result := Result{
 		ID: marker.Directory, URL: plan.URL, Key: plan.PageKey,
 		SourceURL: sourceURL, SourceKey: plan.SourceKey, Bucket: cfg.Bucket,
 		Bytes: pageBytes, ContentType: pageContentType,
@@ -378,6 +427,12 @@ func resultFromUpgradePlan(cfg *Config, plan UpgradeDocumentPlan) Result {
 		Format: marker.Format, Kind: string(marker.Kind), Slug: marker.Slug,
 		RepositoryURL: marker.Repo,
 	}
+	if marker.Revision != nil {
+		result.RevisionChainID = marker.Revision.ChainID
+		result.Revision = marker.Revision.Number
+		result.LatestRevision = revisionLatest(plan.versions, cfg, plan.PageKey)
+	}
+	return result
 }
 
 func (c *Client) materializeUpgrade(plan *UpgradeDocumentPlan) error {
@@ -392,12 +447,23 @@ func (c *Client) materializeUpgrade(plan *UpgradeDocumentPlan) error {
 		recipe = &copyRecipe
 		recipe.Generation = RendererGeneration
 	}
+	previousRevision, err := revisionPrevious(
+		plan.versions, c.cfg, plan.PageKey, marker, plan.diff,
+	)
+	if err != nil {
+		return err
+	}
 	newPage, err := RenderMarkdown(plan.sourceBody, RenderOptions{
 		Title: marker.Title, Slug: marker.Slug, SourceName: marker.Source,
 		SourcePath: "./" + marker.Source, Indexable: recipe.Indexable,
 		NoExternalAssets: recipe.NoExternalAssets,
 		MermaidURL:       recipe.MermaidURL, RepositoryURL: marker.Repo,
-		Template: c.template,
+		Template:         c.template,
+		Revision:         revisionNumber(marker),
+		RevisionCount:    revisionLatest(plan.versions, c.cfg, plan.PageKey),
+		PreviousRevision: previousRevision,
+		VersionsPath:     VersionsFilename,
+		DiffPath:         revisionDiffPath(marker), DiffText: inlineRevisionDiff(plan.diff),
 	})
 	if err != nil {
 		return err
@@ -409,10 +475,17 @@ func (c *Client) materializeUpgrade(plan *UpgradeDocumentPlan) error {
 		Title: marker.Title, Repo: marker.Repo,
 		Producer: Producer{Name: "airplan", Version: plan.TargetProducerVersion},
 		Render:   recipe,
+		Revision: marker.Revision,
 		Objects: []MarkerObject{
 			{Name: marker.Page, Role: MarkerRolePage, Bytes: int64(len(newPage)), ContentType: pageContentType, SHA256: contentSHA256(newPage)},
 			{Name: marker.Source, Role: MarkerRoleSource, Bytes: int64(len(plan.sourceBody)), ContentType: sourceContentType},
 		},
+	}
+	if marker.Revision != nil && marker.Revision.Number > 1 {
+		newMarker.Objects = append(newMarker.Objects, MarkerObject{
+			Name: DiffFilename, Role: MarkerRoleDiff,
+			Bytes: int64(len(plan.diff)), ContentType: diffContentType,
+		})
 	}
 	newMarkerBody, err := EncodeUploadMarker(newMarker)
 	if err != nil {
@@ -420,6 +493,84 @@ func (c *Client) materializeUpgrade(plan *UpgradeDocumentPlan) error {
 	}
 	plan.newMarker, plan.newPage = newMarkerBody, newPage
 	return nil
+}
+
+func revisionNumber(marker *UploadMarker) int {
+	if marker == nil || marker.Revision == nil {
+		return 0
+	}
+	return marker.Revision.Number
+}
+
+func revisionDiffPath(marker *UploadMarker) string {
+	if revisionNumber(marker) > 1 {
+		return "./" + DiffFilename
+	}
+	return ""
+}
+
+func revisionLatest(body []byte, cfg *Config, pageKey string) int {
+	metadata, err := DecodeVersionsMetadata(body, cfg, pageKey)
+	if err != nil {
+		return 0
+	}
+	return metadata.LatestRevision
+}
+
+func revisionPrevious(
+	body []byte, cfg *Config, pageKey string, marker *UploadMarker, diff []byte,
+) (int, error) {
+	if marker == nil || marker.Revision == nil || marker.Revision.PreviousURL == "" {
+		return 0, nil
+	}
+	metadata, err := DecodeVersionsMetadata(body, cfg, pageKey)
+	if err == nil {
+		for _, revision := range metadata.Revisions {
+			if !revision.Deleted && revision.URL == marker.Revision.PreviousURL {
+				return revision.Number, nil
+			}
+		}
+	}
+	previous, current, err := revisionDiffRange(diff)
+	if err != nil {
+		return 0, fmt.Errorf("airplan: identify adjacent revision diff: %w", err)
+	}
+	if current != marker.Revision.Number {
+		return 0, errors.New("airplan: adjacent revision diff does not match its marker")
+	}
+	return previous, nil
+}
+
+func revisionDiffRange(diff []byte) (int, int, error) {
+	lines := strings.SplitN(string(diff), "\n", 3)
+	if len(lines) < 2 {
+		return 0, 0, errors.New("diff headers are missing")
+	}
+	parse := func(line, prefix string) (int, error) {
+		line = strings.TrimSuffix(line, "\r")
+		if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, "/plan.md") {
+			return 0, errors.New("diff header is invalid")
+		}
+		number, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(
+			line, prefix,
+		), "/plan.md"))
+		if err != nil || number <= 0 {
+			return 0, errors.New("diff revision number is invalid")
+		}
+		return number, nil
+	}
+	previous, err := parse(lines[0], "--- revision-")
+	if err != nil {
+		return 0, 0, err
+	}
+	current, err := parse(lines[1], "+++ revision-")
+	if err != nil {
+		return 0, 0, err
+	}
+	if current <= previous {
+		return 0, 0, errors.New("diff revision order is invalid")
+	}
+	return previous, current, nil
 }
 
 func (c *Client) upgradeTemplateMatches(recipe *RenderRecipe) bool {
@@ -481,21 +632,18 @@ func (c *Client) recordUpgrade(ctx context.Context, res *Result, markerBody []by
 			return
 		}
 	}
-	rec := ManifestRecord{
-		Type: "upgrade", Time: time.Now().UTC().Truncate(time.Second),
-		CreatedAt: res.CreatedAt, Key: res.Key, SourceKey: res.SourceKey,
-		MarkerKey: res.MarkerKey, URL: res.URL, Bucket: res.Bucket,
-		Profile: c.cfg.Profile, Format: res.Format, Kind: res.Kind,
-		Slug: res.Slug, Title: res.Title, Repo: res.RepositoryURL,
-		Bytes: res.Bytes, MarkerVersion: MarkerVersion,
-		ProducerVersion: producerVersion(c.cfg.ProducerVersion),
-		RendererVersion: RendererGeneration,
-	}
+	declared := declaredTotals{}
+	producer := producerVersion(c.cfg.ProducerVersion)
+	renderer := RendererGeneration
 	if marker, err := DecodeUploadMarker(markerBody, res.ID); err == nil {
-		declared := markerDeclaredTotals(*marker, markerBody)
-		rec.Objects = declared.objects
-		rec.TotalBytes = declared.bytes
+		declared = markerDeclaredTotals(*marker, markerBody)
+		producer = marker.Producer.Version
+		if marker.Render != nil {
+			renderer = marker.Render.Generation
+		}
 	}
+	rec := completeManifestProjection(c.cfg, "upgrade",
+		time.Now().UTC().Truncate(time.Second), res, declared, producer, renderer)
 	if err := appendManifestRecord(ctx, manifestPath, rec); err != nil {
 		res.Warnings = append(res.Warnings, "manifest not recorded: "+err.Error())
 	}

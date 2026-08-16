@@ -13,6 +13,9 @@ type GetOptions struct {
 	// Source selects the marker-declared source object instead of the page. It
 	// is valid only when the target is the random directory.
 	Source bool
+	// Diff selects the marker-declared adjacent diff. It is valid only for a
+	// linked revision greater than one and is mutually exclusive with Source.
+	Diff bool
 }
 
 // GetResult is one fetched marker-managed object (SPEC.md §9).
@@ -166,6 +169,9 @@ func resolveGetTarget(
 	marker *UploadMarker,
 	opts GetOptions,
 ) (string, error) {
+	if opts.Source && opts.Diff {
+		return "", invalidTargetf("airplan: --source and --diff are mutually exclusive")
+	}
 	dirKey := strings.TrimSuffix(dirPrefix, "/")
 	pageKey := dirPrefix + marker.Page
 	sourceKey := ""
@@ -174,8 +180,16 @@ func resolveGetTarget(
 	}
 
 	if key == dirKey {
-		if !opts.Source {
+		if !opts.Source && !opts.Diff {
 			return pageKey, nil
+		}
+		if opts.Diff {
+			for _, object := range marker.Objects {
+				if object.Role == MarkerRoleDiff {
+					return dirPrefix + object.Name, nil
+				}
+			}
+			return "", invalidTargetf("airplan: upload declares no revision diff")
 		}
 		if sourceKey == "" {
 			return "", invalidTargetf(
@@ -186,18 +200,19 @@ func resolveGetTarget(
 	}
 	if key == markerKey || key == pageKey ||
 		(sourceKey != "" && key == sourceKey) {
-		if opts.Source {
+		if opts.Source || opts.Diff {
 			return "", invalidTargetf(
-				"airplan: --source cannot be used with an explicit child target",
+				"airplan: --source or --diff cannot be used with an explicit child target",
 			)
 		}
 		return key, nil
 	}
 	for _, object := range marker.Objects {
-		if object.Role == MarkerRoleFile && key == dirPrefix+object.Name {
-			if opts.Source {
+		if (object.Role == MarkerRoleFile || object.Role == MarkerRoleDiff) &&
+			key == dirPrefix+object.Name {
+			if opts.Source || opts.Diff {
 				return "", invalidTargetf(
-					"airplan: --source cannot be used with an explicit child target",
+					"airplan: --source or --diff cannot be used with an explicit child target",
 				)
 			}
 			return key, nil

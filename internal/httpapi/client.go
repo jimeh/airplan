@@ -129,6 +129,35 @@ func (c *Client) UploadDocument(
 	return decodeResponse[UploadResult](response, http.StatusCreated)
 }
 
+func (c *Client) UpdateDocument(
+	ctx context.Context, metadata UpdateDocumentMetadata, document io.Reader,
+) (UpdateDocumentResult, error) {
+	if document == nil {
+		return UpdateDocumentResult{}, errors.New("airplan document reader is nil")
+	}
+	body, contentType := multipartBody(func(writer *multipart.Writer) error {
+		if err := writeMetadataPart(writer, metadata); err != nil {
+			return err
+		}
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
+			"name": "document", "filename": metadata.Name,
+		}))
+		header.Set("Content-Type", "application/octet-stream")
+		part, err := writer.CreatePart(header)
+		if err != nil {
+			return err
+		}
+		_, err = io.Copy(part, document)
+		return err
+	})
+	response, err := c.generated.UpdateDocumentWithBody(ctx, contentType, body)
+	if err != nil {
+		return UpdateDocumentResult{}, err
+	}
+	return decodeResponse[UpdateDocumentResult](response, http.StatusCreated)
+}
+
 // UploadCollection streams collection members in caller order.
 func (c *Client) UploadCollection(
 	ctx context.Context,

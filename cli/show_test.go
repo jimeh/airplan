@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +14,18 @@ import (
 
 	"github.com/jimeh/airplan/airplan"
 )
+
+func TestPrintInspectionShowsRevisionErrorWithoutResolvedRevision(t *testing.T) {
+	var output bytes.Buffer
+	err := printInspection(&output, &airplan.UploadInspection{
+		State: airplan.UploadComplete, RevisionError: "versions metadata is invalid",
+		Page: &airplan.InspectedObject{Key: "plan.html", URL: "https://example.test/plan.html"},
+	})
+	if err != nil || !strings.Contains(output.String(),
+		"REVISION METADATA  versions metadata is invalid") {
+		t.Fatalf("output = %q, error = %v", output.String(), err)
+	}
+}
 
 func TestShowCommandHumanAndJSON(t *testing.T) {
 	createdAt := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)

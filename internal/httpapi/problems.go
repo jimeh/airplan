@@ -99,6 +99,10 @@ func safeProblemDetail(code string) string {
 		return "The upload is purge-protected; unprotect it or force deletion."
 	case "upgrade_conflict":
 		return "The upload changed after it was planned; create a new upgrade plan."
+	case "revision_conflict":
+		return "Another writer appended first; retry from the newly resolved latest revision."
+	case "revision_history_full":
+		return "The revision chain cannot accept another revision."
 	default:
 		return "The server could not complete the request."
 	}

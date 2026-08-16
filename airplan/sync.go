@@ -45,9 +45,9 @@ type SyncManifestResult struct {
 	// Protection contains protect/unprotect records planned or appended to
 	// mirror remote sentinel state from the listing snapshot (SPEC.md §9).
 	Protection []ManifestRecord `json:"protection_records"`
-	// Unchanged counts remote markers already active and complete in the
-	// local manifest. A record selected for enrichment is reported as
-	// enriched or deferred instead, never as unchanged.
+	// Unchanged counts remote markers already active and complete in the local
+	// manifest. A record selected for inspection is enriched or deferred when
+	// metadata changes, and unchanged when no metadata needs updating.
 	Unchanged int `json:"unchanged"`
 	// Deferred counts active records whose declared totals could not be
 	// completed this run, because their marker could not be fetched or is not
@@ -59,7 +59,8 @@ type SyncManifestResult struct {
 	Incomplete int `json:"incomplete"`
 	// Invalid counts marker bodies that fail marker validation.
 	Invalid int `json:"invalid"`
-	// Retained counts local records kept after a listing inconsistency or error.
+	// Retained counts local records or revision tombstones kept after a listing
+	// inconsistency, stale remote restoration, or error.
 	Retained int `json:"retained"`
 	// Failures contains per-item request failures in deterministic order.
 	Failures []SyncFailure `json:"failures"`
@@ -111,6 +112,7 @@ func (c *Client) SyncManifest(
 	}
 	result := &SyncManifestResult{Warnings: append([]string(nil), warnings...)}
 	active := scopedActiveUploads(records, c.cfg)
+	deletedRevisions := manifestDeletedRevisions(records)
 	remote, err := c.ListRemote(ctx)
 	if err != nil {
 		return nil, err
@@ -140,10 +142,9 @@ func (c *Client) SyncManifest(
 				c.syncProtectionRecord(local, upload.Protected, ""))
 		}
 		// An already-active record still needs its marker inspected when it
-		// predates declared totals, so history converges in one pass without
-		// re-importing anything (SPEC.md §9). Such a record is reported by its
-		// outcome, so it is not also counted as unchanged.
-		if manifestRecordNeedsTotals(local) {
+		// predates declared totals or may have been promoted from standalone by
+		// another writer (SPEC.md §9). It is reported by the inspection outcome.
+		if manifestRecordNeedsSyncInspection(local) {
 			record := local
 			jobs = append(jobs, syncJob{
 				kind: syncJobEnrich, markerKey: upload.MarkerKey,
@@ -212,6 +213,14 @@ func (c *Client) SyncManifest(
 	wg.Wait()
 
 	for _, item := range jobResults {
+		if item.upload != nil &&
+			manifestRevisionIdentityWasDeleted(
+				deletedRevisions, item.upload.Profile, item.upload.Bucket,
+				item.revisionChainID, item.revision,
+			) {
+			result.Retained++
+			continue
+		}
 		switch item.state {
 		case UploadIncomplete:
 			result.Incomplete++
@@ -223,6 +232,9 @@ func (c *Client) SyncManifest(
 		}
 		if item.enriched != nil {
 			result.Enriched = append(result.Enriched, *item.enriched)
+		}
+		if item.unchanged {
+			result.Unchanged++
 		}
 		if item.protection != nil {
 			result.Protection = append(result.Protection, *item.protection)
@@ -316,13 +328,21 @@ func (c *Client) syncImport(
 		ProducerVersion: inspection.ProducerVersion,
 		RendererVersion: inspection.RendererGeneration,
 	}
+	if inspection.Versions != nil {
+		record.RevisionChainID = inspection.RevisionChainID
+		record.Revision = inspection.Revision
+		record.LatestRevision = inspection.LatestRevision
+	}
 	if inspection.Kind == UploadKindDocument {
 		record.Slug, _ = pageSlug(path.Base(inspection.Page.Key))
 	}
 	if inspection.Source != nil {
 		record.SourceKey = inspection.Source.Key
 	}
-	result := syncJobResult{upload: &record}
+	result := syncJobResult{
+		upload: &record, revisionChainID: inspection.RevisionChainID,
+		revision: inspection.Revision,
+	}
 	if inspection.Protected {
 		protection := c.syncProtectionRecord(
 			record, true, inspection.ProtectReason,
@@ -335,6 +355,8 @@ func (c *Client) syncImport(
 	}
 	if len(inspection.Warnings) > 0 {
 		result.warning = inspection.Warnings[0]
+	} else if inspection.RevisionError != "" {
+		result.warning = inspection.RevisionError
 	}
 	return result
 }
@@ -358,10 +380,24 @@ func manifestRecordNeedsTotals(rec ManifestRecord) bool {
 	}
 }
 
-// syncEnrich fills in declared totals for an active local record by inspecting
-// its existing marker (SPEC.md §9). It appends an enriched copy of the record,
-// preserving its original time and identity, so append-only history holds and
-// latest-wins reduction collapses the pair.
+// manifestRecordNeedsRevisionProjection reports whether a current standalone
+// Markdown projection must be re-inspected because another writer may have
+// promoted its marker into revision 1 since the local upload event was written.
+func manifestRecordNeedsRevisionProjection(rec ManifestRecord) bool {
+	return rec.MarkerVersion == MarkerVersion &&
+		ManifestRecordKind(rec) == UploadKindDocument && rec.Format == "md" &&
+		rec.SourceKey != "" && (rec.RevisionChainID == "" || rec.Revision <= 0 ||
+		rec.LatestRevision < rec.Revision)
+}
+
+func manifestRecordNeedsSyncInspection(rec ManifestRecord) bool {
+	return manifestRecordNeedsTotals(rec) || manifestRecordNeedsRevisionProjection(rec)
+}
+
+// syncEnrich fills in declared totals or a newly promoted revision projection
+// for an active local record by inspecting its existing marker (SPEC.md §9).
+// It appends a complete projection so append-only history holds and latest-wins
+// reduction collapses the pair.
 func (c *Client) syncEnrich(
 	ctx context.Context, upload RemoteUpload, record ManifestRecord,
 ) syncJobResult {
@@ -377,14 +413,49 @@ func (c *Client) syncEnrich(
 		return deferredEnrichment(upload.MarkerKey,
 			fmt.Sprintf("marker is %s", inspection.State))
 	}
-	declared := declaredTotalsFromInspection(inspection)
-	if declared.objects == 0 {
-		return deferredEnrichment(upload.MarkerKey,
-			"marker declares no object sizes")
-	}
+	needsTotals := manifestRecordNeedsTotals(record)
+	needsRevision := manifestRecordNeedsRevisionProjection(record)
 	enriched := record
-	enriched.Objects = declared.objects
-	enriched.TotalBytes = declared.bytes
+	changed := false
+	revisionProjected := false
+	if needsTotals {
+		declared := declaredTotalsFromInspection(inspection)
+		if declared.objects > 0 {
+			enriched.Objects = declared.objects
+			enriched.TotalBytes = declared.bytes
+			changed = true
+		}
+	}
+	if needsRevision && inspection.RevisionChainID != "" &&
+		inspection.Revision > 0 && inspection.LatestRevision >= inspection.Revision {
+		enriched.Type = "link"
+		enriched.CreatedAt = record.Time
+		if !record.CreatedAt.IsZero() {
+			enriched.CreatedAt = record.CreatedAt
+		}
+		enriched.Time = time.Now().UTC().Truncate(time.Second)
+		enriched.RevisionChainID = inspection.RevisionChainID
+		enriched.Revision = inspection.Revision
+		enriched.LatestRevision = inspection.LatestRevision
+		changed = true
+		revisionProjected = true
+	}
+	if needsRevision && inspection.RevisionChainID != "" && !revisionProjected {
+		result := deferredSyncEnrichment(upload.MarkerKey,
+			"revision projection", inspection.RevisionError)
+		if changed {
+			clearDerivedProtection(&enriched)
+			result.enriched = &enriched
+		}
+		return result
+	}
+	if !changed {
+		if needsTotals {
+			return deferredEnrichment(upload.MarkerKey,
+				"marker declares no object sizes")
+		}
+		return syncJobResult{unchanged: true}
+	}
 	clearDerivedProtection(&enriched)
 	return syncJobResult{enriched: &enriched}
 }
@@ -394,10 +465,17 @@ func (c *Client) syncEnrich(
 // is already in local history and only its metadata is missing, so failing the
 // run would make an unreadable marker fail every later run too.
 func deferredEnrichment(markerKey, reason string) syncJobResult {
+	return deferredSyncEnrichment(markerKey, "declared totals", reason)
+}
+
+func deferredSyncEnrichment(markerKey, subject, reason string) syncJobResult {
+	if reason == "" {
+		reason = "remote metadata is incomplete"
+	}
 	return syncJobResult{
 		deferred: true,
 		warning: fmt.Sprintf(
-			"declared totals deferred for marker %q: %s", markerKey, reason,
+			"%s deferred for marker %q: %s", subject, markerKey, reason,
 		),
 	}
 }
@@ -449,6 +527,10 @@ func (c *Client) syncPrune(
 		Key: record.Key, MarkerKey: markerKey, Bucket: c.cfg.Bucket,
 		Profile: c.cfg.Profile, Reason: "remote_missing", Kind: record.Kind,
 	}
+	if manifestRecordHasAnnouncedRevision(record) {
+		tombstone.RevisionChainID = record.RevisionChainID
+		tombstone.Revision = record.Revision
+	}
 	return syncJobResult{tombstone: &tombstone}
 }
 
@@ -463,10 +545,14 @@ func (c *Client) commitSyncManifest(
 		}
 		result.Warnings = appendUniqueStrings(result.Warnings, warnings...)
 		active := scopedActiveUploads(current, c.cfg)
+		deletedRevisions := manifestDeletedRevisions(current)
 		appendedUploads := make([]ManifestRecord, 0, len(result.Added))
 		for _, rec := range result.Added {
 			markerKey := manifestMarkerKey(rec)
 			if _, exists := active[markerKey]; exists {
+				continue
+			}
+			if manifestRevisionWasDeleted(deletedRevisions, rec) {
 				continue
 			}
 			if hasConcurrentDelete(current, initialLen, rec) {
@@ -484,22 +570,45 @@ func (c *Client) commitSyncManifest(
 		for _, rec := range result.Enriched {
 			markerKey := manifestMarkerKey(rec)
 			existing, exists := active[markerKey]
-			if !exists || !manifestRecordNeedsTotals(existing) {
+			if !exists || !manifestRecordNeedsSyncInspection(existing) {
 				continue
 			}
 			// A concurrent re-upload or replacement under the same marker key
 			// invalidates the inspection snapshot. Metadata-only edits retain
 			// these identity fields and are safe to merge into.
-			if !existing.Time.Equal(rec.Time) || existing.Key != rec.Key {
+			snapshotTime := rec.Time
+			if rec.Type == "link" {
+				snapshotTime = rec.CreatedAt
+			}
+			if !existing.Time.Equal(snapshotTime) || existing.Key != rec.Key {
 				continue
 			}
-			// Enrichment adds two fields; it must not carry the rest of the
-			// pre-lock snapshot forward, or a record updated concurrently
-			// would be reverted by latest-wins reduction.
+			// Enrichment adds only inspected fields; it must not carry the rest of
+			// the pre-lock snapshot forward, or a concurrent metadata edit would
+			// be reverted by latest-wins reduction.
 			projected := existing
-			projected.Objects = rec.Objects
-			projected.TotalBytes = rec.TotalBytes
+			projectionChanged := false
+			if manifestRecordNeedsTotals(existing) && rec.Objects > 0 {
+				projected.Objects = rec.Objects
+				projected.TotalBytes = rec.TotalBytes
+				projectionChanged = true
+			}
+			if manifestRecordNeedsRevisionProjection(existing) &&
+				rec.RevisionChainID != "" {
+				projected.RevisionChainID = rec.RevisionChainID
+				projected.Revision = rec.Revision
+				projected.LatestRevision = rec.LatestRevision
+				projectionChanged = true
+			}
+			if !projectionChanged {
+				continue
+			}
 			appendable := projected
+			if rec.Type == "link" {
+				appendable.Type = "link"
+				appendable.Time = rec.Time
+				appendable.CreatedAt = snapshotTime
+			}
 			clearDerivedProtection(&appendable)
 			appendedEnriched = append(appendedEnriched, appendable)
 			// Keep the reduced projection in memory. Protection fields are not
@@ -577,7 +686,8 @@ func hasConcurrentUpload(
 	}
 	identity := manifestRecordIdentity(tombstone)
 	for _, rec := range records[initialLen:] {
-		if rec.Type == "upload" && manifestRecordIdentity(rec) == identity {
+		if (rec.Type == "upload" || rec.Type == "link") &&
+			manifestRecordIdentity(rec) == identity {
 			return true
 		}
 	}
@@ -632,6 +742,11 @@ type syncJobResult struct {
 	state      UploadState
 	retained   bool
 	deferred   bool
+	unchanged  bool
+	// Marker-declared identity remains internal until a complete versions index
+	// proves announcement. Sync still uses it to honor permanent tombstones.
+	revisionChainID string
+	revision        int
 }
 
 // syncJobKind selects what a sync worker does with one marker key.

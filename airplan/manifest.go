@@ -25,7 +25,7 @@ import (
 // implementations can share a manifest. Readers ignore unknown fields
 // and skip records with an unknown Type.
 type ManifestRecord struct {
-	// Type is "upload", "upgrade", "delete", "protect", or "unprotect".
+	// Type is "upload", "upgrade", "link", "delete", "protect", or "unprotect".
 	Type string `json:"type"`
 
 	// Time is the record time, RFC 3339 in UTC.
@@ -70,6 +70,9 @@ type ManifestRecord struct {
 	CreatedAt       time.Time `json:"created_at,omitzero"`
 	ProducerVersion string    `json:"producer_version,omitempty"`
 	RendererVersion int       `json:"renderer_version,omitempty"`
+	RevisionChainID string    `json:"revision_chain_id,omitempty"`
+	Revision        int       `json:"revision,omitempty"`
+	LatestRevision  int       `json:"latest_revision,omitempty"`
 
 	// ProtectReason is the advisory purge-protection reason: written on
 	// protect records and projected onto reduced upload records. It is a
@@ -229,7 +232,7 @@ func readManifest(path string) ([]ManifestRecord, []string, error) {
 			if err := json.Unmarshal(line, &rec); err != nil {
 				warnings = append(warnings,
 					fmt.Sprintf("skipping malformed manifest line %d", lineNo))
-			} else if rec.Type == "upload" || rec.Type == "upgrade" {
+			} else if rec.Type == "upload" || rec.Type == "upgrade" || rec.Type == "link" {
 				normalizeManifestRecord(&rec)
 				if rec.MarkerVersion != 0 &&
 					!IsSupportedMarkerVersion(rec.MarkerVersion) {
@@ -301,7 +304,7 @@ func normalizeManifestRecord(rec *ManifestRecord) {
 	if rec.Kind == "" && path.Base(rec.MarkerKey) == CollectionMarkerFilename {
 		rec.Kind = string(UploadKindCollection)
 	}
-	if rec.Type != "upload" && rec.Type != "upgrade" {
+	if rec.Type != "upload" && rec.Type != "upgrade" && rec.Type != "link" {
 		return
 	}
 	if rec.Kind == "" {
@@ -326,7 +329,7 @@ func validateManifestRecord(rec ManifestRecord) error {
 	}
 
 	switch rec.Type {
-	case "upload", "upgrade":
+	case "upload", "upgrade", "link":
 		if rec.URL == "" {
 			return errors.New("url is required")
 		}
@@ -336,12 +339,12 @@ func validateManifestRecord(rec ManifestRecord) error {
 		if rec.Bytes <= 0 {
 			return errors.New("bytes must be positive")
 		}
-		if rec.Type == "upgrade" {
+		if rec.Type == "upgrade" || rec.Type == "link" {
 			if rec.MarkerVersion != MarkerVersion {
-				return errors.New("upgrade events require the current marker version")
+				return fmt.Errorf("%s events require the current marker version", rec.Type)
 			}
 			if rec.CreatedAt.IsZero() {
-				return errors.New("upgrade events require created_at")
+				return fmt.Errorf("%s events require created_at", rec.Type)
 			}
 		}
 		if !rec.CreatedAt.IsZero() {
@@ -351,6 +354,18 @@ func validateManifestRecord(rec ManifestRecord) error {
 		}
 		if rec.RendererVersion < 0 {
 			return errors.New("renderer_version must not be negative")
+		}
+		if rec.RevisionChainID != "" {
+			if !isRandomDir(rec.RevisionChainID) || rec.Revision <= 0 ||
+				(rec.LatestRevision != 0 && rec.LatestRevision < rec.Revision) {
+				return errors.New("revision projection fields are invalid")
+			}
+		} else if rec.Revision != 0 || rec.LatestRevision != 0 {
+			return errors.New("revision projection requires revision_chain_id")
+		}
+		if rec.Type == "link" && (rec.RevisionChainID == "" ||
+			rec.Revision <= 0 || rec.LatestRevision < rec.Revision) {
+			return errors.New("link events require complete revision projection fields")
 		}
 		// Both totals are optional, but they describe one measurement: a
 		// negative or half-present pair is corrupt rather than absent, and
@@ -398,6 +413,14 @@ func validateManifestRecord(rec ManifestRecord) error {
 		if rec.Reason != "" && rec.Reason != "deleted" &&
 			rec.Reason != "remote_missing" {
 			return fmt.Errorf("unsupported delete reason %q", rec.Reason)
+		}
+		if rec.RevisionChainID != "" {
+			if !isRandomDir(rec.RevisionChainID) || rec.Revision <= 0 ||
+				rec.LatestRevision < 0 {
+				return errors.New("delete revision projection fields are invalid")
+			}
+		} else if rec.Revision != 0 || rec.LatestRevision != 0 {
+			return errors.New("delete revision projection requires revision_chain_id")
 		}
 	case "protect", "unprotect":
 		// Protection applies to marker-managed identities only, so both
@@ -462,6 +485,23 @@ func markerDeclaredTotals(
 	return declaredTotals{objects: objects, bytes: total}
 }
 
+func completeManifestProjection(
+	cfg *Config, eventType string, eventTime time.Time, res *Result,
+	declared declaredTotals, producer string, renderer int,
+) ManifestRecord {
+	return ManifestRecord{
+		Type: eventType, Time: eventTime, CreatedAt: res.CreatedAt,
+		Key: res.Key, SourceKey: res.SourceKey, MarkerKey: res.MarkerKey,
+		URL: res.URL, Bucket: res.Bucket, Profile: cfg.Profile,
+		Format: res.Format, Kind: res.Kind, Slug: res.Slug,
+		Title: res.Title, Repo: res.RepositoryURL, Bytes: res.Bytes,
+		Objects: declared.objects, TotalBytes: declared.bytes,
+		MarkerVersion: res.MarkerVersion, ProducerVersion: producer,
+		RendererVersion: renderer, RevisionChainID: res.RevisionChainID,
+		Revision: res.Revision, LatestRevision: res.LatestRevision,
+	}
+}
+
 // recordUpload appends an upload record for res, best-effort: manifest
 // failures degrade to a warning on the result, never a failed upload
 // (SPEC.md §9 — the manifest is convenience, not a source of truth).
@@ -483,31 +523,13 @@ func (c *Client) recordUpload(
 		}
 	}
 
-	rec := ManifestRecord{
-		Type:            "upload",
-		Time:            res.CreatedAt,
-		Key:             res.Key,
-		SourceKey:       res.SourceKey,
-		MarkerKey:       res.MarkerKey,
-		URL:             res.URL,
-		Bucket:          res.Bucket,
-		Profile:         c.cfg.Profile,
-		Format:          res.Format,
-		Kind:            res.Kind,
-		Slug:            res.Slug,
-		Title:           res.Title,
-		Repo:            res.RepositoryURL,
-		Bytes:           res.Bytes,
-		Objects:         declared.objects,
-		TotalBytes:      declared.bytes,
-		MarkerVersion:   res.MarkerVersion,
-		CreatedAt:       res.CreatedAt,
-		ProducerVersion: producerVersion(c.cfg.ProducerVersion),
-	}
+	renderer := 0
 	if res.Kind == string(UploadKindCollection) ||
 		(res.Kind == string(UploadKindDocument) && res.Format != "html") {
-		rec.RendererVersion = RendererGeneration
+		renderer = RendererGeneration
 	}
+	rec := completeManifestProjection(c.cfg, "upload", res.CreatedAt, res,
+		declared, producerVersion(c.cfg.ProducerVersion), renderer)
 	if err := appendManifestRecord(ctx, path, rec); err != nil {
 		res.Warnings = append(res.Warnings,
 			"manifest not recorded: "+err.Error())
@@ -544,6 +566,70 @@ func ManifestRecordKind(rec ManifestRecord) UploadKind {
 		return UploadKindDocument
 	}
 	return ""
+}
+
+func manifestRecordHasAnnouncedRevision(rec ManifestRecord) bool {
+	return rec.RevisionChainID != "" && rec.Revision > 0 &&
+		rec.LatestRevision >= rec.Revision
+}
+
+type manifestRevisionChainKey struct {
+	profile string
+	bucket  string
+	chainID string
+}
+
+func manifestRevisionChainIdentity(rec ManifestRecord) manifestRevisionChainKey {
+	return manifestRevisionChainKey{
+		profile: rec.Profile,
+		bucket:  rec.Bucket,
+		chainID: rec.RevisionChainID,
+	}
+}
+
+func manifestDeletedRevisions(
+	records []ManifestRecord,
+) map[manifestRevisionChainKey]map[int]struct{} {
+	deletedRevisions := make(map[manifestRevisionChainKey]map[int]struct{})
+	for _, rec := range records {
+		if rec.Type != "delete" || rec.RevisionChainID == "" || rec.Revision <= 0 {
+			continue
+		}
+		chain := manifestRevisionChainIdentity(rec)
+		deleted := deletedRevisions[chain]
+		if deleted == nil {
+			deleted = make(map[int]struct{})
+			deletedRevisions[chain] = deleted
+		}
+		deleted[rec.Revision] = struct{}{}
+	}
+	return deletedRevisions
+}
+
+func manifestRevisionWasDeleted(
+	deletedRevisions map[manifestRevisionChainKey]map[int]struct{},
+	rec ManifestRecord,
+) bool {
+	if !manifestRecordHasAnnouncedRevision(rec) {
+		return false
+	}
+	return manifestRevisionIdentityWasDeleted(
+		deletedRevisions, rec.Profile, rec.Bucket,
+		rec.RevisionChainID, rec.Revision,
+	)
+}
+
+func manifestRevisionIdentityWasDeleted(
+	deletedRevisions map[manifestRevisionChainKey]map[int]struct{},
+	profile, bucket, chainID string, revision int,
+) bool {
+	if chainID == "" || revision <= 0 {
+		return false
+	}
+	_, deleted := deletedRevisions[manifestRevisionChainKey{
+		profile: profile, bucket: bucket, chainID: chainID,
+	}][revision]
+	return deleted
 }
 
 // ManifestRecordSlug returns a record's document slug (SPEC.md §9): the
@@ -590,27 +676,42 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 	}
 	active := make(map[string]activeRecord)
 	protection := make(map[string]protectionState)
+	deletedRevisions := make(map[manifestRevisionChainKey]map[int]struct{})
 	for index, rec := range records {
 		switch rec.Type {
-		case "upload", "upgrade":
+		case "upload", "upgrade", "link":
+			if deleted := deletedRevisions[manifestRevisionChainIdentity(rec)]; rec.Revision > 0 && deleted != nil {
+				if _, ok := deleted[rec.Revision]; ok {
+					continue
+				}
+			}
 			// Derived fields are recomputed below; stale values on a read
 			// line never survive reduction.
 			clearDerivedProtection(&rec)
 			// Raw upgrade records retain the event time in ReadManifest. The
 			// active upload projection keeps the original creation time so
 			// upgrades do not change list ordering, age filters, or purge age.
-			if rec.Type == "upgrade" && !rec.CreatedAt.IsZero() {
+			if (rec.Type == "upgrade" || rec.Type == "link") && !rec.CreatedAt.IsZero() {
 				rec.Time = rec.CreatedAt
 			}
 			identity := manifestRecordIdentity(rec)
 			order := index
-			if rec.Type == "upgrade" {
+			if rec.Type == "upgrade" || rec.Type == "link" {
 				if previous, ok := active[identity]; ok {
 					order = previous.order
 				}
 			}
-			active[identity] = activeRecord{rec, order}
+			active[identity] = activeRecord{record: rec, order: order}
 		case "delete":
+			if rec.RevisionChainID != "" && rec.Revision > 0 {
+				chain := manifestRevisionChainIdentity(rec)
+				deleted := deletedRevisions[chain]
+				if deleted == nil {
+					deleted = make(map[int]struct{})
+					deletedRevisions[chain] = deleted
+				}
+				deleted[rec.Revision] = struct{}{}
+			}
 			if rec.MarkerKey != "" && rec.Bucket != "" {
 				identity := manifestRecordIdentity(rec)
 				delete(active, identity)
@@ -636,9 +737,31 @@ func ManifestUploads(records []ManifestRecord) []ManifestRecord {
 		out = append(out, record)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].order < out[j].order })
+	chainLatest := make(map[manifestRevisionChainKey]int)
+	for _, record := range out {
+		if rec := record.record; manifestRecordHasAnnouncedRevision(rec) {
+			chain := manifestRevisionChainIdentity(rec)
+			latest := rec.LatestRevision
+			if latest > chainLatest[chain] {
+				chainLatest[chain] = latest
+			}
+		}
+	}
+	for chain, latest := range chainLatest {
+		for latest > 0 {
+			if _, deleted := deletedRevisions[chain][latest]; !deleted {
+				break
+			}
+			latest--
+		}
+		chainLatest[chain] = latest
+	}
 	uploads := make([]ManifestRecord, 0, len(out))
 	for _, record := range out {
 		rec := record.record
+		if manifestRecordHasAnnouncedRevision(rec) {
+			rec.LatestRevision = chainLatest[manifestRevisionChainIdentity(rec)]
+		}
 		// An upload never clears protection: a sync re-import of a still
 		// protected directory must not silently drop it. Protection state
 		// without an active upload is simply not surfaced.

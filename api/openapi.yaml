@@ -87,6 +87,36 @@ paths:
                 $ref: "#/components/schemas/UploadResult"
         default:
           $ref: "#/components/responses/Problem"
+  /api/v1/uploads/documents/update:
+    post:
+      operationId: updateDocument
+      tags: [uploads]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [metadata, document]
+              properties:
+                metadata:
+                  $ref: "#/components/schemas/UpdateDocumentMetadata"
+                document:
+                  type: string
+                  format: binary
+            encoding:
+              metadata:
+                contentType: application/json
+      responses:
+        "201":
+          description: A linked document revision was uploaded or repaired.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateDocumentResult"
+        default:
+          $ref: "#/components/responses/Problem"
   /api/v1/uploads/collections:
     post:
       operationId: uploadCollection
@@ -667,6 +697,9 @@ components:
         source:
           type: boolean
           default: false
+        diff:
+          type: boolean
+          default: false
     DeleteRequest:
       type: object
       additionalProperties: false
@@ -774,6 +807,14 @@ components:
         repository_url:
           type: string
           format: uri
+        revision_chain_id:
+          type: string
+        revision:
+          type: integer
+          minimum: 1
+        latest_revision:
+          type: integer
+          minimum: 1
         warnings:
           type: array
           items:
@@ -782,6 +823,73 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FileResult"
+    UpdateDocumentMetadata:
+      type: object
+      additionalProperties: false
+      required: [target]
+      properties:
+        target:
+          type: string
+          minLength: 1
+        name:
+          type: string
+        title:
+          type: string
+        max_size:
+          type: integer
+          format: int64
+          minimum: 1
+    UpdateDocumentResult:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - kind
+        - url
+        - key
+        - bucket
+        - bytes
+        - content_type
+        - created_at
+        - marker_version
+        - marker_key
+        - warnings
+        - unchanged
+      properties:
+        id: {type: string}
+        kind:
+          type: string
+          enum: [document, collection]
+        url: {type: string, format: uri}
+        key: {type: string}
+        source_url: {type: string, format: uri}
+        source_key: {type: string}
+        bucket: {type: string}
+        bytes: {type: integer, format: int64, minimum: 0}
+        content_type: {type: string}
+        title: {type: string}
+        created_at:
+          type: string
+          format: date-time
+          x-go-type-skip-optional-pointer: false
+        marker_version: {type: integer, minimum: 1}
+        marker_key: {type: string}
+        format: {type: string}
+        slug: {type: string}
+        repository_url: {type: string, format: uri}
+        revision_chain_id: {type: string}
+        revision: {type: integer, minimum: 1}
+        latest_revision: {type: integer, minimum: 1}
+        warnings:
+          type: array
+          items: {type: string}
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileResult"
+        previous_url: {type: string, format: uri}
+        diff_url: {type: string, format: uri}
+        unchanged: {type: boolean}
     FileResult:
       type: object
       additionalProperties: false
@@ -800,6 +908,38 @@ components:
           minimum: 0
         content_type:
           type: string
+    VersionsRevision:
+      type: object
+      additionalProperties: false
+      required: [number]
+      properties:
+        number: {type: integer, minimum: 1}
+        url: {type: string, format: uri}
+        created_at:
+          type: string
+          format: date-time
+          x-go-type-skip-optional-pointer: false
+        diff_url: {type: string, format: uri}
+        deleted: {type: boolean}
+        deleted_at:
+          type: string
+          format: date-time
+          x-go-type-skip-optional-pointer: false
+    VersionsMetadata:
+      type: object
+      additionalProperties: false
+      required: [schema, version, chain_id, current_revision, latest_revision, last_assigned_revision, revisions]
+      properties:
+        schema: {type: string, enum: [airplan-versions]}
+        version: {type: integer, enum: [1]}
+        chain_id: {type: string}
+        current_revision: {type: integer, minimum: 1}
+        latest_revision: {type: integer, minimum: 1}
+        last_assigned_revision: {type: integer, minimum: 1}
+        revisions:
+          type: array
+          minItems: 2
+          items: {$ref: "#/components/schemas/VersionsRevision"}
     InspectedObject:
       type: object
       additionalProperties: false
@@ -870,10 +1010,29 @@ components:
         renderer_version:
           type: integer
           minimum: 1
+        revision_chain_id:
+          type: string
+        revision:
+          type: integer
+          minimum: 1
+        latest_revision:
+          type: integer
+          minimum: 1
+        latest_url:
+          type: string
+          format: uri
+        versions:
+          $ref: "#/components/schemas/VersionsMetadata"
+          x-go-type-skip-optional-pointer: false
+        revision_error:
+          type: string
         page:
           $ref: "#/components/schemas/InspectedObject"
           x-go-type-skip-optional-pointer: false
         source:
+          $ref: "#/components/schemas/InspectedObject"
+          x-go-type-skip-optional-pointer: false
+        diff:
           $ref: "#/components/schemas/InspectedObject"
           x-go-type-skip-optional-pointer: false
         files:
@@ -923,7 +1082,7 @@ components:
       properties:
         type:
           type: string
-          enum: [upload, upgrade, delete, protect, unprotect]
+          enum: [upload, upgrade, link, delete, protect, unprotect]
         time:
           type: string
           format: date-time
@@ -971,6 +1130,14 @@ components:
         producer_version:
           type: string
         renderer_version:
+          type: integer
+          minimum: 1
+        revision_chain_id:
+          type: string
+        revision:
+          type: integer
+          minimum: 1
+        latest_revision:
           type: integer
           minimum: 1
         protect_reason:
@@ -1158,6 +1325,9 @@ components:
           type: integer
           minimum: 1
           maximum: 64
+        include_versioned:
+          type: boolean
+          default: false
     PurgeCandidate:
       type: object
       additionalProperties: false
@@ -1177,13 +1347,17 @@ components:
     PurgePreview:
       type: object
       additionalProperties: false
-      required: [candidates, protected, invalid, warnings]
+      required: [candidates, protected, versioned, invalid, warnings]
       properties:
         candidates:
           type: array
           items:
             $ref: "#/components/schemas/PurgeCandidate"
         protected:
+          type: array
+          items:
+            $ref: "#/components/schemas/PurgeCandidate"
+        versioned:
           type: array
           items:
             $ref: "#/components/schemas/PurgeCandidate"
@@ -1206,6 +1380,9 @@ components:
           items:
             type: string
             minLength: 1
+        include_versioned:
+          type: boolean
+          default: false
     PurgeItemResult:
       type: object
       additionalProperties: false
@@ -1217,6 +1394,8 @@ components:
           $ref: "#/components/schemas/DeleteResult"
           x-go-type-skip-optional-pointer: false
         protected:
+          type: boolean
+        versioned:
           type: boolean
         error:
           type: string

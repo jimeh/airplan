@@ -83,6 +83,15 @@ func TestRenderMarkdownGolden(t *testing.T) {
 	}
 }
 
+func TestPageRevisionNavigationUsesValidatedInMemoryURL(t *testing.T) {
+	if strings.Contains(pageJS, "select.value") {
+		t.Fatal("revision navigation rereads an attacker-mutable URL from the DOM")
+	}
+	if !strings.Contains(pageJS, "live[selected].safeURL") {
+		t.Fatal("revision navigation does not use the validated in-memory URL")
+	}
+}
+
 func TestRenderMarkdownPageFeatures(t *testing.T) {
 	src := []byte("# Hi\n\nsome *text*\n")
 
@@ -155,6 +164,44 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "Hi"})
 		if strings.Contains(out, `<a class="download"`) {
 			t.Error("unexpected download anchor")
+		}
+	})
+
+	t.Run("linked revision includes picker context and highlighted changes", func(t *testing.T) {
+		out := render(t, src, RenderOptions{
+			Title: "Hi", SourceName: "plan.md", SourcePath: "./plan.md",
+			Revision: 2, RevisionCount: 3, PreviousRevision: 1,
+			VersionsPath: VersionsFilename, DiffPath: "./" + DiffFilename,
+			DiffText: "--- revision-1/plan.md\n+++ revision-2/plan.md\n@@ -1 +1 @@\n-old\n+new\n",
+		})
+		for _, fragment := range []string{
+			`<meta name="airplan-revision" content="2">`,
+			`data-revision-heading`,
+			`Revision 2 of 3`,
+			`data-view="changes"`,
+			`class="content changes-view"`,
+			`href="./.airplan-changes.diff"`,
+			`Changes from revision 1`,
+		} {
+			if !strings.Contains(out, fragment) {
+				t.Errorf("revision page missing %q", fragment)
+			}
+		}
+	})
+
+	t.Run("large revision diff keeps raw changes view", func(t *testing.T) {
+		out := render(t, src, RenderOptions{
+			Revision: 2, RevisionCount: 2, PreviousRevision: 1,
+			VersionsPath: VersionsFilename, DiffPath: "./" + DiffFilename,
+		})
+		for _, fragment := range []string{
+			`data-view="changes"`, `class="content changes-view"`,
+			`This diff is too large to display inline.`,
+			`href="./.airplan-changes.diff"`,
+		} {
+			if !strings.Contains(out, fragment) {
+				t.Errorf("large-diff fallback missing %q", fragment)
+			}
 		}
 	})
 

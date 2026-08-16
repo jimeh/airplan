@@ -101,6 +101,10 @@ coverage has no equivalent local task on non-Windows hosts.
   one LIST snapshot, confirm apparent absence with a targeted not-found, and
   lock/reread/reduce before deterministic manifest appends. Purge deletions
   remain sequential even when marker inspection concurrency is overridden.
+- **Conditional ETag claims need byte-distinct bodies**: S3-compatible stores
+  may retain the same content-derived ETag when identical bytes are rewritten.
+  Never use an identity PUT as a serialization claim; write a schema-equivalent
+  but byte-distinct body and keep a real MinIO assertion that its ETag changes.
 - **Page assets** (`airplan/assets/`): embedded via go:embed. Mermaid is the
   only airplan-managed external load and is conditional. Update its pin with
   `mise run update:mermaid`; dependency-only updates never bump SPEC.md.

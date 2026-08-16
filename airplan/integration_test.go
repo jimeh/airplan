@@ -291,6 +291,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	if _, err := st.getBytes(ctx, dirPrefix+".airplan-versions.json", MaxMarkerSize); !errors.Is(err, errObjectNotFound) {
 		t.Fatalf("standalone upgrade versions metadata error = %v", err)
 	}
+	testRevisionRoundTrip(ctx, t, client, st)
 
 	collection, err := client.UploadFiles(ctx, FilesInput{Files: []FileInput{
 		{Name: "shot.png", Reader: bytes.NewReader([]byte("png")), Size: 3},
@@ -445,8 +446,13 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(objects) != 0 {
-		t.Fatalf("objects remain after delete: %+v", objects)
+	if len(objects) != 1 || objects[0].Key != dirPrefix+VersionsFilename {
+		t.Fatalf("unexpected objects remain after delete: %+v", objects)
+	}
+	if got := getObject(ctx, t, st, dirPrefix+VersionsFilename); !bytes.Equal(
+		got.body, standaloneDeleteReservationBody,
+	) {
+		t.Fatalf("standalone delete tombstone = %q", got.body)
 	}
 	synced, err = syncClient.SyncManifest(ctx, SyncManifestOptions{Prune: true})
 	if err != nil || len(synced.Tombstoned) != 1 {
@@ -608,6 +614,156 @@ func testPurgeProtectionLifecycle(
 	}
 }
 
+func testRevisionRoundTrip(
+	ctx context.Context, t *testing.T, client *Client, st *storage,
+) {
+	t.Helper()
+	first, err := client.Upload(ctx, Input{
+		Reader: strings.NewReader("# Revision chain\n\nOne.\n"), Name: "chain.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ProtectUpload(ctx, first.URL, "keep first"); err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(ctx, UpdateDocumentInput{
+		Target: first.URL,
+		Input:  Input{Reader: strings.NewReader("# Revision chain\n\nTwo.\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := client.UpdateDocument(ctx, UpdateDocumentInput{
+		Target: first.URL,
+		Input:  Input{Reader: strings.NewReader("# Revision chain\n\nThree.\n")},
+	})
+	if err != nil || third.Revision != 3 || third.PreviousURL != second.URL {
+		t.Fatalf("third revision = %+v, %v", third, err)
+	}
+	firstDoc, err := client.loadRevisionDocument(ctx, first.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claimBody, err := revisionCandidateCleanupClaimBody(firstDoc.versionsBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadataKey := firstDoc.dirPrefix + VersionsFilename
+	if err := st.putConditional(ctx, object{
+		Key: metadataKey, Body: claimBody, ContentType: markerContentType,
+	}, firstDoc.versionsETag); err != nil {
+		t.Fatalf("real conditional cleanup claim: %v", err)
+	}
+	claimedBody, claimedETag, _, err := st.getBytesWithETag(
+		ctx, metadataKey, MaxVersionsMetadataSize,
+	)
+	if err != nil || bytes.Equal(claimedBody, firstDoc.versionsBody) ||
+		claimedETag == firstDoc.versionsETag {
+		t.Fatalf("cleanup claim body/etag = changed %t/%t, %v",
+			!bytes.Equal(claimedBody, firstDoc.versionsBody),
+			claimedETag != firstDoc.versionsETag, err)
+	}
+	if _, err := DecodeVersionsMetadata(claimedBody, client.cfg, firstDoc.pageKey); err != nil {
+		t.Fatalf("cleanup claim metadata: %v", err)
+	}
+	if err := st.putConditional(ctx, object{
+		Key: metadataKey, Body: firstDoc.versionsBody, ContentType: markerContentType,
+	}, claimedETag); err != nil {
+		t.Fatalf("restore metadata after cleanup claim proof: %v", err)
+	}
+	inspection, err := client.InspectUpload(ctx, first.URL)
+	if err != nil || inspection.Revision != 1 || inspection.LatestRevision != 3 ||
+		inspection.Versions == nil || !inspection.Protected {
+		t.Fatalf("first revision inspection = %+v, %v", inspection, err)
+	}
+	var diff bytes.Buffer
+	if _, err := client.GetUploadTo(ctx, third.ID, GetOptions{Diff: true}, &diff); err != nil ||
+		!strings.Contains(diff.String(), "-Two.") || !strings.Contains(diff.String(), "+Three.") {
+		t.Fatalf("third revision diff = %q, %v", diff.String(), err)
+	}
+	plan, err := client.PlanPurge(ctx, PurgePlanOptions{
+		Source: UploadSourceStorage, All: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range plan.Candidates {
+		if candidate.UploadID == first.ID || candidate.UploadID == second.ID ||
+			candidate.UploadID == third.ID {
+			t.Fatalf("default purge selected revision member: %+v", candidate)
+		}
+	}
+	skipped, err := client.Purge(ctx, PurgeRequest{UploadIDs: []string{second.ID}})
+	if err != nil || len(skipped.Items) != 1 || !skipped.Items[0].Versioned ||
+		skipped.Items[0].Deleted != nil {
+		t.Fatalf("delete-time versioned purge skip = %+v, %v", skipped, err)
+	}
+	if _, err := client.DeleteUpload(ctx, second.URL); err != nil {
+		t.Fatal(err)
+	}
+	thirdDoc, err := client.loadRevisionDocument(ctx, third.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.tombstoneLinkedRevision(
+		ctx, thirdDoc.dirPrefix, thirdDoc.marker,
+	); err != nil {
+		t.Fatal(err)
+	}
+	thirdObjects, err := client.st.listKeys(ctx, thirdDoc.dirPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	thirdPayloads := make([]string, 0, len(thirdObjects))
+	for _, object := range thirdObjects {
+		if object.Key != thirdDoc.dirPrefix+MarkerFilename {
+			thirdPayloads = append(thirdPayloads, object.Key)
+		}
+	}
+	if err := client.st.deleteKeys(ctx, thirdPayloads); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a marker-last interruption: the tombstone was propagated and
+	// every payload was deleted, but the ownership marker survived. A retry
+	// must finish the scoped delete even though local versions metadata is gone.
+	if _, err := client.DeleteUpload(ctx, third.URL); err != nil {
+		t.Fatalf("complete interrupted linked delete: %v", err)
+	}
+	fourth, err := client.UpdateDocument(ctx, UpdateDocumentInput{
+		Target: first.URL,
+		Input:  Input{Reader: strings.NewReader("# Revision chain\n\nFour.\n")},
+	})
+	if err != nil || fourth.Revision != 4 || fourth.PreviousURL != first.URL {
+		t.Fatalf("post-tombstone revision = %+v, %v", fourth, err)
+	}
+	if _, err := client.UnprotectUpload(ctx, first.URL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DeleteUpload(ctx, first.URL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DeleteUpload(ctx, fourth.URL); err != nil {
+		t.Fatalf("delete final revision: %v", err)
+	}
+
+	// This helper is part of a larger shared-bucket test. Remove the remaining
+	// chain fixtures directly after public lifecycle behavior has been checked.
+	for _, id := range []string{first.ID, second.ID, third.ID, fourth.ID} {
+		objects, err := st.listKeys(ctx, id+"/")
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys := make([]string, 0, len(objects))
+		for _, object := range objects {
+			keys = append(keys, object.Key)
+		}
+		if err := st.deleteKeys(ctx, keys); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func testHTTPBackendRoundTrip(
 	ctx context.Context, t *testing.T, storageConfig *Config,
 ) {
@@ -681,6 +837,40 @@ func testHTTPBackendRoundTrip(
 	if err != nil || len(purged.Items) != 1 ||
 		purged.Items[0].Deleted == nil {
 		t.Fatalf("HTTP purge = %+v, %v", purged, err)
+	}
+	revisionBase, err := remoteClient.Upload(ctx, Input{
+		Reader: strings.NewReader("# HTTP revisions\n\nOne.\n"),
+		Name:   "http-revisions.md", MaxSize: -1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision, err := remoteClient.UpdateDocument(ctx, UpdateDocumentInput{
+		Target: revisionBase.URL,
+		Input: Input{
+			Reader:  strings.NewReader("# HTTP revisions\n\nTwo.\n"),
+			MaxSize: -1,
+		},
+	})
+	if err != nil || revision.Revision != 2 || revision.PreviousURL != revisionBase.URL {
+		t.Fatalf("HTTP revision update = %+v, %v", revision, err)
+	}
+	remoteInspection, err := remoteClient.InspectUpload(ctx, revisionBase.URL)
+	if err != nil || remoteInspection.LatestRevision != 2 {
+		t.Fatalf("HTTP revision inspection = %+v, %v", remoteInspection, err)
+	}
+	for _, id := range []string{revisionBase.ID, revision.ID} {
+		objects, err := serverClient.st.listKeys(ctx, id+"/")
+		if err != nil {
+			t.Fatal(err)
+		}
+		keys := make([]string, 0, len(objects))
+		for _, object := range objects {
+			keys = append(keys, object.Key)
+		}
+		if err := serverClient.st.deleteKeys(ctx, keys); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	collection, err := remoteClient.UploadFiles(ctx, FilesInput{

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -84,6 +85,191 @@ func TestUpgradeDocumentMigratesV3WithoutVersionsMetadata(t *testing.T) {
 	records, warnings, err := ReadManifest(manifest)
 	if err != nil || len(warnings) != 0 || len(records) != 1 || records[0].Type != "upgrade" || records[0].CreatedAt != created {
 		t.Fatalf("manifest = %+v, warnings = %v, err = %v", records, warnings, err)
+	}
+}
+
+func TestUpgradeManifestEventPreservesRevisionAndCompleteProjection(t *testing.T) {
+	store := newUpgradeStore(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := store.client(t, manifest)
+	dir := strings.Repeat("v", 26)
+	chain := strings.Repeat("c", 26)
+	page := []byte("<html>revised</html>")
+	source := []byte("# Revised\n")
+	diff := []byte("--- revision-1/plan.md\n+++ revision-2/plan.md\n")
+	marker := UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second), Kind: UploadKindDocument,
+		Slug: "plan", Format: "md", Title: "Revised",
+		Repo:     "https://github.com/jimeh/airplan",
+		Producer: Producer{Name: "airplan", Version: "0.8.0"},
+		Render: &RenderRecipe{
+			Generation: RendererGeneration,
+			Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
+		},
+		Revision: &RevisionDescriptor{
+			ChainID: chain, Number: 2,
+			PreviousURL: "https://plans.example.com/" + strings.Repeat("p", 26) + "/plan.html",
+		},
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+			{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType},
+		},
+	}
+	markerBody, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := Result{
+		ID: dir, URL: "https://plans.example.com/" + dir + "/plan.html",
+		Key: dir + "/plan.html", SourceKey: dir + "/plan.md", Bucket: "plans",
+		Bytes: int64(len(page)), ContentType: pageContentType, Title: marker.Title,
+		CreatedAt: marker.CreatedAt, MarkerVersion: MarkerVersion,
+		MarkerKey: dir + "/" + MarkerFilename, Format: "md",
+		Kind: string(UploadKindDocument), Slug: "plan", RepositoryURL: marker.Repo,
+		RevisionChainID: chain, Revision: 2, LatestRevision: 3,
+	}
+	client.recordUpgrade(context.Background(), &result, markerBody)
+	records, warnings, err := ReadManifest(manifest)
+	if err != nil || len(warnings) != 0 || len(records) != 1 {
+		t.Fatalf("records = %+v, warnings = %v, err = %v", records, warnings, err)
+	}
+	record := records[0]
+	if record.Type != "upgrade" || record.RevisionChainID != chain ||
+		record.Revision != 2 || record.LatestRevision != 3 || record.Objects != 4 ||
+		record.TotalBytes <= record.Bytes || record.SourceKey != result.SourceKey ||
+		record.Repo != marker.Repo || record.Title != marker.Title {
+		t.Fatalf("upgrade projection = %+v", record)
+	}
+}
+
+func TestPlanUpgradeLegacyMarkerWithUndeclaredSourceSize(t *testing.T) {
+	store := newUpgradeStore(t)
+	dir := strings.Repeat("z", 26)
+	page := []byte("old")
+	source := []byte("# Legacy plan\n")
+	marker, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: 1, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second), Format: "md",
+		Page: "plan.html", Source: "plan.md", Title: "Legacy",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(dir+"/"+MarkerFilename, marker)
+	store.set(dir+"/plan.html", page)
+	store.set(dir+"/plan.md", source)
+	client := store.client(t, "")
+	plan, err := client.PlanUpgradeDocument(
+		context.Background(), dir, UpgradeDocumentOptions{},
+	)
+	if err != nil || plan.State != UpgradeStateUpgradeable ||
+		!bytes.Equal(plan.sourceBody, source) {
+		t.Fatalf("legacy upgrade plan = %+v, %v", plan, err)
+	}
+	result, err := client.UpgradeDocument(context.Background(), *plan)
+	if err != nil || !result.Upgraded {
+		t.Fatalf("legacy upgrade result = %+v, %v", result, err)
+	}
+}
+
+func TestUpgradeSourceReadLimitUsesDefaultForLegacyUndeclaredSize(t *testing.T) {
+	marker := &UploadMarker{Objects: []MarkerObject{{
+		Name: "plan.md", Role: MarkerRoleSource,
+	}}}
+	if got := upgradeSourceReadLimit(marker); got != DefaultMaxInputSize {
+		t.Fatalf("legacy source read limit = %d, want %d", got, DefaultMaxInputSize)
+	}
+	marker.Objects[0].Bytes = 123
+	if got := upgradeSourceReadLimit(marker); got != 123 {
+		t.Fatalf("declared source read limit = %d, want 123", got)
+	}
+}
+
+func TestPlanUpgradePropagatesTransientRevisionDiffReadFailure(t *testing.T) {
+	t.Setenv("AWS_MAX_ATTEMPTS", "1")
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.failGetKey = second.ID + "/" + DiffFilename
+	store.mu.Unlock()
+	plan, err := client.PlanUpgradeDocument(
+		context.Background(), second.URL, UpgradeDocumentOptions{},
+	)
+	if err == nil || plan != nil || !strings.Contains(err.Error(), "get object") {
+		t.Fatalf("transient diff read plan = %+v, %v", plan, err)
+	}
+}
+
+func TestRevisionPreviousUsesContainingPageKeyWithDeletedIntermediate(t *testing.T) {
+	cfg := &Config{PublicBaseURL: "https://plans.example.com"}
+	when := time.Now().UTC().Truncate(time.Second)
+	dir1, dir3 := strings.Repeat("a", 26), strings.Repeat("c", 26)
+	url1 := "https://plans.example.com/" + dir1 + "/plan.html"
+	metadata := VersionsMetadata{
+		Schema: "airplan-versions", Version: 1, ChainID: strings.Repeat("b", 26),
+		CurrentRevision: 3, LatestRevision: 3, LastAssignedRevision: 3,
+		Revisions: []VersionsRevision{
+			{Number: 1, URL: url1, CreatedAt: when},
+			{Number: 2, Deleted: true, DeletedAt: when.Add(time.Second)},
+			{Number: 3, URL: "https://plans.example.com/" + dir3 + "/plan.html", CreatedAt: when.Add(2 * time.Second), DiffURL: "https://plans.example.com/" + dir3 + "/" + DiffFilename},
+		},
+	}
+	pageKey := dir3 + "/plan.html"
+	body, err := EncodeVersionsMetadata(metadata, cfg, pageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := &UploadMarker{Revision: &RevisionDescriptor{
+		ChainID: metadata.ChainID, Number: 3, PreviousURL: url1,
+	}}
+	got, err := revisionPrevious(body, cfg, pageKey, marker,
+		[]byte("--- revision-1/plan.md\n+++ revision-3/plan.md\n"))
+	if err != nil || got != 1 {
+		t.Fatalf("previous revision = %d, %v; want 1", got, err)
+	}
+}
+
+func TestRevisionPreviousUsesDiffHeaderAfterPredecessorTombstone(t *testing.T) {
+	cfg := &Config{PublicBaseURL: "https://plans.example.com"}
+	when := time.Now().UTC().Truncate(time.Second)
+	dir2, dir4 := strings.Repeat("b", 26), strings.Repeat("d", 26)
+	url2 := "https://plans.example.com/" + dir2 + "/plan.html"
+	metadata := VersionsMetadata{
+		Schema: "airplan-versions", Version: 1, ChainID: strings.Repeat("c", 26),
+		CurrentRevision: 4, LatestRevision: 4, LastAssignedRevision: 4,
+		Revisions: []VersionsRevision{
+			{Number: 1, Deleted: true, DeletedAt: when},
+			{Number: 2, Deleted: true, DeletedAt: when.Add(time.Second)},
+			{Number: 3, Deleted: true, DeletedAt: when.Add(2 * time.Second)},
+			{Number: 4, URL: "https://plans.example.com/" + dir4 + "/plan.html", CreatedAt: when.Add(3 * time.Second), DiffURL: "https://plans.example.com/" + dir4 + "/" + DiffFilename},
+		},
+	}
+	pageKey := dir4 + "/plan.html"
+	body, err := EncodeVersionsMetadata(metadata, cfg, pageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker := &UploadMarker{Revision: &RevisionDescriptor{
+		ChainID: metadata.ChainID, Number: 4, PreviousURL: url2,
+	}}
+	got, err := revisionPrevious(body, cfg, pageKey, marker,
+		[]byte("--- revision-2/plan.md\n+++ revision-4/plan.md\n@@ -1 +1 @@\n-old\n+new\n"))
+	if err != nil || got != 2 {
+		t.Fatalf("previous revision = %d, %v; want 2", got, err)
 	}
 }
 
@@ -602,16 +788,49 @@ func roundTripUpgradePlan(t *testing.T, plan UpgradeDocumentPlan) UpgradeDocumen
 }
 
 type upgradeStore struct {
-	t              *testing.T
-	server         *httptest.Server
-	mu             sync.Mutex
-	objects        map[string][]byte
-	etags          map[string]int
-	puts           int
-	putKeys        []string
-	putAttempts    int
-	failPutAttempt int
-	getAttempts    int
+	t                       *testing.T
+	server                  *httptest.Server
+	mu                      sync.Mutex
+	objects                 map[string][]byte
+	etags                   map[string]int
+	puts                    int
+	putKeys                 []string
+	putAttempts             int
+	failPutAttempt          int
+	failPutKey              string
+	failPutSuffix           string
+	commitPutThenFailKey    string
+	cancelOnPutKey          string
+	cancelOnPut             func()
+	failDeleteKeys          bool
+	failMarkerDelete        bool
+	failGetKey              string
+	failGetKeyOnce          string
+	pauseGetKey             string
+	pauseGetReached         chan struct{}
+	pauseGetRelease         chan struct{}
+	pauseGetUsed            bool
+	pauseGetAfterCommit     bool
+	failHeadKey             string
+	getAttempts             int
+	conditionalBarrier      chan struct{}
+	conditionalBarrierCount int
+	pauseIfNoneKey          string
+	pauseIfNoneReached      chan struct{}
+	pauseIfNoneRelease      chan struct{}
+	pauseIfNoneUsed         bool
+	pauseIfMatchKey         string
+	pauseIfMatchReached     chan struct{}
+	pauseIfMatchRelease     chan struct{}
+	pauseIfMatchUsed        bool
+	pauseListPrefix         string
+	pauseListAttempt        int
+	listAttempts            int
+	pauseListReached        chan struct{}
+	pauseListRelease        chan struct{}
+	pauseListUsed           bool
+	ifMatchBarrier          chan struct{}
+	ifMatchBarrierCount     int
 }
 
 func newUpgradeStore(t *testing.T) *upgradeStore {
@@ -650,11 +869,127 @@ func (s *upgradeStore) get(key string) ([]byte, bool) {
 
 func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 	key := strings.TrimPrefix(r.URL.Path, "/plans/")
+	if r.Method == http.MethodGet && r.URL.Query().Get("list-type") == "2" {
+		s.mu.Lock()
+		s.listAttempts++
+		var listRelease chan struct{}
+		pauseAttempt := s.pauseListAttempt
+		if pauseAttempt == 0 {
+			pauseAttempt = 1
+		}
+		if s.pauseListReached != nil &&
+			r.URL.Query().Get("prefix") == s.pauseListPrefix &&
+			s.listAttempts == pauseAttempt && !s.pauseListUsed {
+			s.pauseListUsed = true
+			close(s.pauseListReached)
+			listRelease = s.pauseListRelease
+		}
+		s.mu.Unlock()
+		if listRelease != nil {
+			<-listRelease
+		}
+	}
+	if r.Method == http.MethodPut && r.Header.Get("If-None-Match") == "*" {
+		s.mu.Lock()
+		var targetedRelease chan struct{}
+		if s.pauseIfNoneReached != nil && key == s.pauseIfNoneKey &&
+			!s.pauseIfNoneUsed {
+			s.pauseIfNoneUsed = true
+			close(s.pauseIfNoneReached)
+			targetedRelease = s.pauseIfNoneRelease
+		}
+		s.mu.Unlock()
+		if targetedRelease != nil {
+			<-targetedRelease
+		}
+
+		s.mu.Lock()
+		barrier := s.conditionalBarrier
+		if barrier != nil {
+			s.conditionalBarrierCount++
+			if s.conditionalBarrierCount == 2 {
+				close(barrier)
+			}
+		}
+		s.mu.Unlock()
+		if barrier != nil {
+			select {
+			case <-barrier:
+			case <-time.After(5 * time.Second):
+				s.t.Error("conditional-write barrier never released")
+			}
+		}
+	}
+	if r.Method == http.MethodPut && r.Header.Get("If-Match") != "" {
+		s.mu.Lock()
+		var targetedRelease chan struct{}
+		if s.pauseIfMatchReached != nil && key == s.pauseIfMatchKey &&
+			!s.pauseIfMatchUsed {
+			s.pauseIfMatchUsed = true
+			close(s.pauseIfMatchReached)
+			targetedRelease = s.pauseIfMatchRelease
+		}
+		barrier := s.ifMatchBarrier
+		if barrier != nil {
+			s.ifMatchBarrierCount++
+			if s.ifMatchBarrierCount == 2 {
+				close(barrier)
+			}
+		}
+		s.mu.Unlock()
+		if targetedRelease != nil {
+			<-targetedRelease
+		}
+		if barrier != nil {
+			select {
+			case <-barrier:
+			case <-time.After(5 * time.Second):
+				s.t.Error("conditional-update barrier never released")
+			}
+		}
+	}
+	if r.Method == http.MethodGet && r.URL.Query().Get("list-type") != "2" {
+		s.mu.Lock()
+		var targetedRelease chan struct{}
+		if s.pauseGetReached != nil && key == s.pauseGetKey && !s.pauseGetUsed &&
+			(!s.pauseGetAfterCommit || s.commitPutThenFailKey == "") {
+			s.pauseGetUsed = true
+			close(s.pauseGetReached)
+			targetedRelease = s.pauseGetRelease
+		}
+		s.mu.Unlock()
+		if targetedRelease != nil {
+			<-targetedRelease
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	switch r.Method {
 	case http.MethodGet:
+		if r.URL.Query().Get("list-type") == "2" {
+			prefix := r.URL.Query().Get("prefix")
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = io.WriteString(w, `<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>`)
+			for objectKey, objectBody := range s.objects {
+				if strings.HasPrefix(objectKey, prefix) {
+					_, _ = fmt.Fprintf(w, "<Contents><Key>%s</Key><Size>%d</Size>"+
+						"<LastModified>2026-08-15T12:00:00Z</LastModified></Contents>",
+						objectKey, len(objectBody))
+				}
+			}
+			_, _ = io.WriteString(w, `</ListBucketResult>`)
+			return
+		}
 		s.getAttempts++
+		if s.failGetKey == key {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if s.failGetKeyOnce == key {
+			s.failGetKeyOnce = ""
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		body, ok := s.objects[key]
 		if !ok {
 			w.Header().Set("Content-Type", "application/xml")
@@ -666,12 +1001,31 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("ETag", `"etag-`+string(rune('0'+s.etags[key]))+`"`)
 		_, _ = w.Write(body)
+	case http.MethodHead:
+		if s.failHeadKey == key {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		body, ok := s.objects[key]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("ETag", `"etag-`+string(rune('0'+s.etags[key]))+`"`)
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(body)))
+		w.WriteHeader(http.StatusOK)
 	case http.MethodPut:
 		ifMatch := r.Header.Get("If-Match")
 		want := `"etag-` + string(rune('0'+s.etags[key])) + `"`
 		if ifMatch != "" && ifMatch != want {
 			w.WriteHeader(http.StatusPreconditionFailed)
 			return
+		}
+		if r.Header.Get("If-None-Match") == "*" {
+			if _, exists := s.objects[key]; exists {
+				w.WriteHeader(http.StatusPreconditionFailed)
+				return
+			}
 		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -680,6 +1034,20 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.putAttempts++
+		if s.cancelOnPutKey == key && s.cancelOnPut != nil {
+			s.cancelOnPut()
+			s.cancelOnPutKey = ""
+			s.cancelOnPut = nil
+		}
+		if s.failPutKey == key ||
+			(s.failPutSuffix != "" && strings.HasSuffix(key, s.failPutSuffix)) {
+			s.failPutKey = ""
+			s.failPutSuffix = ""
+			// A non-precondition, non-retryable response models an ordinary
+			// storage failure without turning the fixture into an append conflict.
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		if s.failPutAttempt == s.putAttempts {
 			w.WriteHeader(http.StatusPreconditionFailed)
 			return
@@ -688,8 +1056,46 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 		s.etags[key]++
 		s.puts++
 		s.putKeys = append(s.putKeys, key)
+		if s.commitPutThenFailKey == key {
+			s.commitPutThenFailKey = ""
+			// Model an ambiguous response: storage committed the write, but the
+			// caller only receives a non-precondition failure.
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		w.Header().Set("ETag", `"updated"`)
 		w.WriteHeader(http.StatusOK)
+	case http.MethodPost:
+		if s.failDeleteKeys {
+			s.failDeleteKeys = false
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var request struct {
+			Objects []struct {
+				Key string `xml:"Key"`
+			} `xml:"Object"`
+		}
+		if err := xml.NewDecoder(r.Body).Decode(&request); err != nil {
+			s.t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		for _, object := range request.Objects {
+			delete(s.objects, object.Key)
+			delete(s.etags, object.Key)
+		}
+		w.Header().Set("Content-Type", "application/xml")
+		_, _ = io.WriteString(w, `<?xml version="1.0"?><DeleteResult></DeleteResult>`)
+	case http.MethodDelete:
+		if s.failMarkerDelete {
+			s.failMarkerDelete = false
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		delete(s.objects, key)
+		delete(s.etags, key)
+		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}

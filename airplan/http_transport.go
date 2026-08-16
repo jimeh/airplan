@@ -86,6 +86,32 @@ func (t *httpTransport) UploadFiles(
 	return &core, nil
 }
 
+func (t *httpTransport) UpdateDocument(
+	ctx context.Context, input UpdateDocumentInput,
+) (*UpdateDocumentResult, error) {
+	result, err := t.client.UpdateDocument(ctx, httpapi.UpdateDocumentMetadata{
+		Target: input.Target, Name: input.Input.Name, Title: input.Input.Title,
+		MaxSize: portableUploadLimit(input.Input.MaxSize),
+	}, input.Input.Reader)
+	if err != nil {
+		return nil, transportError(err)
+	}
+	return &UpdateDocumentResult{
+		Result: Result{
+			ID: result.ID, Kind: string(result.Kind), URL: result.URL, Key: result.Key,
+			SourceURL: result.SourceURL, SourceKey: result.SourceKey,
+			Bucket: result.Bucket, Bytes: result.Bytes, ContentType: result.ContentType,
+			Title: result.Title, CreatedAt: result.CreatedAt,
+			MarkerVersion: result.MarkerVersion, MarkerKey: result.MarkerKey,
+			Format: result.Format, Slug: result.Slug, RepositoryURL: result.RepositoryURL,
+			RevisionChainID: result.RevisionChainID, Revision: result.Revision,
+			LatestRevision: result.LatestRevision,
+			Warnings:       append([]string(nil), result.Warnings...),
+		}, PreviousURL: result.PreviousURL, DiffURL: result.DiffURL,
+		Unchanged: result.Unchanged,
+	}, nil
+}
+
 func (t *httpTransport) PlanUpgradeDocument(
 	ctx context.Context, target string, opts UpgradeDocumentOptions,
 ) (*UpgradeDocumentPlan, error) {
@@ -166,8 +192,10 @@ func coreUploadResult(result httpapi.UploadResult) FilesResult {
 		ContentType: result.ContentType, Title: result.Title,
 		CreatedAt: result.CreatedAt, MarkerVersion: result.MarkerVersion,
 		MarkerKey: result.MarkerKey, Format: result.Format, Slug: result.Slug,
-		RepositoryURL: result.RepositoryURL,
-		Warnings:      append([]string(nil), result.Warnings...),
+		RepositoryURL:   result.RepositoryURL,
+		RevisionChainID: result.RevisionChainID, Revision: result.Revision,
+		LatestRevision: result.LatestRevision,
+		Warnings:       append([]string(nil), result.Warnings...),
 	}}
 	for _, file := range result.Files {
 		core.Files = append(core.Files, FileResult{
@@ -237,12 +265,20 @@ func coreInspection(result httpapi.UploadInspection) *UploadInspection {
 		Repo: result.RepositoryURL, MarkerVersion: result.MarkerVersion,
 		ProducerVersion:    result.ProducerVersion,
 		RendererGeneration: result.RendererVersion,
-		Page:               coreInspectedObject(result.Page),
-		Source:             coreInspectedObject(result.Source),
-		Protected:          result.Protected,
-		ProtectReason:      safeProtectReason(result.ProtectReason),
-		Warnings:           append([]string(nil), result.Warnings...),
-		Error:              MarkerErrorCode(result.Error),
+		RevisionChainID:    result.RevisionChainID, Revision: result.Revision,
+		LatestRevision: result.LatestRevision, LatestURL: result.LatestURL,
+		RevisionError: result.RevisionError,
+		Page:          coreInspectedObject(result.Page),
+		Source:        coreInspectedObject(result.Source),
+		Diff:          coreInspectedObject(result.Diff),
+		Protected:     result.Protected,
+		ProtectReason: safeProtectReason(result.ProtectReason),
+		Warnings:      append([]string(nil), result.Warnings...),
+		Error:         MarkerErrorCode(result.Error),
+	}
+	if result.Versions != nil {
+		versions := coreVersionsMetadata(*result.Versions)
+		core.Versions = &versions
 	}
 	if result.CreatedAt != nil {
 		core.CreatedAt = *result.CreatedAt
@@ -253,6 +289,29 @@ func coreInspection(result httpapi.UploadInspection) *UploadInspection {
 	for _, file := range result.Files {
 		file := file
 		core.Files = append(core.Files, coreInspectedObject(&file))
+	}
+	return core
+}
+
+func coreVersionsMetadata(metadata httpapi.VersionsMetadata) VersionsMetadata {
+	core := VersionsMetadata{
+		Schema: string(metadata.Schema), Version: int(metadata.Version),
+		ChainID: metadata.ChainID, CurrentRevision: metadata.CurrentRevision,
+		LatestRevision:       metadata.LatestRevision,
+		LastAssignedRevision: metadata.LastAssignedRevision,
+	}
+	for _, revision := range metadata.Revisions {
+		item := VersionsRevision{
+			Number: revision.Number, URL: revision.URL,
+			DiffURL: revision.DiffURL, Deleted: revision.Deleted,
+		}
+		if revision.CreatedAt != nil {
+			item.CreatedAt = *revision.CreatedAt
+		}
+		if revision.DeletedAt != nil {
+			item.DeletedAt = *revision.DeletedAt
+		}
+		core.Revisions = append(core.Revisions, item)
 	}
 	return core
 }
@@ -311,7 +370,7 @@ func (t *httpTransport) GetUploadTo(
 	ctx context.Context, target string, opts GetOptions, dst io.Writer,
 ) (string, error) {
 	download, err := t.client.GetUpload(ctx, httpapi.GetUploadRequest{
-		URLOrKey: target, Source: opts.Source,
+		URLOrKey: target, Source: opts.Source, Diff: opts.Diff,
 	})
 	if err != nil {
 		return "", transportError(err)
@@ -454,7 +513,7 @@ func (t *httpTransport) PlanPurge(
 	request := httpapi.PurgePreviewRequest{
 		Source: httpapi.PurgePreviewRequestSource(opts.Source),
 		Slug:   opts.Slug, All: opts.All,
-		Concurrency: opts.Concurrency,
+		Concurrency: opts.Concurrency, IncludeVersioned: opts.IncludeVersioned,
 	}
 	if !opts.CreatedBefore.IsZero() {
 		request.CreatedBefore = &opts.CreatedBefore
@@ -466,6 +525,7 @@ func (t *httpTransport) PlanPurge(
 	core := &PurgePlan{
 		Candidates: []PurgeCandidate{},
 		Protected:  []PurgeCandidate{},
+		Versioned:  []PurgeCandidate{},
 		Invalid:    result.Invalid,
 		Warnings:   append([]string(nil), result.Warnings...),
 	}
@@ -486,6 +546,9 @@ func (t *httpTransport) PlanPurge(
 	for _, candidate := range result.Protected {
 		core.Protected = append(core.Protected, coreCandidate(candidate))
 	}
+	for _, candidate := range result.Versioned {
+		core.Versioned = append(core.Versioned, coreCandidate(candidate))
+	}
 	return core, nil
 }
 
@@ -493,7 +556,7 @@ func (t *httpTransport) Purge(
 	ctx context.Context, req PurgeRequest,
 ) (*PurgeResult, error) {
 	result, err := t.client.ExecutePurge(ctx, httpapi.PurgeRequest{
-		UploadIds: req.UploadIDs,
+		UploadIds: req.UploadIDs, IncludeVersioned: req.IncludeVersioned,
 	})
 	if err != nil {
 		return nil, transportError(err)
@@ -503,7 +566,8 @@ func (t *httpTransport) Purge(
 	for _, item := range result.Items {
 		coreItem := PurgeItemResult{
 			UploadID: item.UploadID, Protected: item.Protected,
-			Error: item.Error,
+			Versioned: item.Versioned,
+			Error:     item.Error,
 		}
 		if item.Deleted != nil {
 			coreItem.Deleted = &DeleteResult{
@@ -533,10 +597,18 @@ func transportError(err error) error {
 		return err
 	}
 	var problem *httpapi.ProblemError
-	if errors.As(err, &problem) && problem.Problem.Code == "upgrade_conflict" {
-		return fmt.Errorf(
-			"%w: server rejected stale upgrade plan: %w", ErrConflict, err,
-		)
+	if errors.As(err, &problem) {
+		switch problem.Problem.Code {
+		case "upgrade_conflict", "revision_conflict":
+			return fmt.Errorf(
+				"%w: server reported a conditional mutation conflict: %w",
+				ErrConflict, err,
+			)
+		case "input_too_large", "request_too_large":
+			return fmt.Errorf("%w: %w", ErrInputTooLarge, err)
+		case "revision_history_full":
+			return fmt.Errorf("%w: %w", ErrRevisionHistoryFull, err)
+		}
 	}
 	return fmt.Errorf("airplan: server: %w", err)
 }

@@ -10,6 +10,7 @@ import (
 	"net/textproto"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jimeh/airplan/internal/httpapi/generated"
 )
@@ -45,6 +46,22 @@ func TestGeneratedClientInvokesEveryGeneratedServerOperation(t *testing.T) {
 				Body: io.NopCloser(strings.NewReader("download")),
 				Key:  "doc/plan.html", Filename: "plan.html",
 				ContentType: "text/html",
+			}, nil
+		},
+		updateDocument: func(
+			_ context.Context, upload UpdateDocumentUpload,
+		) (UpdateDocumentResult, error) {
+			body, err := io.ReadAll(upload.Document)
+			if err != nil {
+				t.Error(err)
+				return UpdateDocumentResult{}, err
+			}
+			return UpdateDocumentResult{
+				ID: "revision", Kind: "document", URL: "https://example/revision",
+				Key: "revision/plan.html", Bucket: "plans", Bytes: int64(len(body)),
+				ContentType: "text/html", MarkerKey: "revision/.airplan.json",
+				MarkerVersion: 4, CreatedAt: time.Now().UTC(), Revision: 2,
+				LatestRevision: 2, Unchanged: false, Warnings: []string{},
 			}, nil
 		},
 	}
@@ -91,6 +108,19 @@ func TestGeneratedClientInvokesEveryGeneratedServerOperation(t *testing.T) {
 		ctx, documentType, documentBody,
 	)
 	assertGeneratedResponse(t, document, err)
+
+	updateBody, updateType := generatedMultipartBody(t, func(
+		writer *multipart.Writer,
+	) {
+		writeGeneratedPart(t, writer, "metadata", "", "application/json",
+			`{"target":"doc/plan.html","name":"plan.md"}`)
+		writeGeneratedPart(t, writer, "document", "plan.md",
+			"text/markdown", "# Revised plan")
+	})
+	updated, err := client.UpdateDocumentWithBodyWithResponse(
+		ctx, updateType, updateBody,
+	)
+	assertGeneratedResponse(t, updated, err)
 
 	collectionBody, collectionType := generatedMultipartBody(t, func(
 		writer *multipart.Writer,

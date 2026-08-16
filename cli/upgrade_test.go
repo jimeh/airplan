@@ -73,6 +73,68 @@ func TestUpgradeApplyPrintsOnlyStableURL(t *testing.T) {
 	}
 }
 
+func TestUpdatePrintsOnlyNewRevisionURLAndJSONDescribesChain(t *testing.T) {
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, nil, nil, nil)
+	dir := strings.Repeat("u", 26)
+	seedCLICurrentDocument(t, fake, dir)
+	config := writeCLIConfig(t, fake.server.URL)
+	target := "https://plans.example.com/" + dir + "/plan.html"
+
+	stdout, stderr, err := executeCommand(t, "# Plan\n\nRevised.\n", "",
+		"update", "--json", "--config", config, target)
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(stdout), &fields); err != nil {
+		t.Fatalf("stdout = %q: %v", stdout, err)
+	}
+	wantFields := map[string]bool{
+		"url": true, "key": true, "source_url": true, "bucket": true,
+		"bytes": true, "content_type": true, "revision": true,
+		"latest_revision": true, "previous_url": true, "diff_url": true,
+		"unchanged": true,
+	}
+	if len(fields) != len(wantFields) {
+		t.Fatalf("JSON fields = %v, want %v", fields, wantFields)
+	}
+	for name := range fields {
+		if !wantFields[name] {
+			t.Fatalf("unexpected update JSON field %q", name)
+		}
+	}
+	var result airplan.UpdateDocumentResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("stdout = %q: %v", stdout, err)
+	}
+	if result.URL == "" || result.URL == target || result.Revision != 2 ||
+		result.LatestRevision != 2 || result.PreviousURL != target ||
+		result.DiffURL == "" || result.Unchanged {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestUpdateAcceptsExplicitManifestWithDirectS3Backend(t *testing.T) {
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, nil, nil, nil)
+	dir := strings.Repeat("m", 26)
+	seedCLICurrentDocument(t, fake, dir)
+	manifest := filepath.Join(t.TempDir(), "custom.jsonl")
+	target := "https://plans.example.com/" + dir + "/plan.html"
+
+	stdout, stderr, err := executeCommand(t, "# Plan\n\nRevised.\n", "",
+		"--manifest", manifest, "update", "--config", writeCLIConfig(t, fake.server.URL),
+		target)
+	if err != nil || stderr != "" || stdout == "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	records, warnings, err := airplan.ReadManifest(manifest)
+	if err != nil || len(warnings) != 0 || len(records) == 0 {
+		t.Fatalf("manifest records = %+v, warnings = %v, error = %v", records, warnings, err)
+	}
+}
+
 func TestBulkUpgradeJSONReportsFailureWithNonzeroStatus(t *testing.T) {
 	isolateEnv(t)
 	fake := newFakeRemoteS3(t, nil, nil, nil)

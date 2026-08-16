@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.34.0.
+may contradict it. Targets spec version 0.37.0.
 
 ---
 
@@ -254,6 +254,24 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   case. Ordinary uploads therefore gain revision readiness without uploading a
   versions object; revision linkage can add that object later without replacing
   the page.
+- `versions.go`, `diff.go`, and `update.go` implement linked Markdown history.
+  Markers carry immutable chain descriptors and diff inventory, while the
+  separately versioned 64 KiB metadata index is conditionally replicated to
+  each live member. Capacity is preflighted before candidate upload and exposed
+  as `ErrRevisionHistoryFull`. The old latest metadata write is the append
+  serialization point; ambiguous write responses are reconciled from both the
+  serialization object and candidate replica. Existing-chain rollback first
+  takes the same ETag cleanup claim as orphan collection, while first-link
+  reconciliation
+  idempotently completes the conditional creation. Delete reservations rebase
+  from live survivors after interrupted operations, repairing missing member
+  replicas and first-promotion state, while final-member deletion uses an
+  invalid transition reservation to exclude new and stale appenders. The
+  deleted member's control body remains as a markerless durable receipt for
+  marker-last recovery, including when local history missed the first-link
+  projection and must recover chain identity from the receipt. Adjacent
+  exact source bytes are diffed with pure-Go go-difflib and Chroma renders the
+  immutable diff into the built-in page's Changes view.
 - Collection storage: `UploadFiles` accepts known-size `io.ReadSeeker` members,
   keeps inputs stable through preflight and sequential retryable PUTs, limits
   each reader to its declaration, and uploads the overview last. `GetUploadTo`
@@ -272,7 +290,9 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   worker pool for marker GETs and targeted absence confirmation. Imports and
   tombstones are sorted, then the manifest is locked, reread, and rechecked
   before whole-line appends. Definite object-not-found is the only pruning
-  signal; failures retain local state and return partial progress.
+  signal; failures retain local state and return partial progress. Active v4
+  Markdown records without revision identity are re-inspected so a promotion by
+  another writer appends a revision-aware `link` projection.
 - Remote deletion: the marker must decode and authorize the supplied direct
   target. Payload objects are removed with batched `DeleteObjects`, then the
   marker is removed in a separate final `DeleteObject`. Invalid and markerless

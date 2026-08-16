@@ -487,6 +487,29 @@ profile must use direct S3. It cannot be combined with an explicit `--profile`.
 With `--json`, dry-run returns a plan while apply always returns a result object,
 including for empty or current-only plans.
 
+### Revise an existing Markdown document
+
+Upload a complete new revision while keeping every previously shared page as
+an immutable view of its original source:
+
+```sh
+airplan update --json https://plans.example.com/vq3n.../plan.html plan.md
+```
+
+The first real update promotes the standalone upload to revision 1 and creates
+revision 2 under a new capability URL. Only then is
+`.airplan-versions.json` added to both uploads; ordinary standalone uploads
+still have no versions object. Later updates may target any member and resolve
+the latest revision before appending. Only surviving revisions are navigation
+and update targets; deleted entries remain as numbered tombstones and are never
+reused. Each revision after 1 owns a deterministic `.airplan-changes.diff`,
+rendered as a highlighted Changes view when small enough and always available
+through its raw diff link. Anyone with one chain URL can navigate to every
+surviving linked revision URL.
+The JSON result includes `previous_url`, `diff_url`, and `unchanged`; revision
+numbers are omitted only for an unchanged standalone document that has not yet
+formed a chain.
+
 ### Preview without uploading
 
 `preview` uses the same renderer locally. It does not need storage credentials,
@@ -510,7 +533,7 @@ beside staged input files when its local media links need to work.
 airplan list                     # uploads known to the local manifest
 airplan ls -r                    # airplan uploads currently in the bucket
 airplan show <url-or-key>         # validate and inspect one remote upload
-airplan get [--source] <url-or-key>  # raw page or source bytes
+airplan get [--source|--diff] <url-or-key>  # raw page, source, or adjacent diff
 airplan delete <url-or-key>      # delete one upload
 airplan list --newer-than 7d     # only recent uploads (also --kind, --slug)
 airplan list --protected         # only purge-protected uploads
@@ -518,6 +541,7 @@ airplan list --all-profiles      # uploads recorded under every profile
 airplan protect <url-or-key>     # mark one upload purge-protected
 airplan unprotect <url-or-key>   # remove purge protection
 airplan purge --older-than 30d   # review and delete older uploads
+airplan purge --all --include-versioned  # explicitly include revision history
 airplan sync                     # reconcile remote uploads into local history
 ```
 

@@ -68,7 +68,9 @@ The design preserves these core properties:
     document revision. The source bytes, public page URL, original creation
     time, purge-protection state, and chain identity remain unchanged.
 11. An identical proposed Markdown source is a successful no-op. It returns the
-    existing latest result and does not consume a revision number.
+    existing latest result and does not consume a revision number. A consistent
+    chain performs no writes; an identical-source retry may first repair an
+    interrupted promotion or metadata replication.
 12. The local manifest selects bulk-upgrade candidates but never authorizes
     remote mutation. Every candidate is revalidated from its remote marker and
     payload before any write.
@@ -152,24 +154,28 @@ metadata without changing the existing result field meanings:
 }
 ```
 
-For an identical source, `url` identifies the existing latest page,
-`unchanged` is true, and no storage or manifest write occurs.
+For an identical source, `url` identifies the existing latest page and
+`unchanged` is true. An already-consistent chain performs no storage or
+manifest writes, while a retry may repair interrupted chain replication.
 
 ### 5.2 Page controls
 
-The built-in Markdown toolbar gains a revision control group when valid
-metadata describes at least two live revisions:
+Valid chain metadata turns the muted revision indicator above the rendered
+content into the sole revision selector:
 
-- `Revision N of M` selector with one option per non-deleted revision;
-- a prominent `Latest: revision M` action when viewing an older revision;
-- previous and next navigation where those live neighbours exist;
-- a distinct stale state in the toolbar and document heading area;
-- a `Changes` view for revisions greater than `1`; and
-- a raw diff link targeting `.airplan-changes.diff`.
+- older pages read `Revision N of M` with a compact stale-warning treatment;
+- the latest page reads `Revision N (Latest)`;
+- the whole indicator, including its subtle downward chevron, opens a native
+  select with one option per non-deleted revision;
+- a one-live-member chain retains a one-option latest selector after deletion;
+- the toolbar contains no revision selector or previous/next/latest shortcuts;
+- revisions greater than `1` retain a `Changes` view and raw diff link targeting
+  `.airplan-changes.diff`.
 
 The existing Rendered and Source views remain. A revision with a diff uses the
-view order Rendered, Source, Changes. Changes is labelled `Changes from
-revision N-1` so its direction is unambiguous.
+view order Rendered, Source, Changes. Changes names the predecessor recorded by
+the adjacent diff header so its direction remains correct across tombstone
+gaps.
 
 The page embeds its creation-time revision context as a no-JavaScript
 fallback. JavaScript fetches the replicated metadata to discover future
@@ -406,7 +412,14 @@ safe re-rendering machinery.
 
 Revision numbers are strictly positive. New chains begin at `1`; each
 successful append consumes the next never-before-assigned integer. Deletion
-creates a tombstone and never permits reuse.
+creates a tombstone and never permits reuse. Standalone-delete reservations are
+permanent, intentionally accumulate, and are never removed by Airplan
+lifecycle commands. Each reservation is one 62-byte payload object plus the
+storage provider's per-object metadata, so growth is linear in deleted
+standalone Markdown uploads rather than document size. Operators with storage
+cost or object-count limits should monitor the reserved `.airplan-versions.json`
+objects alongside normal bucket usage; compaction or retention is intentionally
+unsupported because removing a reservation would reopen the stale-update race.
 
 ### 7.4 Object roles
 
@@ -488,7 +501,7 @@ Accept at most 64 KiB and require:
 - `latest_revision` naming the greatest live entry;
 - `last_assigned_revision` greater than or equal to every entry;
 - revision `1` without a diff and each later live revision with one;
-- canonical absolute HTTPS URLs under the same resolved public base URL,
+- canonical absolute HTTP(S) URLs under the same resolved public base URL,
   bucket, and key-prefix scope;
 - page and diff URLs that resolve to valid Airplan key shapes; and
 - timestamps in RFC 3339 UTC.
@@ -558,6 +571,11 @@ Custom templates may ignore the additive fields. They retain full ownership of
 presentation and do not automatically gain a picker or Changes view until the
 template author adopts them.
 
+The built-in renderer embeds and highlights at most 512 KiB of adjacent diff
+text. Larger diffs keep the Changes view and raw sibling-object link but omit
+the diff body from the HTML page; the complete published diff remains bounded
+by the separate 32 MiB object limit.
+
 ## 10. Creating a new revision
 
 ### 10.1 Eligibility and preflight
@@ -568,6 +586,8 @@ with a source object. Reject:
 - HTML, text, and collections;
 - `--no-source` uploads;
 - invalid, unsupported, conflicting, or incomplete markers;
+- a named input whose ordinary sanitized filename stem differs from the
+  existing document slug;
 - a target outside the active backend's bucket and key-prefix scope;
 - a chain whose metadata and marker descriptors cannot be reconciled; and
 - a custom-template predecessor that cannot be reproduced for a required
@@ -592,7 +612,9 @@ transaction. Use conditional requests and a recoverable order:
    metadata plus its ETag for an existing chain; confirm metadata absence for a
    standalone target.
 2. Render the proposed document and generate its adjacent diff locally.
-3. Return the existing latest result immediately when source bytes are equal.
+3. Validate the complete local input before any prerequisite upgrade or repair,
+   then return the existing latest result when source bytes are equal and chain
+   metadata is already consistent.
 4. Reserve `last_assigned_revision + 1` in memory and encode all future
    metadata bodies. For a standalone upload, assign the existing document
    revision `1`, assign the candidate revision `2`, and generate a new chain
@@ -603,9 +625,20 @@ transaction. Use conditional requests and a recoverable order:
    creates it with `If-None-Match: *`; later appends replace it with `If-Match`
    against the validated ETag. This transition to the new URL is the
    serialization point. A precondition failure means another writer won.
-7. On a lost race, delete the unannounced candidate upload as scoped rollback.
-   Report any cleanup failure and leave the managed orphan visible to normal
-   cleanup tooling.
+7. On a proven lost race, delete the unannounced candidate upload as scoped rollback.
+   Rollback uses a fresh bounded context so caller cancellation does not skip
+   cleanup. Report any cleanup failure and leave the managed orphan visible.
+   A timeout, cancellation, retry conflict, or transport failure from the
+   serialization PUT is ambiguous: use that same fresh context to read the
+   control object. Continue repair when it contains the intended revision or a
+   monotonic successor; roll back only when the read proves loss, and retain the
+   candidate when reconciliation itself fails.
+   Generic cleanup of an existing-chain candidate first conditionally rewrites
+   semantically unchanged metadata with an alternate top-level JSON field
+   order; the same-size byte-distinct body changes content-derived S3 ETags and
+   serializes cleanup against the candidate writer's pending append. Revision-2
+   cleanup beside a still-live standalone predecessor fails closed because there
+   is no shared versions object on which to contend.
 8. On the first link, conditionally replace the predecessor's standalone
    marker with its revision `1` marker and then replace its page with the
    revision-aware rendering. This is a repairable post-commit promotion; it
@@ -617,6 +650,10 @@ transaction. Use conditional requests and a recoverable order:
     promoted page and marker when this was the first link.
 11. Append local manifest upload/link events and return the new URL only after
     verification.
+
+Metadata verification compares decoded schema state as well as canonical bytes,
+so the byte-distinct cleanup-claim encoding remains a valid no-op and repair
+source.
 
 After the serialization point, a propagation failure returns an error but does
 not roll back the winning chain append. Retrying from any member detects the
@@ -799,6 +836,14 @@ completes deletion or restores the live entry if the target remains complete.
 Specify and test this recovery decision rather than leaving a permanent hidden
 live upload.
 
+An invalid-current reservation on the target is only proof that its tombstone
+won. Retry derives current canonical state from any surviving live member before
+continuing, so intervening appends and deletes cannot permanently wedge the
+target. Deleting the final live member uses a strict invalid transition
+reservation at its versions key as the serialization point, then removes the
+whole directory and records a revision-aware manifest tombstone with no latest
+revision.
+
 Deleting the latest makes the greatest remaining live revision the displayed
 latest, but `last_assigned_revision` does not decrease. The next append uses a
 new number. No command renumbers surviving revisions.
@@ -935,7 +980,8 @@ existing upload tool permits it. Hosted MCP remains content-based.
 Update `skills/airplan/SKILL.md` and embedded MCP descriptions so agents:
 
 - use `update_document` when the user asks to revise an existing Airplan plan;
-- may supply any known chain URL because Airplan resolves latest;
+- may supply any surviving chain URL because Airplan resolves latest, while
+  deleted revision tombstones are not valid targets;
 - return the new revision URL;
 - do not create revisions for byte-identical content;
 - do not bulk-upgrade opportunistically; and
@@ -1030,8 +1076,8 @@ Extend Chromium smoke coverage across desktop/narrow and light/dark projects:
 - no picker when the versions metadata request returns 404;
 - a cache-busted discovery request finding metadata after an earlier 404;
 - picker population from mocked/fixture metadata;
-- stale highlight and latest navigation;
-- previous/next selection;
+- stale highlight, latest labeling, and one-live-member labeling;
+- revision selection with no previous/next/latest shortcut links;
 - Rendered, Source, and Changes view switching;
 - accessible labels, focus, and keyboard operation;
 - invalid/failed metadata preserving the document;
@@ -1052,8 +1098,13 @@ Exercise:
 - deterministic diff headers and final-newline cases;
 - diff size failure before mutation;
 - conditional race with exactly one winner;
+- committed serialization with an ambiguous response;
 - candidate rollback after a lost race;
+- identical no-op after a byte-distinct cleanup claim;
 - partial metadata propagation followed by idempotent repair;
+- interrupted latest deletion rebased after later chain progression;
+- final-member delete/appender serialization and complete-chain purge;
+- revision-aware manifest suppression after marker-last retry;
 - no stdout URL before full verification; and
 - protection preservation.
 

@@ -7,6 +7,121 @@
   // 404 is the ordinary dormant state. A nonce and no-store prevent a cached
   // negative response from hiding linkage added after this page was opened.
   var versionsMeta = d.querySelector('meta[name="airplan-versions"]');
+  var currentPathParts = window.location.pathname.split('/').filter(Boolean);
+  var servicePathParts = currentPathParts.slice(0, -2);
+  function safeRevisionURL(raw, diff) {
+    if (typeof raw !== 'string') return null;
+    try {
+      var parsed = new URL(raw);
+      if (parsed.origin !== window.location.origin || parsed.username ||
+          parsed.password || parsed.search || parsed.hash) return null;
+      var parts = parsed.pathname.split('/').filter(Boolean);
+      if (parts.length !== servicePathParts.length + 2 ||
+          !servicePathParts.every(function (part, index) {
+            return parts[index] === part;
+          }) || !/^[a-z2-7]{26}$/.test(parts[parts.length - 2])) {
+        return null;
+      }
+      var name = parts[parts.length - 1];
+      if (diff ? name !== '.airplan-changes.diff' : !name.endsWith('.html')) {
+        return null;
+      }
+      return parsed.href;
+    } catch (_) {
+      return null;
+    }
+  }
+  function renderVersions(metadata) {
+    var currentMeta = d.querySelector('meta[name="airplan-revision"]');
+    var embedded = currentMeta ? Number(currentMeta.content) :
+      Number(metadata.current_revision);
+    if (!Number.isInteger(embedded) || embedded <= 0 ||
+        metadata.current_revision !== embedded ||
+        !Number.isInteger(metadata.latest_revision) ||
+        !Number.isInteger(metadata.last_assigned_revision) ||
+        !Array.isArray(metadata.revisions) || metadata.revisions.length === 0 ||
+        metadata.last_assigned_revision !== metadata.revisions.length ||
+        !/^[a-z2-7]{26}$/.test(metadata.chain_id)) {
+      throw new Error('revision identity is invalid');
+    }
+    var invalidEntry = false;
+    var previousNumber = 0;
+    var live = metadata.revisions.filter(function (revision) {
+      if (!revision || !Number.isInteger(revision.number) ||
+          revision.number !== previousNumber + 1) {
+        invalidEntry = true;
+        return false;
+      }
+      previousNumber = revision.number;
+      if (revision.deleted) return false;
+      revision.safeURL = safeRevisionURL(revision.url, false);
+      if (!revision.safeURL) {
+        invalidEntry = true;
+        return false;
+      }
+      if (revision.number > 1) {
+        var safeDiff = safeRevisionURL(revision.diff_url, true);
+        if (!safeDiff || new URL(safeDiff).pathname.replace(/[^/]+$/, '') !==
+            new URL(revision.safeURL).pathname.replace(/[^/]+$/, '')) {
+          invalidEntry = true;
+          return false;
+        }
+      }
+      return true;
+    });
+    if (invalidEntry || metadata.revisions[0].number !== 1 ||
+        !live.some(function (revision) {
+      return revision.number === embedded;
+    })) throw new Error('revision entries are invalid');
+    var current = live.find(function (revision) {
+      return revision.number === embedded;
+    });
+    var currentPage = window.location.origin + window.location.pathname;
+    if (!current || current.safeURL !== currentPage) {
+      throw new Error('current revision URL is invalid');
+    }
+    var latest = Math.max.apply(null, live.map(function (revision) {
+      return revision.number;
+    }));
+    if (latest !== metadata.latest_revision) throw new Error('latest is invalid');
+
+    var heading = d.querySelector('[data-revision-heading]');
+    if (!heading) {
+      heading = d.createElement('p');
+      heading.className = 'revision-heading';
+      heading.setAttribute('data-revision-heading', '');
+      var renderedView = d.getElementById('rendered');
+      if (!renderedView) throw new Error('rendered view is unavailable');
+      renderedView.prepend(heading);
+    }
+    var stale = embedded < latest;
+    var label = stale ? 'Revision ' + embedded + ' of ' + latest :
+      'Revision ' + embedded + ' (Latest)';
+    var visualLabel = d.createElement('span');
+    visualLabel.className = 'revision-picker-label';
+    visualLabel.textContent = label;
+    visualLabel.setAttribute('aria-hidden', 'true');
+    var select = d.createElement('select');
+    select.setAttribute('aria-label', 'Document revision');
+    live.forEach(function (revision) {
+      var option = d.createElement('option');
+      option.value = revision.safeURL;
+      option.textContent = revision.number === latest ?
+        'Revision ' + revision.number + ' (Latest)' :
+        'Revision ' + revision.number + ' of ' + latest;
+      option.selected = revision.number === embedded;
+      select.appendChild(option);
+    });
+    select.addEventListener('change', function () {
+      var selected = select.selectedIndex;
+      if (selected < 0 || selected >= live.length) return;
+      window.location.assign(live[selected].safeURL);
+    });
+    heading.replaceChildren(visualLabel, select);
+    heading.classList.add('is-picker');
+    heading.classList.toggle('is-stale', stale);
+    d.body.classList.toggle('airplan-stale-revision', stale);
+  }
   if (versionsMeta) {
     var versionsURL = new URL(versionsMeta.content, window.location.href);
     versionsURL.searchParams.set('_airplan',
@@ -25,6 +140,7 @@
             metadata.revisions.length < 2) {
           throw new Error('metadata is invalid');
         }
+        renderVersions(metadata);
         window.dispatchEvent(new CustomEvent('airplan:versions', {
           detail: metadata,
         }));
@@ -131,6 +247,7 @@
   // Rendered/source toggle.
   var rendered = d.getElementById('rendered');
   var source = d.getElementById('source');
+  var changes = d.getElementById('changes');
   var toc = d.getElementById('toc');
   var tocTrigger = null;
   var tocDialog = null;
@@ -154,10 +271,11 @@
 
   d.querySelectorAll('.viewtoggle button').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      var showSource = btn.dataset.view === 'source';
-      source.hidden = !showSource;
-      rendered.hidden = showSource;
-      if (toc) toc.hidden = showSource;
+      var view = btn.dataset.view;
+      rendered.hidden = view !== 'rendered';
+      if (source) source.hidden = view !== 'source';
+      if (changes) changes.hidden = view !== 'changes';
+      if (toc) toc.hidden = view !== 'rendered';
       d.querySelectorAll('.viewtoggle button').forEach(function (b) {
         b.classList.toggle('active', b === btn);
         b.setAttribute('aria-pressed', b === btn ? 'true' : 'false');

@@ -179,6 +179,39 @@ func TestAirplanBackendMapsProtectedProblemToTypedError(t *testing.T) {
 	}
 }
 
+func TestAirplanBackendForwardsDiffDownloadSelection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/api/v1/uploads/get" {
+				t.Fatalf("path = %q", r.URL.Path)
+			}
+			var request httpapi.GetUploadRequest
+			if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+				t.Fatal(err)
+			}
+			if request.URLOrKey != "dir/plan.html" || !request.Diff || request.Source {
+				t.Fatalf("request = %+v", request)
+			}
+			w.Header().Set("X-Airplan-Object-Key", "dir/"+DiffFilename)
+			_, _ = io.WriteString(w, "diff body")
+		},
+	))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL,
+		APIToken: "01234567890123456789012345678901", Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	key, err := client.GetUploadTo(context.Background(), "dir/plan.html",
+		GetOptions{Diff: true}, &output)
+	if err != nil || key != "dir/"+DiffFilename || output.String() != "diff body" {
+		t.Fatalf("key = %q, body = %q, error = %v", key, output.String(), err)
+	}
+}
+
 func TestAirplanBackendDropsInvalidProtectionReasons(t *testing.T) {
 	const invalid = "keep\n\x1b[31mPROTECTED no"
 	inspection := coreInspection(httpapi.UploadInspection{
@@ -315,6 +348,59 @@ func TestTransportUpgradeConflictPreservesProblemError(t *testing.T) {
 		got.Problem.Status != http.StatusConflict ||
 		got.Problem.RequestID != "request-123" {
 		t.Fatalf("error = %v, problem = %+v", err, got)
+	}
+}
+
+func TestTransportPreservesStableCapacityErrors(t *testing.T) {
+	for _, test := range []struct {
+		code     string
+		sentinel error
+	}{
+		{code: "input_too_large", sentinel: ErrInputTooLarge},
+		{code: "request_too_large", sentinel: ErrInputTooLarge},
+		{code: "revision_history_full", sentinel: ErrRevisionHistoryFull},
+	} {
+		t.Run(test.code, func(t *testing.T) {
+			problem := httpapi.NewProblemError(
+				http.StatusUnprocessableEntity, test.code, "Capacity refusal", "full",
+			)
+			problem.Problem.RequestID = "request-123"
+			err := transportError(problem)
+			var got *httpapi.ProblemError
+			if !errors.Is(err, test.sentinel) || !errors.As(err, &got) ||
+				got.Problem.Code != test.code ||
+				got.Problem.RequestID != "request-123" {
+				t.Fatalf("error = %v, problem = %+v", err, got)
+			}
+		})
+	}
+}
+
+func TestAirplanBackendPreservesServerMultipartSizeRefusal(t *testing.T) {
+	const token = "01234567890123456789012345678901"
+	handler, err := httpapi.NewHandler(&HTTPOperations{Client: &Client{}},
+		httpapi.Options{Token: token, MaxDocumentBytes: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL, APIToken: token,
+		Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: "https://plans.example.com/aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html",
+		Input:  Input{Reader: strings.NewReader("four"), Name: "plan.md"},
+	})
+	var problem *httpapi.ProblemError
+	if !errors.Is(err, ErrInputTooLarge) || !errors.As(err, &problem) ||
+		problem.Problem.Code != "request_too_large" ||
+		problem.Problem.Status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("error = %v, problem = %+v", err, problem)
 	}
 }
 

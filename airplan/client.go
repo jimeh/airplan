@@ -207,7 +207,10 @@ type Result struct {
 	// Slug is set only for document uploads.
 	Slug string `json:"slug,omitempty"`
 	// RepositoryURL is the resolved canonical repository context, or empty.
-	RepositoryURL string `json:"repository_url,omitempty"`
+	RepositoryURL   string `json:"repository_url,omitempty"`
+	RevisionChainID string `json:"revision_chain_id,omitempty"`
+	Revision        int    `json:"revision,omitempty"`
+	LatestRevision  int    `json:"latest_revision,omitempty"`
 
 	// Warnings collects non-fatal issues (e.g. HTML input with no
 	// <head> tag, public URL assembled without public_base_url) for

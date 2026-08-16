@@ -251,6 +251,67 @@ body.toc-dialog-open {
   margin-right: auto;
 }
 
+.revision-heading {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.revision-heading.is-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.revision-heading.is-picker::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: none;
+  border-right: 1.5px solid currentcolor;
+  border-bottom: 1.5px solid currentcolor;
+  opacity: 0.75;
+  transform: translateY(-1px) rotate(45deg);
+}
+
+.revision-heading.is-picker:hover {
+  color: var(--fg);
+}
+
+.revision-heading.is-picker:focus-within {
+  outline: 2px solid var(--link);
+  outline-offset: 3px;
+}
+
+.revision-heading.is-picker select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.revision-heading.is-stale {
+  border-left: 3px solid var(--alert-warning);
+  padding: 0.5rem 0.75rem;
+  color: var(--fg);
+  background: var(--alert-warning-bg);
+}
+
+.revision-heading.is-stale select {
+  left: -3px;
+  width: calc(100% + 3px);
+}
+
+.changes-view pre {
+  overflow-x: auto;
+}
+
 .file-actions {
   flex-wrap: wrap;
 }
@@ -697,7 +758,7 @@ mark {
   }
 }
 
-@media (max-width: 36rem) {
+@media (max-width: 48rem) {
   .toolbar {
     display: grid;
     grid-template-columns: max-content 1fr max-content;
@@ -715,6 +776,11 @@ mark {
     grid-column: 3;
     grid-row: 1;
     justify-self: end;
+    margin-left: 0;
+  }
+
+  .toolbar .themetoggle::before {
+    display: none;
   }
 
   .toolbar .file-actions {
@@ -749,7 +815,8 @@ mark {
   .toc-trigger,
   .toc-dialog,
   .codecopy,
-  .source-view {
+  .source-view,
+  .changes-view {
     display: none !important;
   }
 

@@ -23,6 +23,12 @@ export const binaryPath = join(
   windows ? 'airplan-browser.exe' : 'airplan-browser',
 );
 
+export const fixtureBinaryPath = join(
+  repoRoot,
+  'bin',
+  windows ? 'airplan-browser-fixture.exe' : 'airplan-browser-fixture',
+);
+
 /**
  * Environment with every AIRPLAN_* variable removed, so ambient
  * configuration cannot leak into the fixtures the tests render.
@@ -63,5 +69,10 @@ export async function buildAirplan() {
   // binary named airplan over the airplan/ package directory.
   await execFileAsync(
     goPath, ['build', '-o', binaryPath, '.'], { cwd: repoRoot, env },
+  );
+  await execFileAsync(
+    goPath,
+    ['build', '-o', fixtureBinaryPath, './tests/browser/fixture'],
+    { cwd: repoRoot, env },
   );
 }

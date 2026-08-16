@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"github.com/jimeh/airplan/airplan"
+	"github.com/jimeh/airplan/api"
 	"github.com/jimeh/airplan/internal/httpapi"
 	"github.com/jimeh/airplan/internal/serverlog"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"gopkg.in/yaml.v3"
 )
 
 func TestServerAndMCPCommandsRegistered(t *testing.T) {
@@ -31,6 +33,25 @@ func TestServerAndMCPCommandsRegistered(t *testing.T) {
 		if command.Flag("manifest") == nil {
 			t.Fatalf("%s does not inherit --manifest", name)
 		}
+	}
+}
+
+func TestSafeRESTLogPathCoversEveryOpenAPIRoute(t *testing.T) {
+	var document struct {
+		Paths map[string]map[string]any `yaml:"paths"`
+	}
+	if err := yaml.Unmarshal(api.OpenAPI(), &document); err != nil {
+		t.Fatal(err)
+	}
+	for route := range document.Paths {
+		request := httptest.NewRequest(http.MethodPost, route, nil)
+		if got := safeRESTLogPath(request); got != route {
+			t.Errorf("safeRESTLogPath(%q) = %q", route, got)
+		}
+	}
+	request := httptest.NewRequest(http.MethodGet, "/secret/capability", nil)
+	if got := safeRESTLogPath(request); got != "unmatched" {
+		t.Fatalf("unknown safeRESTLogPath = %q", got)
 	}
 }
 

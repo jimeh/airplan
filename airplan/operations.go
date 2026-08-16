@@ -16,6 +16,7 @@ import (
 type operationTransport interface {
 	Upload(context.Context, Input) (*Result, error)
 	UploadFiles(context.Context, FilesInput) (*FilesResult, error)
+	UpdateDocument(context.Context, UpdateDocumentInput) (*UpdateDocumentResult, error)
 	PlanUpgradeDocument(context.Context, string, UpgradeDocumentOptions) (*UpgradeDocumentPlan, error)
 	UpgradeDocument(context.Context, UpgradeDocumentPlan) (*UpgradeDocumentResult, error)
 	PlanBulkUpgrade(context.Context, BulkUpgradeOptions) (*BulkUpgradePlan, error)
@@ -149,11 +150,12 @@ const (
 
 // PurgePlanOptions controls safe, non-mutating purge planning.
 type PurgePlanOptions struct {
-	Source        UploadSource `json:"source"`
-	CreatedBefore time.Time    `json:"created_before,omitempty"`
-	Slug          string       `json:"slug,omitempty"`
-	All           bool         `json:"all,omitempty"`
-	Concurrency   int          `json:"concurrency,omitempty"`
+	Source           UploadSource `json:"source"`
+	CreatedBefore    time.Time    `json:"created_before,omitempty"`
+	Slug             string       `json:"slug,omitempty"`
+	All              bool         `json:"all,omitempty"`
+	Concurrency      int          `json:"concurrency,omitempty"`
+	IncludeVersioned bool         `json:"include_versioned,omitempty"`
 }
 
 // PurgeCandidate is one marker-managed upload eligible for deletion.
@@ -170,13 +172,15 @@ type PurgePlan struct {
 	// Protected contains matching uploads excluded from candidacy by purge
 	// protection (SPEC.md §9). They are reported as skips, never failures.
 	Protected []PurgeCandidate `json:"protected"`
+	Versioned []PurgeCandidate `json:"versioned"`
 	Invalid   int              `json:"invalid"`
 	Warnings  []string         `json:"warnings,omitempty"`
 }
 
 // PurgeRequest executes deletion of explicit server-issued upload IDs.
 type PurgeRequest struct {
-	UploadIDs []string `json:"upload_ids"`
+	UploadIDs        []string `json:"upload_ids"`
+	IncludeVersioned bool     `json:"include_versioned,omitempty"`
 }
 
 // PurgeItemResult reports one attempted deletion.
@@ -186,6 +190,7 @@ type PurgeItemResult struct {
 	// Protected reports a delete-time protection skip: the upload was
 	// neither deleted nor failed (SPEC.md §9).
 	Protected bool   `json:"protected,omitempty"`
+	Versioned bool   `json:"versioned,omitempty"`
 	Error     string `json:"error,omitempty"`
 }
 
@@ -255,6 +260,10 @@ func (c *Client) PlanPurge(
 				continue
 			}
 			candidate := PurgeCandidate{UploadID: id, Record: rec}
+			if rec.RevisionChainID != "" && !opts.IncludeVersioned {
+				plan.Versioned = append(plan.Versioned, candidate)
+				continue
+			}
 			// The manifest projection makes offline dry-run accurate; the
 			// delete-time listing guard remains authoritative (SPEC.md §9).
 			if rec.Protected {
@@ -304,6 +313,10 @@ func (c *Client) PlanPurge(
 				Record:   rec, Inspection: inspection,
 				Warnings: append([]string(nil), inspection.Warnings...),
 			}
+			if inspection.Revision > 0 && !opts.IncludeVersioned {
+				plan.Versioned = append(plan.Versioned, candidate)
+				continue
+			}
 			// Protection was detected on the LIST snapshot every candidate
 			// came from, so filtering costs no extra requests (SPEC.md §9).
 			if item.Upload.Protected {
@@ -320,6 +333,9 @@ func (c *Client) PlanPurge(
 	}
 	if plan.Protected == nil {
 		plan.Protected = []PurgeCandidate{}
+	}
+	if plan.Versioned == nil {
+		plan.Versioned = []PurgeCandidate{}
 	}
 	return plan, nil
 }
@@ -348,9 +364,12 @@ func manifestRecordFromInspection(
 		Profile: cfg.Profile, Format: inspection.Format,
 		Kind: string(inspection.Kind), Title: inspection.Title,
 		Repo: inspection.Repo, MarkerVersion: inspection.MarkerVersion,
-		Protected:     inspection.Protected,
-		ProtectedAt:   inspection.ProtectedAt,
-		ProtectReason: inspection.ProtectReason,
+		Protected:       inspection.Protected,
+		ProtectedAt:     inspection.ProtectedAt,
+		ProtectReason:   inspection.ProtectReason,
+		RevisionChainID: inspection.RevisionChainID,
+		Revision:        inspection.Revision,
+		LatestRevision:  inspection.LatestRevision,
 	}
 	if inspection.Page != nil {
 		rec.Key = inspection.Page.Key
@@ -401,11 +420,30 @@ func (c *Client) Purge(
 			result.Items = append(result.Items, item)
 			continue
 		}
+		if !req.IncludeVersioned {
+			inspection, inspectErr := c.InspectUpload(ctx,
+				BuildKey(c.cfg.KeyPrefix, id, ""))
+			if inspectErr != nil && !errors.Is(inspectErr, errOwnershipMarkerMissing) {
+				item.Error = inspectErr.Error()
+				failed++
+				result.Items = append(result.Items, item)
+				continue
+			}
+			if inspection != nil && inspection.Revision > 0 {
+				item.Versioned = true
+				result.Items = append(result.Items, item)
+				continue
+			}
+		}
 		deleted, err := c.DeleteUploadWithOptions(
-			ctx, BuildKey(c.cfg.KeyPrefix, id, ""), DeleteOptions{},
+			ctx, BuildKey(c.cfg.KeyPrefix, id, ""), DeleteOptions{
+				requireStandalone: !req.IncludeVersioned,
+			},
 		)
 		var protectedErr *UploadProtectedError
 		switch {
+		case errors.Is(err, errUploadBecameVersioned):
+			item.Versioned = true
 		case errors.As(err, &protectedErr):
 			// A delete-time protection skip is progress, not a failure: it
 			// catches protection set after planning (SPEC.md §9).

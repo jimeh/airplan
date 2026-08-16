@@ -17,6 +17,69 @@ import (
 	"github.com/jimeh/airplan/internal/httpapi"
 )
 
+func TestWireVersionsMetadataPreservesSchemaAndVersion(t *testing.T) {
+	wire := wireVersionsMetadata(VersionsMetadata{Schema: "future", Version: 7})
+	if string(wire.Schema) != "future" || int(wire.Version) != 7 {
+		t.Fatalf("wire metadata = %+v", wire)
+	}
+}
+
+func TestHTTPAPIUpdatesDocumentThroughOperationFacade(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operations := &HTTPOperations{Client: client, ServerVersion: "test"}
+	result, err := operations.UpdateDocument(context.Background(), httpapi.UpdateDocumentUpload{
+		Metadata: httpapi.UpdateDocumentMetadata{Target: first.URL, Name: "plan.md"},
+		Document: strings.NewReader("two\n"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Revision != 2 || result.LatestRevision != 2 || result.Unchanged || result.DiffURL == "" {
+		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestHTTPAPIUpdateRefusesIneligibleAndMissingTargetsWithTypedStatuses(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	html, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("<h1>HTML</h1>"), Name: "page.html", Format: "html",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operations := &HTTPOperations{Client: client, ServerVersion: "test"}
+	for _, test := range []struct {
+		name   string
+		target string
+		status int
+		code   string
+	}{
+		{"ineligible", html.URL, http.StatusUnprocessableEntity, "invalid_target"},
+		{"missing", strings.Repeat("z", 26), http.StatusNotFound, "upload_not_found"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := operations.UpdateDocument(context.Background(),
+				httpapi.UpdateDocumentUpload{
+					Metadata: httpapi.UpdateDocumentMetadata{Target: test.target},
+					Document: strings.NewReader("# Revised\n"),
+				})
+			var problem *httpapi.ProblemError
+			if !errors.As(err, &problem) || problem.Problem.Status != test.status ||
+				problem.Problem.Code != test.code || strings.Contains(problem.Problem.Detail, test.target) {
+				t.Fatalf("problem = %+v, error = %v", problem, err)
+			}
+		})
+	}
+}
+
 func TestHTTPAPIPlansDocumentUpgradeThroughOperationFacade(t *testing.T) {
 	store := newUpgradeStore(t)
 	dir := strings.Repeat("r", 26)
@@ -471,6 +534,56 @@ func TestAPIOperationErrorClassifiesUpgradeConflict(t *testing.T) {
 		problem.Problem.Status != http.StatusConflict ||
 		problem.Problem.Code != "upgrade_conflict" {
 		t.Fatalf("problem = %+v, error = %v", problem, got)
+	}
+}
+
+func TestAPIOperationErrorClassifiesRevisionConflict(t *testing.T) {
+	got := apiOperationError(&revisionAppendConflictError{err: ErrConflict})
+	var problem *httpapi.ProblemError
+	if !errors.As(got, &problem) ||
+		problem.Problem.Status != http.StatusConflict ||
+		problem.Problem.Code != "revision_conflict" {
+		t.Fatalf("problem = %+v, error = %v", problem, got)
+	}
+}
+
+func TestAPIOperationErrorClassifiesRevisionHistoryCapacity(t *testing.T) {
+	got := apiOperationError(errors.Join(
+		ErrRevisionHistoryFull, errors.New("capacity detail"),
+	))
+	var problem *httpapi.ProblemError
+	if !errors.As(got, &problem) ||
+		problem.Problem.Status != http.StatusUnprocessableEntity ||
+		problem.Problem.Code != "revision_history_full" ||
+		strings.Contains(problem.Problem.Detail, "capacity detail") {
+		t.Fatalf("problem = %+v, error = %v", problem, got)
+	}
+}
+
+func TestAPIOperationErrorClassifiesUpdateRefusals(t *testing.T) {
+	tests := []struct {
+		kind   updateRefusalKind
+		status int
+		code   string
+	}{
+		{updateRefusalMissing, http.StatusNotFound, "upload_not_found"},
+		{updateRefusalInvalidTarget, http.StatusUnprocessableEntity, "invalid_target"},
+		{updateRefusalInvalidUpload, http.StatusUnprocessableEntity, "invalid_upload"},
+	}
+	for _, test := range tests {
+		got := apiOperationError(&updateRefusalError{
+			kind: test.kind, err: errors.New("target detail must not escape"),
+		})
+		var problem *httpapi.ProblemError
+		if !errors.As(got, &problem) || problem.Problem.Status != test.status ||
+			problem.Problem.Code != test.code ||
+			strings.Contains(problem.Problem.Detail, "target detail") {
+			t.Fatalf("kind %q problem = %+v, error = %v", test.kind, problem, got)
+		}
+	}
+	storageErr := errors.New("post-commit storage failure")
+	if got := apiOperationError(storageErr); !errors.Is(got, storageErr) {
+		t.Fatalf("unexpected storage error was remapped: %v", got)
 	}
 }
 

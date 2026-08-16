@@ -99,6 +99,17 @@ type TemplateData struct {
 
 	// RepositoryURL is the resolved canonical repository context.
 	RepositoryURL string
+
+	// Revision fields describe the immutable context baked into a linked page.
+	// RevisionCount is the greatest live revision known at render time; live
+	// metadata may later discover a newer value without rewriting this page.
+	Revision            int
+	RevisionCount       int
+	PreviousRevision    int
+	VersionsPath        string
+	DiffPath            string
+	DiffText            string
+	HighlightedDiffHTML template.HTML
 }
 
 // LoadTemplate parses a custom page template from path. The template

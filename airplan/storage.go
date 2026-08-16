@@ -122,11 +122,21 @@ type streamObject struct {
 
 // put uploads one object with Cache-Control: no-store (SPEC.md §5).
 func (s *storage) put(ctx context.Context, obj object) error {
-	return s.putConditional(ctx, obj, "")
+	return s.putConditionalHeaders(ctx, obj, "", false)
 }
 
 func (s *storage) putConditional(
 	ctx context.Context, obj object, ifMatch string,
+) error {
+	return s.putConditionalHeaders(ctx, obj, ifMatch, false)
+}
+
+func (s *storage) putIfAbsent(ctx context.Context, obj object) error {
+	return s.putConditionalHeaders(ctx, obj, "", true)
+}
+
+func (s *storage) putConditionalHeaders(
+	ctx context.Context, obj object, ifMatch string, ifNoneMatch bool,
 ) error {
 	input := &s3.PutObjectInput{
 		Bucket:       aws.String(s.bucket),
@@ -138,6 +148,9 @@ func (s *storage) putConditional(
 	}
 	if ifMatch != "" {
 		input.IfMatch = aws.String(ifMatch)
+	}
+	if ifNoneMatch {
+		input.IfNoneMatch = aws.String("*")
 	}
 	_, err := s.client.PutObject(ctx, input)
 	if err != nil {
@@ -280,6 +293,25 @@ func (s *storage) getBytesWithETag(
 		return nil, "", "", fmt.Errorf("airplan: read object %q: %w", key, err)
 	}
 	return body, aws.ToString(out.ETag), aws.ToString(out.ContentType), nil
+}
+
+// objectMetadata reads only the immutable identity and declared size needed
+// to validate a payload without transferring its body.
+func (s *storage) objectMetadata(
+	ctx context.Context, key string,
+) (string, int64, error) {
+	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: aws.String(s.bucket), Key: aws.String(key),
+	})
+	if err != nil {
+		if storageNotFound(err) {
+			return "", 0, fmt.Errorf(
+				"airplan: inspect object %q: %w", key, errObjectNotFound,
+			)
+		}
+		return "", 0, fmt.Errorf("airplan: inspect object %q: %w", key, err)
+	}
+	return aws.ToString(out.ETag), aws.ToInt64(out.ContentLength), nil
 }
 
 func (s *storage) getTo(ctx context.Context, key string, dst io.Writer) error {

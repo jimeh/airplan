@@ -1,11 +1,117 @@
 package airplan
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestPurgeReconcilesStaleManifestWhenOwnershipMarkerIsGone(t *testing.T) {
+	store := newUpgradeStore(t)
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	client := store.client(t, manifest)
+	uploaded, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# Gone\n"), Name: "gone.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	for key := range store.objects {
+		if strings.HasPrefix(key, uploaded.ID+"/") {
+			delete(store.objects, key)
+			delete(store.etags, key)
+		}
+	}
+	store.mu.Unlock()
+	reservationKey := uploaded.ID + "/" + VersionsFilename
+	store.set(reservationKey, standaloneDeleteReservationBody)
+
+	result, err := client.Purge(context.Background(), PurgeRequest{
+		UploadIDs: []string{uploaded.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || result.Items[0].Deleted == nil ||
+		!strings.Contains(strings.Join(result.Items[0].Deleted.Warnings, "\n"),
+			"recording the completed deletion") {
+		t.Fatalf("purge result = %+v", result)
+	}
+	listed, err := ListManifestHistory(manifest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Records) != 0 {
+		t.Fatalf("active manifest records = %+v", listed.Records)
+	}
+	if body, ok := store.get(reservationKey); !ok ||
+		!bytes.Equal(body, standaloneDeleteReservationBody) {
+		t.Fatal("missing-marker reconciliation disturbed deletion tombstone")
+	}
+}
+
+func TestPurgeStandaloneGuardSurvivesInspectDeleteRace(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reached := make(chan struct{})
+	release := make(chan struct{})
+	store.mu.Lock()
+	store.pauseListPrefix = first.ID + "/"
+	store.pauseListAttempt = 2
+	store.pauseListReached = reached
+	store.pauseListRelease = release
+	store.mu.Unlock()
+
+	purgeDone := make(chan struct {
+		result *PurgeResult
+		err    error
+	}, 1)
+	go func() {
+		result, purgeErr := client.Purge(context.Background(), PurgeRequest{
+			UploadIDs: []string{first.ID},
+		})
+		purgeDone <- struct {
+			result *PurgeResult
+			err    error
+		}{result, purgeErr}
+	}()
+	select {
+	case <-reached:
+	case <-time.After(5 * time.Second):
+		t.Fatal("purge did not pause after stale standalone marker read")
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	select {
+	case outcome := <-purgeDone:
+		if outcome.err != nil || len(outcome.result.Items) != 1 ||
+			!outcome.result.Items[0].Versioned || outcome.result.Items[0].Deleted != nil {
+			t.Fatalf("purge race result = %+v, %v", outcome.result, outcome.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("purge did not finish")
+	}
+	inspection, err := client.InspectUpload(context.Background(), second.URL)
+	if err != nil || inspection.Revision != 2 || inspection.LatestRevision != 2 {
+		t.Fatalf("surviving chain = %+v, %v", inspection, err)
+	}
+}
 
 type unorderedListTransport struct {
 	operationTransport

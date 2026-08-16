@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.34.0**
+**Spec version: 0.37.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -272,13 +272,13 @@ described below.
     the page follows the system preference and does not show the control. The
     theme toggle follows the file controls. At wider sizes the rendered/source
     toggle aligns left while file controls align right, with the theme toggle
-    at the far-right edge and a quiet divider separating it from the file
-    controls. At narrow sizes the rendered/source and theme toggles share the
-    first row at opposite edges, with available file controls clustered and
-    left-aligned below. When no rendered/source toggle is available, the file
-    controls instead occupy the first row opposite the theme toggle. Toolbar
-    controls update immediately without color or background transitions when
-    their active state or the page theme changes.
+    at the far-right edge behind a quiet divider. At 48rem and below the
+    rendered/source and theme toggles share the first row at opposite edges,
+    with available file controls clustered and left-aligned below. When no
+    rendered/source toggle is available, the file controls instead occupy the
+    first row opposite the theme toggle. Toolbar controls update immediately
+    without color or background transitions when their active state or the
+    page theme changes.
   - Rendered/source toggle: switch between the rendered plan and a
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter
@@ -368,6 +368,13 @@ against):
 | `.FrontMatterTitle`           | string    | usable frontmatter title or empty    |
 | `.HighlightedFrontMatterHTML` | raw HTML  | highlighted frontmatter block        |
 | `.RepositoryURL`              | string    | resolved canonical repository URL    |
+| `.Revision`                   | integer   | this page's revision, or zero        |
+| `.RevisionCount`              | integer   | greatest live revision when rendered |
+| `.PreviousRevision`           | integer   | adjacent predecessor, or zero        |
+| `.VersionsPath`               | string    | relative versions metadata path      |
+| `.DiffPath`                   | string    | relative adjacent diff path          |
+| `.DiffText`                   | string    | inline adjacent diff, or empty       |
+| `.HighlightedDiffHTML`        | raw HTML  | highlighted inline adjacent diff     |
 
 Each heading has `.Level` (1–6), `.ID`, `.Text`, and `.IsTitle`.
 `.IsTitle` is true only for a leading H1 that the built-in table of
@@ -543,7 +550,7 @@ already is the original file.
     "repo": "https://github.com/acme/service",
     "producer": { "name": "airplan", "version": "0.8.0" },
     "render": {
-      "generation": 1,
+      "generation": 2,
       "template": { "kind": "builtin" },
       "indexable": false,
       "no_external_assets": false,
@@ -581,7 +588,7 @@ already is the original file.
     "repo": "https://github.com/acme/service",
     "producer": { "name": "airplan", "version": "0.8.0" },
     "render": {
-      "generation": 1,
+      "generation": 2,
       "template": { "kind": "builtin_collection" },
       "indexable": false,
       "no_external_assets": false
@@ -652,6 +659,9 @@ already is the original file.
   Marker v4 reserves every direct basename beginning `.airplan-`, in addition
   to `.airplan.json`; collection member filenames and v4 marker-declared object
   names must not use that namespace, or a member could forge a control object.
+  The sole payload exception is `.airplan-changes.diff` with role `diff`, and
+  only for a linked Markdown revision greater than 1; every other
+  marker-declared `.airplan-` payload remains invalid.
   Existing v1-v3 marker validation retains its original filename rules. An upload
   created by an older build whose collection already declares this basename is
   invalid to protection-aware builds; it must be removed with the older client
@@ -857,6 +867,161 @@ server's one configured S3 profile. With `--json`, bulk dry-run emits a
 the plan is empty or contains only current documents. Failed apply items retain
 that parseable result on stdout and make the command non-zero.
 
+### Linked Markdown revisions
+
+`airplan update <url|key> [file|-]` accepts only a complete, marker-managed,
+source-backed Markdown document. It resolves any supplied chain member to the
+latest live revision, compares exact UTF-8 source bytes, and uploads a complete
+ordinary document under a new random directory. A named input must resolve to
+the existing document slug; stdin or an omitted name preserves it implicitly.
+Local input size, emptiness, UTF-8, and binary validation completes before an
+eligible predecessor is upgraded or repaired. Update may then apply the same
+in-place upgrade machinery to an eligible older marker or renderer generation
+before comparing source bytes; this prerequisite maintenance is part of the
+requested update and remains independently recoverable.
+Identical content is a
+successful no-op returning the existing latest URL. An already-consistent
+chain performs no storage or manifest writes; an identical-source retry may
+first repair interrupted predecessor promotion or metadata replication.
+Revision numbers are positive integers beginning at 1 and never reused.
+
+A standalone upload has no `.airplan-versions.json`. Its first real update
+conditionally creates that object in the predecessor and candidate, promotes
+the predecessor marker to revision 1, and creates revision 2. Later updates
+append linearly using the latest metadata ETag as the serialization point; a
+stale concurrent writer receives a conflict and its unannounced candidate is
+deleted. REST reports this as `revision_conflict` with status 409. After that
+point, retries repair interrupted promotion or replication rather than
+allocating another revision.
+
+Cleanup of a marker-first candidate that has not been announced must serialize
+against the same predecessor metadata ETag as append. For an existing chain,
+cleanup conditionally rewrites semantically unchanged metadata by using an
+alternate top-level JSON field order before deleting the candidate. The
+same-size byte-distinct body changes content-derived S3 ETags; either that claim
+wins or the append publishes first. A candidate whose assigned integer is
+already at or below the chain high-water mark is durably known to have lost and
+needs no additional claim.
+A serialization request failure is ambiguous until a fresh bounded read of the
+serialization object proves whether the intended revision URL was published.
+An observed intended or monotonic successor body in either the serialization
+object or the candidate's own replica continues post-commit repair. For an
+existing chain, an observed older body permits rollback only after the updater
+wins the same conditional cleanup claim used by third-party cleanup. A failed
+read or cleanup claim leaves the discoverable candidate intact rather than
+risking deletion of an announced revision. For a first link whose versions
+object remains absent, the updater retries the idempotent conditional creation;
+winning that retry completes the append rather than reporting a failure.
+Semantically identical metadata with the cleanup claim's alternate field order
+remains valid for no-op repair and verification.
+A revision-2 candidate beside a still-live standalone predecessor fails closed
+because no versions object exists on which cleanup can safely contend. A
+standalone deletion reservation or missing predecessor is durable proof that
+the first-link candidate lost. Candidate rollback uses a fresh bounded cleanup
+context so cancellation of the update request does not by itself strand the
+marker-first upload.
+
+A first update and a concurrent standalone delete contend on a conditional
+reservation at the predecessor's versions key. The delete reservation is not
+valid versions metadata and remains as a tiny permanent deletion tombstone
+after payload and marker removal. It keeps stale, preflighted updates from
+subsequently winning `If-None-Match`; an update that observes it fails closed.
+Marker-based listing and sync ignore the otherwise empty tombstone-only prefix.
+These tombstones intentionally accumulate and Airplan lifecycle commands never
+remove them. Thus exactly one transition can win, including when both
+operations first observed the standalone marker.
+
+Every linked v4 Markdown marker contains an immutable `revision` descriptor
+with a 26-character lowercase RFC 4648 base32 `chain_id`, positive `number`,
+and, after revision 1, the previous page URL. Revisions greater than 1 declare
+exactly one `diff` object named `.airplan-changes.diff`, content type
+`text/plain; charset=utf-8`; standalone documents and revision 1 declare none.
+The adjacent unified diff has stable `revision-N/plan.md` headers, three context
+lines, deterministic LF output, and preserves final-newline distinctions. It is
+bounded to 32 MiB and generated before remote mutation. At most 512 KiB is
+embedded for server-highlighted display; larger diffs retain the Changes view
+and its raw sibling-object link without embedding the diff body in the page.
+The immutable `--- revision-N/plan.md` header remains the authoritative
+predecessor number when that predecessor has since become a metadata tombstone
+and its URL is no longer present in the chain index; re-rendering must not infer
+`current revision - 1` across an assignment gap.
+
+`.airplan-versions.json` is a mutable no-store control object with schema
+`airplan-versions`, version 1, chain ID, containing member's
+`current_revision`, greatest live `latest_revision`, never-decreasing
+`last_assigned_revision`, and a complete ordered `revisions` array containing
+every assigned integer from 1 through that high-water mark. Live
+entries carry number, canonical same-service page URL, UTC creation time, and,
+after revision 1, a same-directory diff URL. Deleted entries are tombstones
+carrying number, `deleted: true`, and UTC `deleted_at`. Every live member gets
+the complete index with only `current_revision` differing. Bodies are limited
+to 64 KiB. An append whose complete replicated index would exceed that bound is
+refused before candidate upload with `ErrRevisionHistoryFull`; REST reports
+`revision_history_full` (422). A missing object means standalone; invalid
+metadata disables only revision navigation, not an otherwise complete payload.
+
+The built-in page fetches metadata relative to itself with `no-store` and a
+per-load nonce. Valid metadata turns the muted revision indicator above the
+rendered content into the sole revision selector, adding a small downward
+chevron while retaining its existing typography. Older pages use a
+content-width stale-warning treatment labeled `Revision N of M`; the latest
+page is labeled `Revision N (Latest)`. The whole indicator opens a native
+select, including a one-option selector when deletion leaves one live chain
+member; the toolbar contains no revision control and there are no previous,
+next, or latest shortcut links.
+Valid metadata also adds the server-highlighted Changes view and raw diff
+link. It validates same-origin Airplan-shaped URLs and inserts metadata text
+through DOM text APIs. Failure leaves the document, source, theme, ToC, print,
+and Mermaid behavior intact. Anyone who can read one chain URL learns every
+linked capability URL; this is intentional.
+
+`get --diff` fetches the declared adjacent diff from a directory target and is
+mutually exclusive with `--source`. `show` exposes revision identity, latest
+revision/URL, diff state, validated versions metadata, and a separate advisory
+metadata error. Manifest projections may carry `revision_chain_id`, `revision`,
+and `latest_revision`; sync reconstructs them from v4 markers and bounded
+metadata reads.
+
+Successful `update --json` output extends the six-field document-upload JSON
+schema with `revision`, `latest_revision`, `previous_url`, `diff_url`, and
+`unchanged`. It does not expose the library result's management or provenance
+fields. A newly appended revision includes both URLs and `unchanged: false`;
+an identical-source retry returns the current latest upload with
+`unchanged: true`. A standalone identical-source result omits `revision`,
+`latest_revision`, `previous_url`, and `diff_url` because no revision chain
+exists yet.
+
+Protection remains per directory. Purge skips linked revisions unless
+`--include-versioned` explicitly acknowledges history removal; protection
+still wins. Targeted delete conditionally tombstones the revision in every
+surviving member before deleting payloads. The greatest remaining live revision
+becomes latest while the assignment high-water mark never decreases.
+An interrupted delete whose target still carries its invalid-current reservation
+re-derives canonical state from a surviving member whether that replica still
+lists the target live or already tombstoned, then completes propagation. An
+announced member whose own replica is missing repairs it from its predecessor;
+the predecessor's permanent linked-delete receipt remains authoritative after
+its marker is gone. Revision 2 also completes any interrupted revision-1
+marker/page promotion before deletion. Candidate classification applies only
+when the target's own versions object is absent; a not-found while resolving any
+other chain member fails closed without deleting target payloads. Marker-only
+candidates that were never announced are removed without writing a revision
+tombstone, so their unused integer can still be assigned by a later append.
+Deleting the final live member conditionally replaces its
+versions object with a strict invalid transition reservation before removing
+the directory; this both excludes new updaters and makes already-preflighted
+appends lose their stale ETag. With no survivor, the manifest delete tombstone
+retains chain and revision identity and omits `latest_revision`.
+The transition body uses schema `airplan-final-revision-delete-reservation`,
+version 1, and exact `chain_id`, `revision`, `last_assigned_revision`, and UTC
+second `deleted_at` fields. It is not valid versions metadata. Linked deletion
+preserves either this final reservation or the deleted member's invalid-current
+versions body through marker removal as a permanent receipt, just as standalone
+deletion preserves its reservation. A marker-last retry can therefore prove the
+revision identity after every payload is gone, even when local history missed
+the first-link projection and still describes revision 1 as standalone.
+Marker-based listing and sync ignore the resulting tombstone-only prefix.
+
 `--json` output (single line, stable schema):
 
 ```json
@@ -916,14 +1081,15 @@ airplan list|ls [--remote] [--json] [--columns SET] [--wide] [--reverse]
                 [--protected|--no-protected]
                 [-p NAME|--profile NAME|--profile=] [-A|--all-profiles]
 airplan show [--json] <url|key>
-airplan get [--output PATH] [--source] <url|key>
+airplan get [--output PATH] [--source|--diff] <url|key>
 airplan delete [--force] <url|key>
 airplan protect [--reason TEXT] <url|key>
 airplan unprotect <url|key>
 airplan upgrade [--check] [--force] [--template PATH] [--json] <url|key>
 airplan upgrade --all [--dry-run] [--yes] [--concurrency N]
                 [--all-profiles] [--json]
-airplan purge [--remote] [--older-than 30d|2026-01-01]
+airplan update [--title TITLE] [--max-size SIZE] [--json] [--open] <url|key> [file|-]
+airplan purge [--remote] [--older-than 30d|2026-01-01] [--include-versioned]
               [--all] [--dry-run] [--yes] [--concurrency N]
 airplan sync [--config PATH] [--profile NAME] [--concurrency N]
              [--no-prune] [--dry-run] [--json]
@@ -1402,7 +1568,7 @@ conforming implementations can share a manifest:
  "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
  "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":4,
- "producer_version":"0.8.0","renderer_version":1}
+ "producer_version":"0.8.0","renderer_version":2}
 {"type":"upload","time":"2026-07-21T12:03:00Z",
  "created_at":"2026-07-21T12:03:00Z",
  "key":"gaj4.../index.html",
@@ -1411,7 +1577,7 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"collection",
  "title":"login.png and 1 more","bytes":9216,"objects":4,
  "total_bytes":203512,"marker_version":4,
- "producer_version":"0.8.0","renderer_version":1}
+ "producer_version":"0.8.0","renderer_version":2}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
@@ -1429,7 +1595,17 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
  "bytes":19200,"marker_version":4,"producer_version":"0.8.0",
- "renderer_version":1}
+ "renderer_version":2}
+{"type":"link","time":"2026-08-15T10:05:00Z",
+ "created_at":"2026-07-21T12:00:00Z",
+ "key":"vq3n.../plan.html","source_key":"vq3n.../plan.md",
+ "marker_key":"vq3n.../.airplan.json",
+ "url":"https://plans.example.com/vq3n.../plan.html",
+ "bucket":"plans","profile":"work","kind":"document",
+ "slug":"plan","format":"md","title":"Refactor auth",
+ "bytes":19200,"objects":4,"total_bytes":20120,"marker_version":4,
+ "producer_version":"0.8.0","renderer_version":2,
+ "revision_chain_id":"d2x4...","revision":1,"latest_revision":2}
 ```
 
 (Shown wrapped for readability; on disk each record is one line.)
@@ -1456,7 +1632,14 @@ conforming implementations can share a manifest:
   slug from the page key for valid older records that omit those fields.
 - New `delete` tombstones include `marker_key`, `bucket`, the receiving
   `profile`, and reason `deleted` or `remote_missing`. Their identity is
-  `(bucket, marker_key)`. Legacy key-only tombstones remain valid.
+  `(bucket, marker_key)`. A linked-revision deletion also includes its
+  `revision_chain_id`, deleted `revision`, and surviving `latest_revision`;
+  these fields let reduction reject stale upload/link events whose local
+  manifest append completed after the remote deletion. A marker-missing retry
+  after an earlier manifest-write failure retains the chain and deleted
+  revision but omits `latest_revision`, because that recovery path cannot
+  reconstruct the surviving latest value safely. Legacy key-only tombstones
+  remain valid.
 - `protect` and `unprotect` records project remote purge-protection state
   (§9 protect/unprotect and purge) onto the same `(bucket, marker_key)`
   identity. Both require `key`, `marker_key`, and `bucket` — protection
@@ -1470,10 +1653,23 @@ conforming implementations can share a manifest:
   producer/renderer versions.
   Reduction treats them like upload refreshes without clearing protection or
   making the document appear newly created.
+- `link` events carry the same complete projection as `upgrade`, plus
+  `revision_chain_id`, `revision`, and `latest_revision`. They refresh every
+  surviving member after append or tombstone propagation without changing its
+  original `created_at`, object totals, or other orthogonal fields.
 - Manifest history reduces chronologically. The latest event for an upload
   identity wins, duplicate uploads collapse to their latest record, and a
   later upload reactivates an earlier tombstone. A legacy key-only tombstone
-  hides matching preceding uploads but not a later upload event.
+  hides matching preceding uploads but not a later upload event. Linked
+  revision numbers are immutable and never reused: a revision-aware delete
+  tombstone permanently suppresses that revision even if a stale upload,
+  upgrade, or link event is appended later. Chain-wide `latest_revision` is
+  the highest advertised revision that does not have a revision-aware delete
+  tombstone, so partial local history preserves known remote members while
+  completed deletions cannot be resurrected by out-of-order manifest writes.
+  Only records whose advertised latest is at least their own revision
+  participate in or receive this normalization; an incomplete marker-only
+  candidate retains `latest_revision: 0` and remains unannounced.
 - Protection reduces alongside uploads: the latest `protect`/`unprotect`
   event wins, a `delete` clears the identity's protection, and an `upload`
   event does **not** clear it — a sync re-import of a still protected
@@ -1538,8 +1734,9 @@ machine) and must be safe:
   legacy entries remain ineligible for delete reconciliation and purge.
 - Table columns are one vocabulary shared by local and remote listing, and
   always print in the canonical order `date`, `profile`, `state`, `kind`,
-  `title`, `slug`, `objects`, `size`, `page-size`, `dir`, `format`, `repo`,
-  `bucket`, `url`. Local listing offers every one of them; remote listing offers
+  `title`, `slug`, `objects`, `size`, `page-size`, `dir`, `format`, `airplan`,
+  `renderer`, `revision`, `latest`, `repo`, `bucket`, `url`. Local listing
+  offers every one of them; remote listing offers
   `date`, `state`, `kind`, `slug`, `objects`, `size`, `dir`, and `url`. Remote
   `STATE` is `protected` or `unprotected`; remote listing does not fetch marker
   bodies, so it cannot classify rows as managed or legacy. Three columns are
@@ -1681,7 +1878,9 @@ machine) and must be safe:
   `oversized`, `malformed_json`, `unsupported_version`, `invalid_fields`, or
   `conflicting_markers`; it never exposes untrusted marker fields. Human
   output presents the same information as a labeled detail block.
-- `airplan get <url|key>` fetches one object from a marker-managed upload.
+- `airplan get <url|key>` fetches one object from a marker-managed upload;
+  `--source` selects the declared source and `--diff` selects the declared
+  adjacent revision diff. The selectors are mutually exclusive.
   Full URLs, bare keys, random directories, configured prefixes, and
   path-style endpoint URLs obey the same connection, bucket, and prefix
   rules as `delete`. Before returning bytes, `get` concurrently probes both
@@ -1689,8 +1888,9 @@ machine) and must be safe:
   absent, and validates the existing marker. This preserves object-read-only
   credentials without requiring LIST permission. A timeout, authorization
   failure, or ambiguous probe fails closed. A random-directory target selects
-  the primary page, or the document source under `--source`; requesting source
-  from a collection or source-less document is an error. An explicit declared
+  the primary page, the document source under `--source`, or the adjacent diff
+  under `--diff`; requesting either capability when it is not declared is an
+  error. An explicit declared
   page, document source, collection file, or existing marker fetches that exact
   object. Any undeclared child is rejected, as is `--source` with an explicit
   child. A missing selected object is an error naming its full key.
@@ -1750,7 +1950,7 @@ machine) and must be safe:
   manifest record best-effort and prints a one-line stderr summary
   (`protected upload (key ...)` / `unprotected upload (key ...)`); stdout
   stays empty.
-- Before `show`, `get`, `delete`, `protect`, or `unprotect` resolves its
+- Before `show`, `get`, `delete`, `protect`, `unprotect`, `upgrade`, or `update` resolves its
   connection, it consults local
   history for exactly one matching active, marker-managed manifest record.
   When neither
@@ -1827,7 +2027,17 @@ machine) and must be safe:
   after planning is still caught by the delete-time sentinel guard and is
   reported the same way. Protected skips are never failures: the summary
   becomes `purged N uploads (P protected, F failed)` and skips do not
-  change the exit status.
+  change the exit status. When linked revisions are skipped because
+  `--include-versioned` was not supplied, purge first prints
+  `airplan: note: skipped N linked revision(s); use --include-versioned to include them`,
+  then one `airplan: note: skipping linked revision <url> (chain <id>, revision X of Y)`
+  line per known complete projection. If the marker identifies revision X but
+  validated metadata did not establish the latest revision, that suffix is
+  `(chain <id>, revision X)` instead. A revision discovered only by the
+  delete-time recheck prints
+  `airplan: note: skipped linked revision <upload-id>; use --include-versioned to include it`.
+  The summary becomes
+  `purged N uploads (P protected, V versioned, F failed)`.
 - `purge --remote` starts from the same marker-key candidates as
   `list --remote`, but fetches and validates markers because it is a
   destructive operation. It may select both `complete` and
@@ -1875,10 +2085,29 @@ machine) and must be safe:
   invalid, or without declared sizes, is counted as deferred and named in a
   warning, and a later sync retries it. Otherwise one unreadable marker would
   fail every later run, because the record keeps qualifying.
-  By default, active scoped local records absent from LIST are considered for
+  A complete source-backed v4 Markdown record without a revision projection is
+  also inspected because another writer may have promoted its marker from
+  standalone to revision 1. A discovered complete versions index appends a
+  `link` projection with chain, revision, and latest values. A still-standalone
+  record remains unchanged and eligible for the same lightweight check on a
+  later sync; once promoted, the link converges it permanently. New imports
+  likewise record revision identity only when a complete versions index proves
+  the marker's revision was announced; a marker-only rollback candidate remains
+  unversioned locally so its unused integer can be reassigned. The manifest lock
+  recheck prevents a concurrent delete or link from being overwritten.
+  Revision tombstones are scoped by profile, bucket, and chain identifier. A
+  remote marker for an already-tombstoned revision is retained as deleted and
+  is not re-imported or appended again, including when its versions replica is
+  missing or invalid and under `--dry-run`; the immutable marker descriptor is
+  sufficient to match an existing scoped tombstone. Later syncs therefore
+  converge even if stale storage restores the marker. By default,
+  active scoped local records absent from LIST are considered for
   pruning, but airplan performs a targeted marker GET before appending a
   `remote_missing` tombstone. Only a definite not-found response confirms
-  absence. A returned marker is retained regardless of its contents; timeout,
+  absence. Revision identity is retained only from a complete announced local
+  projection; an incomplete candidate projection cannot permanently suppress a
+  later legitimate reuse of the same integer. A returned marker is retained
+  regardless of its contents; timeout,
   authentication, transport, and ambiguous storage errors retain the record
   and fail the sync partially. `--no-prune` makes sync additive-only.
   `--concurrency N` defaults to 8 and accepts 1 through 64 across marker
@@ -1891,12 +2120,13 @@ machine) and must be safe:
   emits exactly one object on stdout with deterministic `added_records`,
   `enriched_records`, `tombstone_records`, `protection_records`, and `failures`
   arrays plus `unchanged`, `deferred`, `incomplete`, `invalid`, and `retained`
-  counters.
+  counters. `retained` includes already-tombstoned remote revisions that sync
+  deliberately leaves suppressed.
   Enriched records complete uploads already in history, so they are never
   counted as additions. `unchanged` counts scoped records already complete
-  locally; a record selected for enrichment is reported by its outcome,
-  enriched or deferred, and never also as unchanged. A partial failure exits
-  nonzero after
+  locally, including an inspected v4 Markdown record that remains standalone;
+  a totals-enrichment candidate is reported as enriched or deferred and never
+  also as unchanged. A partial failure exits nonzero after
   writing the result. Sync provides eventual active-inventory convergence;
   it neither uploads deletion history nor makes historical JSONL files
   identical across machines.
@@ -1976,6 +2206,12 @@ execution, and `sync`. `list` means the operation service's manifest;
 appends local upload or tombstone records. Server REST and hosted MCP adapters
 invoke the server's operation service directly rather than calling loopback
 HTTP or duplicating business rules.
+
+HTTP problem codes preserve stable public error identity across backends:
+`input_too_large` and the multipart-envelope `request_too_large` map to
+`ErrInputTooLarge`, `revision_history_full` maps to `ErrRevisionHistoryFull`,
+and conditional mutation conflict codes map to `ErrConflict`, while the server
+problem details remain available.
 
 For an `airplan` backend, request attributes such as format, title, slug,
 language, repository URL, and lower size limits remain portable. Explicit S3
@@ -2119,6 +2355,7 @@ endpoints require `Authorization: Bearer <token>`:
 ```text
 GET    /api/v1/capabilities
 POST   /api/v1/uploads/documents
+POST   /api/v1/uploads/documents/update
 POST   /api/v1/uploads/collections
 POST   /api/v1/uploads/inspect
 POST   /api/v1/uploads/get
@@ -2171,6 +2408,14 @@ delete-time skip as `protected: true` rather than a failure, and sync results
 include `protection_records`. The capabilities operation list includes
 `protect_upload` and `unprotect_upload` so clients can detect the feature.
 
+Document update uses bounded streaming `multipart/form-data` with metadata
+containing the target and optional name, title, and size limit. Refusal maps a
+missing upload to `upload_not_found` (404), an unreconcilable chain to
+`invalid_upload` (422), an ineligible document to `invalid_target` (422), and a
+lost append serialization race to `revision_conflict` (409). A chain whose
+bounded replicated index cannot fit another assigned revision maps to
+`revision_history_full` (422) before candidate upload.
+
 Purge is two-phase. `/purge/preview` applies the source and filters without
 deleting and returns explicit `upload_id` candidates. The CLI displays them
 and performs confirmation. `/purge` accepts only an explicit array of those
@@ -2220,6 +2465,7 @@ The minimal tool set is:
 | Tool                | Stdio | HTTP | Effect                             |
 | ------------------- | ----- | ---- | ---------------------------------- |
 | `upload_document`   | yes   | yes  | Upload supplied text content       |
+| `update_document`   | yes   | yes  | Append a linked Markdown revision  |
 | `upload_files`      | yes   | no   | Upload local paths as a collection |
 | `list_uploads`      | yes   | yes  | List manifest or storage records   |
 | `inspect_upload`    | yes   | yes  | Validate one marker-managed upload |
