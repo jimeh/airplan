@@ -272,8 +272,8 @@ body.toc-dialog-open {
   width: 6px;
   height: 6px;
   flex: none;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
+  border-right: 1.5px solid currentcolor;
+  border-bottom: 1.5px solid currentcolor;
   opacity: 0.75;
   transform: translateY(-1px) rotate(45deg);
 }

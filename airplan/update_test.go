@@ -1253,6 +1253,7 @@ func TestRevisionDeleteMissingMarkerRetryRecoversIdentityFromReceipt(t *testing.
 	if err := lock.Lock(); err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = lock.Unlock() })
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	deleted, err := client.DeleteUpload(ctx, first.URL)
@@ -1810,6 +1811,26 @@ func TestUpdateDocumentDiffLimitFailsBeforeMutation(t *testing.T) {
 	defer store.mu.Unlock()
 	if store.puts != putsBefore {
 		t.Fatalf("diff limit failure performed %d writes", store.puts-putsBefore)
+	}
+}
+
+func TestRevisionMetadataCapacityPreflightDoesNotMutateStorage(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	if err := client.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	putsBefore := store.puts
+	store.mu.Unlock()
+	_, err := client.encodeMemberMetadata(oversizedVersionsMetadata())
+	if !errors.Is(err, ErrRevisionHistoryFull) {
+		t.Fatalf("capacity error = %v", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.puts != putsBefore {
+		t.Fatalf("capacity preflight performed %d writes", store.puts-putsBefore)
 	}
 }
 
@@ -2759,8 +2780,14 @@ func TestConcurrentAppendAndFinalRevisionDeleteHaveOneWinner(t *testing.T) {
 	}()
 
 	var winner outcome
+	deadline := time.After(5 * time.Second)
 	for range 2 {
-		result := <-results
+		var result outcome
+		select {
+		case result = <-results:
+		case <-deadline:
+			t.Fatal("timed out waiting for final delete and append")
+		}
 		if result.err == nil {
 			if winner.operation != "" {
 				t.Fatal("both final delete and append succeeded")

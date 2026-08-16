@@ -257,10 +257,12 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
 - `versions.go`, `diff.go`, and `update.go` implement linked Markdown history.
   Markers carry immutable chain descriptors and diff inventory, while the
   separately versioned 64 KiB metadata index is conditionally replicated to
-  each live member. The old latest metadata write is the append serialization
-  point; ambiguous write responses are reconciled from both the serialization
-  object and candidate replica. Existing-chain rollback first takes the same
-  ETag cleanup claim as orphan collection, while first-link reconciliation
+  each live member. Capacity is preflighted before candidate upload and exposed
+  as `ErrRevisionHistoryFull`. The old latest metadata write is the append
+  serialization point; ambiguous write responses are reconciled from both the
+  serialization object and candidate replica. Existing-chain rollback first
+  takes the same ETag cleanup claim as orphan collection, while first-link
+  reconciliation
   idempotently completes the conditional creation. Delete reservations rebase
   from live survivors after interrupted operations, repairing missing member
   replicas and first-promotion state, while final-member deletion uses an

@@ -750,6 +750,8 @@ func mcpErrorClass(err error) string {
 		return "timeout"
 	case errors.Is(err, ErrInputTooLarge):
 		return "input_too_large"
+	case errors.Is(err, ErrRevisionHistoryFull):
+		return "revision_history_full"
 	case errors.Is(err, errInvalidMCPListFilter):
 		return "invalid_list_filter"
 	case errors.Is(err, ErrBinaryInput), errors.Is(err, ErrInvalidUTF8),
@@ -789,6 +791,8 @@ func mcpOperationError(
 		public = "airplan: the server operation timed out"
 	case errors.Is(err, ErrInputTooLarge):
 		public = "airplan: the upload exceeds the effective size limit"
+	case errors.Is(err, ErrRevisionHistoryFull):
+		public = "airplan: the revision chain cannot accept another revision"
 	case errors.Is(err, errInvalidMCPListFilter):
 		public = errInvalidMCPListFilter.Error()
 	case errors.Is(err, ErrBinaryInput), errors.Is(err, ErrInvalidUTF8),

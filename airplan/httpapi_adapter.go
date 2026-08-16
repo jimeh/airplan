@@ -811,6 +811,13 @@ func apiOperationError(err error) error {
 			"Input too large", "The upload exceeds the effective size limit.",
 		)
 	}
+	if errors.Is(err, ErrRevisionHistoryFull) {
+		return httpapi.NewProblemError(
+			http.StatusUnprocessableEntity, "revision_history_full",
+			"Revision history full",
+			"The revision chain cannot accept another revision.",
+		)
+	}
 	if errors.Is(err, ErrBinaryInput) || errors.Is(err, ErrInvalidUTF8) ||
 		errors.Is(err, ErrEmptyInput) ||
 		errors.Is(err, errInvalidHostedRepository) {

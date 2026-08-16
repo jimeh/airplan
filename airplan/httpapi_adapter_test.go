@@ -547,6 +547,19 @@ func TestAPIOperationErrorClassifiesRevisionConflict(t *testing.T) {
 	}
 }
 
+func TestAPIOperationErrorClassifiesRevisionHistoryCapacity(t *testing.T) {
+	got := apiOperationError(errors.Join(
+		ErrRevisionHistoryFull, errors.New("capacity detail"),
+	))
+	var problem *httpapi.ProblemError
+	if !errors.As(got, &problem) ||
+		problem.Problem.Status != http.StatusUnprocessableEntity ||
+		problem.Problem.Code != "revision_history_full" ||
+		strings.Contains(problem.Problem.Detail, "capacity detail") {
+		t.Fatalf("problem = %+v, error = %v", problem, got)
+	}
+}
+
 func TestAPIOperationErrorClassifiesUpdateRefusals(t *testing.T) {
 	tests := []struct {
 		kind   updateRefusalKind

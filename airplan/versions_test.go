@@ -2,10 +2,43 @@ package airplan
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 )
+
+func oversizedVersionsMetadata() VersionsMetadata {
+	const count = 1200
+	when := time.Date(2026, 8, 16, 10, 0, 0, 0, time.UTC)
+	revisions := make([]VersionsRevision, count)
+	for index := range revisions {
+		revisions[index] = VersionsRevision{
+			Number: index + 1, Deleted: true, DeletedAt: when,
+		}
+	}
+	dir := strings.Repeat("z", 26)
+	revisions[count-1] = VersionsRevision{
+		Number: count, URL: "https://plans.example.com/" + dir + "/plan.html",
+		CreatedAt: when,
+		DiffURL:   "https://plans.example.com/" + dir + "/" + DiffFilename,
+	}
+	return VersionsMetadata{
+		Schema: "airplan-versions", Version: 1,
+		ChainID: strings.Repeat("y", 26), CurrentRevision: count,
+		LatestRevision: count, LastAssignedRevision: count, Revisions: revisions,
+	}
+}
+
+func TestEncodeVersionsMetadataReportsRevisionHistoryCapacity(t *testing.T) {
+	_, err := EncodeVersionsMetadata(
+		oversizedVersionsMetadata(),
+		&Config{PublicBaseURL: "https://plans.example.com"}, "",
+	)
+	if !errors.Is(err, ErrRevisionHistoryFull) {
+		t.Fatalf("capacity error = %v", err)
+	}
+}
 
 func TestVersionsMetadataRoundTripAndTombstoneHighWater(t *testing.T) {
 	cfg := &Config{PublicBaseURL: "https://plans.example.com", KeyPrefix: "docs"}

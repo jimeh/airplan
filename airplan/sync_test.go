@@ -276,6 +276,9 @@ func TestSyncManifestDoesNotProjectUnannouncedRevisionCandidate(t *testing.T) {
 		record.LatestRevision != 0 {
 		t.Fatalf("unannounced candidate projection = %+v", record)
 	}
+	if !strings.Contains(result.Warnings[0], "versions metadata") {
+		t.Fatalf("unannounced candidate warning = %q", result.Warnings[0])
+	}
 }
 
 func TestSyncManifestLinksExistingStandaloneAfterRemotePromotion(t *testing.T) {
@@ -563,6 +566,54 @@ func TestCommitSyncManifestDoesNotTombstoneConcurrentRevisionLink(t *testing.T) 
 	active := ManifestUploads(records)
 	if err != nil || len(active) != 1 || active[0].RevisionChainID != chain {
 		t.Fatalf("active after concurrent link = %+v, %v", active, err)
+	}
+}
+
+func TestCommitSyncManifestAppendsPlannedRevisionLink(t *testing.T) {
+	dir := strings.Repeat("l", 26)
+	chain := strings.Repeat("c", 26)
+	markerKey := dir + "/" + MarkerFilename
+	pageKey := dir + "/plan.html"
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	createdAt := time.Date(2026, 8, 16, 9, 0, 0, 0, time.UTC)
+	initial := ManifestRecord{
+		Type: "upload", Time: createdAt, Key: pageKey,
+		SourceKey: dir + "/plan.md", MarkerKey: markerKey,
+		URL:    "https://plans.example.com/" + pageKey,
+		Bucket: "plans", Profile: "work", Format: "md",
+		Kind: string(UploadKindDocument), Slug: "plan", Bytes: 4,
+		MarkerVersion: MarkerVersion, Objects: 2, TotalBytes: 8,
+	}
+	if err := appendManifestRecord(context.Background(), manifest, initial); err != nil {
+		t.Fatal(err)
+	}
+	initialRecords, _, err := ReadManifest(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := initial
+	link.Type = "link"
+	link.Time = createdAt.Add(time.Minute)
+	link.CreatedAt = createdAt
+	link.RevisionChainID = chain
+	link.Revision = 1
+	link.LatestRevision = 2
+	result := &SyncManifestResult{Enriched: []ManifestRecord{link}}
+	client := &Client{cfg: &Config{Bucket: "plans", Profile: "work"}}
+	if err := client.commitSyncManifest(context.Background(), manifest,
+		len(initialRecords), result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Enriched) != 1 || !result.Enriched[0].Time.Equal(link.Time) {
+		t.Fatalf("appended enrichment = %+v", result.Enriched)
+	}
+	records, warnings, err := ReadManifest(manifest)
+	active := ManifestUploads(records)
+	if err != nil || len(warnings) != 0 || len(records) != 2 || len(active) != 1 ||
+		active[0].RevisionChainID != chain || active[0].Revision != 1 ||
+		active[0].LatestRevision != 2 {
+		t.Fatalf("records = %+v, active = %+v, warnings = %v, error = %v",
+			records, active, warnings, err)
 	}
 }
 

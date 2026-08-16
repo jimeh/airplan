@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"github.com/jimeh/airplan/airplan"
+	"github.com/jimeh/airplan/api"
 	"github.com/jimeh/airplan/internal/httpapi"
 	"github.com/jimeh/airplan/internal/serverlog"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"gopkg.in/yaml.v3"
 )
 
 func TestServerAndMCPCommandsRegistered(t *testing.T) {
@@ -35,17 +37,13 @@ func TestServerAndMCPCommandsRegistered(t *testing.T) {
 }
 
 func TestSafeRESTLogPathCoversEveryOpenAPIRoute(t *testing.T) {
-	for _, route := range []string{
-		"/healthz", "/openapi.yaml", "/api/v1/capabilities",
-		"/api/v1/uploads/documents", "/api/v1/uploads/documents/update",
-		"/api/v1/uploads/collections", "/api/v1/uploads/inspect",
-		"/api/v1/uploads/get", "/api/v1/uploads/delete",
-		"/api/v1/uploads/protect", "/api/v1/uploads/unprotect",
-		"/api/v1/upgrades/plan", "/api/v1/upgrades/execute",
-		"/api/v1/upgrades/preview", "/api/v1/upgrades",
-		"/api/v1/uploads", "/api/v1/storage/uploads", "/api/v1/sync",
-		"/api/v1/purge/preview", "/api/v1/purge",
-	} {
+	var document struct {
+		Paths map[string]map[string]any `yaml:"paths"`
+	}
+	if err := yaml.Unmarshal(api.OpenAPI(), &document); err != nil {
+		t.Fatal(err)
+	}
+	for route := range document.Paths {
 		request := httptest.NewRequest(http.MethodPost, route, nil)
 		if got := safeRESTLogPath(request); got != route {
 			t.Errorf("safeRESTLogPath(%q) = %q", route, got)

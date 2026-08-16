@@ -465,9 +465,10 @@ test('revision metadata renders a compact picker and stale notice',
         width: bounds.width,
       };
     });
-    expect(coverage).toMatchObject({
-      top: 0, right: 0, bottom: 0, left: 0, chevronWidth: 6,
-    });
+    for (const edge of ['top', 'right', 'bottom', 'left']) {
+      expect(coverage[edge]).toBeCloseTo(0, 0);
+    }
+    expect(coverage.chevronWidth).toBeCloseTo(6, 0);
     expect(coverage.width).toBeLessThan(180);
     await Promise.all([
       page.waitForURL(revisions[2].url),

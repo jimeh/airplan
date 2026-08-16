@@ -53,7 +53,8 @@ func TestGeneratedClientInvokesEveryGeneratedServerOperation(t *testing.T) {
 		) (UpdateDocumentResult, error) {
 			body, err := io.ReadAll(upload.Document)
 			if err != nil {
-				t.Fatal(err)
+				t.Error(err)
+				return UpdateDocumentResult{}, err
 			}
 			return UpdateDocumentResult{
 				ID: "revision", Kind: "document", URL: "https://example/revision",

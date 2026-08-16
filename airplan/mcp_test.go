@@ -496,6 +496,17 @@ func TestHostedMCPSanitizesUpdateRefusalsWithActionableDetails(t *testing.T) {
 	}
 }
 
+func TestHostedMCPSanitizesRevisionHistoryCapacity(t *testing.T) {
+	err := mcpOperationError(context.Background(), errors.Join(
+		ErrRevisionHistoryFull, errors.New("private capacity detail"),
+	), true, nil)
+	if !strings.Contains(err.Error(), "revision chain cannot accept another revision") ||
+		strings.Contains(err.Error(), "private capacity detail") ||
+		mcpErrorClass(err) != "revision_history_full" {
+		t.Fatalf("capacity error = %q, class = %q", err, mcpErrorClass(err))
+	}
+}
+
 func TestHostedMCPListFilterErrorsAreSanitizedBeforeListing(t *testing.T) {
 	const sentinel = "private-filter-value-sentinel"
 	transport := &mcpTestTransport{listResult: &ManifestList{}}

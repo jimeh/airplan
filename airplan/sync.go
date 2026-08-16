@@ -45,9 +45,9 @@ type SyncManifestResult struct {
 	// Protection contains protect/unprotect records planned or appended to
 	// mirror remote sentinel state from the listing snapshot (SPEC.md §9).
 	Protection []ManifestRecord `json:"protection_records"`
-	// Unchanged counts remote markers already active and complete in the
-	// local manifest. A record selected for enrichment is reported as
-	// enriched or deferred instead, never as unchanged.
+	// Unchanged counts remote markers already active and complete in the local
+	// manifest. A record selected for inspection is enriched or deferred when
+	// metadata changes, and unchanged when no metadata needs updating.
 	Unchanged int `json:"unchanged"`
 	// Deferred counts active records whose declared totals could not be
 	// completed this run, because their marker could not be fetched or is not

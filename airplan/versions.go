@@ -27,6 +27,10 @@ const (
 	diffContentType   = "text/plain; charset=utf-8"
 )
 
+// ErrRevisionHistoryFull reports that another revision cannot fit in the
+// bounded replicated chain index.
+var ErrRevisionHistoryFull = errors.New("airplan: revision history is full")
+
 func inlineRevisionDiff(body []byte) string {
 	if len(body) > MaxInlineDiffSize {
 		return ""
@@ -79,8 +83,10 @@ func encodeVersionsMetadata(
 		return nil, fmt.Errorf("airplan: encode versions metadata: %w", err)
 	}
 	if len(body) > MaxVersionsMetadataSize {
-		return nil, fmt.Errorf("airplan: versions metadata is %d bytes; maximum is %d",
-			len(body), MaxVersionsMetadataSize)
+		return nil, fmt.Errorf(
+			"%w: versions metadata is %d bytes; maximum is %d",
+			ErrRevisionHistoryFull, len(body), MaxVersionsMetadataSize,
+		)
 	}
 	return body, nil
 }

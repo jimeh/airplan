@@ -369,7 +369,7 @@ against):
 | `.HighlightedFrontMatterHTML` | raw HTML  | highlighted frontmatter block        |
 | `.RepositoryURL`              | string    | resolved canonical repository URL    |
 | `.Revision`                   | integer   | this page's revision, or zero        |
-| `.RevisionCount`              | integer   | chain size known when rendered       |
+| `.RevisionCount`              | integer   | greatest live revision when rendered |
 | `.PreviousRevision`           | integer   | adjacent predecessor, or zero        |
 | `.VersionsPath`               | string    | relative versions metadata path      |
 | `.DiffPath`                   | string    | relative adjacent diff path          |
@@ -955,8 +955,10 @@ entries carry number, canonical same-service page URL, UTC creation time, and,
 after revision 1, a same-directory diff URL. Deleted entries are tombstones
 carrying number, `deleted: true`, and UTC `deleted_at`. Every live member gets
 the complete index with only `current_revision` differing. Bodies are limited
-to 64 KiB. A missing object means standalone; invalid metadata disables only
-revision navigation, not an otherwise complete payload.
+to 64 KiB. An append whose complete replicated index would exceed that bound is
+refused before candidate upload with `ErrRevisionHistoryFull`; REST reports
+`revision_history_full` (422). A missing object means standalone; invalid
+metadata disables only revision navigation, not an otherwise complete payload.
 
 The built-in page fetches metadata relative to itself with `no-store` and a
 per-load nonce. Valid metadata turns the muted revision indicator above the
@@ -2393,7 +2395,9 @@ Document update uses bounded streaming `multipart/form-data` with metadata
 containing the target and optional name, title, and size limit. Refusal maps a
 missing upload to `upload_not_found` (404), an unreconcilable chain to
 `invalid_upload` (422), an ineligible document to `invalid_target` (422), and a
-lost append serialization race to `revision_conflict` (409).
+lost append serialization race to `revision_conflict` (409). A chain whose
+bounded replicated index cannot fit another assigned revision maps to
+`revision_history_full` (422) before candidate upload.
 
 Purge is two-phase. `/purge/preview` applies the source and filters without
 deleting and returns explicit `upload_id` candidates. The CLI displays them

@@ -101,8 +101,8 @@ type TemplateData struct {
 	RepositoryURL string
 
 	// Revision fields describe the immutable context baked into a linked page.
-	// RevisionCount is the chain size known at render time; live metadata may
-	// later discover a newer value without rewriting this page.
+	// RevisionCount is the greatest live revision known at render time; live
+	// metadata may later discover a newer value without rewriting this page.
 	Revision            int
 	RevisionCount       int
 	PreviousRevision    int
