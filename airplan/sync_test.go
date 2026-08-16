@@ -357,6 +357,26 @@ func TestSyncManifestDoesNotReimportTombstonedRemoteRevision(t *testing.T) {
 			t.Fatalf("manifest changed on sync %d: %v", attempt, readErr)
 		}
 	}
+	fake.removeMarker(dir + "/" + VersionsFilename)
+	for _, opts := range []SyncManifestOptions{{}, {DryRun: true}} {
+		result, syncErr := client.SyncManifest(context.Background(), opts)
+		if syncErr != nil || len(result.Added) != 0 || result.Retained != 1 {
+			t.Fatalf("sync without versions metadata = %+v, %v", result, syncErr)
+		}
+	}
+	after, err := os.ReadFile(manifest)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("manifest changed without versions metadata: %v", err)
+	}
+	fake.addObject(dir+"/"+VersionsFilename, []byte(`{"schema":"broken"}`), when)
+	result, syncErr := client.SyncManifest(context.Background(), SyncManifestOptions{})
+	if syncErr != nil || len(result.Added) != 0 || result.Retained != 1 {
+		t.Fatalf("sync with invalid versions metadata = %+v, %v", result, syncErr)
+	}
+	after, err = os.ReadFile(manifest)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("manifest changed with invalid versions metadata: %v", err)
+	}
 }
 
 func TestSyncManifestLinksExistingStandaloneAfterRemotePromotion(t *testing.T) {

@@ -214,7 +214,10 @@ func (c *Client) SyncManifest(
 
 	for _, item := range jobResults {
 		if item.upload != nil &&
-			manifestRevisionWasDeleted(deletedRevisions, *item.upload) {
+			manifestRevisionIdentityWasDeleted(
+				deletedRevisions, item.upload.Profile, item.upload.Bucket,
+				item.revisionChainID, item.revision,
+			) {
 			result.Retained++
 			continue
 		}
@@ -336,7 +339,10 @@ func (c *Client) syncImport(
 	if inspection.Source != nil {
 		record.SourceKey = inspection.Source.Key
 	}
-	result := syncJobResult{upload: &record}
+	result := syncJobResult{
+		upload: &record, revisionChainID: inspection.RevisionChainID,
+		revision: inspection.Revision,
+	}
 	if inspection.Protected {
 		protection := c.syncProtectionRecord(
 			record, true, inspection.ProtectReason,
@@ -737,6 +743,10 @@ type syncJobResult struct {
 	retained   bool
 	deferred   bool
 	unchanged  bool
+	// Marker-declared identity remains internal until a complete versions index
+	// proves announcement. Sync still uses it to honor permanent tombstones.
+	revisionChainID string
+	revision        int
 }
 
 // syncJobKind selects what a sync worker does with one marker key.

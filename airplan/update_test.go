@@ -1457,6 +1457,8 @@ func TestDeleteAnnouncedHistoricalRevisionFailsClosedOnMissingLatestPayload(t *t
 	}
 
 	store.mu.Lock()
+	delete(store.objects, second.ID+"/"+VersionsFilename)
+	delete(store.etags, second.ID+"/"+VersionsFilename)
 	delete(store.objects, third.SourceKey)
 	delete(store.etags, third.SourceKey)
 	store.mu.Unlock()
@@ -1479,6 +1481,51 @@ func TestDeleteAnnouncedHistoricalRevisionFailsClosedOnMissingLatestPayload(t *t
 	entry := liveVersionsRevision(metadata, second.Revision)
 	if err != nil || entry == nil || entry.URL != second.URL {
 		t.Fatalf("announced historical revision = %+v, %v", entry, err)
+	}
+}
+
+func TestDeleteRepairsMissingMetadataFromDeletedPredecessorReceipt(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), first.URL); err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	delete(store.objects, second.ID+"/"+VersionsFilename)
+	delete(store.etags, second.ID+"/"+VersionsFilename)
+	store.mu.Unlock()
+
+	deleted, err := client.DeleteUpload(context.Background(), second.URL)
+	if err != nil || deleted.revision != second.Revision ||
+		deleted.latestRevision != third.Revision {
+		t.Fatalf("delete from predecessor receipt = %+v, %v", deleted, err)
+	}
+	body, ok := store.get(third.ID + "/" + VersionsFilename)
+	if !ok {
+		t.Fatal("latest versions metadata is missing")
+	}
+	metadata, err := DecodeVersionsMetadata(body, client.cfg, third.Key)
+	if err != nil || !metadata.Revisions[second.Revision-1].Deleted ||
+		metadata.LatestRevision != third.Revision {
+		t.Fatalf("repaired chain metadata = %+v, %v", metadata, err)
 	}
 }
 

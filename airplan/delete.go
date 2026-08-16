@@ -304,6 +304,10 @@ func (c *Client) classifyRevisionCandidate(
 	if err != nil {
 		return revisionCandidateUnknown, err
 	}
+	pageURL, _, err := PublicURL(c.cfg, targetDirPrefix+marker.Page)
+	if err != nil {
+		return revisionCandidateUnknown, err
+	}
 	reservation, reservationErr := c.st.getBytes(
 		ctx, previousPrefix+VersionsFilename, MaxVersionsMetadataSize,
 	)
@@ -319,14 +323,37 @@ func (c *Client) classifyRevisionCandidate(
 			}
 			return revisionCandidateUnknown, nil
 		}
-	}
-	if reservationErr == nil && bytes.Equal(reservation, standaloneDeleteReservationBody) {
-		if marker.Revision.Number == 2 {
+		if bytes.Equal(reservation, standaloneDeleteReservationBody) {
+			if marker.Revision.Number == 2 {
+				return revisionCandidateUnannounced, nil
+			}
+			return revisionCandidateUnknown, errors.New(
+				"airplan: standalone deletion reservation cannot classify a later revision candidate",
+			)
+		}
+		metadata, decodeErr := decodeVersionsMetadata(
+			reservation, c.cfg, previousKey, true,
+		)
+		if decodeErr != nil {
+			return revisionCandidateUnknown, decodeErr
+		}
+		current := &metadata.Revisions[metadata.CurrentRevision-1]
+		if state, classified := revisionCandidateStateFromMetadata(
+			metadata, marker, pageURL,
+		); classified {
+			if current.Deleted && state == revisionCandidateAnnouncedLive {
+				state = c.refineRevisionCandidateFromDeleteReceipt(
+					ctx, metadata, marker, pageURL, state,
+				)
+			}
+			return state, nil
+		}
+		if current.Deleted {
+			// A deleted predecessor's permanent receipt cannot race a new append.
+			// If the complete assigned history does not contain this target, the
+			// target was never announced.
 			return revisionCandidateUnannounced, nil
 		}
-		return revisionCandidateUnknown, errors.New(
-			"airplan: standalone deletion reservation cannot classify a later revision candidate",
-		)
 	}
 	if reservationErr != nil && !errors.Is(reservationErr, errObjectNotFound) {
 		return revisionCandidateUnknown, fmt.Errorf("airplan: inspect revision candidate predecessor reservation: %w",
@@ -349,21 +376,10 @@ func (c *Client) classifyRevisionCandidate(
 	if previous.versions.ChainID != marker.Revision.ChainID {
 		return revisionCandidateUnknown, nil
 	}
-	pageURL, _, err := PublicURL(c.cfg, targetDirPrefix+marker.Page)
-	if err != nil {
-		return revisionCandidateUnknown, err
-	}
-	for _, entry := range previous.versions.Revisions {
-		if entry.Number != marker.Revision.Number {
-			continue
-		}
-		if entry.Deleted {
-			return revisionCandidateAnnouncedDeleted, nil
-		}
-		if entry.URL == pageURL {
-			return revisionCandidateAnnouncedLive, nil
-		}
-		return revisionCandidateUnannounced, nil
+	if state, classified := revisionCandidateStateFromMetadata(
+		previous.versions, marker, pageURL,
+	); classified {
+		return state, nil
 	}
 	if marker.Revision.Number <= previous.versions.LastAssignedRevision {
 		// The high-water mark already consumed this integer for another URL (or
@@ -389,6 +405,54 @@ func (c *Client) classifyRevisionCandidate(
 		return revisionCandidateUnknown, fmt.Errorf("airplan: claim revision candidate cleanup: %w", err)
 	}
 	return revisionCandidateUnannounced, nil
+}
+
+func (c *Client) refineRevisionCandidateFromDeleteReceipt(
+	ctx context.Context, receipt *VersionsMetadata, marker *UploadMarker,
+	pageURL string, fallback revisionCandidateState,
+) revisionCandidateState {
+	// A deleted predecessor's permanent receipt may predate a later deletion.
+	// Prefer any surviving member's current replica when it is available; if it
+	// is unavailable, the stale live classification remains fail-closed because
+	// linked deletion must still repair and verify the complete chain.
+	for index := len(receipt.Revisions) - 1; index >= 0; index-- {
+		entry := receipt.Revisions[index]
+		if entry.Deleted || entry.Number == marker.Revision.Number {
+			continue
+		}
+		witness, err := c.loadRevisionDocument(ctx, entry.URL)
+		if err != nil || witness.versions == nil {
+			continue
+		}
+		if state, classified := revisionCandidateStateFromMetadata(
+			witness.versions, marker, pageURL,
+		); classified {
+			return state
+		}
+	}
+	return fallback
+}
+
+func revisionCandidateStateFromMetadata(
+	metadata *VersionsMetadata, marker *UploadMarker, pageURL string,
+) (revisionCandidateState, bool) {
+	if metadata == nil || marker == nil || marker.Revision == nil ||
+		metadata.ChainID != marker.Revision.ChainID {
+		return revisionCandidateUnknown, true
+	}
+	for _, entry := range metadata.Revisions {
+		if entry.Number != marker.Revision.Number {
+			continue
+		}
+		if entry.Deleted {
+			return revisionCandidateAnnouncedDeleted, true
+		}
+		if entry.URL == pageURL {
+			return revisionCandidateAnnouncedLive, true
+		}
+		return revisionCandidateUnannounced, true
+	}
+	return revisionCandidateUnknown, false
 }
 
 func (c *Client) revisionCandidateIsUnannounced(

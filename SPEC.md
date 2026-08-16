@@ -1000,12 +1000,14 @@ An interrupted delete whose target still carries its invalid-current reservation
 re-derives canonical state from a surviving member whether that replica still
 lists the target live or already tombstoned, then completes propagation. An
 announced member whose own replica is missing repairs it from its predecessor;
-revision 2 also completes any interrupted revision-1 marker/page promotion
-before deletion. Candidate classification applies only when the target's own
-versions object is absent; a not-found while resolving any other chain member
-fails closed without deleting target payloads. Marker-only candidates that were
-never announced are removed without writing a revision tombstone, so their
-unused integer can still be assigned by a later append. Deleting the final live member conditionally replaces its
+the predecessor's permanent linked-delete receipt remains authoritative after
+its marker is gone. Revision 2 also completes any interrupted revision-1
+marker/page promotion before deletion. Candidate classification applies only
+when the target's own versions object is absent; a not-found while resolving any
+other chain member fails closed without deleting target payloads. Marker-only
+candidates that were never announced are removed without writing a revision
+tombstone, so their unused integer can still be assigned by a later append.
+Deleting the final live member conditionally replaces its
 versions object with a strict invalid transition reservation before removing
 the directory; this both excludes new updaters and makes already-preflighted
 appends lose their stale ETag. With no survivor, the manifest delete tombstone
@@ -2095,8 +2097,10 @@ machine) and must be safe:
   recheck prevents a concurrent delete or link from being overwritten.
   Revision tombstones are scoped by profile, bucket, and chain identifier. A
   remote marker for an already-tombstoned revision is retained as deleted and
-  is not re-imported or appended again, including under `--dry-run`; later syncs
-  therefore converge even if stale storage restores the marker. By default,
+  is not re-imported or appended again, including when its versions replica is
+  missing or invalid and under `--dry-run`; the immutable marker descriptor is
+  sufficient to match an existing scoped tombstone. Later syncs therefore
+  converge even if stale storage restores the marker. By default,
   active scoped local records absent from LIST are considered for
   pruning, but airplan performs a targeted marker GET before appending a
   `remote_missing` tombstone. Only a definite not-found response confirms

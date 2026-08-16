@@ -828,9 +828,21 @@ func (c *Client) repairMissingRevisionMetadata(
 		doc.marker.Revision.PreviousURL != "" {
 		previous, err := c.loadRevisionDocument(ctx, doc.marker.Revision.PreviousURL)
 		if err != nil {
-			return nil, fmt.Errorf("airplan: find revision metadata repair source: %w", err)
+			if !errors.Is(err, errOwnershipMarkerMissing) {
+				return nil, fmt.Errorf("airplan: find revision metadata repair source: %w", err)
+			}
+			metadata, err = c.loadDeletedRevisionMetadataReceipt(
+				ctx, doc.marker.Revision.PreviousURL,
+				doc.marker.Revision.Number,
+			)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"airplan: find deleted predecessor metadata repair source: %w", err,
+				)
+			}
+		} else {
+			metadata = previous.versions
 		}
-		metadata = previous.versions
 	}
 	if metadata == nil || metadata.ChainID != doc.marker.Revision.ChainID ||
 		liveVersionsRevision(metadata, doc.marker.Revision.Number) == nil {
@@ -849,6 +861,51 @@ func (c *Client) repairMissingRevisionMetadata(
 		return nil, fmt.Errorf("airplan: repair revision metadata: %w", err)
 	}
 	return c.loadRevisionDocument(ctx, doc.pageURL)
+}
+
+func (c *Client) loadDeletedRevisionMetadataReceipt(
+	ctx context.Context, pageURL string, targetRevision int,
+) (*VersionsMetadata, error) {
+	pageKey, err := KeyFromURLOrKey(c.cfg, pageURL)
+	if err != nil {
+		return nil, err
+	}
+	dirPrefix, err := uploadDirPrefixForKeyPrefix(pageKey, c.cfg.KeyPrefix)
+	if err != nil {
+		return nil, err
+	}
+	body, err := c.st.getBytes(
+		ctx, dirPrefix+VersionsFilename, MaxVersionsMetadataSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	metadata, err := decodeVersionsMetadata(body, c.cfg, pageKey, true)
+	if err != nil {
+		return nil, err
+	}
+	current := &metadata.Revisions[metadata.CurrentRevision-1]
+	if !current.Deleted {
+		return nil, errors.New(
+			"airplan: predecessor marker is missing but its metadata is not a delete receipt",
+		)
+	}
+	for index := len(metadata.Revisions) - 1; index >= 0; index-- {
+		entry := metadata.Revisions[index]
+		if entry.Deleted || entry.Number == targetRevision {
+			continue
+		}
+		witness, loadErr := c.loadRevisionDocument(ctx, entry.URL)
+		if loadErr != nil || witness.versions == nil ||
+			witness.versions.ChainID != metadata.ChainID ||
+			liveVersionsRevision(witness.versions, targetRevision) == nil {
+			continue
+		}
+		return witness.versions, nil
+	}
+	return nil, errors.New(
+		"airplan: deleted predecessor receipt has no complete live metadata witness",
+	)
 }
 
 func (c *Client) repairRevisionPage(

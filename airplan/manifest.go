@@ -613,7 +613,22 @@ func manifestRevisionWasDeleted(
 	if !manifestRecordHasAnnouncedRevision(rec) {
 		return false
 	}
-	_, deleted := deletedRevisions[manifestRevisionChainIdentity(rec)][rec.Revision]
+	return manifestRevisionIdentityWasDeleted(
+		deletedRevisions, rec.Profile, rec.Bucket,
+		rec.RevisionChainID, rec.Revision,
+	)
+}
+
+func manifestRevisionIdentityWasDeleted(
+	deletedRevisions map[manifestRevisionChainKey]map[int]struct{},
+	profile, bucket, chainID string, revision int,
+) bool {
+	if chainID == "" || revision <= 0 {
+		return false
+	}
+	_, deleted := deletedRevisions[manifestRevisionChainKey{
+		profile: profile, bucket: bucket, chainID: chainID,
+	}][revision]
 	return deleted
 }
 
