@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0](https://github.com/jimeh/airplan/compare/v0.7.0...v0.8.0) (2026-08-16)
+
+
+### Features
+
+* add document upload upgrades ([#84](https://github.com/jimeh/airplan/issues/84)) ([1cd804d](https://github.com/jimeh/airplan/commit/1cd804d0c0935b18efa18bbe60eeec1fabb0bcc8))
+* add linked document revisions ([#87](https://github.com/jimeh/airplan/issues/87)) ([310501b](https://github.com/jimeh/airplan/commit/310501bdae568da5a3ff6fda4d94770d3d768eed))
+
 ## [0.7.0](https://github.com/jimeh/airplan/compare/v0.6.0...v0.7.0) (2026-08-15)
 
 
