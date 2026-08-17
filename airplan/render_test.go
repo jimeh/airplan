@@ -262,6 +262,15 @@ func TestRenderMarkdownMermaid(t *testing.T) {
 		t.Fatal("successful Mermaid diagrams are not marked as rendered")
 	}
 	for _, fragment := range []string{
+		"data-airplan-mermaid-dialog",
+		"data-airplan-mermaid-open",
+		"cloneMermaidSVG",
+	} {
+		if !strings.Contains(out, fragment) {
+			t.Errorf("Mermaid viewer asset missing %q", fragment)
+		}
+	}
+	for _, fragment := range []string{
 		"theme: theme === 'dark' ? 'dark' : 'default'",
 		"secure: ['theme', 'themeVariables', 'themeCSS', 'darkMode']",
 		"window.addEventListener('beforeprint', () => showTheme('light'))",
@@ -284,6 +293,9 @@ func TestRenderMarkdownMermaid(t *testing.T) {
 	if strings.Contains(disabled, DefaultMermaidURL) {
 		t.Fatal("Mermaid module loaded with external assets disabled")
 	}
+	if strings.Contains(disabled, "data-airplan-mermaid-dialog") {
+		t.Fatal("Mermaid viewer loaded with external assets disabled")
+	}
 	if !strings.Contains(disabled, `<pre class="mermaid">`) {
 		t.Fatal("readable Mermaid source fallback missing")
 	}
@@ -298,6 +310,9 @@ func TestRenderMarkdownMermaidRequiresExactFenceLanguage(t *testing.T) {
 		}
 		if strings.Contains(out, DefaultMermaidURL) {
 			t.Fatalf("language %q unexpectedly loaded Mermaid", language)
+		}
+		if strings.Contains(out, "data-airplan-mermaid-dialog") {
+			t.Fatalf("language %q unexpectedly loaded Mermaid viewer", language)
 		}
 	}
 }

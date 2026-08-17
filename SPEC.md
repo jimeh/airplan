@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.37.0**
+**Spec version: 0.38.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -214,8 +214,19 @@ described below.
   rendering, and Airplan-controlled light and dark theme variants. The
   selected page theme chooses the screen variant, while print always uses the
   light variant; per-diagram theme configuration cannot override these
-  variants. Custom templates receive the Mermaid template data below but do
-  not receive injected assets.
+  variants. After a diagram renders successfully, the built-in page adds an
+  explicit control that opens its currently displayed SVG in one reused native
+  dialog. Inline diagrams remain passive. The viewer initially fits the
+  diagram without enlarging it beyond its natural size, supports 5%–800% zoom
+  through buttons, pointer-anchored wheel input, and `+`/`-`/`0` keys, and
+  supports drag and arrow-key panning with a larger Shift step. Escape,
+  backdrop, and close controls dismiss it and restore focus. Theme changes
+  refresh an open viewer without resetting its zoom or pan. The control is
+  always visible on touch input and otherwise appears on hover or focus; the
+  control and dialog are hidden in print. No viewer is created when Mermaid
+  loading or rendering fails, external assets are disabled, scripting is
+  disabled, or native modal dialogs are unavailable. Custom templates receive
+  the Mermaid template data below but do not receive injected assets.
 - Page styling: supports Light, System, and Dark themes. System follows
   `prefers-color-scheme`; support for both schemes is advertised through the
   standard document-level `color-scheme` hint. The page uses a centered
@@ -301,6 +312,10 @@ described below.
     the same availability and no-JavaScript behavior as Download.
   - Per-code-block copy buttons on hover; always visible on touch
     devices, where hover doesn't exist.
+  - Successfully rendered Mermaid diagrams expose the native zoom/pan viewer
+    described above. Its near-full-viewport canvas follows the selected light
+    or dark page theme, adapts its controls for narrow screens, and removes its
+    control fade when reduced motion is requested.
   - Graceful degradation: with JS disabled the rendered view stays
     fully readable and controls are hidden. Controls are likewise
     hidden in print styles. Clipboard API needs a secure context,

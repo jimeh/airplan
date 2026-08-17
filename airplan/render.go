@@ -46,6 +46,9 @@ var themeJS string
 //go:embed assets/page.js
 var pageJS string
 
+//go:embed assets/mermaid.js.tmpl
+var mermaidJS string
+
 //go:embed assets/collection.js
 var collectionJS string
 
@@ -62,6 +65,7 @@ var builtinTemplate = bakeTemplate(builtinTemplateLayout,
 	templateReplacement{"/* airplan:theme-init-js */", themeInitJS},
 	templateReplacement{"/* airplan:theme-js */", themeJS},
 	templateReplacement{"/* airplan:page-js */", pageJS},
+	templateReplacement{"/* airplan:mermaid-js */", mermaidJS},
 	templateReplacement{"<!-- airplan:theme-toggle -->", themeToggle},
 )
 
@@ -86,6 +90,7 @@ var executableBuiltinTemplate = bakeTemplate(builtinTemplateLayout,
 	templateReplacement{"/* airplan:theme-init-js */", templateAsset(themeInitJS)},
 	templateReplacement{"/* airplan:theme-js */", templateAsset(themeJS)},
 	templateReplacement{"/* airplan:page-js */", templateAsset(pageJS)},
+	templateReplacement{"/* airplan:mermaid-js */", templateAsset(mermaidJS)},
 	templateReplacement{"<!-- airplan:theme-toggle -->", themeToggle},
 )
 

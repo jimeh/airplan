@@ -56,7 +56,8 @@ func TestTemplateCommandOutputCanBeUsedAsCustomTemplate(t *testing.T) {
 	for _, internal := range []string{
 		"{{.CSS}}", "{{.JS}}", "airplan:shared-css",
 		"airplan:page-css", "airplan:theme-init-js",
-		"airplan:theme-js", "airplan:page-js", "airplan:theme-toggle",
+		"airplan:theme-js", "airplan:page-js", "airplan:mermaid-js",
+		"airplan:theme-toggle",
 	} {
 		if strings.Contains(dumped.String(), internal) {
 			t.Fatalf("dumped template contains internal marker %q", internal)
@@ -78,12 +79,15 @@ func TestTemplateCommandOutputCanBeUsedAsCustomTemplate(t *testing.T) {
 		Title:        "Round trip",
 		RenderedHTML: template.HTML("<h1>Round trip</h1>"),
 		Format:       "md",
+		HasMermaid:   true,
+		MermaidURL:   "https://assets.example.test/mermaid.mjs",
 	})
 	if err != nil {
 		t.Fatalf("execute dumped template: %v", err)
 	}
 	if !strings.Contains(rendered.String(), "<h1>Round trip</h1>") ||
-		!strings.Contains(rendered.String(), "--page-width: 54rem") {
+		!strings.Contains(rendered.String(), "--page-width: 54rem") ||
+		!strings.Contains(rendered.String(), "data-airplan-mermaid-dialog") {
 		t.Fatal("dumped template did not render the built-in page")
 	}
 }

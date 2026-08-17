@@ -561,8 +561,10 @@ body.toc-dialog-open {
 }
 
 @media (hover: none) {
-  .codecopy {
+  .codecopy,
+  .mermaid-open {
     opacity: 1;
+    pointer-events: auto;
   }
 }
 
@@ -572,7 +574,8 @@ body.toc-dialog-open {
   }
 
   .toc-trigger,
-  .codecopy {
+  .codecopy,
+  .mermaid-open {
     transition: none;
   }
 }
@@ -864,6 +867,7 @@ pre.mermaid {
 }
 
 pre.mermaid.mermaid-rendered {
+  position: relative;
   display: flex;
   justify-content: center;
 }
@@ -876,6 +880,175 @@ pre.mermaid.mermaid-rendered svg {
 pre.mermaid.mermaid-failed {
   display: block;
   color: var(--muted);
+}
+
+.mermaid-open {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease-in-out;
+}
+
+pre.mermaid:hover > .mermaid-open,
+pre.mermaid:focus-within > .mermaid-open,
+.mermaid-open:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.mermaid-button {
+  display: inline-flex;
+  min-width: 2rem;
+  height: 2rem;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg);
+  background: var(--control-active);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 0.55rem;
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mermaid-button:hover {
+  color: var(--fg);
+  background: var(--control-hover);
+}
+
+.mermaid-button:focus-visible,
+.mermaid-canvas:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.mermaid-open .icon {
+  width: 15px;
+  height: 15px;
+}
+
+body.mermaid-dialog-open {
+  overflow: hidden;
+}
+
+.mermaid-dialog {
+  position: fixed;
+  inset: 0;
+  width: calc(100vw - 2rem);
+  height: calc(100vh - 2rem);
+  height: calc(100svh - 2rem);
+  max-width: none;
+  max-height: none;
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.28);
+}
+
+.mermaid-dialog::backdrop {
+  background: var(--dialog-backdrop);
+}
+
+.mermaid-dialog-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  height: 100%;
+}
+
+.mermaid-dialog-header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 0.75rem;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.mermaid-dialog-header > strong {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.mermaid-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.mermaid-toolbar [data-airplan-mermaid-close] {
+  margin-left: 0.35rem;
+}
+
+.mermaid-zoom-value {
+  min-width: 3.5rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.mermaid-canvas {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  color: var(--fg);
+  background-color: var(--surface-subtle);
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--muted) 24%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 1.25rem 1.25rem;
+  cursor: grab;
+  user-select: none;
+}
+
+.mermaid-canvas-panning {
+  cursor: grabbing;
+}
+
+.mermaid-surface {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  will-change: transform;
+}
+
+.mermaid-surface svg {
+  display: block;
+  transform-origin: center;
+  will-change: transform;
+}
+
+.mermaid-help {
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  color: var(--muted);
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  line-height: 1.4;
+  text-align: center;
 }
 
 .filehead {
@@ -1000,6 +1173,26 @@ mark {
   .content {
     padding-inline: 1.25rem;
   }
+
+  .mermaid-dialog {
+    width: calc(100vw - 1rem);
+    height: calc(100vh - 1rem);
+    height: calc(100svh - 1rem);
+  }
+
+  .mermaid-dialog-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .mermaid-toolbar {
+    width: 100%;
+  }
+
+  .mermaid-toolbar [data-airplan-mermaid-close] {
+    margin-left: auto;
+  }
 }
 
 @media (max-width: 48rem), print {
@@ -1017,6 +1210,8 @@ mark {
   .toc-trigger,
   .toc-dialog,
   .codecopy,
+  .mermaid-open,
+  .mermaid-dialog,
   .source-view,
   .changes-view {
     display: none !important;
