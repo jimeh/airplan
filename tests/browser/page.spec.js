@@ -37,9 +37,21 @@ export default {
   async render(id, source) {
     const name = theme === 'dark' ? 'dark' : 'light';
     return {
-      svg: '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="40"' +
-        ' role="img" data-mermaid-theme="' + name + '" id="' + id + '">' +
-        '<text x="8" y="24">' + escapeHTML(source) + '</text></svg>',
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"' +
+        ' viewBox="0 0 640 240" role="img" data-mermaid-theme="' + name +
+        '" id="' + id + '" aria-labelledby="' + id + '-title ' + id +
+        '-label" aria-describedby="' + id + '-desc">' +
+        '<title id="' + id + '-title">Diagram</title>' +
+        '<desc id="' + id + '-desc">Rendered Mermaid fixture</desc>' +
+        '<defs><marker id="' + id + '-arrow"><path d="M0 0L10 5L0 10z"/>' +
+        '</marker><linearGradient id="' + id + '-gradient"><stop offset="0"/>' +
+        '</linearGradient></defs><style>#' + id + '-node{fill:url(#' + id +
+        '-gradient)}#' + id + '-label{font-weight:600}#' + id +
+        '-node-extra{opacity:.5}</style>' +
+        '<g id="' + id + '-node" aria-labelledby="' + id + '-label">' +
+        '<path d="M20 120H600" marker-end="url(#' + id + '-arrow)"/>' +
+        '<a href="#' + id + '-node"><text id="' + id + '-label" x="24"' +
+        ' y="112">' + escapeHTML(source) + '</text></a></g></svg>',
     };
   },
 };
@@ -769,7 +781,7 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
   const lightTheme = page.getByRole('button', { name: 'Light theme' });
   const systemTheme = page.getByRole('button', { name: 'System theme' });
   const darkTheme = page.getByRole('button', { name: 'Dark theme' });
-  const diagram = page.locator('pre.mermaid svg');
+  const diagram = page.locator('pre.mermaid svg').first();
   await expect(systemTheme).toHaveAttribute('aria-pressed', 'true');
   await expect(diagram).toHaveAttribute(
     'data-mermaid-theme', dark ? 'dark' : 'light',
@@ -793,7 +805,7 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(darkTheme).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.locator('pre.mermaid svg')).toHaveAttribute(
+  await expect(page.locator('pre.mermaid svg').first()).toHaveAttribute(
     'data-mermaid-theme', 'dark',
   );
   await systemTheme.click();
@@ -847,6 +859,292 @@ test('rendered page controls work', async ({ context, page }, testInfo) => {
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe(expectedCode);
 });
+
+test('Mermaid viewer is shared, theme-aware, and responsive',
+  async ({ page }, testInfo) => {
+    await page.goto(baseURL);
+
+    const triggers = page.getByRole('button', { name: 'Open diagram viewer' });
+    await expect(triggers).toHaveCount(2);
+    const firstTrigger = triggers.first();
+    await expect(firstTrigger).toHaveCSS('opacity', '0');
+    await expect(firstTrigger).toHaveCSS('pointer-events', 'none');
+    await page.locator('pre.mermaid').first().hover();
+    await expect(firstTrigger).toHaveCSS('opacity', '1');
+    await firstTrigger.focus();
+    await expect(firstTrigger).toBeFocused();
+    await firstTrigger.click();
+
+    const dialog = page.locator('[data-airplan-mermaid-dialog]');
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByText('Mermaid diagram')).toBeVisible();
+    await expect(dialog.locator('[data-airplan-mermaid-canvas]'))
+      .toBeFocused();
+    const geometry = await dialog.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return {
+        width: bounds.width,
+        height: bounds.height,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+        background: getComputedStyle(element).backgroundColor,
+      };
+    });
+    expect(geometry.width).toBeGreaterThan(geometry.viewportWidth * 0.9);
+    expect(geometry.height).toBeGreaterThan(geometry.viewportHeight * 0.9);
+    expect(geometry.background).toBe(
+      testInfo.project.name.endsWith('-dark')
+        ? 'rgb(13, 17, 23)'
+        : 'rgb(255, 255, 255)',
+    );
+
+    const inlineIDs = await page.locator('pre.mermaid svg').first()
+      .locator('[id]').evaluateAll((elements) => elements.map((el) => el.id));
+    const inlineRootID = await page.locator('pre.mermaid svg').first()
+      .getAttribute('id');
+    const clone = dialog.locator('.mermaid-surface > svg');
+    const cloneData = await clone.evaluate((svg) => ({
+      ids: Array.from(svg.querySelectorAll('[id]'), (el) => el.id),
+      marker: svg.querySelector('[marker-end]').getAttribute('marker-end'),
+      href: svg.querySelector('a').getAttribute('href'),
+      labelledBy: svg.getAttribute('aria-labelledby').split(/\s+/),
+      describedBy: svg.getAttribute('aria-describedby').split(/\s+/),
+      nestedLabelledBy: svg.querySelector('g').getAttribute('aria-labelledby'),
+      style: svg.querySelector('style').textContent,
+    }));
+    expect(cloneData.ids.some((id) => inlineIDs.includes(id))).toBe(false);
+    const referenced = [
+      cloneData.marker.slice(5, -1),
+      cloneData.href.slice(1),
+      ...cloneData.labelledBy,
+      ...cloneData.describedBy,
+      cloneData.nestedLabelledBy,
+    ];
+    for (const id of referenced) {
+      expect(cloneData.ids).toContain(id);
+    }
+    for (const id of cloneData.ids) {
+      if (id.endsWith('-node') || id.endsWith('-label')) {
+        expect(cloneData.style).toContain(`#${id}`);
+      }
+    }
+    const cloneNodeID = cloneData.ids.find((id) => id.endsWith('-node'));
+    expect(cloneData.style).toContain(
+      `#${inlineRootID}-node-extra{opacity:.5}`,
+    );
+    expect(cloneData.style).not.toContain(`#${cloneNodeID}-extra`);
+
+    await dialog.getByRole('button', { name: 'Close diagram viewer' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(firstTrigger).toBeFocused();
+    await page.locator('pre.mermaid').nth(1).hover();
+    await triggers.nth(1).click();
+    await expect(dialog).toBeVisible();
+    await expect(page.locator('[data-airplan-mermaid-dialog]')).toHaveCount(1);
+    await expect(dialog.locator('.mermaid-surface > svg'))
+      .toContainText('Source --> Render');
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(triggers.nth(1)).toBeFocused();
+  });
+
+test('Mermaid opener media behavior follows input and motion preferences',
+  async ({ browser, page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-light',
+      'one desktop project covers computed media-query behavior');
+
+    await page.goto(baseURL);
+    const trigger = page.getByRole('button', {
+      name: 'Open diagram viewer',
+    }).first();
+    await expect(trigger).toHaveCSS('opacity', '0');
+    await expect(trigger).toHaveCSS('pointer-events', 'none');
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect(trigger).toHaveCSS('transition-duration', '0s');
+
+    const touchContext = await browser.newContext({
+      colorScheme: 'light',
+      hasTouch: true,
+      viewport: { width: 390, height: 844 },
+    });
+    try {
+      const touchPage = await touchContext.newPage();
+      await touchPage.route(mermaidURL, (route) => route.fulfill({
+        body: mermaidModule,
+        contentType: 'application/javascript',
+        status: 200,
+      }));
+      await touchPage.goto(baseURL);
+      expect(await touchPage.evaluate(() =>
+        matchMedia('(hover: none)').matches)).toBe(true);
+      expect(await touchPage.evaluate(() =>
+        matchMedia('(any-pointer: coarse)').matches)).toBe(true);
+      const touchTrigger = touchPage.getByRole('button', {
+        name: 'Open diagram viewer',
+      }).first();
+      await expect(touchTrigger).toHaveCSS('opacity', '1');
+      await expect(touchTrigger).toHaveCSS('pointer-events', 'auto');
+    } finally {
+      await touchContext.close();
+    }
+  });
+
+test('Mermaid viewer zooms, pans, and preserves its view across themes',
+  async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-light',
+      'one desktop project covers the complete interaction cluster');
+    await page.goto(baseURL);
+    const trigger = page.getByRole('button', {
+      name: 'Open diagram viewer',
+    }).first();
+    await page.locator('pre.mermaid').first().hover();
+    await trigger.click();
+
+    const dialog = page.locator('[data-airplan-mermaid-dialog]');
+    const canvas = dialog.locator('[data-airplan-mermaid-canvas]');
+    const surface = dialog.locator('[data-airplan-mermaid-surface]');
+    const zoom = dialog.locator('[data-airplan-mermaid-zoom-value]');
+    const initialPercent = Number.parseInt(await zoom.textContent(), 10);
+    expect(initialPercent).toBeLessThanOrEqual(100);
+
+    const modifiedKeyPrevented = await canvas.evaluate((element) => {
+      const event = new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        key: '+',
+      });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    expect(modifiedKeyPrevented).toBe(false);
+    await expect(zoom).toHaveText(`${initialPercent}%`);
+
+    await dialog.getByRole('button', { name: 'Zoom in' }).click();
+    await expect(zoom).toHaveText(`${Math.round(initialPercent * 1.25)}%`);
+    await dialog.getByRole('button', { name: 'Zoom out' }).click();
+    await expect(zoom).toHaveText(`${initialPercent}%`);
+
+    const bounds = await canvas.boundingBox();
+    await canvas.dispatchEvent('wheel', {
+      deltaY: -100,
+      clientX: bounds.x + bounds.width * 0.75,
+      clientY: bounds.y + bounds.height * 0.25,
+    });
+    await expect(zoom).toHaveText(`${Math.round(initialPercent * 1.2)}%`);
+    const anchoredTransform = await surface.getAttribute('style');
+    expect(anchoredTransform).not.toContain('translate(0px, 0px)');
+
+    await canvas.focus();
+    await page.keyboard.press('ArrowRight');
+    const keyboardTransform = await surface.getAttribute('style');
+    expect(keyboardTransform).not.toBe(anchoredTransform);
+    await page.keyboard.press('Shift+ArrowDown');
+    const shiftedTransform = await surface.getAttribute('style');
+    expect(shiftedTransform).not.toBe(keyboardTransform);
+
+    await canvas.dispatchEvent('pointerdown', {
+      button: 0, pointerId: 7, clientX: 200, clientY: 200,
+    });
+    await canvas.dispatchEvent('pointermove', {
+      pointerId: 7, clientX: 260, clientY: 230,
+    });
+    await canvas.dispatchEvent('pointerup', {
+      pointerId: 7, clientX: 260, clientY: 230,
+    });
+    const draggedTransform = await surface.getAttribute('style');
+    expect(draggedTransform).not.toBe(shiftedTransform);
+
+    const viewerSVG = dialog.locator('.mermaid-surface > svg');
+    const svgTransform = await viewerSVG.getAttribute('style');
+    const oldCloneID = await viewerSVG.getAttribute('id');
+    await page.evaluate(() => {
+      document.documentElement.dataset.theme = 'dark';
+      window.dispatchEvent(new CustomEvent('airplan:themechange', {
+        detail: { theme: 'dark' },
+      }));
+    });
+    await expect(viewerSVG).toHaveAttribute(
+      'data-mermaid-theme', 'dark',
+    );
+    await expect(viewerSVG).not.toHaveAttribute('id', oldCloneID);
+    await expect(surface).toHaveAttribute('style', draggedTransform);
+    await expect(viewerSVG).toHaveAttribute('style', svgTransform);
+
+    await page.keyboard.press('+');
+    await expect(zoom).not.toHaveText(`${Math.round(initialPercent * 1.2)}%`);
+    for (let index = 0; index < 40; index += 1) {
+      await page.keyboard.press('-');
+    }
+    await expect(zoom).toHaveText('5%');
+    for (let index = 0; index < 40; index += 1) {
+      await page.keyboard.press('+');
+    }
+    await expect(zoom).toHaveText('800%');
+    await page.keyboard.press('0');
+    await expect(zoom).toHaveText(`${initialPercent}%`);
+    await expect(surface).toHaveAttribute(
+      'style', 'transform: translate(0px, 0px);',
+    );
+
+    await page.mouse.click(2, 2);
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toBeFocused();
+  });
+
+test('Mermaid failures preserve source without viewer controls',
+  async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-light',
+      'one desktop project covers the progressive-enhancement fallback');
+    await page.unroute(mermaidURL);
+    await page.route(mermaidURL, (route) => route.fulfill({
+      body: `export default {
+        initialize() {},
+        async render() { throw new Error('fixture render failure'); }
+      };`,
+      contentType: 'text/javascript; charset=utf-8',
+    }));
+    await page.goto(baseURL);
+
+    const diagrams = page.locator('pre.mermaid');
+    await expect(diagrams).toHaveCount(2);
+    await expect(diagrams.first()).toHaveClass(/mermaid-failed/);
+    await expect(diagrams.first()).toContainText('flowchart LR');
+    await expect(page.getByRole('button', {
+      name: 'Open diagram viewer',
+    })).toHaveCount(0);
+    await expect(page.locator('[data-airplan-mermaid-dialog]')).toHaveCount(0);
+
+    await page.unroute(mermaidURL);
+    await page.route(mermaidURL, (route) => route.fulfill({
+      body: 'this is not valid JavaScript',
+      contentType: 'text/javascript; charset=utf-8',
+    }));
+    await page.reload();
+    await expect(diagrams.first()).not.toHaveClass(/mermaid-rendered/);
+    await expect(diagrams.first()).toContainText('flowchart LR');
+    await expect(page.getByRole('button', {
+      name: 'Open diagram viewer',
+    })).toHaveCount(0);
+    await expect(page.locator('[data-airplan-mermaid-dialog]')).toHaveCount(0);
+  });
+
+test('Mermaid viewer requires native modal dialog support',
+  async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-light',
+      'one desktop project covers dialog feature detection');
+    await page.addInitScript(() => {
+      HTMLDialogElement.prototype.showModal = undefined;
+    });
+    await page.goto(baseURL);
+
+    await expect(page.locator('pre.mermaid svg')).toHaveCount(2);
+    await expect(page.getByRole('button', {
+      name: 'Open diagram viewer',
+    })).toHaveCount(0);
+    await expect(page.locator('[data-airplan-mermaid-dialog]')).toHaveCount(0);
+  });
 
 test('revision 404 filtering does not match unrelated resources', () => {
   expect(isVersionManifestURL(
@@ -912,11 +1210,16 @@ test('print view is compact and expands disclosures', async ({ browser, page },
 
   const darkTheme = page.getByRole('button', { name: 'Dark theme' });
   await darkTheme.click();
-  await expect(page.locator('pre.mermaid svg')).toHaveAttribute(
+  await expect(page.locator('pre.mermaid svg').first()).toHaveAttribute(
     'data-mermaid-theme', 'dark',
   );
   await page.emulateMedia({ media: 'print' });
   await expect(page.locator('.toolbar')).toBeHidden();
+  await expect(page.getByRole('button', {
+    name: 'Open diagram viewer',
+  }).first()).toBeHidden();
+  await expect(page.locator('[data-airplan-mermaid-dialog]'))
+    .toHaveCSS('display', 'none');
   await expect(frontmatter.getByText('Print coverage')).toBeVisible();
   await expect(disclosure.getByText('Print must include')).toBeVisible();
   await expect(page.locator('body')).toHaveCSS('font-size', '14px');
@@ -930,7 +1233,7 @@ test('print view is compact and expands disclosures', async ({ browser, page },
   })).toHaveCSS('color', 'rgb(31, 35, 40)');
   await expect(page.locator('.chroma .k, .chroma .kd').first())
     .toHaveCSS('color', 'rgb(207, 34, 46)');
-  await expect(page.locator('pre.mermaid svg')).toHaveAttribute(
+  await expect(page.locator('pre.mermaid svg').first()).toHaveAttribute(
     'data-mermaid-theme', 'light',
   );
 
@@ -959,7 +1262,7 @@ test('print view is compact and expands disclosures', async ({ browser, page },
   }
 
   await page.emulateMedia({ media: 'screen' });
-  await expect(page.locator('pre.mermaid svg')).toHaveAttribute(
+  await expect(page.locator('pre.mermaid svg').first()).toHaveAttribute(
     'data-mermaid-theme', 'dark',
   );
   const initialStates = await page.locator('details').evaluateAll(
@@ -986,7 +1289,7 @@ test('print view is compact and expands disclosures', async ({ browser, page },
   expect(states[0]).toHaveLength(initialStates.length);
   expect(states[0].every((open) => open)).toBe(true);
   expect(states[1]).toEqual(initialStates);
-  await expect(page.locator('pre.mermaid svg')).toHaveAttribute(
+  await expect(page.locator('pre.mermaid svg').first()).toHaveAttribute(
     'data-mermaid-theme', 'dark',
   );
   await expect(frontmatter).not.toHaveAttribute('open', '');

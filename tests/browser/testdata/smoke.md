@@ -43,6 +43,11 @@ flowchart LR
   Plan --> Review --> Print
 ```
 
+```mermaid
+flowchart TD
+  Source --> Render --> Share
+```
+
 ## Final checks
 
 The compact table of contents remains available after the inline navigation

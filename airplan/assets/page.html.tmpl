@@ -121,71 +121,7 @@
 </script>
 {{- if and .HasMermaid (not .NoExternalAssets)}}
 <script type="module" referrerpolicy="no-referrer">
-const diagrams = Array.from(document.querySelectorAll('pre.mermaid'));
-const sources = diagrams.map((diagram) => diagram.textContent);
-const variants = diagrams.map(() => ({}));
-const systemTheme = matchMedia('(prefers-color-scheme: dark)');
-const printMedia = matchMedia('print');
-
-function selectedTheme() {
-  const selected = document.documentElement.dataset.theme;
-  return selected || (systemTheme.matches ? 'dark' : 'light');
-}
-
-function showTheme(theme) {
-  variants.forEach((themes, index) => {
-    const rendered = themes[theme] || themes.light || themes.dark;
-    if (!rendered) return;
-    diagrams[index].innerHTML = rendered.svg;
-    if (rendered.bindFunctions) rendered.bindFunctions(diagrams[index]);
-  });
-}
-
-try {
-  const {default: mermaid} = await import({{.MermaidURL}});
-  for (const [index, diagram] of diagrams.entries()) {
-    for (const theme of ['light', 'dark']) {
-      try {
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict',
-          secure: ['theme', 'themeVariables', 'themeCSS', 'darkMode'],
-          theme: theme === 'dark' ? 'dark' : 'default'
-        });
-        variants[index][theme] = await mermaid.render(
-          `airplan-mermaid-${theme}-${index}`,
-          sources[index]
-        );
-      } catch (error) {
-        console.warn(
-          `airplan: Mermaid ${theme} diagram rendering failed`,
-          error
-        );
-      }
-    }
-    if (variants[index].light || variants[index].dark) {
-      diagram.classList.add('mermaid-rendered');
-    } else {
-      diagram.textContent = sources[index];
-      diagram.classList.add('mermaid-failed');
-    }
-  }
-  showTheme(selectedTheme());
-  window.addEventListener('airplan:themechange', (event) => {
-    showTheme(event.detail.theme);
-  });
-  printMedia.addEventListener('change', (event) => {
-    showTheme(event.matches ? 'light' : selectedTheme());
-  });
-  window.addEventListener('beforeprint', () => showTheme('light'));
-  window.addEventListener('afterprint', () => showTheme(selectedTheme()));
-} catch (error) {
-  diagrams.forEach((diagram, index) => {
-    diagram.textContent = sources[index];
-    diagram.classList.add('mermaid-failed');
-  });
-  console.warn('airplan: Mermaid rendering failed', error);
-}
+/* airplan:mermaid-js */
 </script>
 {{- end}}
 </body>

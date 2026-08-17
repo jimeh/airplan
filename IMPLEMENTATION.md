@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.37.0.
+may contradict it. Targets spec version 0.38.0.
 
 ---
 
@@ -178,13 +178,18 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   render time.
 - Mermaid: a stateless Goldmark node renderer intercepts only exact
   `mermaid` fences ahead of Chroma and emits escaped source containers. The
-  built-in template conditionally imports the generated exact module URL,
-  renders cached light and dark SVG variants with strict security, and swaps
-  them synchronously for theme and print changes. The pin manifest under
-  `internal/deps` generates exported constants; a networked updater observes a
-  72-hour minimum age, stays within the current major, verifies jsDelivr, and
-  refreshes generated/rendered artifacts. Dependency-only updates do not alter
-  this document or SPEC.md.
+  built-in template bakes a document-specific Mermaid module into its
+  conditional script, imports the generated exact module URL, renders cached
+  light and dark SVG variants with strict security, and swaps them
+  synchronously for theme and print changes. After successful rendering that
+  module creates one native dialog viewer and enhances each rendered block
+  with an explicit open control. The viewer clones the displayed SVG, rewrites
+  every ID and local reference (including embedded styles and ARIA IDREFs), and
+  keeps an open clone synchronized with theme swaps while retaining its
+  transform. The pin manifest under `internal/deps` generates exported
+  constants; a networked updater observes a 72-hour minimum age, stays within
+  the current major, verifies jsDelivr, and refreshes generated/rendered
+  artifacts. Dependency-only updates do not alter this document or SPEC.md.
 - Built-in document and collection templates share source assets for base
   styling, early theme selection, runtime theme behavior, and theme-control
   markup. A generalized bake step expands shared and page-specific assets into
