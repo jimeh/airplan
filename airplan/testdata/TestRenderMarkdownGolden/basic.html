@@ -562,8 +562,7 @@ body.toc-dialog-open {
 }
 
 @media (hover: none) {
-  .codecopy,
-  .mermaid-open {
+  .codecopy {
     opacity: 1;
     pointer-events: auto;
   }
@@ -575,8 +574,7 @@ body.toc-dialog-open {
   }
 
   .toc-trigger,
-  .codecopy,
-  .mermaid-open {
+  .codecopy {
     transition: none;
   }
 }
@@ -1050,6 +1048,19 @@ body.mermaid-dialog-open {
   font-size: 0.75rem;
   line-height: 1.4;
   text-align: center;
+}
+
+@media (hover: none), (any-pointer: coarse) {
+  .mermaid-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mermaid-open {
+    transition: none;
+  }
 }
 
 .filehead {
@@ -2424,7 +2435,9 @@ function cloneMermaidSVG(svg) {
   clone.querySelectorAll('style').forEach((style) => {
     let css = style.textContent || '';
     idsBySpecificity.forEach(([original, replacement]) => {
-      css = css.replaceAll(`#${original}`, `#${replacement}`);
+      const escaped = original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const token = new RegExp(`#${escaped}(?![\\w-])`, 'g');
+      css = css.replace(token, () => `#${replacement}`);
     });
     style.textContent = css;
   });
@@ -2604,6 +2617,7 @@ function createMermaidViewer() {
     }
   });
   dialog.addEventListener('keydown', (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === '+' || event.key === '=') {
       event.preventDefault();
       setZoom(scale * 1.25);

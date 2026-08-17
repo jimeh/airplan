@@ -87,7 +87,9 @@ function cloneMermaidSVG(svg) {
   clone.querySelectorAll('style').forEach((style) => {
     let css = style.textContent || '';
     idsBySpecificity.forEach(([original, replacement]) => {
-      css = css.replaceAll(`#${original}`, `#${replacement}`);
+      const escaped = original.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const token = new RegExp(`#${escaped}(?![\\w-])`, 'g');
+      css = css.replace(token, () => `#${replacement}`);
     });
     style.textContent = css;
   });
@@ -267,6 +269,7 @@ function createMermaidViewer() {
     }
   });
   dialog.addEventListener('keydown', (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === '+' || event.key === '=') {
       event.preventDefault();
       setZoom(scale * 1.25);

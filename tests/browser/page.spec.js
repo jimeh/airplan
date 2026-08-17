@@ -46,7 +46,8 @@ export default {
         '<defs><marker id="' + id + '-arrow"><path d="M0 0L10 5L0 10z"/>' +
         '</marker><linearGradient id="' + id + '-gradient"><stop offset="0"/>' +
         '</linearGradient></defs><style>#' + id + '-node{fill:url(#' + id +
-        '-gradient)}#' + id + '-label{font-weight:600}</style>' +
+        '-gradient)}#' + id + '-label{font-weight:600}#' + id +
+        '-node-extra{opacity:.5}</style>' +
         '<g id="' + id + '-node" aria-labelledby="' + id + '-label">' +
         '<path d="M20 120H600" marker-end="url(#' + id + '-arrow)"/>' +
         '<a href="#' + id + '-node"><text id="' + id + '-label" x="24"' +
@@ -866,6 +867,8 @@ test('Mermaid viewer is shared, theme-aware, and responsive',
     const triggers = page.getByRole('button', { name: 'Open diagram viewer' });
     await expect(triggers).toHaveCount(2);
     const firstTrigger = triggers.first();
+    await expect(firstTrigger).toHaveCSS('opacity', '0');
+    await expect(firstTrigger).toHaveCSS('pointer-events', 'none');
     await page.locator('pre.mermaid').first().hover();
     await expect(firstTrigger).toHaveCSS('opacity', '1');
     await firstTrigger.focus();
@@ -897,6 +900,8 @@ test('Mermaid viewer is shared, theme-aware, and responsive',
 
     const inlineIDs = await page.locator('pre.mermaid svg').first()
       .locator('[id]').evaluateAll((elements) => elements.map((el) => el.id));
+    const inlineRootID = await page.locator('pre.mermaid svg').first()
+      .getAttribute('id');
     const clone = dialog.locator('.mermaid-surface > svg');
     const cloneData = await clone.evaluate((svg) => ({
       ids: Array.from(svg.querySelectorAll('[id]'), (el) => el.id),
@@ -923,6 +928,11 @@ test('Mermaid viewer is shared, theme-aware, and responsive',
         expect(cloneData.style).toContain(`#${id}`);
       }
     }
+    const cloneNodeID = cloneData.ids.find((id) => id.endsWith('-node'));
+    expect(cloneData.style).toContain(
+      `#${inlineRootID}-node-extra{opacity:.5}`,
+    );
+    expect(cloneData.style).not.toContain(`#${cloneNodeID}-extra`);
 
     await dialog.getByRole('button', { name: 'Close diagram viewer' }).click();
     await expect(dialog).toBeHidden();
@@ -935,6 +945,49 @@ test('Mermaid viewer is shared, theme-aware, and responsive',
       .toContainText('Source --> Render');
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
+    await expect(triggers.nth(1)).toBeFocused();
+  });
+
+test('Mermaid opener media behavior follows input and motion preferences',
+  async ({ browser, page }, testInfo) => {
+    test.skip(testInfo.project.name !== 'desktop-light',
+      'one desktop project covers computed media-query behavior');
+
+    await page.goto(baseURL);
+    const trigger = page.getByRole('button', {
+      name: 'Open diagram viewer',
+    }).first();
+    await expect(trigger).toHaveCSS('opacity', '0');
+    await expect(trigger).toHaveCSS('pointer-events', 'none');
+
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect(trigger).toHaveCSS('transition-duration', '0s');
+
+    const touchContext = await browser.newContext({
+      colorScheme: 'light',
+      hasTouch: true,
+      viewport: { width: 390, height: 844 },
+    });
+    try {
+      const touchPage = await touchContext.newPage();
+      await touchPage.route(mermaidURL, (route) => route.fulfill({
+        body: mermaidModule,
+        contentType: 'application/javascript',
+        status: 200,
+      }));
+      await touchPage.goto(baseURL);
+      expect(await touchPage.evaluate(() =>
+        matchMedia('(hover: none)').matches)).toBe(true);
+      expect(await touchPage.evaluate(() =>
+        matchMedia('(any-pointer: coarse)').matches)).toBe(true);
+      const touchTrigger = touchPage.getByRole('button', {
+        name: 'Open diagram viewer',
+      }).first();
+      await expect(touchTrigger).toHaveCSS('opacity', '1');
+      await expect(touchTrigger).toHaveCSS('pointer-events', 'auto');
+    } finally {
+      await touchContext.close();
+    }
   });
 
 test('Mermaid viewer zooms, pans, and preserves its view across themes',
@@ -954,6 +1007,19 @@ test('Mermaid viewer zooms, pans, and preserves its view across themes',
     const zoom = dialog.locator('[data-airplan-mermaid-zoom-value]');
     const initialPercent = Number.parseInt(await zoom.textContent(), 10);
     expect(initialPercent).toBeLessThanOrEqual(100);
+
+    const modifiedKeyPrevented = await canvas.evaluate((element) => {
+      const event = new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        ctrlKey: true,
+        key: '+',
+      });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+    expect(modifiedKeyPrevented).toBe(false);
+    await expect(zoom).toHaveText(`${initialPercent}%`);
 
     await dialog.getByRole('button', { name: 'Zoom in' }).click();
     await expect(zoom).toHaveText(`${Math.round(initialPercent * 1.25)}%`);

@@ -359,8 +359,7 @@ body.toc-dialog-open {
 }
 
 @media (hover: none) {
-  .codecopy,
-  .mermaid-open {
+  .codecopy {
     opacity: 1;
     pointer-events: auto;
   }
@@ -372,8 +371,7 @@ body.toc-dialog-open {
   }
 
   .toc-trigger,
-  .codecopy,
-  .mermaid-open {
+  .codecopy {
     transition: none;
   }
 }
@@ -847,6 +845,19 @@ body.mermaid-dialog-open {
   font-size: 0.75rem;
   line-height: 1.4;
   text-align: center;
+}
+
+@media (hover: none), (any-pointer: coarse) {
+  .mermaid-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mermaid-open {
+    transition: none;
+  }
 }
 
 .filehead {
