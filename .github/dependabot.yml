@@ -26,7 +26,7 @@ updates:
     commit-message:
       prefix: "ci(deps)"
 
-  - package-ecosystem: npm
+  - package-ecosystem: bun
     directory: "/"
     schedule:
       interval: monthly
