@@ -3,6 +3,7 @@ import "./theme.ts";
 (function () {
   "use strict";
   var d = document;
+  var pendingRestores = new WeakMap<HTMLButtonElement, { label: string | null; timer: number }>();
 
   d.addEventListener("click", function (event) {
     const button =
@@ -19,11 +20,15 @@ import "./theme.ts";
     }
     navigator.clipboard.writeText(url).then(
       function () {
-        var old = button.textContent;
+        var pending = pendingRestores.get(button);
+        if (pending) window.clearTimeout(pending.timer);
+        var old = pending ? pending.label : button.textContent;
         button.textContent = "Copied";
-        setTimeout(function () {
+        var timer = window.setTimeout(function () {
           button.textContent = old;
+          pendingRestores.delete(button);
         }, 1200);
+        pendingRestores.set(button, { label: old, timer: timer });
       },
       function () {
         prompt("Copy link", url);

@@ -49,4 +49,29 @@ describe("Go template delimiter safety", () => {
     expect(prepareGeneratedSource(forwardSlash, "page.js", "minified")).toBe(bundledSource);
     expect(prepareGeneratedSource(backslash, "page.js", "minified")).toBe(bundledSource);
   });
+
+  test("rewrites exactly one quoted Mermaid URL sentinel", () => {
+    const source = 'const mermaidURL = "__AIRPLAN_MERMAID_MODULE_URL__";';
+
+    expect(prepareGeneratedSource(source, "mermaid.js.tmpl", "minified")).toBe(
+      "const mermaidURL = {{.MermaidURL}};",
+    );
+  });
+
+  test("rejects missing and duplicate Mermaid URL sentinels", () => {
+    expect(() =>
+      prepareGeneratedSource(
+        'const mermaidURL = "https://example.test/mermaid.js";',
+        "mermaid.js.tmpl",
+        "minified",
+      ),
+    ).toThrow("mermaid.js.tmpl: expected exactly one quoted Mermaid URL sentinel");
+    expect(() =>
+      prepareGeneratedSource(
+        'const first = "__AIRPLAN_MERMAID_MODULE_URL__"; const second = "__AIRPLAN_MERMAID_MODULE_URL__";',
+        "mermaid.js.tmpl",
+        "minified",
+      ),
+    ).toThrow("mermaid.js.tmpl: expected exactly one Mermaid URL sentinel");
+  });
 });

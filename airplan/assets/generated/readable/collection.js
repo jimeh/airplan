@@ -61,6 +61,7 @@
   // web/src/collection.ts
   (function() {
     var d = document;
+    var pendingRestores = new WeakMap;
     d.addEventListener("click", function(event) {
       const button = event.target instanceof Element ? event.target.closest("[data-copy],[data-copy-overview]") : null;
       if (!button)
@@ -71,11 +72,16 @@
         return;
       }
       navigator.clipboard.writeText(url).then(function() {
-        var old = button.textContent;
+        var pending = pendingRestores.get(button);
+        if (pending)
+          window.clearTimeout(pending.timer);
+        var old = pending ? pending.label : button.textContent;
         button.textContent = "Copied";
-        setTimeout(function() {
+        var timer = window.setTimeout(function() {
           button.textContent = old;
+          pendingRestores.delete(button);
         }, 1200);
+        pendingRestores.set(button, { label: old, timer });
       }, function() {
         prompt("Copy link", url);
       });

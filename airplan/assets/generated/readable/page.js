@@ -289,6 +289,10 @@
     });
     if (toc) {
       let updateToc = function() {
+        if (tocLinks.length === 0) {
+          syncTocTrigger();
+          return;
+        }
         var current = 0;
         tocHeadings.forEach(function(heading, index) {
           if (heading && heading.getBoundingClientRect().top <= 128) {

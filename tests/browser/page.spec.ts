@@ -284,10 +284,18 @@ test("collection overview presents and links every media kind", async ({ context
   await expect(overviewCopy).toBeFocused();
   await expect(overviewCopy).toHaveCSS("outline-style", "solid");
   await expect(overviewCopy).toHaveCSS("outline-width", "2px");
-  await page.locator('[data-copy="./notes.bin"]').click();
+  const fileCopy = page.locator('[data-copy="./notes.bin"]');
+  await fileCopy.click();
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe(`${baseURL}/notes.bin`);
+  await expect(fileCopy).toHaveText("Copied");
+  await page.waitForTimeout(300);
+  await fileCopy.click();
+  await page.waitForTimeout(1000);
+  await expect(fileCopy).toHaveText("Copied");
+  await page.waitForTimeout(300);
+  await expect(fileCopy).toHaveText("Copy link");
   await overviewCopy.click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(collectionURL);
   const overflow = await page.evaluate(

@@ -448,6 +448,10 @@ interface VersionsMetadata {
       return d.getElementById((link.getAttribute("href") || "").slice(1));
     });
     function updateToc() {
+      if (tocLinks.length === 0) {
+        syncTocTrigger();
+        return;
+      }
       var current = 0;
       tocHeadings.forEach(function (heading, index) {
         if (heading && heading.getBoundingClientRect().top <= 128) {

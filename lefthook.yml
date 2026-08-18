@@ -24,7 +24,7 @@ pre-commit:
       glob: "web/styles/*.css"
       run: bun run stylelint -- {staged_files}
     web-generated:
-      glob: "{web/src/**,web/styles/**,web/build.ts}"
+      glob: "{web/src/**,web/styles/**,web/build.ts,airplan/assets/generated/**,package.json,bun.lock,bunfig.toml,mise.toml,mise.lock}"
       run: mise run generate:web:check
     web-typecheck:
       glob: "{web/**,tests/browser/**,playwright.config.ts,package.json,bun.lock,tsconfig*.json,.oxlintrc.json}"
