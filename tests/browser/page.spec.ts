@@ -37,6 +37,7 @@ export default {
   },
   async render(id, source) {
     const name = theme;
+    const renderThemeVariables = { ...themeVariables };
     globalThis.__airplanMermaidRenders ||= {};
     globalThis.__airplanMermaidRenders[name] = (globalThis.__airplanMermaidRenders[name] || 0) + 1;
     if (globalThis.__airplanMermaidStartupTheme && !globalThis.__airplanMermaidStartupThemeSent) {
@@ -68,7 +69,7 @@ export default {
         '-label" aria-describedby="' + id + '-desc">' +
         '<title id="' + id + '-title">Diagram</title>' +
         '<desc id="' + id + '-desc">Rendered Mermaid fixture</desc>' +
-        '<defs><marker id="' + id + '-arrow"><path fill="' + themeVariables.lineColor +
+        '<defs><marker id="' + id + '-arrow"><path fill="' + renderThemeVariables.lineColor +
         '" d="M0 0L10 5L0 10z"/>' +
         '</marker><linearGradient id="' + id + '-gradient"><stop offset="0"/>' +
         '</linearGradient></defs><style>#' + id + '-node{fill:url(#' + id +
@@ -76,11 +77,11 @@ export default {
         '-node-extra{opacity:.5}</style>' +
         '<g id="' + id + '-node" aria-labelledby="' + id + '-label">' +
         '<rect x="18" y="72" width="580" height="96" rx="10" fill="' +
-        themeVariables.primaryColor + '" stroke="' + themeVariables.primaryBorderColor + '"/>' +
-        '<path d="M20 120H600" stroke="' + themeVariables.lineColor +
+        renderThemeVariables.primaryColor + '" stroke="' + renderThemeVariables.primaryBorderColor + '"/>' +
+        '<path d="M20 120H600" stroke="' + renderThemeVariables.lineColor +
         '" marker-end="url(#' + id + '-arrow)"/>' +
         '<a href="#' + id + '-node"><text id="' + id + '-label" x="24"' +
-        ' y="112" fill="' + themeVariables.textColor + '">' +
+        ' y="112" fill="' + renderThemeVariables.textColor + '">' +
         escapeHTML(source) + '</text></a></g></svg>',
     };
   },
