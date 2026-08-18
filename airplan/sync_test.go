@@ -194,6 +194,7 @@ func TestSyncManifestReconstructsRevisionProjections(t *testing.T) {
 			Render: &RenderRecipe{
 				Generation: RendererGeneration,
 				Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
+				Themes: themeRecipePtr(defaultThemeBundle()),
 			},
 			Revision: descriptor, Objects: objects,
 		}, pages[index])
@@ -251,6 +252,7 @@ func TestSyncManifestDoesNotProjectUnannouncedRevisionCandidate(t *testing.T) {
 		Render: &RenderRecipe{
 			Generation: RendererGeneration,
 			Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
+			Themes: themeRecipePtr(defaultThemeBundle()),
 		},
 		Revision: &RevisionDescriptor{
 			ChainID: chainID, Number: 2,
@@ -296,6 +298,7 @@ func TestSyncManifestDoesNotReimportTombstonedRemoteRevision(t *testing.T) {
 		Render: &RenderRecipe{
 			Generation: RendererGeneration,
 			Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
+			Themes: themeRecipePtr(defaultThemeBundle()),
 		},
 		Revision: &RevisionDescriptor{ChainID: chain, Number: 1},
 		Objects: []MarkerObject{

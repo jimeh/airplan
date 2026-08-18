@@ -56,8 +56,18 @@ func (o *HTTPOperations) Capabilities(
 			CollectionFileBytes:  DefaultMaxCollectionFileSize,
 			CollectionTotalBytes: DefaultMaxCollectionTotalSize,
 		},
-		MarkerVersions: []int{1, 2, 3, MarkerVersion},
+		MarkerVersions: supportedMarkerVersions(),
 	}, nil
+}
+
+func supportedMarkerVersions() []int {
+	versions := make([]int, 0, MarkerVersion)
+	for version := 1; version <= MarkerVersion; version++ {
+		if IsSupportedMarkerVersion(version) {
+			versions = append(versions, version)
+		}
+	}
+	return versions
 }
 
 func (o *HTTPOperations) UpdateDocument(

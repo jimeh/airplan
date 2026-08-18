@@ -364,14 +364,14 @@ func (c *Client) syncImport(
 // manifestRecordNeedsTotals reports whether a record predates declared totals
 // and could still gain them. Only records missing both fields qualify, so one
 // pass converges. Only a marker that declares every object's size can supply
-// them. Marker v3 and v4 always qualify; v2 qualifies only without a source, while
+// them. Marker v3 and newer always qualify; v2 qualifies only without a source, while
 // v1 and v2-with-source are left alone rather than re-fetched by every run.
 func manifestRecordNeedsTotals(rec ManifestRecord) bool {
 	if rec.Objects != 0 || rec.TotalBytes != 0 {
 		return false
 	}
 	switch rec.MarkerVersion {
-	case 3, 4:
+	case 3, 4, 5:
 		return true
 	case 2:
 		return rec.SourceKey == ""
@@ -384,7 +384,7 @@ func manifestRecordNeedsTotals(rec ManifestRecord) bool {
 // Markdown projection must be re-inspected because another writer may have
 // promoted its marker into revision 1 since the local upload event was written.
 func manifestRecordNeedsRevisionProjection(rec ManifestRecord) bool {
-	return rec.MarkerVersion == MarkerVersion &&
+	return rec.MarkerVersion >= 4 && IsSupportedMarkerVersion(rec.MarkerVersion) &&
 		ManifestRecordKind(rec) == UploadKindDocument && rec.Format == "md" &&
 		rec.SourceKey != "" && (rec.RevisionChainID == "" || rec.Revision <= 0 ||
 		rec.LatestRevision < rec.Revision)

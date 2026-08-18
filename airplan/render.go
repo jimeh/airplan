@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/alecthomas/chroma/v2"
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
@@ -120,11 +119,8 @@ func bakeTemplate(layout string, replacements ...templateReplacement) string {
 	return strings.NewReplacer(pairs...).Replace(layout)
 }
 
-// Chroma styles used for syntax highlighting in light and dark mode.
-const (
-	syntaxStyleLight = "github"
-	syntaxStyleDark  = "github-dark"
-)
+// Source HTML uses Chroma classes; per-theme CSS supplies their colors.
+const syntaxStyleLight = "github"
 
 var pageTmpl = template.Must(
 	template.New("page").Parse(executableBuiltinTemplate),
@@ -168,6 +164,9 @@ type RenderOptions struct {
 	// template takes full responsibility for the page: styles,
 	// noindex meta, and any interactivity.
 	Template *template.Template
+
+	// Themes is the resolved page-local catalog. nil uses the built-in defaults.
+	Themes *ThemeBundle
 
 	Revision         int
 	RevisionCount    int
@@ -214,52 +213,6 @@ func newMarkdownWithRepository(repository string, source []byte) goldmark.Markdo
 		),
 	)
 }
-
-// syntaxCSS renders chroma's class-based stylesheets for the light and
-// dark palettes, scoped so highlighting follows the screen theme while
-// print always uses the light palette (SPEC.md §3). Both palettes must
-// be fully scoped: the styles define different token class sets, so an
-// unscoped light palette would leak dark-on-dark colors into dark mode
-// for classes the dark style doesn't override.
-var syntaxCSS = sync.OnceValues(func() (string, error) {
-	f := chromahtml.New(chromahtml.WithClasses(true))
-	renderStyle := func(name string) (string, error) {
-		var css strings.Builder
-		if err := f.WriteCSS(&css, styles.Get(name)); err != nil {
-			return "", err
-		}
-		return css.String(), nil
-	}
-
-	light, err := renderStyle(syntaxStyleLight)
-	if err != nil {
-		return "", fmt.Errorf("render light syntax css: %w", err)
-	}
-	dark, err := renderStyle(syntaxStyleDark)
-	if err != nil {
-		return "", fmt.Errorf("render dark syntax css: %w", err)
-	}
-
-	var b strings.Builder
-	b.WriteString("@media screen and (prefers-color-scheme: light) {\n")
-	b.WriteString(scopeSyntaxCSS(light, ":root:not([data-theme])"))
-	b.WriteString("}\n")
-
-	b.WriteString("@media print {\n")
-	b.WriteString(light)
-	b.WriteString("}\n")
-
-	b.WriteString("@media screen and (prefers-color-scheme: dark) {\n")
-	b.WriteString(scopeSyntaxCSS(dark, ":root:not([data-theme])"))
-	b.WriteString("}\n")
-
-	b.WriteString("@media screen {\n")
-	b.WriteString(scopeSyntaxCSS(light, `:root[data-theme="light"]`))
-	b.WriteString(scopeSyntaxCSS(dark, `:root[data-theme="dark"]`))
-	b.WriteString("}\n")
-
-	return b.String(), nil
-})
 
 func scopeSyntaxCSS(css, scope string) string {
 	var out strings.Builder
@@ -394,9 +347,9 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 		return nil, err
 	}
 	opts.MermaidURL = mermaidURL
-	syntax, err := syntaxCSS()
-	if err != nil {
-		return nil, err
+	bundle := opts.Themes
+	if bundle == nil {
+		bundle = defaultThemeBundle()
 	}
 
 	data.Title = opts.Title
@@ -414,7 +367,11 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 	if data.SourceName == "" {
 		data.SourceName = opts.SourceName
 	}
-	data.SyntaxCSS = template.CSS(syntax)
+	data.SyntaxCSS = bundle.SyntaxCSS
+	data.ThemeCSS = bundle.CSS
+	data.ThemeCatalogJSON = bundle.CatalogJSON
+	data.DefaultLightTheme = bundle.DefaultLight
+	data.DefaultDarkTheme = bundle.DefaultDark
 
 	var out bytes.Buffer
 	tmpl := pageTmpl

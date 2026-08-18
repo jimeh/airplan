@@ -143,10 +143,10 @@ func assertDumpedSharedThemeAssets(t *testing.T, dumped string) {
 	for _, sentinel := range []struct {
 		name, value string
 	}{
-		{"theme-toggle markup", `role="group" aria-label="Color theme"`},
+		{"theme-toggle markup", `aria-label="Appearance settings"`},
 		{
 			"early persisted-theme initialization",
-			`const theme = localStorage.getItem("airplan-theme");`,
+			`"airplan-color-mode"`,
 		},
 		{
 			"runtime theme behavior",

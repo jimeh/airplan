@@ -59,10 +59,12 @@ func TestConfigSchemaShape(t *testing.T) {
 		"backend",
 		"bucket",
 		"collection_template",
+		"dark_theme",
 		"default_profile",
 		"endpoint",
 		"indexable",
 		"key_prefix",
+		"light_theme",
 		"mermaid_url",
 		"no_external_assets",
 		"no_source",
@@ -72,6 +74,7 @@ func TestConfigSchemaShape(t *testing.T) {
 		"repo",
 		"secret_access_key",
 		"template",
+		"themes",
 		"timeout",
 	}
 	if !slicesEqual(gotNames, wantNames) {

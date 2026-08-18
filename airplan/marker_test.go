@@ -1,6 +1,7 @@
 package airplan
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -13,7 +14,7 @@ const markerTestDir = "abcdefghijklmnopqrstuvwxyz"
 
 var markerTestTime = time.Date(2026, 7, 21, 9, 0, 0, 0, time.UTC)
 
-func TestUploadMarkerV4DocumentRoundTrip(t *testing.T) {
+func TestUploadMarkerV5DocumentRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	marker := validDocumentMarker()
@@ -41,7 +42,7 @@ func TestUploadMarkerV4DocumentRoundTrip(t *testing.T) {
 	}
 }
 
-func TestUploadMarkerV4CollectionRoundTrip(t *testing.T) {
+func TestUploadMarkerV5CollectionRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	marker := validCollectionMarker()
@@ -112,7 +113,7 @@ func TestUploadMarkerV3IgnoresV4ProvenanceFields(t *testing.T) {
 	}
 }
 
-func TestUploadMarkerV4RequiresStringLowercasePageSHA(t *testing.T) {
+func TestUploadMarkerV5RequiresStringLowercasePageSHA(t *testing.T) {
 	t.Parallel()
 	body, err := EncodeUploadMarker(validDocumentMarker())
 	if err != nil {
@@ -129,33 +130,38 @@ func TestUploadMarkerV4RequiresStringLowercasePageSHA(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			modified := strings.Replace(string(body), encodedSHA, test.replacement, 1)
 			if _, err := DecodeUploadMarker([]byte(modified), markerTestDir); err == nil {
-				t.Fatalf("v4 marker accepted %s sha256", test.name)
+				t.Fatalf("v5 marker accepted %s sha256", test.name)
 			}
 		})
 	}
 }
 
-func TestUploadMarkerV4RequiresApplicableProvenance(t *testing.T) {
+func TestUploadMarkerV5RequiresApplicableProvenance(t *testing.T) {
 	t.Parallel()
 	missingProducer := validDocumentMarker()
 	missingProducer.Producer = Producer{}
 	if _, err := EncodeUploadMarker(missingProducer); err == nil {
-		t.Fatal("v4 marker without producer was accepted")
+		t.Fatal("v5 marker without producer was accepted")
 	}
 	missingRender := validDocumentMarker()
 	missingRender.Render = nil
 	if _, err := EncodeUploadMarker(missingRender); err == nil {
-		t.Fatal("generated v4 document without render recipe was accepted")
+		t.Fatal("generated v5 document without render recipe was accepted")
+	}
+	missingThemes := validDocumentMarker()
+	missingThemes.Render.Themes = nil
+	if _, err := EncodeUploadMarker(missingThemes); err == nil {
+		t.Fatal("v5 marker without theme provenance was accepted")
 	}
 	missingPageSHA := validDocumentMarker()
 	missingPageSHA.Objects[0].SHA256 = ""
 	if _, err := EncodeUploadMarker(missingPageSHA); err == nil {
-		t.Fatal("v4 marker without generated-page checksum was accepted")
+		t.Fatal("v5 marker without generated-page checksum was accepted")
 	}
 	sourceSHA := validDocumentMarker()
 	sourceSHA.Objects[1].SHA256 = strings.Repeat("b", 64)
 	if _, err := EncodeUploadMarker(sourceSHA); err == nil {
-		t.Fatal("v4 marker with a source checksum was accepted")
+		t.Fatal("v5 marker with a source checksum was accepted")
 	}
 	authoredHTML := validDocumentMarker()
 	authoredHTML.Format = "html"
@@ -171,6 +177,58 @@ func TestUploadMarkerV4RequiresApplicableProvenance(t *testing.T) {
 	authoredHTML.Render = documentRenderRecipe(&Config{MermaidURL: DefaultMermaidURL}, "")
 	if _, err := EncodeUploadMarker(authoredHTML); err == nil {
 		t.Fatal("authored HTML marker with render recipe was accepted")
+	}
+}
+
+func TestUploadMarkerV4RevisionRoundTripPreservesProvenance(t *testing.T) {
+	marker := validDocumentMarker()
+	marker.Version = 4
+	marker.Render.Generation = 2
+	marker.Render.Themes = nil
+	marker.Revision = &RevisionDescriptor{
+		ChainID: strings.Repeat("r", 26), Number: 2,
+		PreviousURL: "https://plans.example.test/" + strings.Repeat("p", 26) + "/launch-plan.html",
+	}
+	marker.Objects = append(marker.Objects, MarkerObject{
+		Name: DiffFilename, Role: MarkerRoleDiff, Bytes: 8, ContentType: diffContentType,
+	})
+	body, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := DecodeUploadMarker(body, markerTestDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Version != 4 || decoded.Producer != marker.Producer ||
+		decoded.Render == nil || decoded.Render.Generation != 2 || decoded.Render.Themes != nil ||
+		decoded.Revision == nil || decoded.Revision.Number != 2 || decoded.PageSHA256 == "" {
+		t.Fatalf("v4 compatibility fields were stripped: %+v", decoded)
+	}
+}
+
+func TestV4CompatibleDecoderRejectsV5BeforeRewrite(t *testing.T) {
+	body, err := EncodeUploadMarker(validDocumentMarker())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var header struct {
+		Version int `json:"version"`
+	}
+	if err := json.Unmarshal(body, &header); err != nil {
+		t.Fatal(err)
+	}
+	if header.Version <= 4 {
+		t.Fatalf("fixture version = %d, want newer than v4", header.Version)
+	}
+	decodeV4 := func(version int) error {
+		if version < 1 || version > 4 {
+			return errors.New("unsupported marker version")
+		}
+		return nil
+	}
+	if err := decodeV4(header.Version); err == nil {
+		t.Fatal("v4-compatible decoder accepted v5")
 	}
 }
 
@@ -253,7 +311,7 @@ func TestDecodeUploadMarkerValidation(t *testing.T) {
 		},
 		{
 			name: "unsupported version",
-			body: strings.Replace(valid, `"version":1`, `"version":5`, 1),
+			body: strings.Replace(valid, `"version":1`, `"version":6`, 1),
 			dir:  markerTestDir, code: MarkerErrorUnsupportedVersion,
 		},
 		{

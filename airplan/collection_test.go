@@ -77,6 +77,11 @@ func TestUploadFilesStreamsOneCollection(t *testing.T) {
 		t.Fatalf("marker page digest = %q, want digest of uploaded overview",
 			marker.PageSHA256)
 	}
+	wantThemes := themeRecipe(c.cfg.ThemeBundle)
+	if marker.Render == nil || marker.Render.Themes == nil ||
+		*marker.Render.Themes != wantThemes {
+		t.Fatalf("collection theme recipe = %+v, want %+v", marker.Render, wantThemes)
+	}
 	if !bytes.Equal(puts[1].body, image) || !bytes.Equal(puts[2].body, video) {
 		t.Fatal("collection bytes changed")
 	}

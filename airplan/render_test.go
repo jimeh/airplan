@@ -84,7 +84,7 @@ func TestRenderMarkdownGolden(t *testing.T) {
 }
 
 func TestPageRevisionNavigationUsesValidatedInMemoryURL(t *testing.T) {
-	if strings.Contains(readablePageJS, "select.value") {
+	if strings.Contains(readablePageJS, "window.location.assign(select.value)") {
 		t.Fatal("revision navigation rereads an attacker-mutable URL from the DOM")
 	}
 	if !strings.Contains(readablePageJS, "[selected].safeURL") {
@@ -186,11 +186,12 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 	t.Run("theme control is available without source actions", func(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "Hi"})
 		for _, fragment := range []string{
-			`class="themetoggle mode-toggle js-only"`,
-			`aria-label="Light theme"`,
-			`aria-label="System theme"`,
-			`aria-label="Dark theme"`,
-			`localStorage.getItem("airplan-theme")`,
+			`data-airplan-appearance-trigger`,
+			`aria-label="Appearance settings"`,
+			`data-airplan-color-mode="system"`,
+			`data-airplan-theme-slot="light"`,
+			`data-airplan-theme-slot="dark"`,
+			`"airplan-theme"`,
 		} {
 			if !strings.Contains(out, fragment) {
 				t.Errorf("theme control missing %q", fragment)
@@ -222,7 +223,7 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 			`class="copy-source`,
 			`class="download`,
 			`class="raw`,
-			`class="themetoggle`,
+			`class="appearance`,
 		} {
 			position := strings.Index(out, fragment)
 			if position <= last {
@@ -295,28 +296,13 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 
 	t.Run("system and explicit palettes present", func(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "Hi"})
-		backgroundStart := strings.Index(out, "--bg:")
-		if backgroundStart < 0 {
-			t.Fatal("base background palette is missing")
-		}
-		backgroundEnd := strings.Index(out[backgroundStart:], ";")
-		if backgroundEnd < 0 {
-			t.Fatal("base background palette is incomplete")
-		}
-		backgroundPalette := out[backgroundStart : backgroundStart+backgroundEnd]
-		for name, color := range map[string]string{
-			"light": "#fff",
-			"dark":  "#0d1117",
-		} {
-			if !strings.Contains(backgroundPalette, color) {
-				t.Errorf("base background palette is missing %s color %q", name, color)
-			}
-		}
 		for _, fragment := range []string{
 			"prefers-color-scheme: dark",
-			":root:not([data-theme]) .chroma .k",
-			`:root[data-theme="light"] .chroma .k`,
-			`:root[data-theme="dark"] .chroma .k`,
+			`--bg:#ffffff`,
+			`--bg:#0d1117`,
+			`:root:not([data-airplan-theme]) .chroma .k`,
+			`:root[data-airplan-theme="github-light"] .chroma .k`,
+			`:root[data-airplan-theme="github-dark"] .chroma .k`,
 		} {
 			if !strings.Contains(out, fragment) {
 				t.Errorf("theme palettes missing %q", fragment)
@@ -338,12 +324,13 @@ func TestRenderMarkdownMermaid(t *testing.T) {
 	if !strings.Contains(out, `A[&lt;unsafe&gt;]`) {
 		t.Fatal("Mermaid source was not HTML escaped")
 	}
-	if !strings.Contains(out, "await import(\""+DefaultMermaidURL+"\")") {
+	if !strings.Contains(out, DefaultMermaidURL) ||
+		!strings.Contains(readableMermaidJS, "await import(mermaidModuleURL)") {
 		t.Fatal("pinned Mermaid module import missing")
 	}
 	mermaidSource := readableMermaidJS + "\n" + readablePageCSS
 	if !strings.Contains(mermaidSource, "await mermaid.render(") ||
-		!strings.Contains(mermaidSource, "airplan-mermaid-${theme}-${index}") {
+		!strings.Contains(mermaidSource, "airplan-mermaid-${key.replace") {
 		t.Fatal("Mermaid theme variants are not rendered independently")
 	}
 	if !strings.Contains(mermaidSource,
@@ -360,9 +347,10 @@ func TestRenderMarkdownMermaid(t *testing.T) {
 		}
 	}
 	for _, fragment := range []string{
-		`theme: theme === "dark" ? "dark" : "default"`,
+		`theme: "base"`,
+		`themeVariables: theme.mermaid`,
 		`secure: ["theme", "themeVariables", "themeCSS", "darkMode"]`,
-		`window.addEventListener("beforeprint", () => showTheme("light"))`,
+		`window.addEventListener("beforeprint", () => showTheme(printThemeKey))`,
 		`window.addEventListener("airplan:themechange"`,
 	} {
 		if !strings.Contains(mermaidSource, fragment) {

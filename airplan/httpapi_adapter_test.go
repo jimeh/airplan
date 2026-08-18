@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -21,6 +22,12 @@ func TestWireVersionsMetadataPreservesSchemaAndVersion(t *testing.T) {
 	wire := wireVersionsMetadata(VersionsMetadata{Schema: "future", Version: 7})
 	if string(wire.Schema) != "future" || int(wire.Version) != 7 {
 		t.Fatalf("wire metadata = %+v", wire)
+	}
+}
+
+func TestSupportedMarkerVersionsAdvertiseV1ThroughV5(t *testing.T) {
+	if got, want := supportedMarkerVersions(), []int{1, 2, 3, 4, 5}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("supported marker versions = %v, want %v", got, want)
 	}
 }
 
@@ -136,7 +143,7 @@ func TestHTTPAPIExecuteUpgradeReplansFabricatedCurrentState(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := `{"target":"` + strings.Repeat("m", 26) +
-		`","state":"current","target_marker_version":4,` +
+		`","state":"current","target_marker_version":5,` +
 		`"target_producer_version":"0.8.0","target_renderer_generation":1}`
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/upgrades/execute",
 		bytes.NewBufferString(body))

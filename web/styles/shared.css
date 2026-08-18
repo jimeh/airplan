@@ -1,30 +1,6 @@
 :root {
   color-scheme: light dark;
-  --bg: light-dark(#ffffff, #0d1117);
-  --fg: light-dark(#1f2328, #e6edf3);
-  --heading: light-dark(#1f2328, #f0f6fc);
-  --subheading: light-dark(#3d444d, #c9d1d9);
-  --muted: light-dark(#59636e, #9198a1);
-  --link: light-dark(#0969da, #4493f8);
-  --border: light-dark(#d1d9e0, #3d444d);
-  --surface-subtle: light-dark(#f6f8fa, #151b23);
-  --code-inline-bg: light-dark(#eff1f3, #212830);
-  --code-bg: light-dark(#f6f8fa, #151b23);
-  --code-border: light-dark(#d1d9e0, #30363d);
-  --control-track: light-dark(#eff1f3, #21262d);
-  --control-active: light-dark(#ffffff, #30363d);
-  --control-hover: light-dark(#eff1f3, #21262d);
-  --control-divider: light-dark(#d8dee4, #30363d);
-  --on-link: light-dark(#ffffff, #0d1117);
   --page-width: 54rem;
-}
-
-:root[data-theme="light"] {
-  color-scheme: light;
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
 }
 
 * {
@@ -120,17 +96,20 @@ body {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
-.themetoggle button {
+.appearance-trigger {
   width: 1.85rem;
   padding-inline: 0;
 }
 
-.themetoggle:not(:first-child) {
+.appearance {
   position: relative;
+}
+
+.appearance:not(:first-child) {
   margin-left: 0.5rem;
 }
 
-.themetoggle:not(:first-child)::before {
+.appearance:not(:first-child)::before {
   content: "";
   position: absolute;
   top: 50%;
@@ -140,6 +119,65 @@ body {
   height: 1rem;
   background: var(--control-divider);
   transform: translateY(-50%);
+}
+
+.appearance-panel {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  width: min(19rem, calc(100vw - 2rem));
+  padding: 0.85rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--fg) 14%, transparent);
+}
+
+.appearance-heading {
+  margin-bottom: 0.75rem;
+  font-weight: 600;
+  color: var(--heading);
+}
+
+.appearance-field {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.appearance-field + .appearance-field {
+  margin-top: 0.75rem;
+}
+
+.appearance-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.appearance-modes {
+  width: 100%;
+}
+
+.appearance-modes button {
+  flex: 1;
+}
+
+.appearance-panel select {
+  width: 100%;
+  min-height: 2.1rem;
+  padding: 0.3rem 1.75rem 0.3rem 0.5rem;
+  color: var(--fg);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  font: inherit;
+}
+
+.appearance-panel select:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
 }
 
 .icon {
@@ -166,18 +204,26 @@ body {
     padding-inline: 1rem;
   }
 
-  .themetoggle:not(:first-child) {
+  .appearance:not(:first-child) {
     margin-left: 0;
   }
 
-  .themetoggle:not(:first-child)::before {
+  .appearance:not(:first-child)::before {
     display: none;
+  }
+
+  .appearance-panel {
+    position: fixed;
+    top: 3.5rem;
+    right: 0.75rem;
+    left: 0.75rem;
+    width: auto;
   }
 }
 
 @media print {
   :root,
-  :root[data-theme] {
+  :root[data-airplan-theme] {
     color-scheme: light;
   }
 

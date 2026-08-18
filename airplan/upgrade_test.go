@@ -106,6 +106,7 @@ func TestUpgradeManifestEventPreservesRevisionAndCompleteProjection(t *testing.T
 		Render: &RenderRecipe{
 			Generation: RendererGeneration,
 			Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
+			Themes: themeRecipePtr(defaultThemeBundle()),
 		},
 		Revision: &RevisionDescriptor{
 			ChainID: chain, Number: 2,
@@ -171,6 +172,38 @@ func TestPlanUpgradeLegacyMarkerWithUndeclaredSourceSize(t *testing.T) {
 	result, err := client.UpgradeDocument(context.Background(), *plan)
 	if err != nil || !result.Upgraded {
 		t.Fatalf("legacy upgrade result = %+v, %v", result, err)
+	}
+}
+
+func TestPlanUpgradeV5ThemeMismatchRequiresForce(t *testing.T) {
+	store := newUpgradeStore(t)
+	first, err := store.client(t, "").Upload(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := store.clientWithThemes(t, "", "solarized-light", "one-dark")
+
+	plan, err := client.PlanUpgradeDocument(
+		context.Background(), first.URL, UpgradeDocumentOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.State != UpgradeStateIneligible ||
+		!strings.Contains(plan.Reason, "themes do not match") {
+		t.Fatalf("theme mismatch plan = %+v", plan)
+	}
+	forced, err := client.PlanUpgradeDocument(
+		context.Background(), first.URL, UpgradeDocumentOptions{Force: true},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forced.State != UpgradeStateUpgradeable ||
+		!strings.Contains(forced.Reason, "forced") {
+		t.Fatalf("forced theme mismatch plan = %+v", forced)
 	}
 }
 
@@ -429,7 +462,7 @@ func TestPlanUpgradeProducerVersionOrdering(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			store := newUpgradeStore(t)
 			dir := strings.Repeat(string(rune('a'+len(test.name)%20)), 26)
-			seedV4UpgradeDocument(t, store, dir, test.current,
+			seedCurrentUpgradeDocument(t, store, dir, test.current,
 				documentRenderRecipe(&Config{MermaidURL: DefaultMermaidURL}, ""))
 			plan, err := store.client(t, "").PlanUpgradeDocument(
 				context.Background(), dir, UpgradeDocumentOptions{},
@@ -578,7 +611,7 @@ func TestUpgradeDocumentReplansSerializedState(t *testing.T) {
 	t.Run("fresh current no-ops after reads", func(t *testing.T) {
 		store := newUpgradeStore(t)
 		dir := strings.Repeat("c", 26)
-		seedV4UpgradeDocument(t, store, dir, "0.8.0",
+		seedCurrentUpgradeDocument(t, store, dir, "0.8.0",
 			documentRenderRecipe(&Config{MermaidURL: DefaultMermaidURL}, ""))
 		client := store.client(t, "")
 		plan, err := client.PlanUpgradeDocument(context.Background(), dir,
@@ -757,6 +790,32 @@ func seedV4UpgradeDocument(
 	t.Helper()
 	page := []byte("old")
 	source := []byte("# Plan\n")
+	v4Recipe := *recipe
+	v4Recipe.Generation = 2
+	v4Recipe.Themes = nil
+	marker, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: 4, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second), Kind: UploadKindDocument,
+		Slug: "plan", Format: "md", Producer: Producer{Name: "airplan", Version: producer},
+		Render: &v4Recipe, Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(dir+"/"+MarkerFilename, marker)
+	store.set(dir+"/plan.html", page)
+	store.set(dir+"/plan.md", source)
+}
+
+func seedCurrentUpgradeDocument(
+	t *testing.T, store *upgradeStore, dir, producer string, recipe *RenderRecipe,
+) {
+	t.Helper()
+	page := []byte("old")
+	source := []byte("# Plan\n")
 	marker, err := EncodeUploadMarker(UploadMarker{
 		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
 		CreatedAt: time.Now().UTC().Truncate(time.Second), Kind: UploadKindDocument,
@@ -841,11 +900,18 @@ func newUpgradeStore(t *testing.T) *upgradeStore {
 }
 
 func (s *upgradeStore) client(t *testing.T, manifest string) *Client {
+	return s.clientWithThemes(t, manifest, "", "")
+}
+
+func (s *upgradeStore) clientWithThemes(
+	t *testing.T, manifest, lightTheme, darkTheme string,
+) *Client {
 	client, err := New(context.Background(), &Config{
 		Endpoint: s.server.URL, Bucket: "plans", AccessKeyID: "test",
 		SecretAccessKey: "test", PublicBaseURL: "https://plans.example.com",
 		ManifestPath: manifest, DisableManifest: manifest == "",
 		ProducerVersion: "0.8.0", MermaidURL: DefaultMermaidURL,
+		LightTheme: lightTheme, DarkTheme: darkTheme,
 	})
 	if err != nil {
 		t.Fatal(err)

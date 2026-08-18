@@ -45,6 +45,13 @@ type TemplateData struct {
 	// HighlightedSourceHTML.
 	SyntaxCSS template.CSS
 
+	// ThemeCSS, ThemeCatalogJSON, and default IDs are validated, deterministic
+	// theme data. Built-in templates consume them; custom templates may opt in.
+	ThemeCSS          template.CSS
+	ThemeCatalogJSON  template.JS
+	DefaultLightTheme string
+	DefaultDarkTheme  string
+
 	// Headings contains every markdown heading in document order. It is
 	// empty for text input.
 	Headings []Heading

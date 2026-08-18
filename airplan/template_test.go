@@ -64,7 +64,9 @@ func TestLoadDocumentTemplateDigestMatchesParsedBytes(t *testing.T) {
 func TestCustomTemplateReceivesMermaidPolicyDataWithoutInjection(t *testing.T) {
 	tmpl, err := template.New("custom").Parse(
 		`{{.HasMermaid}}|{{.NoExternalAssets}}|{{.MermaidURL}}|` +
-			`{{.RenderedHTML}}`,
+			`{{.DefaultLightTheme}}|{{.DefaultDarkTheme}}|` +
+			`<script>{{.ThemeCatalogJSON}}</script>|` +
+			`<style>{{.ThemeCSS}}{{.SyntaxCSS}}</style>|{{.RenderedHTML}}`,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -82,8 +84,17 @@ func TestCustomTemplateReceivesMermaidPolicyDataWithoutInjection(t *testing.T) {
 	}
 	page := string(out)
 	if !strings.HasPrefix(page,
-		"true|true|https://assets.example.test/mermaid.mjs|") {
+		"true|true|https://assets.example.test/mermaid.mjs|github-light|github-dark|") {
 		t.Fatalf("custom Mermaid data missing: %s", page)
+	}
+	for _, want := range []string{
+		`"id":"github-light"`,
+		`[data-airplan-theme="github-light"]`,
+		`.chroma .k`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("custom theme data missing %q", want)
+		}
 	}
 	if strings.Contains(page, "await import") {
 		t.Fatal("airplan injected Mermaid loader into custom template")

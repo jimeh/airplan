@@ -73,6 +73,14 @@
           "type": "string",
           "description": "Absolute HTTPS URL of the Mermaid ECMAScript module."
         },
+        "light_theme": {
+          "type": "string",
+          "description": "Theme assigned to the reader's light mode slot; defaults to github-light."
+        },
+        "dark_theme": {
+          "type": "string",
+          "description": "Theme assigned to the reader's dark mode slot; defaults to github-dark."
+        },
         "repo": {
           "type": "string",
           "description": "Repository context: auto, none, or an explicit GitHub-compatible repository URL."
@@ -84,6 +92,97 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "ThemeConfig": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "light",
+            "dark"
+          ]
+        },
+        "background": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "foreground": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "muted": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "accent": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "accent_foreground": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "border": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "surface": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "surface_emphasis": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "info": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "success": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "important": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "warning": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "danger": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "syntax": {
+          "type": "string",
+          "description": "derived, or chroma:\u003cregistered-style-name\u003e."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "variant",
+        "background",
+        "foreground",
+        "muted",
+        "accent",
+        "accent_foreground",
+        "border",
+        "surface",
+        "surface_emphasis",
+        "info",
+        "success",
+        "important",
+        "warning",
+        "danger"
+      ]
     }
   },
   "properties": {
@@ -156,6 +255,14 @@
       "type": "string",
       "description": "Absolute HTTPS URL of the Mermaid ECMAScript module."
     },
+    "light_theme": {
+      "type": "string",
+      "description": "Theme assigned to the reader's light mode slot; defaults to github-light."
+    },
+    "dark_theme": {
+      "type": "string",
+      "description": "Theme assigned to the reader's dark mode slot; defaults to github-dark."
+    },
     "repo": {
       "type": "string",
       "description": "Repository context: auto, none, or an explicit GitHub-compatible repository URL."
@@ -174,6 +281,13 @@
       },
       "type": "object",
       "description": "Named profiles that inherit and override root-level settings."
+    },
+    "themes": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ThemeConfig"
+      },
+      "type": "object",
+      "description": "Global custom theme catalog entries available to every profile."
     }
   },
   "additionalProperties": false,

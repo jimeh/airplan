@@ -35,7 +35,8 @@ artifacts easy to attach to a pull request or issue. Airplan uploads the
 original files together, generates an overview page with media previews and
 copyable direct links, and treats the directory as one cleanup unit.
 
-- Markdown becomes a polished page with light and dark themes.
+- Markdown becomes a polished page with eleven built-in themes, independent
+  light/dark mode slots, and validated custom themes.
   Authored HTML and link destinations are preserved, so treat it as trusted
   content.
 - Source and plain-text files become highlighted, gist-like pages.
@@ -180,6 +181,8 @@ endpoint          = "https://<account-id>.r2.cloudflarestorage.com"
 bucket            = "plans"
 region            = "auto"
 public_base_url   = "https://plans.example.com"
+light_theme       = "github-light"
+dark_theme        = "github-dark"
 access_key_id     = "..." # or AIRPLAN_ACCESS_KEY_ID
 secret_access_key = "..." # or AIRPLAN_SECRET_ACCESS_KEY
 # repo = "auto"           # infer GitHub origin for Markdown links
@@ -613,7 +616,7 @@ a targeted request instead of trusting a bucket listing alone. It also completes
 older local records that predate the recorded `objects` and `total_bytes`
 totals, appending an enriched copy of each one with its original time and
 identity; those are reported separately from imports and never resurrect a
-deleted upload. Marker v3 and v4, plus v2-without-source records, can supply
+deleted upload. Marker v3 through v5, plus v2-without-source records, can supply
 exact totals; v1 and v2-with-source records stay absent without recurring marker fetches.
 Enrichment fetch or marker problems are warnings deferred to a later sync, not
 sync failures. `--concurrency`
@@ -621,19 +624,20 @@ controls concurrent marker requests (default 8, range 1-64). It converges the
 active remote inventory, not the historical JSONL event stream; deletion
 history is not uploaded.
 
-Every new upload uses ownership marker version 4 with one declared-object model
+Every new upload uses ownership marker version 5 with one declared-object model
 for pages, document sources, and collection files. Documents require a slug;
 collections have no slug and always use `index.html`. Current Airplan releases
-still manage marker versions 1 through 3. Version 4 records the producing
-Airplan release, a renderer generation/template recipe for generated pages,
-and the exact SHA-256 of every uploaded page object.
-Older clients must be upgraded before they can manage new v4 uploads.
+still manage marker versions 1 through 4. Version 4 introduced the producing
+Airplan release, renderer/template recipe, revisions, and exact page SHA-256;
+version 5 adds the selected theme IDs and canonical catalog digest. Older
+clients fail closed and must be upgraded before they can manage new v5 uploads.
 Repository metadata is stored remotely for every input mode when `--repo`
 supplies or discovers a repository.
 
 ## Pages airplan creates
 
-Markdown pages include syntax highlighting, Mermaid diagrams from exact
+Markdown pages include per-theme syntax highlighting, theme-derived Mermaid
+diagrams from exact
 `mermaid` fences, a responsive table of contents, GitHub-style alerts,
 definition lists, YAML/TOML frontmatter, responsive Pandoc columns,
 rendered/source views, copy buttons, and links to the original Markdown.
@@ -668,7 +672,8 @@ Collection overview pages render images inline, video and audio with controls,
 and arbitrary files as linked cards. Every member has Open, Download, and Copy
 URL actions, and the page can copy its own overview URL. Media never autoplays;
 images lazy-load; links remain usable without JavaScript. The page is
-self-contained, responsive, light/dark aware, and noindexed by default.
+self-contained, responsive, uses the same configurable theme catalog, and is
+noindexed by default.
 
 Collections accept at most 100 files. Defaults are 1 GiB per member and 2 GiB
 total; use `--max-size` and `--max-total-size` to adjust them per invocation,
@@ -740,10 +745,14 @@ endpoint = "https://<account-id>.r2.cloudflarestorage.com"
 region = "auto"
 key_prefix = "jimeh"
 default_profile = "work"
+light_theme = "github-light"
+dark_theme = "github-dark"
 
 [profiles.work]
 bucket = "work-plans"
 public_base_url = "https://plans.work.example.com"
+light_theme = "solarized-light"
+dark_theme = "tokyo-night"
 
 [profiles.personal]
 bucket = "personal-plans"
@@ -835,6 +844,8 @@ the shared credentials file.
 | `AIRPLAN_KEY_PREFIX`                | Prefix and scope uploaded object keys         |
 | `AIRPLAN_TEMPLATE`                  | Select a custom HTML page template            |
 | `AIRPLAN_COLLECTION_TEMPLATE`       | Select a collection overview template         |
+| `AIRPLAN_LIGHT_THEME`               | Select the default light-mode slot theme      |
+| `AIRPLAN_DARK_THEME`                | Select the default dark-mode slot theme       |
 | `AIRPLAN_NO_EXTERNAL_ASSETS`        | Disable airplan-managed external loads        |
 | `AIRPLAN_MERMAID_URL`               | Set an alternate HTTPS Mermaid module URL     |
 | `AIRPLAN_REPO`                      | Set `auto`, `none`, or a repository URL       |
@@ -842,6 +853,45 @@ the shared credentials file.
 
 `no_source` and `indexable` do not have environment variables. Configure them
 in TOML or override them with `--no-source` and `--indexable`.
+
+### Page themes
+
+The appearance button keeps System/Light/Dark mode separate from the theme
+assigned to each mode slot. Both theme selects show the full catalog in Light
+themes and Dark themes groups, so either variant can be assigned to either
+slot. Preferences persist per origin; JavaScript-disabled pages follow the
+uploader defaults and the reader's system mode. Printing always uses GitHub
+Light for the page, syntax highlighting, and Mermaid diagrams.
+
+Built-ins are GitHub Light/Dark, Catppuccin Latte/Mocha, Rose Pine Dawn/Main,
+Solarized Light/Dark, Tokyo Night Day/Night, and One Dark. Custom themes are
+global config entries available to every profile:
+
+```toml
+[themes.docs]
+name = "Docs"
+variant = "dark"
+background = "#10131a"
+foreground = "#e7eaf0"
+muted = "#9aa3b2"
+accent = "#7aa2f7"
+accent_foreground = "#10131a"
+border = "#3b4261"
+surface = "#181c27"
+surface_emphasis = "#242a3a"
+info = "#7dcfff"
+success = "#9ece6a"
+important = "#bb9af7"
+warning = "#e0af68"
+danger = "#f7768e"
+syntax = "derived" # or chroma:<registered-style-name>
+```
+
+Every token is required and colors use `#rrggbb` or `#rrggbbaa`. Built-in IDs
+cannot be replaced, and unknown keys or selected IDs fail before upload. See
+[built-in theme sources](THIRD_PARTY_THEMES.md) for pinned upstream palettes
+and licenses. Custom page templates receive safe theme CSS/catalog fields but
+must opt into all theme styling, controls, and runtime behavior themselves.
 
 ### Inspect configuration
 

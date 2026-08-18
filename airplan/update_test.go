@@ -79,6 +79,37 @@ func TestUpdateDocumentRejectsNameThatChangesExistingSlugBeforeMutation(t *testi
 	}
 }
 
+func TestUpdateDocumentRejectsChangedThemeRecipeBeforeMutation(t *testing.T) {
+	store := newUpgradeStore(t)
+	first, err := store.client(t, "").Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	puts := store.puts
+	store.mu.Unlock()
+
+	client := store.clientWithThemes(t, "", "solarized-light", "one-dark")
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL,
+		Input:  Input{Reader: strings.NewReader("two\n"), Name: "plan.md"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "themes do not match") {
+		t.Fatalf("theme mismatch error = %v", err)
+	}
+	var refusal *updateRefusalError
+	if !errors.As(err, &refusal) || refusal.kind != updateRefusalInvalidTarget {
+		t.Fatalf("theme mismatch refusal = %#v (%T)", refusal, err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.puts != puts {
+		t.Fatalf("theme mismatch performed %d writes", store.puts-puts)
+	}
+}
+
 func TestUpdateDocumentCreatesLinkedRevisionsOnlyOnFirstUpdate(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")
@@ -1956,6 +1987,7 @@ func TestRevisionMetadataCapacityPreflightDoesNotMutateStorage(t *testing.T) {
 		Render: &RenderRecipe{
 			Generation: RendererGeneration,
 			Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
+			Themes: themeRecipePtr(defaultThemeBundle()),
 		},
 		Revision: &RevisionDescriptor{
 			ChainID: metadata.ChainID, Number: metadata.CurrentRevision,
@@ -2008,6 +2040,7 @@ func TestLoadRevisionDocumentUsesDeclaredSourceSizeAndRejectsTruncation(t *testi
 		Render: &RenderRecipe{
 			Generation: RendererGeneration,
 			Template:   RenderTemplate{Kind: "builtin"},
+			Themes:     themeRecipePtr(defaultThemeBundle()),
 		},
 		Objects: []MarkerObject{
 			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},

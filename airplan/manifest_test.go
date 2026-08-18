@@ -106,7 +106,7 @@ func TestAppendManifestRecordCreatesManifestAndRoundTrips(t *testing.T) {
 		`"url":"https://plans.example.com/vq3n/plan.html",` +
 		`"bucket":"plans","profile":"work","kind":"document","slug":"plan",` +
 		`"title":"Refactor auth",` +
-		`"bytes":18432,"marker_version":4}`
+		`"bytes":18432,"marker_version":5}`
 	if lines[0] != wantLine {
 		t.Fatalf("first line = %s, want %s", lines[0], wantLine)
 	}
@@ -226,7 +226,7 @@ func TestReadManifestRecognizesLegacyAndSkipsUnsupportedMarkerVersion(
 			`"bucket":"plans","bytes":1}`,
 		`{"type":"upload","time":"2026-07-08T13:30:11Z",` +
 			`"key":"future.html","url":"https://plans.example.com/future.html",` +
-			`"bucket":"plans","bytes":1,"marker_version":5}`,
+			`"bucket":"plans","bytes":1,"marker_version":6}`,
 		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
 			`"key":"v1.html","url":"https://plans.example.com/v1.html",` +
 			`"bucket":"plans","bytes":1,"marker_version":1}`,
@@ -555,6 +555,45 @@ func TestManifestUpgradeProjectionPreservesCreationTimeAndProtection(t *testing.
 		!active[0].CreatedAt.Equal(created) || !active[0].Protected ||
 		active[0].ProtectReason != "keep" {
 		t.Fatalf("active projection = %+v", active)
+	}
+}
+
+func TestHistoricalV4UploadUpgradeAndLinkRemainVisible(t *testing.T) {
+	created := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	dir := strings.Repeat("h", 26)
+	chain := strings.Repeat("c", 26)
+	pageKey := dir + "/plan.html"
+	markerKey := dir + "/" + MarkerFilename
+	upload := ManifestRecord{
+		Type: "upload", Time: created, CreatedAt: created, Key: pageKey,
+		MarkerKey: markerKey, URL: "https://plans.example.com/" + pageKey,
+		Bucket: "plans", Profile: "work", Format: "md",
+		Kind: string(UploadKindDocument), Slug: "plan", Bytes: 10,
+		MarkerVersion: 4, RevisionChainID: chain, Revision: 1, LatestRevision: 1,
+	}
+	upgrade := upload
+	upgrade.Type = "upgrade"
+	upgrade.Time = created.Add(time.Minute)
+	upgrade.RendererVersion = 2
+	link := upgrade
+	link.Type = "link"
+	link.Time = created.Add(2 * time.Minute)
+	link.LatestRevision = 2
+
+	manifestPath := filepath.Join(t.TempDir(), "manifest.jsonl")
+	for _, record := range []ManifestRecord{upload, upgrade, link} {
+		if err := appendManifestRecord(context.Background(), manifestPath, record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, warnings, err := ReadManifest(manifestPath)
+	if err != nil || len(warnings) != 0 || len(raw) != 3 {
+		t.Fatalf("raw = %+v, warnings = %v, error = %v", raw, warnings, err)
+	}
+	active := ManifestUploads(raw)
+	if len(active) != 1 || active[0].MarkerVersion != 4 ||
+		active[0].Revision != 1 || active[0].LatestRevision != 2 {
+		t.Fatalf("v4 active projection = %+v", active)
 	}
 }
 

@@ -169,7 +169,7 @@ h1 {
     justify-self: start;
   }
 
-  .toolbar .themetoggle {
+  .toolbar .appearance {
     grid-column: 3;
     grid-row: 1;
     justify-self: end;

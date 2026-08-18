@@ -192,8 +192,15 @@ func TestMarkerDeclaredTotalsVersionEligibility(t *testing.T) {
 			wantOK: true, wantObjects: 2, wantBytes: 120,
 		},
 		{
-			name: "unsupported v5",
+			name: "v5",
 			marker: UploadMarker{Version: 5, Objects: []MarkerObject{
+				{Name: "page.html", Role: MarkerRolePage, Bytes: 20},
+			}},
+			wantOK: true, wantObjects: 2, wantBytes: 120,
+		},
+		{
+			name: "unsupported v6",
+			marker: UploadMarker{Version: 6, Objects: []MarkerObject{
 				{Name: "page.html", Role: MarkerRolePage, Bytes: 20},
 			}},
 		},
@@ -310,7 +317,8 @@ func TestManifestRecordNeedsTotalsVersionEligibility(t *testing.T) {
 		{"v2 without source", ManifestRecord{MarkerVersion: 2}, true},
 		{"v3", ManifestRecord{MarkerVersion: 3}, true},
 		{"v4", ManifestRecord{MarkerVersion: 4}, true},
-		{"unsupported v5", ManifestRecord{MarkerVersion: 5}, false},
+		{"v5", ManifestRecord{MarkerVersion: 5}, true},
+		{"unsupported v6", ManifestRecord{MarkerVersion: 6}, false},
 		{"already complete", ManifestRecord{MarkerVersion: MarkerVersion, Objects: 2, TotalBytes: 120}, false},
 	}
 	for _, test := range tests {
@@ -319,6 +327,24 @@ func TestManifestRecordNeedsTotalsVersionEligibility(t *testing.T) {
 				t.Fatalf("manifestRecordNeedsTotals = %t, want %t", got, test.want)
 			}
 		})
+	}
+}
+
+func TestManifestRecordNeedsRevisionProjectionForV4AndV5(t *testing.T) {
+	base := ManifestRecord{
+		Kind: string(UploadKindDocument), Format: "md", SourceKey: "plan.md",
+	}
+	for _, version := range []int{4, 5} {
+		record := base
+		record.MarkerVersion = version
+		if !manifestRecordNeedsRevisionProjection(record) {
+			t.Errorf("v%d standalone record does not request projection enrichment", version)
+		}
+	}
+	unsupported := base
+	unsupported.MarkerVersion = 6
+	if manifestRecordNeedsRevisionProjection(unsupported) {
+		t.Fatal("unsupported marker requests projection enrichment")
 	}
 }
 
@@ -1298,7 +1324,7 @@ func TestManifestRecordDeclaredTotalsJSON(t *testing.T) {
 		`"url":"https://plans.example.com/aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html",` +
 		`"bucket":"plans","profile":"work","format":"md","kind":"document",` +
 		`"slug":"plan","title":"Plan","bytes":18432,"objects":3,` +
-		`"total_bytes":19000,"marker_version":4}`
+		`"total_bytes":19000,"marker_version":5}`
 	if string(encoded) != want {
 		t.Fatalf("encoded =\n%s\nwant\n%s", encoded, want)
 	}

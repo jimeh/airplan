@@ -163,7 +163,7 @@ func (c *Client) PlanUpgradeDocument(
 			"document was produced by a newer renderer"
 		return plan, nil
 	}
-	if marker.Version == MarkerVersion && marker.Render != nil {
+	if marker.Version >= 4 && marker.Render != nil {
 		switch marker.Render.Template.Kind {
 		case "custom":
 			if (c.templateDigest == "" ||
@@ -179,6 +179,12 @@ func (c *Client) PlanUpgradeDocument(
 				return plan, nil
 			}
 		}
+	}
+	if marker.Version >= 5 && marker.Render != nil &&
+		!themeRecipeMatches(marker.Render.Themes, c.cfg.ThemeBundle) && !opts.Force {
+		plan.State, plan.Reason = UpgradeStateIneligible,
+			"configured themes do not match the stored render recipe"
+		return plan, nil
 	}
 	pageKey := dirPrefix + marker.Page
 	sourceKey := dirPrefix + marker.Source
@@ -265,7 +271,7 @@ func (c *Client) PlanUpgradeDocument(
 		}
 	}
 	pageContentCurrent := marker.PageBytes == int64(len(pageBody)) &&
-		(marker.Version < MarkerVersion ||
+		(marker.Version < 4 ||
 			marker.PageSHA256 == contentSHA256(pageBody))
 	switch {
 	case marker.Version < MarkerVersion:
@@ -441,11 +447,13 @@ func (c *Client) materializeUpgrade(plan *UpgradeDocumentPlan) error {
 	}
 	marker := plan.marker
 	recipe := documentRenderRecipe(c.cfg, c.templateDigest)
-	if marker.Version == MarkerVersion && marker.Render != nil &&
+	if marker.Version >= 4 && marker.Render != nil &&
 		c.upgradeTemplateMatches(marker.Render) {
 		copyRecipe := *marker.Render
 		recipe = &copyRecipe
 		recipe.Generation = RendererGeneration
+		themes := themeRecipe(c.cfg.ThemeBundle)
+		recipe.Themes = &themes
 	}
 	previousRevision, err := revisionPrevious(
 		plan.versions, c.cfg, plan.PageKey, marker, plan.diff,
@@ -459,6 +467,7 @@ func (c *Client) materializeUpgrade(plan *UpgradeDocumentPlan) error {
 		NoExternalAssets: recipe.NoExternalAssets,
 		MermaidURL:       recipe.MermaidURL, RepositoryURL: marker.Repo,
 		Template:         c.template,
+		Themes:           c.cfg.ThemeBundle,
 		Revision:         revisionNumber(marker),
 		RevisionCount:    revisionLatest(plan.versions, c.cfg, plan.PageKey),
 		PreviousRevision: previousRevision,
@@ -586,6 +595,14 @@ func (c *Client) upgradeTemplateMatches(recipe *RenderRecipe) bool {
 	default:
 		return false
 	}
+}
+
+func themeRecipeMatches(recipe *ThemeRecipe, bundle *ThemeBundle) bool {
+	if recipe == nil || bundle == nil {
+		return false
+	}
+	want := themeRecipe(bundle)
+	return *recipe == want
 }
 
 func (c *Client) optionalUpgradeControlObject(

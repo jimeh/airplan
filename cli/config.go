@@ -204,6 +204,8 @@ func configDisplayFields(
 			Name: "mermaid_url", Value: cfg.MermaidURL,
 			Set: cfg.MermaidURL != "",
 		},
+		{Name: "light_theme", Value: cfg.LightTheme, Set: true},
+		{Name: "dark_theme", Value: cfg.DarkTheme, Set: true},
 		{Name: "repo", Value: cfg.Repository, Set: cfg.Repository != ""},
 		{Name: "timeout", Value: cfg.Timeout.String(), Set: true},
 	}

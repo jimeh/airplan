@@ -293,6 +293,12 @@ func (c *Client) updateDocument(
 			err:  errors.New("airplan: latest revision's rendering template cannot be reproduced"),
 		}
 	}
+	if !themeRecipeMatches(recipe.Themes, c.cfg.ThemeBundle) {
+		return nil, &updateRefusalError{
+			kind: updateRefusalInvalidTarget,
+			err:  errors.New("airplan: latest revision's themes do not match the configured catalog"),
+		}
+	}
 	pageName := latest.marker.Slug + ".html"
 	sourceName := latest.marker.Slug + ".md"
 	pageKey := BuildKey(c.cfg.KeyPrefix, dir, pageName)
@@ -315,6 +321,7 @@ func (c *Client) updateDocument(
 		SourcePath: "./" + sourceName, Indexable: recipe.Indexable,
 		NoExternalAssets: recipe.NoExternalAssets, MermaidURL: recipe.MermaidURL,
 		RepositoryURL: latest.marker.Repo, Template: c.template,
+		Themes:   c.cfg.ThemeBundle,
 		Revision: newRevision, RevisionCount: newRevision,
 		PreviousRevision: previousRevision, VersionsPath: VersionsFilename,
 		DiffPath: "./" + DiffFilename, DiffText: inlineRevisionDiff(diffBody),
@@ -722,7 +729,7 @@ func (c *Client) loadRevisionDocument(ctx context.Context, target string) (*revi
 	}
 	if marker.Version != MarkerVersion || marker.Kind != UploadKindDocument ||
 		marker.Format != "md" || marker.Source == "" || marker.Render == nil {
-		return nil, errors.New("airplan: update requires a complete v4 source-backed Markdown document; run upgrade first")
+		return nil, errors.New("airplan: update requires a complete v5 source-backed Markdown document; run upgrade first")
 	}
 	if err := validateManagedTarget("update", key, dirPrefix, marker); err != nil {
 		return nil, err
@@ -999,6 +1006,7 @@ func (c *Client) promoteStandaloneRevision(
 		Indexable: recipe.Indexable, NoExternalAssets: recipe.NoExternalAssets,
 		MermaidURL: recipe.MermaidURL, RepositoryURL: doc.marker.Repo,
 		Template: c.template, Revision: 1,
+		Themes:        c.cfg.ThemeBundle,
 		RevisionCount: metadata.LatestRevision, VersionsPath: VersionsFilename,
 	})
 	if err != nil {

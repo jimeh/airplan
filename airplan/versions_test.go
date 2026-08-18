@@ -326,6 +326,7 @@ func TestMarkerV4RevisionDiffRole(t *testing.T) {
 		Render: &RenderRecipe{
 			Generation: RendererGeneration,
 			Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
+			Themes: themeRecipePtr(defaultThemeBundle()),
 		},
 		Revision: &RevisionDescriptor{
 			ChainID: strings.Repeat("b", 26), Number: 2,
