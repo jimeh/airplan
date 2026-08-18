@@ -152,7 +152,7 @@ type Settings struct {
 	LightTheme      string   `toml:"light_theme" json:"light_theme,omitempty" jsonschema_description:"Theme assigned to the reader's light mode slot; defaults to github-light."`
 	DarkTheme       string   `toml:"dark_theme" json:"dark_theme,omitempty" jsonschema_description:"Theme assigned to the reader's dark mode slot; defaults to github-dark."`
 	Theme           string   `toml:"theme" json:"theme,omitempty" jsonschema_description:"Force one theme for every mode and omit appearance controls; overrides light_theme, dark_theme, and available_themes."`
-	AvailableThemes []string `toml:"available_themes" json:"available_themes,omitempty" jsonschema_description:"Ordered theme IDs available to readers; omitted includes every built-in and custom theme."`
+	AvailableThemes []string `toml:"available_themes" json:"available_themes,omitempty" jsonschema:"uniqueItems=true" jsonschema_description:"Ordered theme IDs available to readers; omitted includes every built-in and custom theme."`
 	Repository      string   `toml:"repo" json:"repo,omitempty" jsonschema_description:"Repository context: auto, none, or an explicit GitHub-compatible repository URL."`
 	Timeout         string   `toml:"timeout" json:"timeout,omitempty" jsonschema_description:"Operation timeout as a Go duration or seconds; 0 disables it."`
 }

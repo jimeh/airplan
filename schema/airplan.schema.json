@@ -90,6 +90,7 @@
             "type": "string"
           },
           "type": "array",
+          "uniqueItems": true,
           "description": "Ordered theme IDs available to readers; omitted includes every built-in and custom theme."
         },
         "repo": {
@@ -361,6 +362,7 @@
         "type": "string"
       },
       "type": "array",
+      "uniqueItems": true,
       "description": "Ordered theme IDs available to readers; omitted includes every built-in and custom theme."
     },
     "repo": {

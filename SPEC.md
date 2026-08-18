@@ -552,10 +552,10 @@ already is the original file.
 
 ## 5. Upload Behavior
 
-- Every new upload writes ownership marker version 5. Readers continue to
-  manage versions 1 through 4, but writers never emit them. Marker
-  versions describe wire-schema generations; `kind` distinguishes documents
-  from collections. Older clients fail closed on new v5 uploads.
+- Every new upload writes ownership marker version 5. Current readers manage
+  versions 1 through 5; writers emit only version 5. Marker versions describe
+  wire-schema generations; `kind` distinguishes documents from collections.
+  Older clients fail closed on new v5 uploads.
 
 - The exact marker basename supplies an untrusted LIST-only kind hint:
 
@@ -701,9 +701,10 @@ already is the original file.
   visible to LIST-only discovery but cannot be inspected as valid, fetched,
   deleted, purged, or synced.
 
-- Version 1 through 4 markers are decoded into the current declared-object model after
-  their original wire rules validate. Version 1 omits `page_bytes` and `repo`;
-  version 2 requires positive `page_bytes` and may include `repo`.
+- Marker versions 1 through 5 are supported through the current declared-object
+  model. Versions 1 through 4 are decoded into it after their original wire
+  rules validate. Version 1 omits `page_bytes` and `repo`; version 2 requires
+  positive `page_bytes` and may include `repo`.
 
 - Purge protection (§9) is declared by a sentinel object at the exact key
   `[key_prefix/]<dir>/.airplan-protected.json`. **Presence of the sentinel at
@@ -1859,7 +1860,7 @@ conforming implementations can share a manifest:
   Readers retain an otherwise-valid upload with no `marker_version`
   as legacy history, but it never authorizes delete or purge. An
   unsupported nonzero `marker_version` is invalid and skipped with a
-  warning. Marker versions 1, 2, 3, and 4 are managed; pre-marker entries remain
+  warning. Marker versions 1 through 5 are managed; pre-marker entries remain
   visible as read-only legacy history and are never pruned by `sync`.
 
 Concurrent invocations are expected (parallel agents on one

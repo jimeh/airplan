@@ -90,6 +90,10 @@ func TestConfigSchemaShape(t *testing.T) {
 	if got := backend["default"]; got != "s3" {
 		t.Fatalf("backend default = %v, want s3", got)
 	}
+	rootAvailableThemes := objectAt(t, props, "available_themes")
+	if got := rootAvailableThemes["uniqueItems"]; got != true {
+		t.Fatalf("root available_themes uniqueItems = %v, want true", got)
+	}
 
 	profiles := objectAt(t, props, "profiles")
 	additional := objectAt(t, profiles, "additionalProperties")
@@ -101,6 +105,12 @@ func TestConfigSchemaShape(t *testing.T) {
 	settings := objectAt(t, defs, "Settings")
 	if got := settings["additionalProperties"]; got != false {
 		t.Fatalf("Settings additionalProperties = %v, want false", got)
+	}
+	profileAvailableThemes := objectAt(
+		t, objectAt(t, settings, "properties"), "available_themes",
+	)
+	if got := profileAvailableThemes["uniqueItems"]; got != true {
+		t.Fatalf("profile available_themes uniqueItems = %v, want true", got)
 	}
 
 	themes := objectAt(t, props, "themes")
