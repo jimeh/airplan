@@ -143,6 +143,8 @@ coverage has no equivalent local task on non-Windows hosts.
   through `airplan preview` with isolated configuration, then covers Chromium
   across desktop/narrow and light/dark projects. Keep selectors behavioral and
   accessible; screenshots and traces are failure evidence, not golden files.
+  CI installs only Chromium's headless shell; keep the suite headless or update
+  the browser install step before adding headed coverage.
   Compile through `go env GOROOT`'s own binary rather than PATH: both resolve
   to the same Go, but going direct keeps a mise shim from mutating the build
   environment. Set `GOENV=off` so a developer's persisted `go env -w` settings
