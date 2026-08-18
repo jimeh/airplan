@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/jimeh/airplan/compare/v0.9.0...v0.10.0) (2026-08-18)
+
+
+### Features
+
+* add configurable themes ([#94](https://github.com/jimeh/airplan/issues/94)) ([fcd24a0](https://github.com/jimeh/airplan/commit/fcd24a0ded1329a0a449c9199db77f4e65e805c5))
+
 ## [0.9.0](https://github.com/jimeh/airplan/compare/v0.8.0...v0.9.0) (2026-08-18)
 
 
