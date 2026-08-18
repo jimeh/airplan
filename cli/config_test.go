@@ -195,6 +195,31 @@ func TestConfigShowReportsLoadWarnings(t *testing.T) {
 	}
 }
 
+func TestConfigShowThemeWarningsStayOnStderr(t *testing.T) {
+	isolateEnv(t)
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(`available_themes = ["tokyo-night"]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stdout, stderr, err := executeConfigCommand(t, "show", "--json", "--config", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid([]byte(stdout)) || strings.Contains(stdout, "not listed in available_themes") {
+		t.Fatalf("stdout is contaminated: %q", stdout)
+	}
+	if strings.Count(stderr, "not listed in available_themes") != 2 {
+		t.Fatalf("stderr = %q, want two theme warnings", stderr)
+	}
+	var output configShowJSON
+	if err := json.Unmarshal([]byte(stdout), &output); err != nil {
+		t.Fatal(err)
+	}
+	if field := output.Fields["available_themes"]; !field.Set || field.Source == nil || field.Source.Kind != airplan.ConfigSourceRoot {
+		t.Fatalf("available_themes field = %+v", field)
+	}
+}
+
 func TestConfigShowReturnsResolutionErrors(t *testing.T) {
 	isolateEnv(t)
 	path := filepath.Join(t.TempDir(), "config.toml")

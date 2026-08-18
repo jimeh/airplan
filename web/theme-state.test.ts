@@ -19,8 +19,8 @@ const catalog: ThemeCatalog = {
   defaultLight: "light-a",
   defaultDark: "dark-a",
   themes: [
-    { id: "light-a", name: "Light A", variant: "light", mermaid: {} },
-    { id: "dark-a", name: "Dark A", variant: "dark", mermaid: {} },
+    { id: "light-a", name: "Light A", variant: "light" },
+    { id: "dark-a", name: "Dark A", variant: "dark" },
   ],
 };
 

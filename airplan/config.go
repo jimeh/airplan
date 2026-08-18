@@ -108,6 +108,14 @@ var configFieldDefinitions = []configFieldDefinition{
 		overrideSource: "ConfigOptions.Overrides.dark_theme",
 	},
 	{
+		name: "theme", envName: "AIRPLAN_THEME",
+		overrideSource: "ConfigOptions.Overrides.theme",
+	},
+	{
+		name: "available_themes", builtin: true,
+		overrideSource: "ConfigOptions.Overrides.available_themes",
+	},
+	{
 		name: "repo", builtin: true, envName: "AIRPLAN_REPO",
 		overrideSource: "--repo",
 	},
@@ -140,11 +148,13 @@ type Settings struct {
 	// MermaidURL overrides the Mermaid module URL. Callers representing an
 	// explicit empty override must use ResolveMermaidURLOverride; a bare empty
 	// value is treated as unset when Settings are overlaid.
-	MermaidURL string `toml:"mermaid_url" json:"mermaid_url,omitempty" jsonschema_description:"Absolute HTTPS URL of the Mermaid ECMAScript module."`
-	LightTheme string `toml:"light_theme" json:"light_theme,omitempty" jsonschema_description:"Theme assigned to the reader's light mode slot; defaults to github-light."`
-	DarkTheme  string `toml:"dark_theme" json:"dark_theme,omitempty" jsonschema_description:"Theme assigned to the reader's dark mode slot; defaults to github-dark."`
-	Repository string `toml:"repo" json:"repo,omitempty" jsonschema_description:"Repository context: auto, none, or an explicit GitHub-compatible repository URL."`
-	Timeout    string `toml:"timeout" json:"timeout,omitempty" jsonschema_description:"Operation timeout as a Go duration or seconds; 0 disables it."`
+	MermaidURL      string   `toml:"mermaid_url" json:"mermaid_url,omitempty" jsonschema_description:"Absolute HTTPS URL of the Mermaid ECMAScript module."`
+	LightTheme      string   `toml:"light_theme" json:"light_theme,omitempty" jsonschema_description:"Theme assigned to the reader's light mode slot; defaults to github-light."`
+	DarkTheme       string   `toml:"dark_theme" json:"dark_theme,omitempty" jsonschema_description:"Theme assigned to the reader's dark mode slot; defaults to github-dark."`
+	Theme           string   `toml:"theme" json:"theme,omitempty" jsonschema_description:"Force one theme for every mode and omit appearance controls; overrides light_theme, dark_theme, and available_themes."`
+	AvailableThemes []string `toml:"available_themes" json:"available_themes,omitempty" jsonschema_description:"Ordered theme IDs available to readers; omitted includes every built-in and custom theme."`
+	Repository      string   `toml:"repo" json:"repo,omitempty" jsonschema_description:"Repository context: auto, none, or an explicit GitHub-compatible repository URL."`
+	Timeout         string   `toml:"timeout" json:"timeout,omitempty" jsonschema_description:"Operation timeout as a Go duration or seconds; 0 disables it."`
 }
 
 // FileConfig is the on-disk shape of the TOML config file: shared
@@ -180,6 +190,8 @@ type Config struct {
 	MermaidURL         string
 	LightTheme         string
 	DarkTheme          string
+	Theme              string
+	AvailableThemes    []string
 	Themes             map[string]ThemeConfig
 	ThemeBundle        *ThemeBundle
 	Repository         string
@@ -213,6 +225,10 @@ type Config struct {
 	// group/world-readable config file that contains credentials) for
 	// the caller to print to stderr.
 	Warnings []string
+
+	lightThemeConfigured      bool
+	darkThemeConfigured       bool
+	availableThemesConfigured bool
 }
 
 // ConfigOptions controls LoadConfig.
@@ -426,11 +442,14 @@ func ResolveConfig(opts ConfigOptions) (*ConfigResolution, error) {
 		return nil, err
 	}
 	applyOverrides(cfg, opts.Overrides)
-	bundle, err := ResolveThemeBundle(cfg.LightTheme, cfg.DarkTheme, cfg.Themes)
+	bundle, err := cfg.resolveThemeBundle()
 	if err != nil {
 		return nil, err
 	}
 	cfg.ThemeBundle = bundle
+	cfg.LightTheme = bundle.DefaultLight
+	cfg.DarkTheme = bundle.DefaultDark
+	cfg.Warnings = append(cfg.Warnings, bundle.Warnings...)
 
 	if err := resolveTimeout(cfg, opts, getenv, fileConfig,
 		meta, loaded, profile); err != nil {
@@ -639,6 +658,10 @@ func configOverrideIsSet(settings Settings, name string) bool {
 		return settings.LightTheme != ""
 	case "dark_theme":
 		return settings.DarkTheme != ""
+	case "theme":
+		return settings.Theme != ""
+	case "available_themes":
+		return settings.AvailableThemes != nil
 	case "repo":
 		return settings.Repository != ""
 	case "timeout":
@@ -696,7 +719,7 @@ func (c *Config) Validate() error {
 	if c == nil {
 		return errors.New("airplan: config is nil")
 	}
-	if _, err := ResolveThemeBundle(c.LightTheme, c.DarkTheme, c.Themes); err != nil {
+	if _, err := c.resolveThemeBundle(); err != nil {
 		return err
 	}
 
@@ -1225,15 +1248,27 @@ func applySettings(
 	}
 	if defined("light_theme") {
 		cfg.LightTheme = settings.LightTheme
+		cfg.lightThemeConfigured = true
 		if cfg.LightTheme == "" {
 			cfg.LightTheme = DefaultLightTheme
 		}
 	}
 	if defined("dark_theme") {
 		cfg.DarkTheme = settings.DarkTheme
+		cfg.darkThemeConfigured = true
 		if cfg.DarkTheme == "" {
 			cfg.DarkTheme = DefaultDarkTheme
 		}
+	}
+	if defined("theme") {
+		cfg.Theme = settings.Theme
+	}
+	if defined("available_themes") {
+		cfg.AvailableThemes = append([]string(nil), settings.AvailableThemes...)
+		if cfg.AvailableThemes == nil {
+			cfg.AvailableThemes = []string{}
+		}
+		cfg.availableThemesConfigured = true
 	}
 	if defined("repo") {
 		cfg.Repository = settings.Repository
@@ -1308,8 +1343,12 @@ func applyEnvStringValue(cfg *Config, name, value string) {
 		cfg.MermaidURL = value
 	case "light_theme":
 		cfg.LightTheme = value
+		cfg.lightThemeConfigured = true
 	case "dark_theme":
 		cfg.DarkTheme = value
+		cfg.darkThemeConfigured = true
+	case "theme":
+		cfg.Theme = value
 	case "repo":
 		cfg.Repository = value
 	}
@@ -1336,11 +1375,25 @@ func applyOverrides(cfg *Config, s Settings) {
 		&cfg.MermaidURL:         s.MermaidURL,
 		&cfg.LightTheme:         s.LightTheme,
 		&cfg.DarkTheme:          s.DarkTheme,
+		&cfg.Theme:              s.Theme,
 		&cfg.Repository:         s.Repository,
 	} {
 		if value != "" {
 			*field = value
 		}
+	}
+	if s.LightTheme != "" {
+		cfg.lightThemeConfigured = true
+	}
+	if s.DarkTheme != "" {
+		cfg.darkThemeConfigured = true
+	}
+	if s.AvailableThemes != nil {
+		cfg.AvailableThemes = append([]string(nil), s.AvailableThemes...)
+		if cfg.AvailableThemes == nil {
+			cfg.AvailableThemes = []string{}
+		}
+		cfg.availableThemesConfigured = true
 	}
 	if s.NoSource != nil {
 		cfg.NoSource = *s.NoSource
@@ -1353,6 +1406,20 @@ func applyOverrides(cfg *Config, s Settings) {
 	}
 	// Settings.Timeout is resolved separately (resolveTimeout) so the
 	// winning raw value is parsed exactly once.
+}
+
+func (c *Config) resolveThemeBundle() (*ThemeBundle, error) {
+	return ResolveThemeBundleWithOptions(ThemeBundleOptions{
+		LightTheme:                c.LightTheme,
+		DarkTheme:                 c.DarkTheme,
+		Theme:                     c.Theme,
+		AvailableThemes:           c.AvailableThemes,
+		AvailableThemesSet:        c.AvailableThemes != nil,
+		CustomThemes:              c.Themes,
+		LightThemeConfigured:      c.lightThemeConfigured,
+		DarkThemeConfigured:       c.darkThemeConfigured,
+		AvailableThemesConfigured: c.availableThemesConfigured,
+	})
 }
 
 func warnReadableCredentials(

@@ -71,16 +71,35 @@ type Theme struct {
 }
 
 type browserTheme struct {
-	ID      string         `json:"id"`
-	Name    string         `json:"name"`
-	Variant ThemeVariant   `json:"variant"`
-	Mermaid map[string]any `json:"mermaid"`
+	ID      string       `json:"id"`
+	Name    string       `json:"name"`
+	Variant ThemeVariant `json:"variant"`
 }
 
 type browserThemeCatalog struct {
 	DefaultLight string         `json:"defaultLight"`
 	DefaultDark  string         `json:"defaultDark"`
 	Themes       []browserTheme `json:"themes"`
+}
+
+type browserMermaidCatalog struct {
+	Themes map[string]map[string]any `json:"themes"`
+	Print  map[string]any            `json:"print"`
+}
+
+// ThemeBundleOptions controls selection from the complete built-in and custom
+// theme registry. AvailableThemesSet distinguishes an omitted catalog from an
+// explicitly empty one.
+type ThemeBundleOptions struct {
+	LightTheme                string
+	DarkTheme                 string
+	Theme                     string
+	AvailableThemes           []string
+	AvailableThemesSet        bool
+	CustomThemes              map[string]ThemeConfig
+	LightThemeConfigured      bool
+	DarkThemeConfigured       bool
+	AvailableThemesConfigured bool
 }
 
 // ThemeBundle is the immutable, deterministic rendering input shared by the
@@ -93,6 +112,8 @@ type ThemeBundle struct {
 	CSS           template.CSS
 	SyntaxCSS     template.CSS
 	CatalogJSON   template.JS
+	MermaidJSON   template.JS
+	Warnings      []string
 }
 
 var themeIDPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
@@ -117,21 +138,39 @@ func builtinTheme(id, name string, variant ThemeVariant, syntax string, tokens T
 	return Theme{ID: id, Name: name, Variant: variant, Syntax: "chroma:" + syntax, Tokens: tokens}
 }
 
+func builtinThemeByID(id string) (Theme, bool) {
+	for _, theme := range builtinThemes() {
+		if theme.ID == id {
+			return theme, true
+		}
+	}
+	return Theme{}, false
+}
+
 // ResolveThemeBundle validates and resolves the complete page-local catalog.
 func ResolveThemeBundle(lightID, darkID string, custom map[string]ThemeConfig) (*ThemeBundle, error) {
+	return ResolveThemeBundleWithOptions(ThemeBundleOptions{
+		LightTheme: lightID, DarkTheme: darkID, CustomThemes: custom,
+	})
+}
+
+// ResolveThemeBundleWithOptions validates the complete registry, then builds
+// the page-local selectable catalog described by opts.
+func ResolveThemeBundleWithOptions(opts ThemeBundleOptions) (*ThemeBundle, error) {
+	lightID, darkID := opts.LightTheme, opts.DarkTheme
 	if lightID == "" {
 		lightID = DefaultLightTheme
 	}
 	if darkID == "" {
 		darkID = DefaultDarkTheme
 	}
-	catalog := builtinThemes()
-	reserved := make(map[string]bool, len(catalog))
-	for _, theme := range catalog {
+	registry := builtinThemes()
+	reserved := make(map[string]bool, len(registry))
+	for _, theme := range registry {
 		reserved[theme.ID] = true
 	}
-	ids := make([]string, 0, len(custom))
-	for id := range custom {
+	ids := make([]string, 0, len(opts.CustomThemes))
+	for id := range opts.CustomThemes {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
@@ -139,36 +178,108 @@ func ResolveThemeBundle(lightID, darkID string, custom map[string]ThemeConfig) (
 		if reserved[id] {
 			return nil, fmt.Errorf("airplan: custom theme ID %q is reserved", id)
 		}
-		cfg := custom[id]
+		cfg := opts.CustomThemes[id]
 		theme, err := normalizeTheme(id, cfg)
 		if err != nil {
 			return nil, err
 		}
-		catalog = append(catalog, theme)
+		registry = append(registry, theme)
 	}
-	known := make(map[string]bool, len(catalog))
-	for _, theme := range catalog {
-		known[theme.ID] = true
+	known := make(map[string]Theme, len(registry))
+	for _, theme := range registry {
+		known[theme.ID] = theme
 	}
-	if !known[lightID] {
-		return nil, fmt.Errorf("airplan: light_theme %q does not exist", lightID)
-	}
-	if !known[darkID] {
-		return nil, fmt.Errorf("airplan: dark_theme %q does not exist", darkID)
+	warnings := []string(nil)
+	var catalog []Theme
+	if opts.Theme != "" {
+		forced, ok := known[opts.Theme]
+		if !ok {
+			return nil, fmt.Errorf("airplan: theme %q does not exist", opts.Theme)
+		}
+		lightID, darkID = opts.Theme, opts.Theme
+		catalog = []Theme{forced}
+		var ignored []string
+		if opts.LightThemeConfigured {
+			ignored = append(ignored, "light_theme")
+		}
+		if opts.DarkThemeConfigured {
+			ignored = append(ignored, "dark_theme")
+		}
+		if opts.AvailableThemesConfigured {
+			ignored = append(ignored, "available_themes")
+		}
+		if len(ignored) > 0 {
+			warnings = append(warnings, fmt.Sprintf("theme %q overrides %s", opts.Theme, joinConfigKeys(ignored)))
+		}
+	} else {
+		if _, ok := known[lightID]; !ok {
+			return nil, fmt.Errorf("airplan: light_theme %q does not exist", lightID)
+		}
+		if _, ok := known[darkID]; !ok {
+			return nil, fmt.Errorf("airplan: dark_theme %q does not exist", darkID)
+		}
+		if !opts.AvailableThemesSet {
+			catalog = append([]Theme(nil), registry...)
+		} else {
+			seen := make(map[string]bool, len(opts.AvailableThemes))
+			for _, id := range opts.AvailableThemes {
+				if seen[id] {
+					return nil, fmt.Errorf("airplan: available_themes contains duplicate theme %q", id)
+				}
+				seen[id] = true
+				theme, ok := known[id]
+				if !ok {
+					return nil, fmt.Errorf("airplan: available_themes theme %q does not exist", id)
+				}
+				catalog = append(catalog, theme)
+			}
+			missingLight, missingDark := !seen[lightID], !seen[darkID]
+			if missingLight {
+				catalog = append(catalog, known[lightID])
+				seen[lightID] = true
+			}
+			if missingDark && !seen[darkID] {
+				catalog = append(catalog, known[darkID])
+				seen[darkID] = true
+			}
+			switch {
+			case missingLight && missingDark && lightID == darkID:
+				warnings = append(warnings, fmt.Sprintf("light_theme and dark_theme select %q, which is not listed in available_themes; adding it", lightID))
+			default:
+				if missingLight {
+					warnings = append(warnings, fmt.Sprintf("light_theme %q is not listed in available_themes; adding it", lightID))
+				}
+				if missingDark {
+					warnings = append(warnings, fmt.Sprintf("dark_theme %q is not listed in available_themes; adding it", darkID))
+				}
+			}
+		}
 	}
 
-	canonical, err := json.Marshal(catalog)
+	canonical, err := json.Marshal(struct {
+		DefaultLight string  `json:"defaultLight"`
+		DefaultDark  string  `json:"defaultDark"`
+		Themes       []Theme `json:"themes"`
+	}{lightID, darkID, catalog})
 	if err != nil {
 		return nil, fmt.Errorf("airplan: encode theme catalog: %w", err)
 	}
 	sum := sha256.Sum256(canonical)
 	browser := browserThemeCatalog{DefaultLight: lightID, DefaultDark: darkID}
 	for _, theme := range catalog {
-		browser.Themes = append(browser.Themes, browserTheme{ID: theme.ID, Name: theme.Name, Variant: theme.Variant, Mermaid: mermaidVariables(theme)})
+		browser.Themes = append(browser.Themes, browserTheme{ID: theme.ID, Name: theme.Name, Variant: theme.Variant})
 	}
 	browserJSON, err := json.Marshal(browser)
 	if err != nil {
 		return nil, fmt.Errorf("airplan: encode browser theme catalog: %w", err)
+	}
+	mermaid := browserMermaidCatalog{Themes: make(map[string]map[string]any, len(catalog)), Print: mermaidVariables(known[DefaultLightTheme])}
+	for _, theme := range catalog {
+		mermaid.Themes[theme.ID] = mermaidVariables(theme)
+	}
+	mermaidJSON, err := json.Marshal(mermaid)
+	if err != nil {
+		return nil, fmt.Errorf("airplan: encode Mermaid theme catalog: %w", err)
 	}
 	css, err := renderThemeCSS(catalog, lightID, darkID)
 	if err != nil {
@@ -178,7 +289,17 @@ func ResolveThemeBundle(lightID, darkID string, custom map[string]ThemeConfig) (
 	if err != nil {
 		return nil, err
 	}
-	return &ThemeBundle{Catalog: catalog, DefaultLight: lightID, DefaultDark: darkID, CatalogSHA256: hex.EncodeToString(sum[:]), CSS: template.CSS(css), SyntaxCSS: template.CSS(syntax), CatalogJSON: template.JS(browserJSON)}, nil
+	return &ThemeBundle{Catalog: catalog, DefaultLight: lightID, DefaultDark: darkID, CatalogSHA256: hex.EncodeToString(sum[:]), CSS: template.CSS(css), SyntaxCSS: template.CSS(syntax), CatalogJSON: template.JS(browserJSON), MermaidJSON: template.JS(mermaidJSON), Warnings: warnings}, nil
+}
+
+func joinConfigKeys(keys []string) string {
+	if len(keys) == 1 {
+		return keys[0]
+	}
+	if len(keys) == 2 {
+		return keys[0] + " and " + keys[1]
+	}
+	return strings.Join(keys[:len(keys)-1], ", ") + ", and " + keys[len(keys)-1]
 }
 
 func normalizeTheme(id string, cfg ThemeConfig) (Theme, error) {
@@ -244,6 +365,10 @@ func renderThemeCSS(catalog []Theme, lightID, darkID string) (string, error) {
 	for _, theme := range catalog {
 		byID[theme.ID] = theme
 	}
+	printTheme, ok := builtinThemeByID(DefaultLightTheme)
+	if !ok {
+		return "", fmt.Errorf("airplan: fixed print theme %q is unavailable", DefaultLightTheme)
+	}
 	var out strings.Builder
 	writeProperties := func(selector string, theme Theme) {
 		t := theme.Tokens
@@ -260,7 +385,7 @@ func renderThemeCSS(catalog []Theme, lightID, darkID string) (string, error) {
 	}
 	// Print is a fixed rendering target and deliberately ignores every slot.
 	out.WriteString("@media print{")
-	writeProperties(`:root,:root[data-airplan-theme]`, byID[DefaultLightTheme])
+	writeProperties(`:root,:root[data-airplan-theme]`, printTheme)
 	out.WriteString("body{background:#fff;color:#1f2328}}\n")
 	return out.String(), nil
 }

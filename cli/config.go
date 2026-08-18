@@ -169,6 +169,10 @@ func configDisplayFields(
 	resolution *airplan.ConfigResolution,
 ) []configDisplayField {
 	cfg := resolution.Config
+	availableThemes := make([]string, 0, len(cfg.ThemeBundle.Catalog))
+	for _, theme := range cfg.ThemeBundle.Catalog {
+		availableThemes = append(availableThemes, theme.ID)
+	}
 	fields := []configDisplayField{
 		{Name: "backend", Value: string(cfg.EffectiveBackend()), Set: true},
 		{Name: "api_url", Value: cfg.APIURL, Set: cfg.APIURL != ""},
@@ -206,6 +210,10 @@ func configDisplayFields(
 		},
 		{Name: "light_theme", Value: cfg.LightTheme, Set: true},
 		{Name: "dark_theme", Value: cfg.DarkTheme, Set: true},
+		{Name: "theme", Value: cfg.Theme, Set: cfg.Theme != ""},
+		{
+			Name: "available_themes", Value: availableThemes, Set: true,
+		},
 		{Name: "repo", Value: cfg.Repository, Set: cfg.Repository != ""},
 		{Name: "timeout", Value: cfg.Timeout.String(), Set: true},
 	}

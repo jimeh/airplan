@@ -6,7 +6,11 @@ export interface BrowserTheme {
   id: string;
   name: string;
   variant: ThemeVariant;
-  mermaid: Record<string, string | boolean>;
+}
+
+export interface MermaidThemeCatalog {
+  themes: Record<string, Record<string, string | boolean>>;
+  print: Record<string, string | boolean>;
 }
 
 export interface ThemeCatalog {

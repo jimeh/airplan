@@ -191,11 +191,14 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   column AST nodes, and a node renderer emits the fixed div markup. Goldmark
   parses all child Markdown in one document, preserving heading IDs and
   table-of-contents order; invalid structures remain ordinary Markdown nodes.
-- Themes: `ResolveThemeBundle` validates the fixed catalog plus sorted global
-  custom entries, normalizes hex colors, hashes canonical JSON, and produces
-  safe semantic CSS/browser metadata once per resolved config. Go owns the
-  immutable domain, deterministic color mixing, Chroma styles, and marker
-  recipe; TypeScript owns reader mode/slot state and interaction only.
+- Themes: `ResolveThemeBundleWithOptions` validates the fixed registry plus
+  every sorted global custom entry before selecting the configured ordered
+  subset. It normalizes hex colors, hashes the selected order and defaults,
+  and produces safe semantic CSS plus lightweight browser metadata once per
+  resolved config. Mermaid palettes are separate and injected only for pages
+  containing diagrams, with GitHub Light retained as an internal print target.
+  Go owns the immutable domain, deterministic color mixing, Chroma styles, and
+  marker recipe; TypeScript owns reader mode/slot state and interaction only.
 - Highlighting: Chroma emits class-based markup. Built-ins select exact
   registered styles and custom themes either select `chroma:<name>` or build a
   semantic style with `chroma.NewStyleBuilder`. Generated rules are compacted,

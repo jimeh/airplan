@@ -70,7 +70,9 @@
 {{- end}}
   </div>
 {{- end}}
+{{- if .AppearanceEnabled}}
 <!-- airplan:theme-toggle -->
+{{- end}}
 </nav>
 {{- if .TOC}}
 <nav class="toc" id="toc" aria-label="Table of contents">
@@ -120,6 +122,7 @@
 /* airplan:page-js */
 </script>
 {{- if and .HasMermaid (not .NoExternalAssets)}}
+<script>window.__AIRPLAN_MERMAID_THEMES__={{.MermaidThemeJSON}};</script>
 <script type="module" referrerpolicy="no-referrer">
 /* airplan:mermaid-js */
 </script>

@@ -846,6 +846,7 @@ the shared credentials file.
 | `AIRPLAN_COLLECTION_TEMPLATE`       | Select a collection overview template         |
 | `AIRPLAN_LIGHT_THEME`               | Select the default light-mode slot theme      |
 | `AIRPLAN_DARK_THEME`                | Select the default dark-mode slot theme       |
+| `AIRPLAN_THEME`                     | Force one theme and omit appearance controls  |
 | `AIRPLAN_NO_EXTERNAL_ASSETS`        | Disable airplan-managed external loads        |
 | `AIRPLAN_MERMAID_URL`               | Set an alternate HTTPS Mermaid module URL     |
 | `AIRPLAN_REPO`                      | Set `auto`, `none`, or a repository URL       |
@@ -862,6 +863,21 @@ themes and Dark themes groups, so either variant can be assigned to either
 slot. Preferences persist per origin; JavaScript-disabled pages follow the
 uploader defaults and the reader's system mode. Printing always uses GitHub
 Light for the page, syntax highlighting, and Mermaid diagrams.
+
+Limit the selectable catalog, preserving the listed order within each variant
+group, with a root- or profile-level list:
+
+```toml
+available_themes = ["github-light", "tokyo-night-day", "tokyo-night"]
+light_theme = "tokyo-night-day"
+dark_theme = "tokyo-night"
+```
+
+Airplan adds a configured slot default missing from that list and warns on
+stderr. An explicit profile list replaces the root list. To publish a fixed
+theme with no appearance button, use `theme = "tokyo-night"` (or
+`AIRPLAN_THEME`); it takes priority over the list and slot defaults, warning
+when they are also explicitly configured.
 
 Built-ins are GitHub Light/Dark, Catppuccin Latte/Mocha, Rose Pine Dawn/Main,
 Solarized Light/Dark, Tokyo Night Day/Night, and One Dark. Custom themes are
@@ -891,8 +907,9 @@ Every token is required and colors use `#rrggbb` or `#rrggbbaa`. Built-in IDs
 cannot be replaced, and unknown keys or selected IDs fail before upload.
 Omitting `syntax` or setting it to an empty string is equivalent to `derived`.
 See [built-in theme sources](THIRD_PARTY_THEMES.md) for pinned upstream palettes
-and licenses. Custom page templates receive safe theme CSS/catalog fields but
-must opt into all theme styling, controls, and runtime behavior themselves.
+and licenses. Custom page templates receive safe theme CSS/catalog fields,
+conditional Mermaid palette data, and `.AppearanceEnabled`, but must opt into
+all theme styling, controls, and runtime behavior themselves.
 
 ### Inspect configuration
 

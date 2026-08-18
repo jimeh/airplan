@@ -57,6 +57,7 @@ func TestConfigSchemaShape(t *testing.T) {
 		"access_key_id",
 		"api_token",
 		"api_url",
+		"available_themes",
 		"backend",
 		"bucket",
 		"collection_template",
@@ -75,6 +76,7 @@ func TestConfigSchemaShape(t *testing.T) {
 		"repo",
 		"secret_access_key",
 		"template",
+		"theme",
 		"themes",
 		"timeout",
 	}

@@ -96,6 +96,9 @@ const legacyThemePage = `<!doctype html><html><body>
 let baseURL = "";
 let collectionURL = "";
 let customURL = "";
+let fixedURL = "";
+let fixedCollectionURL = "";
+let subsetURL = "";
 let collectionMembers = new Map<string, Buffer>();
 let fixtureSource = "";
 let mermaidURL = "";
@@ -104,6 +107,9 @@ let sourceURL = "";
 let tempRoot = "";
 let collectionHTML = Buffer.alloc(0);
 let customHTML = Buffer.alloc(0);
+let fixedHTML = Buffer.alloc(0);
+let fixedCollectionHTML = Buffer.alloc(0);
+let subsetHTML = Buffer.alloc(0);
 let revisionHTML = Buffer.alloc(0);
 const versionRequests: Array<{
   headers: import("node:http").IncomingHttpHeaders;
@@ -165,6 +171,9 @@ test.beforeAll(async () => {
   const outputPath = join(tempRoot, "index.html");
   const collectionOutputPath = join(tempRoot, "collection.html");
   const customOutputPath = join(tempRoot, "custom.html");
+  const fixedOutputPath = join(tempRoot, "fixed.html");
+  const fixedCollectionOutputPath = join(tempRoot, "fixed-collection.html");
+  const subsetOutputPath = join(tempRoot, "subset.html");
   const revisionOutputPath = join(tempRoot, "revision.html");
   const configRoot = join(tempRoot, "config");
   const env = cleanEnv();
@@ -175,6 +184,46 @@ test.beforeAll(async () => {
   await execFileAsync(
     binaryPath,
     ["preview", "--repo", "none", "--output", outputPath, fixturePath],
+    { cwd: repoRoot, env },
+  );
+  const subsetConfigPath = join(tempRoot, "subset-config", "airplan.toml");
+  await mkdir(dirname(subsetConfigPath), { recursive: true });
+  await writeFile(
+    subsetConfigPath,
+    `available_themes = ["tokyo-night", "one-dark"]
+light_theme = "one-dark"
+dark_theme = "tokyo-night"
+`,
+  );
+  await execFileAsync(
+    binaryPath,
+    [
+      "preview",
+      "--config",
+      subsetConfigPath,
+      "--repo",
+      "none",
+      "--output",
+      subsetOutputPath,
+      fixturePath,
+    ],
+    { cwd: repoRoot, env },
+  );
+  const fixedConfigPath = join(tempRoot, "fixed-config", "airplan.toml");
+  await mkdir(dirname(fixedConfigPath), { recursive: true });
+  await writeFile(fixedConfigPath, `theme = "tokyo-night"\n`);
+  await execFileAsync(
+    binaryPath,
+    [
+      "preview",
+      "--config",
+      fixedConfigPath,
+      "--repo",
+      "none",
+      "--output",
+      fixedOutputPath,
+      fixturePath,
+    ],
     { cwd: repoRoot, env },
   );
   await execFileAsync(fixtureBinaryPath, [revisionOutputPath], {
@@ -189,6 +238,21 @@ test.beforeAll(async () => {
   await writeFile(join(tempRoot, "demo.webm"), "video fixture");
   await writeFile(join(tempRoot, "sound.ogg"), "audio fixture");
   await writeFile(join(tempRoot, "notes.bin"), "generic fixture");
+  await execFileAsync(
+    binaryPath,
+    [
+      "preview",
+      "--config",
+      fixedConfigPath,
+      "--files",
+      "--repo",
+      "none",
+      "--output",
+      fixedCollectionOutputPath,
+      join(tempRoot, "notes.bin"),
+    ],
+    { cwd: repoRoot, env },
+  );
   await execFileAsync(
     binaryPath,
     [
@@ -250,6 +314,9 @@ syntax = "derived"
   const html = await readFile(outputPath);
   collectionHTML = await readFile(collectionOutputPath);
   customHTML = await readFile(customOutputPath);
+  fixedHTML = await readFile(fixedOutputPath);
+  fixedCollectionHTML = await readFile(fixedCollectionOutputPath);
+  subsetHTML = await readFile(subsetOutputPath);
   revisionHTML = await readFile(revisionOutputPath);
   collectionMembers = new Map([
     ["/demo.webm", await readFile(join(tempRoot, "demo.webm"))],
@@ -279,6 +346,12 @@ syntax = "derived"
       body = collectionHTML;
     } else if (request.url === "/custom") {
       body = customHTML;
+    } else if (request.url === "/subset") {
+      body = subsetHTML;
+    } else if (request.url === "/fixed") {
+      body = fixedHTML;
+    } else if (request.url === "/fixed-collection") {
+      body = fixedCollectionHTML;
     } else if (request.url === "/legacy-theme") {
       body = Buffer.from(legacyThemePage);
     } else if (request.url === "/shot.svg") {
@@ -310,6 +383,9 @@ syntax = "derived"
   baseURL = `http://127.0.0.1:${address.port}`;
   collectionURL = `${baseURL}/collection`;
   customURL = `${baseURL}/custom`;
+  subsetURL = `${baseURL}/subset`;
+  fixedURL = `${baseURL}/fixed`;
+  fixedCollectionURL = `${baseURL}/fixed-collection`;
   sourceURL = `${baseURL}/source`;
 });
 
@@ -484,6 +560,55 @@ test("appearance panel groups the full catalog and allows cross-variant slots", 
   if (testInfo.project.name === "desktop-light" || testInfo.project.name === "narrow-light") {
     if (!(await panel.isVisible())) await trigger.click();
     await page.screenshot({ path: testInfo.outputPath("appearance-panel.png"), fullPage: true });
+  }
+});
+
+test("configured subset is the only grouped appearance catalog", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers catalog filtering");
+  await page.goto(subsetURL);
+  await page.getByRole("button", { name: "Appearance" }).click();
+  const light = page.getByRole("combobox", { name: "Light theme", exact: true });
+  const dark = page.getByRole("combobox", { name: "Dark theme", exact: true });
+  for (const select of [light, dark]) {
+    await expect(select.locator('optgroup[label="Light themes"]')).toHaveCount(0);
+    await expect(select.locator('optgroup[label="Dark themes"] option')).toHaveCount(2);
+    await expect(select.locator("option")).toHaveText(["Tokyo Night", "One Dark"]);
+  }
+});
+
+test("forced theme ignores stored preferences and omits appearance controls", async ({
+  browser,
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers fixed pages");
+  await page.addInitScript(() => {
+    localStorage.setItem("airplan-color-mode", "light");
+    localStorage.setItem("airplan-light-theme", "github-light");
+    localStorage.setItem("airplan-dark-theme", "github-dark");
+  });
+  for (const url of [fixedURL, fixedCollectionURL]) {
+    await page.goto(url);
+    await expect(page.locator("html")).toHaveAttribute("data-airplan-theme", "tokyo-night");
+    await expect(page.getByRole("button", { name: "Appearance" })).toHaveCount(0);
+  }
+  await page.goto(fixedURL);
+  await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
+    "data-mermaid-theme",
+    "tokyo-night",
+  );
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
+    "data-mermaid-theme",
+    "github-light",
+  );
+  const noJS = await browser.newContext({ colorScheme: "light", javaScriptEnabled: false });
+  try {
+    const noJSPage = await noJS.newPage();
+    await noJSPage.goto(fixedURL);
+    await expect(noJSPage.getByRole("button", { name: "Appearance" })).toHaveCount(0);
+    await expect(noJSPage.locator("body")).toHaveCSS("background-color", "rgb(26, 27, 38)");
+  } finally {
+    await noJS.close();
   }
 });
 

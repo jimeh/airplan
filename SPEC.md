@@ -303,7 +303,9 @@ described below.
     without color or background transitions when their active state or the
     page theme changes. Reader state uses `airplan-color-mode`,
     `airplan-light-theme`, and `airplan-dark-theme`. When the new mode key is
-    absent, `airplan-theme=light|dark` seeds it. Explicit new-mode writes mirror
+    absent, `airplan-theme=light|dark` seeds it. The complete appearance
+    trigger and panel are omitted when the resolved selectable catalog has one
+    entry. Explicit new-mode writes mirror
     that legacy key; System removes both mode keys. Unknown stored theme IDs are
     retained but inactive on pages whose catalogs do not contain them.
   - Rendered/source toggle: switch between the rendered plan and a
@@ -408,8 +410,10 @@ against):
 | `.HighlightedDiffHTML`        | raw HTML  | highlighted inline adjacent diff     |
 | `.ThemeCSS`                   | raw CSS   | validated semantic screen/print CSS  |
 | `.ThemeCatalogJSON`           | safe JS   | validated browser catalog metadata   |
+| `.MermaidThemeJSON`           | safe JS   | palettes, or empty without Mermaid   |
 | `.DefaultLightTheme`          | string    | configured light-slot theme ID       |
 | `.DefaultDarkTheme`           | string    | configured dark-slot theme ID        |
+| `.AppearanceEnabled`          | boolean   | catalog has more than one theme      |
 
 Each heading has `.Level` (1–6), `.ID`, `.Text`, and `.IsTitle`.
 `.IsTitle` is true only for a leading H1 that the built-in table of
@@ -1367,6 +1371,7 @@ AIRPLAN_TEMPLATE
 AIRPLAN_COLLECTION_TEMPLATE
 AIRPLAN_LIGHT_THEME
 AIRPLAN_DARK_THEME
+AIRPLAN_THEME
 AIRPLAN_NO_EXTERNAL_ASSETS
 AIRPLAN_MERMAID_URL
 AIRPLAN_REPO
@@ -1440,6 +1445,22 @@ mode slots. They are profile-aware and may also be overridden by
 flags. Either slot may name a theme of either variant. Defaults are
 `github-light` and `github-dark`.
 
+`available_themes` is an optional profile-aware ordered list of selectable
+theme IDs. A profile value replaces, rather than merges with, an inherited
+root list. Omission selects every built-in followed by custom themes in sorted
+ID order; an explicit empty list is valid. Duplicate and unknown IDs are
+errors. If a configured light or dark default is missing, Airplan appends it
+in light-then-dark order and warns on stderr; the same missing ID is appended
+and warned about only once. Reader selects preserve configured order within
+their Light themes and Dark themes groups and omit an empty group.
+
+`theme` forces one theme for both mode slots, makes the selectable catalog
+exactly that theme, and omits the built-in appearance controls. It is
+profile-aware and may be overridden by `AIRPLAN_THEME`. When combined with
+explicit effective `light_theme`, `dark_theme`, or `available_themes`, it wins
+and one warning naming the ignored keys is printed to stderr. Built-in slot
+defaults alone never cause that warning. An unknown forced ID is an error.
+
 The reserved built-in catalog is `github-light`, `catppuccin-latte`,
 `rose-pine-dawn`, `solarized-light`, `tokyo-night-day`, `github-dark`,
 `catppuccin-mocha`, `rose-pine`, `solarized-dark`, `tokyo-night`, and
@@ -1476,21 +1497,26 @@ is normalized to lowercase `#rrggbb` or `#rrggbbaa`. `syntax` is omitted,
 empty, `derived`, or exactly `chroma:<registered-style-name>`; omitted and
 empty both derive highlighting from the semantic tokens. Chroma names are
 validated against the registered list without fallback. Reserved/malformed
-IDs, incomplete token sets, unknown keys, invalid colors or variants,
-malformed syntax selectors, and selected IDs absent from the resolved catalog
-are configuration errors before rendering or upload.
+IDs, incomplete token sets, unknown keys, invalid colors or variants, malformed
+syntax selectors, and unknown slot, forced, or available theme IDs are
+configuration errors before rendering or upload. Known slot defaults omitted
+from `available_themes` are instead appended with the warnings described above.
 
-Catalog entries are canonicalized deterministically, custom IDs are sorted,
-and the complete normalized catalog is SHA-256 hashed for render provenance.
-Built-in pages embed semantic CSS and safe browser metadata for that immutable
-catalog. Under `@media print`, page tokens, syntax, and prepared Mermaid output
+All custom definitions are validated even when excluded from the selectable
+catalog. Selected entries are canonicalized deterministically, and their
+order plus both defaults are SHA-256 hashed for render provenance. Built-in
+pages embed semantic CSS and lightweight browser metadata only for that
+immutable selection. Mermaid palettes are embedded only on documents that
+contain Mermaid, and cover the selection plus an internal fixed print palette.
+Under `@media print`, page tokens, syntax, and prepared Mermaid output
 are always GitHub Light regardless of mode, slot assignments, or custom themes.
 
 If the config file contains credentials and is group- or
 world-readable, a warning is printed to stderr.
 
 Behavioral defaults: `template`, `collection_template`, `light_theme`,
-`dark_theme`, `no_source`, `indexable`, `no_external_assets`, `mermaid_url`,
+`dark_theme`, `theme`, `available_themes`, `no_source`, `indexable`,
+`no_external_assets`, `mermaid_url`,
 `repo`, and `timeout` may be set at the root or profile level. Applicable flags
 override the config values; theme selection intentionally has no CLI flags.
 

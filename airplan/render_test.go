@@ -199,6 +199,31 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		}
 	})
 
+	t.Run("single theme omits appearance controls", func(t *testing.T) {
+		bundle, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{Theme: "one-dark"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := render(t, src, RenderOptions{Title: "Hi", Themes: bundle})
+		if strings.Contains(out, `aria-controls="airplan-appearance-panel"`) || strings.Contains(out, `<select data-airplan-theme-slot`) {
+			t.Fatal("single-theme page contains appearance controls")
+		}
+		if !strings.Contains(out, `data-airplan-theme="one-dark"`) && !strings.Contains(out, `"defaultLight":"one-dark"`) {
+			t.Fatal("single-theme page does not embed its fixed theme")
+		}
+	})
+
+	t.Run("Mermaid palette metadata is conditional", func(t *testing.T) {
+		plain := render(t, src, RenderOptions{Title: "Hi"})
+		if strings.Contains(plain, "__AIRPLAN_MERMAID_THEMES__") || strings.Contains(plain, `"airplanTheme"`) {
+			t.Fatal("page without Mermaid contains Mermaid palette metadata")
+		}
+		mermaid := render(t, []byte("```mermaid\ngraph TD\n A-->B\n```\n"), RenderOptions{Title: "Diagram"})
+		if !strings.Contains(mermaid, "__AIRPLAN_MERMAID_THEMES__") || !strings.Contains(mermaid, `"airplanTheme":"github-light"`) {
+			t.Fatal("Mermaid page is missing palette metadata")
+		}
+	})
+
 	t.Run("indexable omits robots meta", func(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "Hi", Indexable: true})
 		if strings.Contains(out, `name="robots"`) {
@@ -348,7 +373,7 @@ func TestRenderMarkdownMermaid(t *testing.T) {
 	}
 	for _, fragment := range []string{
 		`theme: "base"`,
-		`themeVariables: theme.mermaid`,
+		`themeVariables: variables`,
 		`secure: ["theme", "themeVariables", "themeCSS", "darkMode"]`,
 		`window.addEventListener("beforeprint", () => {`,
 		`showTheme(printThemeKey);`,

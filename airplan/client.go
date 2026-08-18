@@ -124,7 +124,7 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 	if cfg.MermaidURL == "" {
 		cfg.MermaidURL = DefaultMermaidURL
 	}
-	bundle, err := ResolveThemeBundle(cfg.LightTheme, cfg.DarkTheme, cfg.Themes)
+	bundle, err := cfg.resolveThemeBundle()
 	if err != nil {
 		return nil, err
 	}

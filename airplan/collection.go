@@ -33,6 +33,7 @@ type CollectionTemplateData struct {
 	ThemeCatalogJSON  template.JS
 	DefaultLightTheme string
 	DefaultDarkTheme  string
+	AppearanceEnabled bool
 }
 
 // CollectionTemplateFile describes one file exposed to a collection template.
@@ -411,6 +412,7 @@ func collectionTemplateData(title string, files []collectionFile, total int64, i
 		Indexable: indexable, RepositoryURL: repo,
 		ThemeCSS: bundle.CSS, ThemeCatalogJSON: bundle.CatalogJSON,
 		DefaultLightTheme: bundle.DefaultLight, DefaultDarkTheme: bundle.DefaultDark,
+		AppearanceEnabled: len(bundle.Catalog) > 1,
 	}
 }
 

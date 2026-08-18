@@ -1,6 +1,7 @@
 import {
   createLatestRequestGuard,
   type AirplanThemeChangeDetail,
+  type MermaidThemeCatalog,
   type ThemeCatalog,
 } from "./theme-state";
 
@@ -18,12 +19,19 @@ interface MermaidViewer {
   enhance(block: HTMLPreElement): void;
 }
 
+declare global {
+  interface Window {
+    __AIRPLAN_MERMAID_THEMES__?: MermaidThemeCatalog;
+  }
+}
+
 const diagrams = Array.from(document.querySelectorAll<HTMLPreElement>("pre.mermaid"));
 const mermaidModuleURL = "__AIRPLAN_MERMAID_MODULE_URL__";
 const sources = diagrams.map((diagram) => diagram.textContent);
 const variants = diagrams.map(() => new Map<string, MermaidRenderResult>());
 const failedVariants = diagrams.map(() => new Set<string>());
 const catalog = window.__AIRPLAN_THEME_CATALOG__ as ThemeCatalog | undefined;
+const mermaidCatalog = window.__AIRPLAN_MERMAID_THEMES__ as MermaidThemeCatalog | undefined;
 const printMedia = matchMedia("print");
 const printThemeKey = "__airplan-print-github-light";
 let mermaidCloneID = 0;
@@ -454,11 +462,11 @@ function createMermaidViewer(): MermaidViewer | null {
 }
 
 try {
-  if (!catalog) throw new Error("theme catalog is unavailable");
+  if (!catalog || !mermaidCatalog) throw new Error("theme catalog is unavailable");
+  const palettes = mermaidCatalog;
   const { default: mermaid } = (await import(mermaidModuleURL)) as {
     default: MermaidAPI;
   };
-  const themeByID = new Map(catalog.themes.map((theme) => [theme.id, theme]));
   let queue = Promise.resolve();
   const preparations = new Map<string, Promise<void>>();
 
@@ -470,8 +478,8 @@ try {
     if (themePrepared(key)) return Promise.resolve();
     const existing = preparations.get(key);
     if (existing) return existing;
-    const theme = themeByID.get(themeID);
-    if (!theme) return Promise.resolve();
+    const variables = key === printThemeKey ? palettes.print : palettes.themes[themeID];
+    if (!variables) return Promise.resolve();
     const task = queue.then(async () => {
       if (themePrepared(key)) return;
       try {
@@ -480,7 +488,7 @@ try {
           securityLevel: "strict",
           secure: ["theme", "themeVariables", "themeCSS", "darkMode"],
           theme: "base",
-          themeVariables: theme.mermaid,
+          themeVariables: variables,
         });
       } catch (error) {
         failedVariants.forEach((failures, index) => {
@@ -540,13 +548,11 @@ try {
   ]);
   for (const themeID of startup) await renderTheme(themeID);
   await preparations.get("github-light");
-  if (themePrepared("github-light")) {
+  if (palettes.themes["github-light"] && themePrepared("github-light")) {
     variants.forEach((cache, index) => {
       const rendered = cache.get("github-light");
       if (rendered) cache.set(printThemeKey, rendered);
-      if (failedVariants[index].has("github-light")) {
-        failedVariants[index].add(printThemeKey);
-      }
+      if (failedVariants[index].has("github-light")) failedVariants[index].add(printThemeKey);
     });
   } else {
     await renderTheme("github-light", printThemeKey);

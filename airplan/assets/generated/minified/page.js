@@ -2,45 +2,45 @@
   function BE(E) {
     return E === "system" || E === "light" || E === "dark";
   }
-  function r(E, f) {
+  function i(E, A) {
     try {
-      return E?.getItem(f) ?? null;
+      return E?.getItem(A) ?? null;
     } catch {
       return null;
     }
   }
-  function L(E, f, I) {
+  function L(E, A, I) {
     try {
       if (I === null)
-        E?.removeItem(f);
+        E?.removeItem(A);
       else
-        E?.setItem(f, I);
+        E?.setItem(A, I);
     } catch {}
   }
-  function _E(E, f, I) {
-    let H = r(I, "airplan-color-mode");
+  function _E(E, A, I) {
+    let H = i(I, "airplan-color-mode");
     if (H === null) {
-      let j = r(I, "airplan-theme");
+      let j = i(I, "airplan-theme");
       if (H = j === "light" || j === "dark" ? j : "system", H !== "system")
         L(I, "airplan-color-mode", H);
     }
-    let V = BE(H) ? H : "system", Y = new Set(E.themes.map((j) => j.id)), A = r(I, "airplan-light-theme"), J = r(I, "airplan-dark-theme"), O = A !== null && Y.has(A) ? A : E.defaultLight, K = J !== null && Y.has(J) ? J : E.defaultDark;
-    return a(E, V, O, K, f);
+    let V = BE(H) ? H : "system", Y = new Set(E.themes.map((j) => j.id)), f = i(I, "airplan-light-theme"), J = i(I, "airplan-dark-theme"), O = f !== null && Y.has(f) ? f : E.defaultLight, K = J !== null && Y.has(J) ? J : E.defaultDark;
+    return a(E, V, O, K, A);
   }
-  function a(E, f, I, H, V) {
-    let Y = new Map(E.themes.map((x) => [x.id, x])), A = Y.has(I) ? I : E.defaultLight, J = Y.has(H) ? H : E.defaultDark, O = f === "system" ? V ? "dark" : "light" : f, K = O === "light" ? A : J, j = Y.get(K)?.variant ?? O;
-    return { mode: f, resolvedMode: O, lightTheme: A, darkTheme: J, theme: K, variant: j };
+  function a(E, A, I, H, V) {
+    let Y = new Map(E.themes.map((x) => [x.id, x])), f = Y.has(I) ? I : E.defaultLight, J = Y.has(H) ? H : E.defaultDark, O = A === "system" ? V ? "dark" : "light" : A, K = O === "light" ? f : J, j = Y.get(K)?.variant ?? O;
+    return { mode: A, resolvedMode: O, lightTheme: f, darkTheme: J, theme: K, variant: j };
   }
-  function hE(E, f) {
-    if (f === "system")
+  function hE(E, A) {
+    if (A === "system")
       L(E, "airplan-color-mode", null), L(E, "airplan-theme", null);
     else
-      L(E, "airplan-color-mode", f), L(E, "airplan-theme", f);
+      L(E, "airplan-color-mode", A), L(E, "airplan-theme", A);
   }
-  function uE(E, f, I) {
-    L(E, f === "light" ? "airplan-light-theme" : "airplan-dark-theme", I);
+  function uE(E, A, I) {
+    L(E, A === "light" ? "airplan-light-theme" : "airplan-dark-theme", I);
   }
-  function AE(E) {
+  function fE(E) {
     return {
       mode: E.mode,
       resolvedMode: E.resolvedMode,
@@ -50,19 +50,19 @@
   }
 
   (function() {
-    let E = document, f = E.documentElement, I = window.__AIRPLAN_THEME_CATALOG__;
+    let E = document, A = E.documentElement, I = window.__AIRPLAN_THEME_CATALOG__;
     if (!I)
       return;
     let H = I, V = window.matchMedia("(prefers-color-scheme: dark)"), Y;
     try {
       Y = window.localStorage;
     } catch {}
-    let A = window.__airplanThemeState ?? _E(H, V.matches, Y);
+    let f = window.__airplanThemeState ?? _E(H, V.matches, Y);
     E.querySelectorAll(".js-only").forEach((h) => {
       h.hidden = !1;
     });
     let J = E.querySelector("[data-airplan-appearance-trigger]"), O = E.querySelector("[data-airplan-appearance-panel]"), K = E.querySelector('select[data-airplan-theme-slot="light"]'), j = E.querySelector('select[data-airplan-theme-slot="dark"]'), x = Array.from(E.querySelectorAll("[data-airplan-color-mode]"));
-    function b(h) {
+    function n(h) {
       if (!h || h.options.length > 0)
         return;
       for (let [M, W] of [
@@ -77,23 +77,24 @@
           let X = E.createElement("option");
           X.value = w.id, X.textContent = w.name, Z.append(X);
         }
-        h.append(Z);
+        if (Z.children.length > 0)
+          h.append(Z);
       }
     }
-    b(K), b(j);
+    n(K), n(j);
     function R(h, M = !0) {
-      if (A = h, window.__airplanThemeState = A, f.dataset.airplanMode = A.mode, f.dataset.airplanResolvedMode = A.resolvedMode, f.dataset.airplanTheme = A.theme, f.dataset.airplanThemeVariant = A.variant, x.forEach((W) => {
-        let Z = W.dataset.airplanColorMode === A.mode;
+      if (f = h, window.__airplanThemeState = f, A.dataset.airplanMode = f.mode, A.dataset.airplanResolvedMode = f.resolvedMode, A.dataset.airplanTheme = f.theme, A.dataset.airplanThemeVariant = f.variant, x.forEach((W) => {
+        let Z = W.dataset.airplanColorMode === f.mode;
         W.classList.toggle("active", Z), W.setAttribute("aria-pressed", String(Z));
       }), K)
-        K.value = A.lightTheme;
+        K.value = f.lightTheme;
       if (j)
-        j.value = A.darkTheme;
+        j.value = f.darkTheme;
       if (M)
-        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: AE(A) }));
+        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: fE(f) }));
     }
     function U(h = {}) {
-      R(a(H, h.mode ?? A.mode, h.lightTheme ?? A.lightTheme, h.darkTheme ?? A.darkTheme, V.matches));
+      R(a(H, h.mode ?? f.mode, h.lightTheme ?? f.lightTheme, h.darkTheme ?? f.darkTheme, V.matches));
     }
     function m(h, M = !1) {
       if (!O || !J)
@@ -109,11 +110,11 @@
         return;
       hE(Y, M), U({ mode: M });
     }));
-    function n(h, M) {
+    function b(h, M) {
       uE(Y, h, M.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: M.value } })), U(h === "light" ? { lightTheme: M.value } : { darkTheme: M.value });
     }
-    K?.addEventListener("change", () => n("light", K)), j?.addEventListener("change", () => n("dark", j)), V.addEventListener("change", () => {
-      if (A.mode === "system")
+    K?.addEventListener("change", () => b("light", K)), j?.addEventListener("change", () => b("dark", j)), V.addEventListener("change", () => {
+      if (f.mode === "system")
         U();
     }), E.addEventListener("keydown", (h) => {
       if (h.key === "Escape" && O && !O.hidden)
@@ -130,17 +131,17 @@
           if (E.activeElement === E.body || O.contains(E.activeElement))
             J.focus();
         });
-    }), R(A, !1);
+    }), R(f, !1);
   })();
 
   (function() {
     var E = document;
-    let f = E.getElementById("rendered");
-    if (!f)
+    let A = E.getElementById("rendered");
+    if (!A)
       return;
-    let I = f;
+    let I = A;
     var H = E.querySelector('meta[name="airplan-versions"]'), V = window.location.pathname.split("/").filter(Boolean), Y = V.slice(0, -2);
-    function A(S, B) {
+    function f(S, B) {
       if (typeof S !== "string")
         return null;
       try {
@@ -169,10 +170,10 @@
           return G = !0, !1;
         if (Q = u.number, u.deleted)
           return !1;
-        if (u.safeURL = A(u.url, !1), !u.safeURL)
+        if (u.safeURL = f(u.url, !1), !u.safeURL)
           return G = !0, !1;
         if (u.number > 1) {
-          var C = A(u.diff_url, !0);
+          var C = f(u.diff_url, !0);
           if (!C || new URL(C).pathname.replace(/[^/]+$/, "") !== new URL(u.safeURL).pathname.replace(/[^/]+$/, ""))
             return G = !0, !1;
         }
@@ -243,14 +244,14 @@
         S.open = !0;
       });
     }
-    function b() {
+    function n() {
       if (j === null)
         return;
       j.forEach(function(S) {
         S.open = !1;
       }), j = null;
     }
-    window.addEventListener("beforeprint", x), window.addEventListener("afterprint", b);
+    window.addEventListener("beforeprint", x), window.addEventListener("afterprint", n);
     function R(S, B, _) {
       K.textContent = B;
       var G = S.querySelector(".action-label"), Q = G ? G.textContent : "";
@@ -272,7 +273,7 @@
         R(B, "Copy failed", !1);
       });
     }
-    var m = '<svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>', n = '<svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>', h = '<svg class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', M = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 4h9M5 8h9M5 12h9"/><circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="12" r=".75" fill="currentColor" stroke="none"/></svg>', W = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', Z = E.getElementById("source"), w = E.getElementById("changes"), X = E.getElementById("toc"), z = null, q = null, e = window.matchMedia("(max-width: 78rem)");
+    var m = '<svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>', b = '<svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>', h = '<svg class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', M = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 4h9M5 8h9M5 12h9"/><circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="12" r=".75" fill="currentColor" stroke="none"/></svg>', W = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', Z = E.getElementById("source"), w = E.getElementById("changes"), X = E.getElementById("toc"), z = null, q = null, e = window.matchMedia("(max-width: 78rem)");
     function p() {
       if (q && q.open)
         q.close();
@@ -304,13 +305,13 @@
           return;
         }
         var _ = 0;
-        if (fE.forEach(function(Q, $) {
+        if (AE.forEach(function(Q, $) {
           if (Q && Q.getBoundingClientRect().top <= 128)
             _ = $;
         }), window.innerHeight + window.scrollY >= E.documentElement.scrollHeight - 2)
           _ = P.length - 1;
         var G = P[_].getAttribute("href");
-        i.forEach(function(Q) {
+        r.forEach(function(Q) {
           var $ = Q.getAttribute("href") === G;
           if (Q.classList.toggle("active", $), $)
             Q.setAttribute("aria-current", "location");
@@ -358,10 +359,10 @@
           });
         } else
           q = null;
-      var i = P.slice();
+      var r = P.slice();
       if (q)
-        i = i.concat(Array.from(q.querySelectorAll('a[href^="#"]')));
-      var fE = P.map(function(_) {
+        r = r.concat(Array.from(q.querySelectorAll('a[href^="#"]')));
+      var AE = P.map(function(_) {
         return E.getElementById((_.getAttribute("href") || "").slice(1));
       }), s = !1;
       E.addEventListener("scroll", B, { passive: !0 }), window.addEventListener("resize", S), S();
@@ -378,7 +379,7 @@
       var B = E.createElement("div");
       B.className = "codewrap", S.parentNode?.insertBefore(B, S), B.appendChild(S);
       var _ = E.createElement("button");
-      _.className = "codecopy", _.type = "button", _.setAttribute("aria-label", "Copy code"), _.title = "Copy code", _.innerHTML = m + n + h, _.addEventListener("click", function() {
+      _.className = "codecopy", _.type = "button", _.setAttribute("aria-label", "Copy code"), _.title = "Copy code", _.innerHTML = m + b + h, _.addEventListener("click", function() {
         var G = S.querySelector("code");
         U((G || S).textContent, _);
       }), B.appendChild(_);

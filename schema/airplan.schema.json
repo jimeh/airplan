@@ -81,6 +81,17 @@
           "type": "string",
           "description": "Theme assigned to the reader's dark mode slot; defaults to github-dark."
         },
+        "theme": {
+          "type": "string",
+          "description": "Force one theme for every mode and omit appearance controls; overrides light_theme, dark_theme, and available_themes."
+        },
+        "available_themes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "Ordered theme IDs available to readers; omitted includes every built-in and custom theme."
+        },
         "repo": {
           "type": "string",
           "description": "Repository context: auto, none, or an explicit GitHub-compatible repository URL."
@@ -340,6 +351,17 @@
     "dark_theme": {
       "type": "string",
       "description": "Theme assigned to the reader's dark mode slot; defaults to github-dark."
+    },
+    "theme": {
+      "type": "string",
+      "description": "Force one theme for every mode and omit appearance controls; overrides light_theme, dark_theme, and available_themes."
+    },
+    "available_themes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array",
+      "description": "Ordered theme IDs available to readers; omitted includes every built-in and custom theme."
     },
     "repo": {
       "type": "string",

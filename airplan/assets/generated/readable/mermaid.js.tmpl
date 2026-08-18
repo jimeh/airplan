@@ -15,6 +15,7 @@ var sources = diagrams.map((diagram) => diagram.textContent);
 var variants = diagrams.map(() => new Map);
 var failedVariants = diagrams.map(() => new Set);
 var catalog = window.__AIRPLAN_THEME_CATALOG__;
+var mermaidCatalog = window.__AIRPLAN_MERMAID_THEMES__;
 var printMedia = matchMedia("print");
 var printThemeKey = "__airplan-print-github-light";
 var mermaidCloneID = 0;
@@ -400,8 +401,8 @@ try {
     const existing = preparations.get(key);
     if (existing)
       return existing;
-    const theme = themeByID.get(themeID);
-    if (!theme)
+    const variables = key === printThemeKey ? palettes.print : palettes.themes[themeID];
+    if (!variables)
       return Promise.resolve();
     const task = queue.then(async () => {
       if (themePrepared(key))
@@ -412,7 +413,7 @@ try {
           securityLevel: "strict",
           secure: ["theme", "themeVariables", "themeCSS", "darkMode"],
           theme: "base",
-          themeVariables: theme.mermaid
+          themeVariables: variables
         });
       } catch (error) {
         failedVariants.forEach((failures, index) => {
@@ -451,10 +452,10 @@ try {
     task.then(() => preparations.delete(key), () => preparations.delete(key));
     return task;
   };
-  if (!catalog)
+  if (!catalog || !mermaidCatalog)
     throw new Error("theme catalog is unavailable");
+  const palettes = mermaidCatalog;
   const { default: mermaid } = await import(mermaidModuleURL);
-  const themeByID = new Map(catalog.themes.map((theme) => [theme.id, theme]));
   let queue = Promise.resolve();
   const preparations = new Map;
   async function requestTheme(themeID, show = true) {
@@ -473,14 +474,13 @@ try {
   for (const themeID of startup)
     await renderTheme(themeID);
   await preparations.get("github-light");
-  if (themePrepared("github-light")) {
+  if (palettes.themes["github-light"] && themePrepared("github-light")) {
     variants.forEach((cache, index) => {
       const rendered = cache.get("github-light");
       if (rendered)
         cache.set(printThemeKey, rendered);
-      if (failedVariants[index].has("github-light")) {
+      if (failedVariants[index].has("github-light"))
         failedVariants[index].add(printThemeKey);
-      }
     });
   } else {
     await renderTheme("github-light", printThemeKey);

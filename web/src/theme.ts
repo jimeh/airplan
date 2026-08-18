@@ -62,7 +62,7 @@ declare global {
         option.textContent = theme.name;
         group.append(option);
       }
-      select.append(group);
+      if (group.children.length > 0) select.append(group);
     }
   }
   populateSelect(lightSelect);

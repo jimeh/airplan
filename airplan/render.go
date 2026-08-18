@@ -400,8 +400,12 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 	data.SyntaxCSS = bundle.SyntaxCSS
 	data.ThemeCSS = bundle.CSS
 	data.ThemeCatalogJSON = bundle.CatalogJSON
+	if data.HasMermaid {
+		data.MermaidThemeJSON = bundle.MermaidJSON
+	}
 	data.DefaultLightTheme = bundle.DefaultLight
 	data.DefaultDarkTheme = bundle.DefaultDark
+	data.AppearanceEnabled = len(bundle.Catalog) > 1
 
 	var out bytes.Buffer
 	tmpl := pageTmpl

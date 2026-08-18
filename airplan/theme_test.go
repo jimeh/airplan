@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,7 +25,7 @@ func TestResolveThemeBundleBuiltinsAndCrossVariantDefaults(t *testing.T) {
 	if bundle.DefaultLight != "one-dark" || bundle.DefaultDark != "tokyo-night-day" {
 		t.Fatalf("defaults = %s/%s", bundle.DefaultLight, bundle.DefaultDark)
 	}
-	if want := "6ef869946a1ccb9fc60de82d7643b0a5267d0a5e33c4ed0ba9b80ad98f18fb36"; bundle.CatalogSHA256 != want {
+	if want := "5afae88929771679412b932a398018f6354a8f1db589de6cdba337b1e1ec4d12"; bundle.CatalogSHA256 != want {
 		t.Fatalf("built-in catalog digest = %q, want %q", bundle.CatalogSHA256, want)
 	}
 	for _, theme := range bundle.Catalog {
@@ -41,6 +42,120 @@ func TestResolveThemeBundleBuiltinsAndCrossVariantDefaults(t *testing.T) {
 	}
 	if !strings.Contains(string(bundle.CSS), "@media print") || !strings.Contains(string(bundle.SyntaxCSS), "@media print") {
 		t.Fatal("fixed print CSS is missing")
+	}
+}
+
+func TestResolveThemeBundleSelectableCatalog(t *testing.T) {
+	t.Run("explicit order and missing defaults", func(t *testing.T) {
+		bundle, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{
+			LightTheme: DefaultLightTheme, DarkTheme: "one-dark",
+			AvailableThemes:    []string{"tokyo-night", "solarized-light"},
+			AvailableThemesSet: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, theme := range bundle.Catalog {
+			ids = append(ids, theme.ID)
+		}
+		want := []string{"tokyo-night", "solarized-light", DefaultLightTheme, "one-dark"}
+		if !reflect.DeepEqual(ids, want) {
+			t.Fatalf("catalog IDs = %v, want %v", ids, want)
+		}
+		wantWarnings := []string{
+			`light_theme "github-light" is not listed in available_themes; adding it`,
+			`dark_theme "one-dark" is not listed in available_themes; adding it`,
+		}
+		if !reflect.DeepEqual(bundle.Warnings, wantWarnings) {
+			t.Fatalf("warnings = %v, want %v", bundle.Warnings, wantWarnings)
+		}
+		for _, excluded := range []string{"catppuccin-latte", "github-dark"} {
+			if strings.Contains(string(bundle.CSS), `data-airplan-theme="`+excluded+`"`) || strings.Contains(string(bundle.SyntaxCSS), `data-airplan-theme="`+excluded+`"`) || strings.Contains(string(bundle.CatalogJSON), `"id":"`+excluded+`"`) {
+				t.Fatalf("excluded theme %q leaked into selectable assets", excluded)
+			}
+		}
+	})
+
+	t.Run("same missing default added once", func(t *testing.T) {
+		bundle, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{
+			LightTheme: "one-dark", DarkTheme: "one-dark",
+			AvailableThemes: []string{}, AvailableThemesSet: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantWarning := `light_theme and dark_theme select "one-dark", which is not listed in available_themes; adding it`
+		if len(bundle.Catalog) != 1 || !reflect.DeepEqual(bundle.Warnings, []string{wantWarning}) {
+			t.Fatalf("bundle = %#v, warnings = %v", bundle.Catalog, bundle.Warnings)
+		}
+	})
+
+	t.Run("forced theme wins with one consolidated warning", func(t *testing.T) {
+		bundle, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{
+			LightTheme: "solarized-light", DarkTheme: "one-dark", Theme: "tokyo-night",
+			AvailableThemes: []string{"github-light"}, AvailableThemesSet: true,
+			LightThemeConfigured: true, DarkThemeConfigured: true, AvailableThemesConfigured: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(bundle.Catalog) != 1 || bundle.Catalog[0].ID != "tokyo-night" || bundle.DefaultLight != "tokyo-night" || bundle.DefaultDark != "tokyo-night" {
+			t.Fatalf("forced bundle = %+v", bundle)
+		}
+		want := `theme "tokyo-night" overrides light_theme, dark_theme, and available_themes`
+		if !reflect.DeepEqual(bundle.Warnings, []string{want}) {
+			t.Fatalf("warnings = %v, want %q", bundle.Warnings, want)
+		}
+		if !strings.Contains(string(bundle.CSS), "@media print") || !strings.Contains(string(bundle.CSS), "#ffffff") {
+			t.Fatal("fixed GitHub Light print palette is missing when excluded")
+		}
+		if !strings.Contains(string(bundle.MermaidJSON), `"airplanTheme":"github-light"`) {
+			t.Fatal("fixed GitHub Light Mermaid print palette is missing when excluded")
+		}
+	})
+
+	t.Run("forced theme ignores invalid overridden selectors", func(t *testing.T) {
+		bundle, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{
+			Theme: "tokyo-night", LightTheme: "missing", DarkTheme: "also-missing",
+			AvailableThemes: []string{"unknown", "unknown"}, AvailableThemesSet: true,
+			LightThemeConfigured: true, DarkThemeConfigured: true, AvailableThemesConfigured: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(bundle.Catalog) != 1 || bundle.Catalog[0].ID != "tokyo-night" || len(bundle.Warnings) != 1 {
+			t.Fatalf("bundle = %+v", bundle)
+		}
+	})
+
+	t.Run("duplicates and unknown IDs fail", func(t *testing.T) {
+		for _, available := range [][]string{{"github-light", "github-light"}, {"missing"}} {
+			if _, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{AvailableThemes: available, AvailableThemesSet: true}); err == nil {
+				t.Fatalf("available_themes %v accepted", available)
+			}
+		}
+		if _, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{Theme: "missing"}); err == nil {
+			t.Fatal("unknown forced theme accepted")
+		}
+	})
+}
+
+func TestThemeCatalogHashIncludesDefaultsAndOrdering(t *testing.T) {
+	one, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{LightTheme: "github-light", DarkTheme: "github-dark", AvailableThemes: []string{"github-light", "github-dark"}, AvailableThemesSet: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reordered, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{LightTheme: "github-light", DarkTheme: "github-dark", AvailableThemes: []string{"github-dark", "github-light"}, AvailableThemesSet: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	crossed, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{LightTheme: "github-dark", DarkTheme: "github-light", AvailableThemes: []string{"github-light", "github-dark"}, AvailableThemesSet: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one.CatalogSHA256 == reordered.CatalogSHA256 || one.CatalogSHA256 == crossed.CatalogSHA256 {
+		t.Fatal("catalog digest did not change with order/default assignments")
 	}
 }
 
@@ -156,8 +271,11 @@ func TestResolveThemeBundleCustomNormalizationAndDeterminism(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.CatalogSHA256 != second.CatalogSHA256 || first.CSS != second.CSS || first.SyntaxCSS != second.SyntaxCSS || first.CatalogJSON != second.CatalogJSON {
+	if first.CatalogSHA256 != second.CatalogSHA256 || first.CSS != second.CSS || first.SyntaxCSS != second.SyntaxCSS || first.CatalogJSON != second.CatalogJSON || first.MermaidJSON != second.MermaidJSON {
 		t.Fatal("equivalent theme bundles are not byte-deterministic")
+	}
+	if strings.Contains(string(first.CatalogJSON), "mermaid") {
+		t.Fatal("lightweight appearance catalog contains Mermaid palettes")
 	}
 	if got := first.Catalog[len(first.Catalog)-1].Tokens.Background; got != "#aabbccdd" {
 		t.Fatalf("normalized background = %q", got)
@@ -188,7 +306,7 @@ func TestResolveThemeBundleSortsCustomThemesBeforeSerialization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.CatalogSHA256 != second.CatalogSHA256 || first.CatalogJSON != second.CatalogJSON ||
+	if first.CatalogSHA256 != second.CatalogSHA256 || first.CatalogJSON != second.CatalogJSON || first.MermaidJSON != second.MermaidJSON ||
 		first.CSS != second.CSS || first.SyntaxCSS != second.SyntaxCSS {
 		t.Fatal("custom map insertion order changed resolved bundle bytes")
 	}
