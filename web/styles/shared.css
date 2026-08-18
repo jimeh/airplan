@@ -101,6 +101,17 @@ body {
   padding-inline: 0;
 }
 
+.appearance-resolved-icon {
+  display: none;
+}
+
+:root[data-airplan-resolved-mode="light"]
+  .appearance-resolved-icon[data-airplan-resolved-icon="light"],
+:root[data-airplan-resolved-mode="dark"]
+  .appearance-resolved-icon[data-airplan-resolved-icon="dark"] {
+  display: block;
+}
+
 .appearance {
   position: relative;
 }
@@ -164,10 +175,17 @@ body {
   flex: 1;
 }
 
+.appearance-select {
+  position: relative;
+  display: grid;
+}
+
 .appearance-panel select {
+  appearance: none;
+  -webkit-appearance: none;
   width: 100%;
   min-height: 2.1rem;
-  padding: 0.3rem 1.75rem 0.3rem 0.5rem;
+  padding: 0.3rem 2.25rem 0.3rem 0.5rem;
   color: var(--fg);
   background: var(--surface-subtle);
   border: 1px solid var(--border);
@@ -178,6 +196,17 @@ body {
 .appearance-panel select:focus-visible {
   outline: 2px solid var(--link);
   outline-offset: 2px;
+}
+
+.appearance-select .appearance-select-icon {
+  position: absolute;
+  top: 50%;
+  right: 0.7rem;
+  width: 0.875rem;
+  height: 0.875rem;
+  color: var(--muted);
+  pointer-events: none;
+  transform: translateY(-50%);
 }
 
 .icon {

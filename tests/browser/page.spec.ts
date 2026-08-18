@@ -430,8 +430,8 @@ test("appearance panel groups the full catalog and allows cross-variant slots", 
   await trigger.click();
   const panel = page.getByRole("group", { name: "Appearance settings" });
   await expect(panel).toBeVisible();
-  const lightSelect = page.getByLabel("Light mode theme");
-  const darkSelect = page.getByLabel("Dark mode theme");
+  const lightSelect = page.getByRole("combobox", { name: "Light theme", exact: true });
+  const darkSelect = page.getByRole("combobox", { name: "Dark theme", exact: true });
   const options = async (select: typeof lightSelect) =>
     select.locator("option").evaluateAll((nodes) =>
       nodes.map((node) => ({
@@ -485,6 +485,57 @@ test("appearance panel groups the full catalog and allows cross-variant slots", 
     if (!(await panel.isVisible())) await trigger.click();
     await page.screenshot({ path: testInfo.outputPath("appearance-panel.png"), fullPage: true });
   }
+});
+
+test("appearance controls pair mode labels with icons and align custom select chevrons", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "narrow-light", "one narrow project covers appearance UI");
+  await page.goto(baseURL);
+  const trigger = page.getByRole("button", { name: "Appearance" });
+  await expect(trigger.locator('[data-airplan-resolved-icon="light"]')).toBeVisible();
+  await expect(trigger.locator('[data-airplan-resolved-icon="dark"]')).toBeHidden();
+
+  await trigger.click();
+  for (const name of ["System", "Light", "Dark"]) {
+    await expect(page.getByRole("button", { name, exact: true }).locator("svg.icon")).toHaveCount(
+      1,
+    );
+  }
+  const lightSelect = page.getByRole("combobox", { name: "Light theme", exact: true });
+  const darkSelect = page.getByRole("combobox", { name: "Dark theme", exact: true });
+  await expect(lightSelect).toBeVisible();
+  await expect(darkSelect).toBeVisible();
+  await expect(lightSelect).toHaveCSS("appearance", "none");
+
+  const selectGeometry = await lightSelect.evaluate((select) => {
+    const icon = select.parentElement!.querySelector<SVGElement>("[data-airplan-select-icon]")!;
+    const selectBox = select.getBoundingClientRect();
+    const iconBox = icon.getBoundingClientRect();
+    return {
+      endInset: selectBox.right - iconBox.right,
+      centerOffset: Math.abs(
+        selectBox.top + selectBox.height / 2 - (iconBox.top + iconBox.height / 2),
+      ),
+      pointerEvents: getComputedStyle(icon).pointerEvents,
+    };
+  });
+  expect(selectGeometry.endInset).toBeGreaterThanOrEqual(8);
+  expect(selectGeometry.endInset).toBeLessThanOrEqual(16);
+  expect(selectGeometry.centerOffset).toBeLessThanOrEqual(1);
+  expect(selectGeometry.pointerEvents).toBe("none");
+
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(trigger.locator('[data-airplan-resolved-icon="light"]')).toBeHidden();
+  await expect(trigger.locator('[data-airplan-resolved-icon="dark"]')).toBeVisible();
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await expect(trigger.locator('[data-airplan-resolved-icon="light"]')).toBeVisible();
+  await expect(trigger.locator('[data-airplan-resolved-icon="dark"]')).toBeHidden();
+  await lightSelect.selectOption("one-dark");
+  await expect(trigger.locator('[data-airplan-resolved-icon="light"]')).toBeVisible();
+  await page.getByRole("button", { name: "Dark", exact: true }).click();
+  await expect(trigger.locator('[data-airplan-resolved-icon="light"]')).toBeHidden();
+  await expect(trigger.locator('[data-airplan-resolved-icon="dark"]')).toBeVisible();
 });
 
 test("appearance panel dismisses accessibly and restores focus", async ({ page }) => {
@@ -550,7 +601,9 @@ test("custom uploader themes drive no-JS defaults and derived syntax", async ({
   }
   await page.getByRole("button", { name: "Appearance" }).click();
   await expect(
-    page.getByLabel("Light mode theme").locator('option[value="custom-dark"]'),
+    page
+      .getByRole("combobox", { name: "Light theme", exact: true })
+      .locator('option[value="custom-dark"]'),
   ).toHaveText("Custom Dark");
 
   const noJS = await browser.newContext({
@@ -574,7 +627,7 @@ test("every built-in theme produces a coherent live palette", async ({ page }, t
   await page.goto(baseURL);
   await page.getByRole("button", { name: "Appearance" }).click();
   await page.getByRole("button", { name: "Light", exact: true }).click();
-  const select = page.getByLabel("Light mode theme");
+  const select = page.getByRole("combobox", { name: "Light theme", exact: true });
   const catalog = await select.locator("option").evaluateAll((nodes) =>
     nodes.map((node) => ({
       id: (node as HTMLOptionElement).value,
@@ -1233,7 +1286,7 @@ test("Mermaid themes render lazily, cache, reject races, and isolate failures", 
 
   await page.getByRole("button", { name: "Appearance" }).click();
   await page.getByRole("button", { name: "Light", exact: true }).click();
-  const select = page.getByLabel("Light mode theme");
+  const select = page.getByRole("combobox", { name: "Light theme", exact: true });
   await select.selectOption("tokyo-night");
   await expect(diagram).toHaveAttribute("data-mermaid-theme", "tokyo-night");
   await select.selectOption("solarized-light");
@@ -1332,7 +1385,9 @@ test("Mermaid isolates one failed diagram from valid diagrams", async ({ page },
   });
   await page.getByRole("button", { name: "Appearance" }).click();
   await page.getByRole("button", { name: "Light", exact: true }).click();
-  await page.getByLabel("Light mode theme").selectOption("solarized-light");
+  await page
+    .getByRole("combobox", { name: "Light theme", exact: true })
+    .selectOption("solarized-light");
 
   const diagrams = page.locator("pre.mermaid");
   await expect(diagrams.locator('svg[data-mermaid-theme="solarized-light"]')).toHaveCount(3);
@@ -1763,7 +1818,9 @@ test("print palette stays GitHub Light from Solarized, One Dark, and custom them
     if (sample.select) {
       await page.getByRole("button", { name: "Appearance" }).click();
       await page.getByRole("button", { name: "Light", exact: true }).click();
-      await page.getByLabel("Light mode theme").selectOption(sample.select);
+      await page
+        .getByRole("combobox", { name: "Light theme", exact: true })
+        .selectOption(sample.select);
       await expect(page.locator("html")).toHaveAttribute("data-airplan-theme", sample.select);
     }
     await page.emulateMedia({ media: "print" });

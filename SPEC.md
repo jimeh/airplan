@@ -284,13 +284,16 @@ described below.
   no framework. Mermaid's conditional module is the only airplan-managed
   external script:
   - Appearance settings: one icon-only accessible trigger opens a compact
-    panel with a System/Light/Dark native mode control and independent Light
-    mode theme and Dark mode theme selects. Both selects contain the identical
-    catalog grouped into Light themes and Dark themes; variant never filters a
-    slot. Escape and outside activation dismiss the panel, Escape restores
-    focus, and narrow layouts keep it inset from viewport edges. With scripting
-    disabled, uploader defaults follow the system preference and the panel is
-    absent. The appearance trigger follows the file controls. At wider sizes the rendered/source
+    panel with a System/Light/Dark mode control and independent Light theme and
+    Dark theme selects. The mode buttons pair their labels with the established
+    system, sun, and moon icons. The trigger displays a sun or moon for the
+    resolved mode, including while System is selected. Both selects contain the
+    identical catalog grouped into Light themes and Dark themes; variant never
+    filters a slot, and a page-owned chevron keeps the select affordance aligned
+    across browsers. Escape and outside activation dismiss the panel, Escape
+    restores focus, and narrow layouts keep it inset from viewport edges. With
+    scripting disabled, uploader defaults follow the system preference and the
+    panel is absent. The appearance trigger follows the file controls. At wider sizes the rendered/source
     toggle aligns left while file controls align right, with the theme toggle
     at the far-right edge behind a quiet divider. At 48rem and below the
     rendered/source and appearance controls share the first row at opposite edges,

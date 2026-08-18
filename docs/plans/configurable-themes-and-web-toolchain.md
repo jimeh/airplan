@@ -739,8 +739,8 @@ Replace the current three-button theme toggle with one icon-only appearance
 button. Activating it opens a compact anchored panel containing:
 
 1. a System / Light / Dark mode control; then
-2. a Light mode theme select; and
-3. a Dark mode theme select.
+2. a Light theme select; and
+3. a Dark theme select.
 
 Each select contains the same options in two `optgroup` sections: Light themes
 and Dark themes. Do not filter either select by slot.
