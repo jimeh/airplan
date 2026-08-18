@@ -24,11 +24,16 @@ const (
 
 // CollectionTemplateData is the stable custom collection template contract.
 type CollectionTemplateData struct {
-	Title         string
-	Files         []CollectionTemplateFile
-	TotalBytes    int64
-	Indexable     bool
-	RepositoryURL string
+	Title             string
+	Files             []CollectionTemplateFile
+	TotalBytes        int64
+	Indexable         bool
+	RepositoryURL     string
+	ThemeCSS          template.CSS
+	ThemeCatalogJSON  template.JS
+	DefaultLightTheme string
+	DefaultDarkTheme  string
+	AppearanceEnabled bool
 }
 
 // CollectionTemplateFile describes one file exposed to a collection template.
@@ -129,7 +134,7 @@ func RenderCollection(ctx context.Context, in FilesInput, opts CollectionRenderO
 	if err != nil {
 		return nil, nil, err
 	}
-	body, err := executeCollectionTemplate(tmpl, CollectionTemplateData{Title: title, Files: templateFiles(files), TotalBytes: total, Indexable: opts.Indexable, RepositoryURL: repo})
+	body, err := executeCollectionTemplate(tmpl, collectionTemplateData(title, files, total, opts.Indexable, repo, opts.Themes))
 	prepared := make([]PreparedFile, len(files))
 	for i, file := range files {
 		prepared[i] = PreparedFile{
@@ -144,6 +149,7 @@ func RenderCollection(ctx context.Context, in FilesInput, opts CollectionRenderO
 type CollectionRenderOptions struct {
 	Indexable                bool
 	TemplatePath, Repository string
+	Themes                   *ThemeBundle
 }
 
 // PreparedFile exposes preflight metadata returned by RenderCollection.
@@ -184,7 +190,7 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 	if err != nil {
 		return nil, err
 	}
-	overview, err := executeCollectionTemplate(tmpl, CollectionTemplateData{Title: title, Files: templateFiles(files), TotalBytes: total, Indexable: c.cfg.Indexable, RepositoryURL: repo})
+	overview, err := executeCollectionTemplate(tmpl, collectionTemplateData(title, files, total, c.cfg.Indexable, repo, c.cfg.ThemeBundle))
 	if err != nil {
 		return nil, err
 	}
@@ -395,6 +401,19 @@ func executeCollectionTemplate(t *template.Template, data CollectionTemplateData
 		return nil, errors.New("airplan: collection template produced empty output")
 	}
 	return b.Bytes(), nil
+}
+
+func collectionTemplateData(title string, files []collectionFile, total int64, indexable bool, repo string, bundle *ThemeBundle) CollectionTemplateData {
+	if bundle == nil {
+		bundle = defaultThemeBundle()
+	}
+	return CollectionTemplateData{
+		Title: title, Files: templateFiles(files), TotalBytes: total,
+		Indexable: indexable, RepositoryURL: repo,
+		ThemeCSS: bundle.CSS, ThemeCatalogJSON: bundle.CatalogJSON,
+		DefaultLightTheme: bundle.DefaultLight, DefaultDarkTheme: bundle.DefaultDark,
+		AppearanceEnabled: len(bundle.Catalog) > 1,
+	}
 }
 
 func humanBytes(n int64) string {

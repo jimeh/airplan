@@ -162,6 +162,7 @@ func runPreview(
 			NoExternalAssets: cfg.NoExternalAssets,
 			MermaidURL:       cfg.MermaidURL,
 			Repository:       cfg.Repository,
+			Themes:           cfg.ThemeBundle,
 		})
 	if err != nil {
 		if errors.Is(err, airplan.ErrInputTooLarge) {
@@ -242,7 +243,7 @@ func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOption
 			_ = file.Close()
 		}
 	}()
-	body, _, err := airplan.RenderCollection(ctx, airplan.FilesInput{Files: inputs, Title: opts.title, MaxSize: maxSize, MaxTotalSize: maxTotal}, airplan.CollectionRenderOptions{Indexable: cfg.Indexable, TemplatePath: cfg.CollectionTemplate, Repository: cfg.Repository})
+	body, _, err := airplan.RenderCollection(ctx, airplan.FilesInput{Files: inputs, Title: opts.title, MaxSize: maxSize, MaxTotalSize: maxTotal}, airplan.CollectionRenderOptions{Indexable: cfg.Indexable, TemplatePath: cfg.CollectionTemplate, Repository: cfg.Repository, Themes: cfg.ThemeBundle})
 	if err != nil {
 		return err
 	}

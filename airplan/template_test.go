@@ -64,7 +64,11 @@ func TestLoadDocumentTemplateDigestMatchesParsedBytes(t *testing.T) {
 func TestCustomTemplateReceivesMermaidPolicyDataWithoutInjection(t *testing.T) {
 	tmpl, err := template.New("custom").Parse(
 		`{{.HasMermaid}}|{{.NoExternalAssets}}|{{.MermaidURL}}|` +
-			`{{.RenderedHTML}}`,
+			`{{.DefaultLightTheme}}|{{.DefaultDarkTheme}}|` +
+			`{{.AppearanceEnabled}}|` +
+			`<script>{{.ThemeCatalogJSON}}</script>|` +
+			`<script>{{.MermaidThemeJSON}}</script>|` +
+			`<style>{{.ThemeCSS}}{{.SyntaxCSS}}</style>|{{.RenderedHTML}}`,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -82,11 +86,49 @@ func TestCustomTemplateReceivesMermaidPolicyDataWithoutInjection(t *testing.T) {
 	}
 	page := string(out)
 	if !strings.HasPrefix(page,
-		"true|true|https://assets.example.test/mermaid.mjs|") {
+		"true|true|https://assets.example.test/mermaid.mjs|github-light|github-dark|true|") {
 		t.Fatalf("custom Mermaid data missing: %s", page)
+	}
+	for _, want := range []string{
+		`"id":"github-light"`,
+		`"airplanTheme":"github-light"`,
+		`[data-airplan-theme="github-light"]`,
+		`.chroma .k`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Fatalf("custom theme data missing %q", want)
+		}
 	}
 	if strings.Contains(page, "await import") {
 		t.Fatal("airplan injected Mermaid loader into custom template")
+	}
+}
+
+func TestCustomTemplateOmitsMermaidPaletteWithoutDiagrams(t *testing.T) {
+	tmpl := template.Must(template.New("custom").Parse(
+		`{{.HasMermaid}}|{{if .MermaidThemeJSON}}present{{else}}empty{{end}}`,
+	))
+	out, err := RenderMarkdown([]byte("# No diagrams\n"), RenderOptions{Template: tmpl})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != "false|empty" {
+		t.Fatalf("custom Mermaid data = %q, want false|empty", out)
+	}
+}
+
+func TestCustomTemplateReceivesDisabledAppearanceState(t *testing.T) {
+	tmpl := template.Must(template.New("custom").Parse(`{{.AppearanceEnabled}}`))
+	bundle, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{Theme: "one-dark"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := RenderMarkdown([]byte("# Fixed\n"), RenderOptions{Template: tmpl, Themes: bundle})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != "false" {
+		t.Fatalf("AppearanceEnabled = %q, want false", out)
 	}
 }
 

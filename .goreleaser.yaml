@@ -49,6 +49,7 @@ archives:
       - LICENSE*
       - README*
       - SPEC.md
+      - THIRD_PARTY_THEMES.md
       - schema/airplan.schema.json
 
 checksum:

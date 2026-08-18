@@ -100,6 +100,22 @@ var configFieldDefinitions = []configFieldDefinition{
 		overrideSource: "--mermaid-url",
 	},
 	{
+		name: "light_theme", builtin: true, envName: "AIRPLAN_LIGHT_THEME",
+		overrideSource: "ConfigOptions.Overrides.light_theme",
+	},
+	{
+		name: "dark_theme", builtin: true, envName: "AIRPLAN_DARK_THEME",
+		overrideSource: "ConfigOptions.Overrides.dark_theme",
+	},
+	{
+		name: "theme", envName: "AIRPLAN_THEME",
+		overrideSource: "ConfigOptions.Overrides.theme",
+	},
+	{
+		name: "available_themes", builtin: true,
+		overrideSource: "ConfigOptions.Overrides.available_themes",
+	},
+	{
 		name: "repo", builtin: true, envName: "AIRPLAN_REPO",
 		overrideSource: "--repo",
 	},
@@ -132,9 +148,13 @@ type Settings struct {
 	// MermaidURL overrides the Mermaid module URL. Callers representing an
 	// explicit empty override must use ResolveMermaidURLOverride; a bare empty
 	// value is treated as unset when Settings are overlaid.
-	MermaidURL string `toml:"mermaid_url" json:"mermaid_url,omitempty" jsonschema_description:"Absolute HTTPS URL of the Mermaid ECMAScript module."`
-	Repository string `toml:"repo" json:"repo,omitempty" jsonschema_description:"Repository context: auto, none, or an explicit GitHub-compatible repository URL."`
-	Timeout    string `toml:"timeout" json:"timeout,omitempty" jsonschema_description:"Operation timeout as a Go duration or seconds; 0 disables it."`
+	MermaidURL      string   `toml:"mermaid_url" json:"mermaid_url,omitempty" jsonschema_description:"Absolute HTTPS URL of the Mermaid ECMAScript module."`
+	LightTheme      string   `toml:"light_theme" json:"light_theme,omitempty" jsonschema_description:"Theme assigned to the reader's light mode slot; defaults to github-light."`
+	DarkTheme       string   `toml:"dark_theme" json:"dark_theme,omitempty" jsonschema_description:"Theme assigned to the reader's dark mode slot; defaults to github-dark."`
+	Theme           string   `toml:"theme" json:"theme,omitempty" jsonschema_description:"Force one theme for every mode and omit appearance controls; overrides light_theme, dark_theme, and available_themes."`
+	AvailableThemes []string `toml:"available_themes" json:"available_themes,omitempty" jsonschema:"uniqueItems=true" jsonschema_description:"Ordered theme IDs available to readers; omitted includes every built-in and custom theme."`
+	Repository      string   `toml:"repo" json:"repo,omitempty" jsonschema_description:"Repository context: auto, none, or an explicit GitHub-compatible repository URL."`
+	Timeout         string   `toml:"timeout" json:"timeout,omitempty" jsonschema_description:"Operation timeout as a Go duration or seconds; 0 disables it."`
 }
 
 // FileConfig is the on-disk shape of the TOML config file: shared
@@ -142,8 +162,9 @@ type Settings struct {
 // (SPEC.md §7).
 type FileConfig struct {
 	Settings
-	DefaultProfile string              `toml:"default_profile" json:"default_profile,omitempty" jsonschema_description:"Profile selected when no explicit profile is set."`
-	Profiles       map[string]Settings `toml:"profiles" json:"profiles,omitempty" jsonschema_description:"Named profiles that inherit and override root-level settings."`
+	DefaultProfile string                 `toml:"default_profile" json:"default_profile,omitempty" jsonschema_description:"Profile selected when no explicit profile is set."`
+	Profiles       map[string]Settings    `toml:"profiles" json:"profiles,omitempty" jsonschema_description:"Named profiles that inherit and override root-level settings."`
+	Themes         map[string]ThemeConfig `toml:"themes" json:"themes,omitempty" jsonschema_description:"Global custom theme catalog entries available to every profile."`
 }
 
 // Config is a fully resolved configuration: config file, environment
@@ -167,6 +188,12 @@ type Config struct {
 	Indexable          bool
 	NoExternalAssets   bool
 	MermaidURL         string
+	LightTheme         string
+	DarkTheme          string
+	Theme              string
+	AvailableThemes    []string
+	Themes             map[string]ThemeConfig
+	ThemeBundle        *ThemeBundle
 	Repository         string
 
 	// ProducerVersion identifies the embedding Airplan release in ownership
@@ -198,6 +225,10 @@ type Config struct {
 	// group/world-readable config file that contains credentials) for
 	// the caller to print to stderr.
 	Warnings []string
+
+	lightThemeConfigured      bool
+	darkThemeConfigured       bool
+	availableThemesConfigured bool
 }
 
 // ConfigOptions controls LoadConfig.
@@ -395,6 +426,9 @@ func ResolveConfig(opts ConfigOptions) (*ConfigResolution, error) {
 		Profile:    profile,
 		MermaidURL: DefaultMermaidURL,
 		Repository: "auto",
+		LightTheme: DefaultLightTheme,
+		DarkTheme:  DefaultDarkTheme,
+		Themes:     fileConfig.Themes,
 	}
 	applySettings(cfg, fileConfig.Settings, rootKeyDefined(meta, loaded))
 	if profile != "" {
@@ -408,6 +442,14 @@ func ResolveConfig(opts ConfigOptions) (*ConfigResolution, error) {
 		return nil, err
 	}
 	applyOverrides(cfg, opts.Overrides)
+	bundle, err := cfg.resolveThemeBundle()
+	if err != nil {
+		return nil, err
+	}
+	cfg.ThemeBundle = bundle
+	cfg.LightTheme = bundle.DefaultLight
+	cfg.DarkTheme = bundle.DefaultDark
+	cfg.Warnings = append(cfg.Warnings, bundle.Warnings...)
 
 	if err := resolveTimeout(cfg, opts, getenv, fileConfig,
 		meta, loaded, profile); err != nil {
@@ -417,7 +459,9 @@ func ResolveConfig(opts ConfigOptions) (*ConfigResolution, error) {
 	if loaded {
 		warnReadableCredentials(cfg, path, fileConfig)
 	}
-	warnInactiveBackendFields(cfg, opts, getenv, meta, loaded, profile)
+	warnInactiveBackendFields(
+		cfg, opts, getenv, meta, loaded, profile, fileConfig,
+	)
 
 	return &ConfigResolution{
 		Config: cfg,
@@ -612,6 +656,14 @@ func configOverrideIsSet(settings Settings, name string) bool {
 		return settings.NoExternalAssets != nil
 	case "mermaid_url":
 		return settings.MermaidURL != ""
+	case "light_theme":
+		return settings.LightTheme != ""
+	case "dark_theme":
+		return settings.DarkTheme != ""
+	case "theme":
+		return settings.Theme != ""
+	case "available_themes":
+		return settings.AvailableThemes != nil
 	case "repo":
 		return settings.Repository != ""
 	case "timeout":
@@ -668,6 +720,9 @@ func (c *Config) EffectiveBackend() Backend {
 func (c *Config) Validate() error {
 	if c == nil {
 		return errors.New("airplan: config is nil")
+	}
+	if _, err := c.resolveThemeBundle(); err != nil {
+		return err
 	}
 
 	switch c.EffectiveBackend() {
@@ -1005,6 +1060,9 @@ func loadFileConfig(path string) (FileConfig, toml.MetaData, bool, error) {
 	if fileConfig.Profiles == nil {
 		fileConfig.Profiles = map[string]Settings{}
 	}
+	if fileConfig.Themes == nil {
+		fileConfig.Themes = map[string]ThemeConfig{}
+	}
 
 	return fileConfig, meta, true, nil
 }
@@ -1190,6 +1248,30 @@ func applySettings(
 			cfg.MermaidURL = DefaultMermaidURL
 		}
 	}
+	if defined("light_theme") {
+		cfg.LightTheme = settings.LightTheme
+		cfg.lightThemeConfigured = true
+		if cfg.LightTheme == "" {
+			cfg.LightTheme = DefaultLightTheme
+		}
+	}
+	if defined("dark_theme") {
+		cfg.DarkTheme = settings.DarkTheme
+		cfg.darkThemeConfigured = true
+		if cfg.DarkTheme == "" {
+			cfg.DarkTheme = DefaultDarkTheme
+		}
+	}
+	if defined("theme") {
+		cfg.Theme = settings.Theme
+	}
+	if defined("available_themes") {
+		cfg.AvailableThemes = append([]string(nil), settings.AvailableThemes...)
+		if cfg.AvailableThemes == nil {
+			cfg.AvailableThemes = []string{}
+		}
+		cfg.availableThemesConfigured = true
+	}
 	if defined("repo") {
 		cfg.Repository = settings.Repository
 		if cfg.Repository == "" {
@@ -1261,6 +1343,14 @@ func applyEnvStringValue(cfg *Config, name, value string) {
 		cfg.CollectionTemplate = value
 	case "mermaid_url":
 		cfg.MermaidURL = value
+	case "light_theme":
+		cfg.LightTheme = value
+		cfg.lightThemeConfigured = true
+	case "dark_theme":
+		cfg.DarkTheme = value
+		cfg.darkThemeConfigured = true
+	case "theme":
+		cfg.Theme = value
 	case "repo":
 		cfg.Repository = value
 	}
@@ -1285,11 +1375,27 @@ func applyOverrides(cfg *Config, s Settings) {
 		&cfg.Template:           s.Template,
 		&cfg.CollectionTemplate: s.CollectionTemplate,
 		&cfg.MermaidURL:         s.MermaidURL,
+		&cfg.LightTheme:         s.LightTheme,
+		&cfg.DarkTheme:          s.DarkTheme,
+		&cfg.Theme:              s.Theme,
 		&cfg.Repository:         s.Repository,
 	} {
 		if value != "" {
 			*field = value
 		}
+	}
+	if s.LightTheme != "" {
+		cfg.lightThemeConfigured = true
+	}
+	if s.DarkTheme != "" {
+		cfg.darkThemeConfigured = true
+	}
+	if s.AvailableThemes != nil {
+		cfg.AvailableThemes = append([]string(nil), s.AvailableThemes...)
+		if cfg.AvailableThemes == nil {
+			cfg.AvailableThemes = []string{}
+		}
+		cfg.availableThemesConfigured = true
 	}
 	if s.NoSource != nil {
 		cfg.NoSource = *s.NoSource
@@ -1302,6 +1408,20 @@ func applyOverrides(cfg *Config, s Settings) {
 	}
 	// Settings.Timeout is resolved separately (resolveTimeout) so the
 	// winning raw value is parsed exactly once.
+}
+
+func (c *Config) resolveThemeBundle() (*ThemeBundle, error) {
+	return ResolveThemeBundleWithOptions(ThemeBundleOptions{
+		LightTheme:                c.LightTheme,
+		DarkTheme:                 c.DarkTheme,
+		Theme:                     c.Theme,
+		AvailableThemes:           c.AvailableThemes,
+		AvailableThemesSet:        c.AvailableThemes != nil,
+		CustomThemes:              c.Themes,
+		LightThemeConfigured:      c.lightThemeConfigured,
+		DarkThemeConfigured:       c.darkThemeConfigured,
+		AvailableThemesConfigured: c.availableThemesConfigured,
+	})
 }
 
 func warnReadableCredentials(
@@ -1322,6 +1442,7 @@ func warnInactiveBackendFields(
 	meta toml.MetaData,
 	loaded bool,
 	profile string,
+	fileConfig FileConfig,
 ) {
 	var inactive []string
 	switch cfg.EffectiveBackend() {
@@ -1330,6 +1451,7 @@ func warnInactiveBackendFields(
 	case BackendAirplan:
 		inactive = []string{
 			"endpoint", "access_key_id", "secret_access_key",
+			"light_theme", "dark_theme", "theme", "available_themes",
 		}
 	default:
 		return
@@ -1345,6 +1467,10 @@ func warnInactiveBackendFields(
 			"config field %s is inactive when backend is %q",
 			name, cfg.EffectiveBackend(),
 		))
+	}
+	if cfg.EffectiveBackend() == BackendAirplan && len(fileConfig.Themes) > 0 {
+		cfg.Warnings = append(cfg.Warnings,
+			`config field themes is inactive when backend is "airplan"`)
 	}
 }
 

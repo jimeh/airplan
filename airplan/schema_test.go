@@ -8,6 +8,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/jimeh/go-golden"
 )
 
@@ -56,13 +57,16 @@ func TestConfigSchemaShape(t *testing.T) {
 		"access_key_id",
 		"api_token",
 		"api_url",
+		"available_themes",
 		"backend",
 		"bucket",
 		"collection_template",
+		"dark_theme",
 		"default_profile",
 		"endpoint",
 		"indexable",
 		"key_prefix",
+		"light_theme",
 		"mermaid_url",
 		"no_external_assets",
 		"no_source",
@@ -72,6 +76,8 @@ func TestConfigSchemaShape(t *testing.T) {
 		"repo",
 		"secret_access_key",
 		"template",
+		"theme",
+		"themes",
 		"timeout",
 	}
 	if !slicesEqual(gotNames, wantNames) {
@@ -84,6 +90,10 @@ func TestConfigSchemaShape(t *testing.T) {
 	if got := backend["default"]; got != "s3" {
 		t.Fatalf("backend default = %v, want s3", got)
 	}
+	rootAvailableThemes := objectAt(t, props, "available_themes")
+	if got := rootAvailableThemes["uniqueItems"]; got != true {
+		t.Fatalf("root available_themes uniqueItems = %v, want true", got)
+	}
 
 	profiles := objectAt(t, props, "profiles")
 	additional := objectAt(t, profiles, "additionalProperties")
@@ -95,6 +105,49 @@ func TestConfigSchemaShape(t *testing.T) {
 	settings := objectAt(t, defs, "Settings")
 	if got := settings["additionalProperties"]; got != false {
 		t.Fatalf("Settings additionalProperties = %v, want false", got)
+	}
+	profileAvailableThemes := objectAt(
+		t, objectAt(t, settings, "properties"), "available_themes",
+	)
+	if got := profileAvailableThemes["uniqueItems"]; got != true {
+		t.Fatalf("profile available_themes uniqueItems = %v, want true", got)
+	}
+
+	themes := objectAt(t, props, "themes")
+	propertyNames := objectAt(t, themes, "propertyNames")
+	if got := propertyNames["pattern"]; got != themeIDPattern.String() {
+		t.Fatalf("themes propertyNames pattern = %v, want %s", got, themeIDPattern)
+	}
+	if got := propertyNames["maxLength"]; got != float64(maxThemeIDLength) {
+		t.Fatalf("themes propertyNames maxLength = %v, want %d", got, maxThemeIDLength)
+	}
+	reserved := stringSliceAt(t, objectAt(t, propertyNames, "not"), "enum")
+	wantReserved := make([]string, 0, len(builtinThemes()))
+	for _, theme := range builtinThemes() {
+		wantReserved = append(wantReserved, theme.ID)
+	}
+	if !slicesEqual(reserved, wantReserved) {
+		t.Fatalf("themes reserved IDs = %v, want %v", reserved, wantReserved)
+	}
+
+	themeConfig := objectAt(t, defs, "ThemeConfig")
+	syntax := objectAt(t, objectAt(t, themeConfig, "properties"), "syntax")
+	gotSyntax := stringSliceAt(t, syntax, "enum")
+	styleNames := append([]string(nil), styles.Names()...)
+	sort.Strings(styleNames)
+	wantSyntax := make([]string, 2, len(styleNames)+2)
+	wantSyntax[0] = ""
+	wantSyntax[1] = "derived"
+	for _, name := range styleNames {
+		wantSyntax = append(wantSyntax, "chroma:"+name)
+	}
+	if !slicesEqual(gotSyntax, wantSyntax) {
+		t.Fatalf("theme syntax enum = %v, want %v", gotSyntax, wantSyntax)
+	}
+	for _, value := range gotSyntax[2:] {
+		if !registeredChromaStyle(value[len("chroma:"):]) {
+			t.Fatalf("schema syntax %q is not accepted at runtime", value)
+		}
 	}
 }
 

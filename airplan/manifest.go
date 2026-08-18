@@ -340,8 +340,8 @@ func validateManifestRecord(rec ManifestRecord) error {
 			return errors.New("bytes must be positive")
 		}
 		if rec.Type == "upgrade" || rec.Type == "link" {
-			if rec.MarkerVersion != MarkerVersion {
-				return fmt.Errorf("%s events require the current marker version", rec.Type)
+			if rec.MarkerVersion < 4 || !IsSupportedMarkerVersion(rec.MarkerVersion) {
+				return fmt.Errorf("%s events require marker version 4 or newer", rec.Type)
 			}
 			if rec.CreatedAt.IsZero() {
 				return fmt.Errorf("%s events require created_at", rec.Type)

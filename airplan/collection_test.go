@@ -77,6 +77,11 @@ func TestUploadFilesStreamsOneCollection(t *testing.T) {
 		t.Fatalf("marker page digest = %q, want digest of uploaded overview",
 			marker.PageSHA256)
 	}
+	wantThemes := themeRecipe(c.cfg.ThemeBundle)
+	if marker.Render == nil || marker.Render.Themes == nil ||
+		*marker.Render.Themes != wantThemes {
+		t.Fatalf("collection theme recipe = %+v, want %+v", marker.Render, wantThemes)
+	}
 	if !bytes.Equal(puts[1].body, image) || !bytes.Equal(puts[2].body, video) {
 		t.Fatal("collection bytes changed")
 	}
@@ -149,6 +154,43 @@ func TestRenderCollectionGolden(t *testing.T) {
 			)
 		}
 	})
+}
+
+func TestRenderCollectionSingleThemeOmitsAppearance(t *testing.T) {
+	bundle, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{Theme: "one-dark"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := RenderCollection(context.Background(), FilesInput{
+		Files: []FileInput{{Name: "plan.md", Reader: bytes.NewReader([]byte("# Plan\n")), Size: 7}},
+	}, CollectionRenderOptions{Themes: bundle})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(out)
+	if strings.Contains(page, `aria-controls="airplan-appearance-panel"`) || strings.Contains(page, `<select data-airplan-theme-slot`) || strings.Contains(page, "__AIRPLAN_MERMAID_THEMES__") {
+		t.Fatal("single-theme collection contains appearance or Mermaid metadata")
+	}
+}
+
+func TestCustomCollectionTemplateReceivesDisabledAppearanceState(t *testing.T) {
+	bundle, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{Theme: "one-dark"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "collection.tmpl")
+	if err := os.WriteFile(path, []byte(`{{.AppearanceEnabled}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, _, err := RenderCollection(context.Background(), FilesInput{
+		Files: []FileInput{{Name: "plan.md", Reader: bytes.NewReader(nil)}},
+	}, CollectionRenderOptions{Themes: bundle, TemplatePath: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(out) != "false" {
+		t.Fatalf("AppearanceEnabled = %q, want false", out)
+	}
 }
 
 func TestRenderCollectionCustomTemplateAndValidation(t *testing.T) {

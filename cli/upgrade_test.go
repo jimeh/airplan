@@ -421,6 +421,10 @@ func seedCLICurrentDocument(
 	t.Helper()
 	page := []byte("current")
 	source := []byte("# Plan\n")
+	bundle, err := airplan.ResolveThemeBundle("", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	marker, err := airplan.EncodeUploadMarker(airplan.UploadMarker{
 		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
 		Directory: dir, CreatedAt: time.Now().UTC().Truncate(time.Second),
@@ -430,6 +434,7 @@ func seedCLICurrentDocument(
 			Generation: airplan.RendererGeneration,
 			Template:   airplan.RenderTemplate{Kind: "builtin"},
 			MermaidURL: airplan.DefaultMermaidURL,
+			Themes:     &airplan.ThemeRecipe{DefaultLight: bundle.DefaultLight, DefaultDark: bundle.DefaultDark, CatalogSHA256: bundle.CatalogSHA256},
 		},
 		Objects: []airplan.MarkerObject{
 			{
@@ -491,7 +496,7 @@ func newBulkUpgradeBackend(t *testing.T, succeed bool) *httptest.Server {
 		switch r.URL.Path {
 		case "/api/v1/upgrades/preview":
 			_, _ = fmt.Fprintf(w, `{"items":[{"target":%q,"state":"upgradeable",`+
-				`"target_marker_version":4,"target_producer_version":"0.8.0",`+
+				`"target_marker_version":5,"target_producer_version":"0.8.0",`+
 				`"target_renderer_generation":1,"marker_etag":"m",`+
 				`"page_etag":"p","source_etag":"s"}],`+
 				`"counts":{"upgradeable":1}}`, dir+"/plan.html")

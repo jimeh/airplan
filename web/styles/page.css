@@ -1,18 +1,15 @@
 @import url("./shared.css");
 
 :root {
-  --dialog-backdrop: light-dark(rgba(31, 35, 40, 0.45), rgba(0, 0, 0, 0.66));
-  --mark-bg: light-dark(#fff8c5, #693e00);
-  --alert-note: light-dark(#0969da, #4493f8);
-  --alert-note-bg: light-dark(#ddf4ff, #121d2f);
-  --alert-tip: light-dark(#1a7f37, #3fb950);
-  --alert-tip-bg: light-dark(#dafbe1, #12261e);
-  --alert-important: light-dark(#8250df, #a371f7);
-  --alert-important-bg: light-dark(#fbefff, #211a2e);
-  --alert-warning: light-dark(#9a6700, #d29922);
-  --alert-warning-bg: light-dark(#fff8c5, #272115);
-  --alert-caution: light-dark(#cf222e, #f85149);
-  --alert-caution-bg: light-dark(#ffebe9, #2d1618);
+  --mark-bg: var(--alert-warning-bg);
+  --alert-note: var(--info);
+  --alert-note-bg: var(--alert-info-bg);
+  --alert-tip: var(--success);
+  --alert-tip-bg: var(--alert-success-bg);
+  --alert-important: var(--important);
+  --alert-warning: var(--warning);
+  --alert-caution: var(--danger);
+  --alert-caution-bg: var(--alert-danger-bg);
   --prose-width: 78ch;
   --toc-width: 14rem;
 }
@@ -985,14 +982,14 @@ mark {
     margin-right: 0;
   }
 
-  .toolbar .themetoggle {
+  .toolbar .appearance {
     grid-column: 3;
     grid-row: 1;
     justify-self: end;
     margin-left: 0;
   }
 
-  .toolbar .themetoggle::before {
+  .toolbar .appearance::before {
     display: none;
   }
 

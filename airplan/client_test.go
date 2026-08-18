@@ -399,6 +399,10 @@ func TestUploadMarkerRecordsResolvedDefaultMermaidURL(t *testing.T) {
 	if marker.Render == nil || marker.Render.MermaidURL != DefaultMermaidURL {
 		t.Fatalf("render recipe = %+v, want default Mermaid URL", marker.Render)
 	}
+	wantThemes := themeRecipe(client.cfg.ThemeBundle)
+	if marker.Render.Themes == nil || *marker.Render.Themes != wantThemes {
+		t.Fatalf("render theme recipe = %+v, want %+v", marker.Render.Themes, wantThemes)
+	}
 }
 
 func TestUploadPersistsRepositoryForEveryFormat(t *testing.T) {

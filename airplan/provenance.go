@@ -143,6 +143,7 @@ func documentRenderRecipe(cfg *Config, customDigest string) *RenderRecipe {
 		Generation: RendererGeneration, Template: template,
 		Indexable: cfg.Indexable, NoExternalAssets: cfg.NoExternalAssets,
 		MermaidURL: cfg.MermaidURL,
+		Themes:     themeRecipePtr(cfg.ThemeBundle),
 	}
 }
 
@@ -154,5 +155,6 @@ func collectionRenderRecipe(cfg *Config, customDigest string) *RenderRecipe {
 	return &RenderRecipe{
 		Generation: RendererGeneration, Template: template,
 		Indexable: cfg.Indexable,
+		Themes:    themeRecipePtr(cfg.ThemeBundle),
 	}
 }

@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.39.0.
+may contradict it. Targets spec version 0.40.0.
 
 ---
 
@@ -191,16 +191,29 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   column AST nodes, and a node renderer emits the fixed div markup. Goldmark
   parses all child Markdown in one document, preserving heading IDs and
   table-of-contents order; invalid structures remain ordinary Markdown nodes.
-- Highlighting: chroma emitting class-based markup with generated system-theme
-  media queries plus explicit-theme selector scopes (inline styles cannot
-  switch light/dark). The spec's source view is chroma's markdown lexer run at
-  render time.
+- Themes: `ResolveThemeBundleWithOptions` validates the fixed registry plus
+  every sorted global custom entry before selecting the configured ordered
+  subset. It normalizes hex colors, hashes the selected order and defaults,
+  and produces safe semantic CSS plus lightweight browser metadata once per
+  resolved config. Mermaid palettes are separate and injected only for pages
+  containing diagrams, with GitHub Light retained as an internal print target.
+  Go owns the immutable domain, deterministic color mixing, Chroma styles, and
+  marker recipe; TypeScript owns reader mode/slot state and interaction only.
+- Highlighting: Chroma emits class-based markup. Built-ins select exact
+  registered styles and custom themes either select `chroma:<name>` or build a
+  semantic style with `chroma.NewStyleBuilder`. Generated rules are compacted,
+  and themes with byte-identical Chroma output share declaration blocks through
+  grouped selectors. Every selector remains scoped to one exact theme ID, with
+  a separate fixed GitHub print stylesheet.
 - Mermaid: a stateless Goldmark node renderer intercepts only exact
   `mermaid` fences ahead of Chroma and emits escaped source containers. The
   built-in template bakes a document-specific Mermaid module into its
-  conditional script, imports the generated exact module URL, renders cached
-  light and dark SVG variants with strict security, and swaps them
-  synchronously for theme and print changes. After successful rendering that
+  conditional script, imports the generated exact module URL, initializes
+  Mermaid's `base` theme with explicit variables, and serially renders only the
+  two assigned slot themes plus fixed GitHub Light print output at startup.
+  Theme-ID caches, a latest-request guard, and per-theme failures make lazy
+  switching race-safe while the synchronous print path uses prepared output.
+  After successful rendering that
   module creates one native dialog viewer and enhances each rendered block
   with an explicit open control. The viewer clones the displayed SVG, rewrites
   every ID and local reference (including embedded styles and ARIA IDREFs), and
@@ -222,7 +235,8 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   templates without exposing internal bake markers.
 - Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
-  `template.CSS`, structured headings/ToC entries, format metadata,
+  `template.CSS`, safe theme CSS/catalog metadata, structured headings/ToC
+  entries, format metadata,
   title, slug, indexing intent, frontmatter, repository context, and source
   names/paths. Document-specific CSS and JS cover the page grid, prose, source
   view, table of contents, copy controls, and Mermaid integration.
@@ -259,17 +273,20 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   CSPRNG).
 - Public URL assembly percent-encodes each object-key path segment;
   delete parsing uses `net/url` to recover the original UTF-8 key.
-- Ownership markers: writers emit one v4 schema for all uploads. Documents use
+- Ownership markers: writers emit one v5 schema for all uploads. Documents use
   `.airplan.json`; collections use `.airplan-collection.json`. `kind` plus a
   normalized declared-object array describes pages, sources, and files;
-  document slug/format fields remain conditional. Every v4 marker records
+  document slug/format fields remain conditional. Every v4+ marker records
   producer provenance. Generated document and collection pages additionally
   record the renderer generation and either the built-in template identity or
   a SHA-256 digest of the custom template; the digest is computed from the same
-  single file read that is parsed for rendering. Every v4 page object also
-  records the SHA-256 of its exact uploaded bytes. Authored HTML omits render
-  provenance. Version-specific decoding normalizes v1-v3 into the same
-  internal object model. Authored object names beginning `.airplan-` are
+  single file read that is parsed for rendering. Version 5 recipes also record
+  the two default IDs and canonical catalog SHA-256; the full custom source is
+  intentionally not duplicated. Every v4+ page object records the SHA-256 of
+  its exact uploaded bytes. Authored HTML omits render provenance.
+  Version-specific decoding normalizes v1-v3 into the internal object model
+  and preserves complete v4 provenance; the version bump makes older readers
+  reject v5 before rewriting it. Authored object names beginning `.airplan-` are
   reserved for Airplan control objects and rejected before upload. A centralized
   concurrent two-key resolver proves exactly one marker exists without adding
   LIST permission to targeted reads. Kind/name mismatches and dual markers
@@ -516,13 +533,13 @@ outside the project's signing and notarization pipeline.
    config-dependent storage work.
 2. Render a document in memory, or preflight every open collection file and
    render its overview, before generating a random directory.
-3. Resolve repository context, build the complete normalized v4 object set with
-   producer and applicable render provenance, and
-   encode the kind-specific marker.
+3. Resolve repository context, build the complete normalized v5 object set with
+   producer and applicable render provenance, including the resolved theme
+   recipe for rendered pages, and encode the kind-specific marker.
 4. Put the marker first. Documents then put optional source and page;
    collections stream files in argument order and put `index.html` last.
 5. Print no URL until all declared PUTs succeed. Then emit the document URL or
-   ordered direct collection URLs plus overview, and best-effort append one v4
+   ordered direct collection URLs plus overview, and best-effort append one v5
    manifest record.
 6. Discover both marker names through one LIST snapshot. The basename supplies
    only a kind hint; `show` validates content and every declared size.
@@ -534,11 +551,10 @@ outside the project's signing and notarization pipeline.
    record.
 8. Upgrade source-backed Markdown pages with marker-first/page-last conditional
    writes. Planning records the observed marker and page entity tags plus the
-   declared v4 page digest without rendering. Execution replans live state even
-   for a submitted current plan, fails on drift, verifies the new marker and
-   page bytes, and appends an
-   `upgrade` manifest event while leaving source, protection, and revision
-   control objects untouched.
+   declared v4-or-newer page digest without rendering. Execution replans live
+   state even for a submitted current plan, fails on drift, verifies the new
+   marker and page bytes, and appends an `upgrade` manifest event while leaving
+   source, protection, and revision control objects untouched.
 9. Sync complete normalized uploads into compact local history. Confirm every
    LIST-absent active marker with a targeted GET before local tombstoning.
 
@@ -560,7 +576,8 @@ deletion has succeeded.
 
 - Unit: config/template precedence, mode selection, collection filename/MIME
   preflight, size limits, slug sanitization, format sniffing, key
-  entropy/encoding properties, URL assembly, strict v1-v3 marker validation,
+  entropy/encoding properties, URL assembly, strict version-specific marker
+  validation through v5,
   dual-marker resolution, LIST-only kind grouping, inspection states and exact
   sizes, streaming get selection, delete request ordering, purge-protection
   sentinel detection and forced-delete ordering, manifest reduction
@@ -573,9 +590,11 @@ deletion has succeeded.
   a temporary directory and byte-compare the committed asset set.
 - Browser: Chromium collection fixtures cover image/video/audio and generic
   cards, direct and copy links, no-JavaScript behavior, hostile-looking names,
-  narrow/wide layouts, and light/dark themes for built-in and custom templates.
-  Computed-style checks enforce shared toolbar geometry and transition-free
-  theme changes across built-in document and collection pages.
+  narrow/wide layouts, all eleven built-ins, arbitrary cross-variant slot
+  assignments, custom/no-JavaScript themes, storage migration, Mermaid
+  cache/race/failure behavior, and fixed printing. Computed-style checks
+  enforce shared toolbar geometry and transition-free theme changes across
+  built-in document and collection pages.
 - Integration: MinIO in a container (CI service / testcontainers);
   document and mixed collection round trips, byte/header preservation,
   marker bytes, remote kind discovery and conflicts, complete / incomplete /
@@ -639,8 +658,9 @@ is independent of the active selector/default, and mixed S3/hosted inventories
 are rejected before any remote mutation. Its planning timeout ends before
 confirmation and execution receives a fresh timeout context afterward.
 
-Upgrade planning compares reproducible v4 template recipes without parsing or
-rendering. A forced template mismatch records the currently configured recipe;
+Upgrade planning compares reproducible v4+ template recipes without parsing or
+rendering. V5 additionally compares theme identity. A forced template or theme
+mismatch records the currently configured recipe;
 execution surfaces deferred template load/parse errors before its marker-first
 write. Raw manifest upgrade events retain their append time, while reduction
 projects required `created_at` into the active record's time so list and purge

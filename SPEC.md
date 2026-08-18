@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.39.0**
+**Spec version: 0.40.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -203,18 +203,23 @@ described below.
   may execute active content when someone opens the resulting page.
   The original Markdown remains exact in source view and in the
   uploaded sibling.
-- Fenced code blocks are syntax-highlighted at render time. The highlighting
-  follows the selected page theme, with separate light and dark palettes;
-  System follows `prefers-color-scheme`. Print always uses the light palette.
+- Fenced code blocks are syntax-highlighted at render time. Each catalog theme
+  has an exactly scoped Chroma stylesheet. Built-ins use their curated Chroma
+  style; custom themes either derive a coherent style from their semantic
+  tokens or select an exact registered Chroma style. Print always uses Chroma's
+  `github` style independently of the screen theme.
 - An exact lowercase `mermaid` fenced code block is rendered as a Mermaid
   diagram. Its readable, HTML-escaped source remains the no-JavaScript and
   load-failure fallback and remains exact in source view. The built-in page
   loads Mermaid only when such a block exists and external assets are allowed,
   using an exact pinned ECMAScript module URL, strict security, explicit
-  rendering, and Airplan-controlled light and dark theme variants. The
-  selected page theme chooses the screen variant, while print always uses the
-  light variant; per-diagram theme configuration cannot override these
-  variants. After a diagram renders successfully, the built-in page adds an
+  rendering, and `theme: "base"` with explicit variables derived from the
+  resolved Airplan theme. At startup it serially renders and caches only the
+  themes assigned to the two mode slots plus a fixed GitHub Light print result;
+  newly selected themes are rendered lazily and stale asynchronous results are
+  ignored. A failed theme retains the last valid SVG, or readable source when
+  none has succeeded, without poisoning other themes. After a diagram renders
+  successfully, the built-in page adds an
   explicit control that opens its currently displayed SVG in one reused native
   dialog. Inline diagrams remain passive. The viewer initially fits the
   diagram without enlarging it beyond its natural size, supports 5%–800% zoom
@@ -227,9 +232,11 @@ described below.
   loading or rendering fails, external assets are disabled, scripting is
   disabled, or native modal dialogs are unavailable. Custom templates receive
   the Mermaid template data below but do not receive injected assets.
-- Page styling: supports Light, System, and Dark themes. System follows
-  `prefers-color-scheme`; support for both schemes is advertised through the
-  standard document-level `color-scheme` hint. The page uses a centered
+- Page styling separates color mode from theme selection. Mode is System,
+  Light, or Dark; System follows `prefers-color-scheme`. Light and Dark are
+  independent slots, and either slot may contain a light- or dark-variant
+  theme. The selected theme's declared variant controls `color-scheme`, native
+  controls, and scrollbars. The page uses a centered
   document shell around 54rem
   wide, prose constrained to a readable measure around 78ch, comfortable
   line height, distinct heading/body/muted color roles, and section
@@ -276,20 +283,31 @@ described below.
 - Baseline interactive niceties use a small amount of embedded vanilla JS with
   no framework. Mermaid's conditional module is the only airplan-managed
   external script:
-  - Theme toggle: an icon-only Light/System/Dark segmented control with
-    accessible names. System is the initial default. Light and Dark choices
-    persist in browser storage and apply to other built-in pages on the same
-    origin; choosing System clears that override. With scripting disabled,
-    the page follows the system preference and does not show the control. The
-    theme toggle follows the file controls. At wider sizes the rendered/source
+  - Appearance settings: one icon-only accessible trigger opens a compact
+    panel with a System/Light/Dark mode control and independent Light theme and
+    Dark theme selects. The mode buttons pair their labels with the established
+    system, sun, and moon icons. The trigger displays a sun or moon for the
+    resolved mode, including while System is selected. Both selects contain the
+    identical catalog grouped into Light themes and Dark themes; variant never
+    filters a slot, and a page-owned chevron keeps the select affordance aligned
+    across browsers. Escape and outside activation dismiss the panel, Escape
+    restores focus, and narrow layouts keep it inset from viewport edges. With
+    scripting disabled, uploader defaults follow the system preference and the
+    panel is absent. The appearance trigger follows the file controls. At wider sizes the rendered/source
     toggle aligns left while file controls align right, with the theme toggle
     at the far-right edge behind a quiet divider. At 48rem and below the
-    rendered/source and theme toggles share the first row at opposite edges,
+    rendered/source and appearance controls share the first row at opposite edges,
     with available file controls clustered and left-aligned below. When no
     rendered/source toggle is available, the file controls instead occupy the
-    first row opposite the theme toggle. Toolbar controls update immediately
+    first row opposite the appearance control. Toolbar controls update immediately
     without color or background transitions when their active state or the
-    page theme changes.
+    page theme changes. Reader state uses `airplan-color-mode`,
+    `airplan-light-theme`, and `airplan-dark-theme`. When the new mode key is
+    absent, `airplan-theme=light|dark` seeds it. The complete appearance
+    trigger and panel are omitted when the resolved selectable catalog has one
+    entry. Explicit new-mode writes mirror
+    that legacy key; System removes both mode keys. Unknown stored theme IDs are
+    retained but inactive on pages whose catalogs do not contain them.
   - Rendered/source toggle: switch between the rendered plan and a
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter
@@ -390,6 +408,12 @@ against):
 | `.DiffPath`                   | string    | relative adjacent diff path          |
 | `.DiffText`                   | string    | inline adjacent diff, or empty       |
 | `.HighlightedDiffHTML`        | raw HTML  | highlighted inline adjacent diff     |
+| `.ThemeCSS`                   | raw CSS   | validated semantic screen/print CSS  |
+| `.ThemeCatalogJSON`           | safe JS   | validated browser catalog metadata   |
+| `.MermaidThemeJSON`           | safe JS   | palettes, or empty without Mermaid   |
+| `.DefaultLightTheme`          | string    | configured light-slot theme ID       |
+| `.DefaultDarkTheme`           | string    | configured dark-slot theme ID        |
+| `.AppearanceEnabled`          | boolean   | catalog has more than one theme      |
 
 Each heading has `.Level` (1–6), `.ID`, `.Text`, and `.IsTitle`.
 `.IsTitle` is true only for a leading H1 that the built-in table of
@@ -400,8 +424,9 @@ HTML, so custom templates retain control of markup and presentation.
 (`--no-source`); templates must handle both cases.
 
 A custom template takes full responsibility for the page: page styles,
-noindex meta, and any interactivity. `.SyntaxCSS` is supplied because it
-is coupled to the generated highlighting classes; the built-in page's
+noindex meta, theme UI/runtime, and any interactivity. Theme fields are safe
+opt-in data; Airplan never injects its theme assets into a custom template.
+`.SyntaxCSS` is supplied because it is coupled to the generated highlighting classes; the built-in page's
 own CSS and JavaScript are baked directly into its template rather than
 exposed as data. `airplan template` prints a source-friendly, self-contained
 representation of the built-in template to stdout. The executable may embed
@@ -436,11 +461,11 @@ kind:
   progressive enhancement;
 - relative member URLs remain correct under custom domains and key prefixes;
 - titles, filenames, types, and repository metadata are HTML-escaped;
-- the layout supports narrow and wide viewports plus Light, System, and Dark
-  themes using the same persisted `airplan-theme` preference as document
-  pages; the collection toolbar and shared controls use the same structure,
+- the layout supports narrow and wide viewports plus the same mode, slot,
+  catalog, persistence, and migration behavior as document pages; the
+  collection toolbar and shared controls use the same structure,
   dimensions, spacing, and interaction styling as document pages; System
-  follows `prefers-color-scheme`, while print uses Light;
+  follows `prefers-color-scheme`, while print is fixed GitHub Light;
 - the page includes `noindex, nofollow` unless `--indexable` is set.
 
 Unknown content remains a normal openable and downloadable file. The page does
@@ -456,13 +481,18 @@ occur before any storage mutation.
 
 Collection template data contract:
 
-| Field            | Type   | Meaning                           |
-| ---------------- | ------ | --------------------------------- |
-| `.Title`         | string | resolved collection title         |
-| `.Files`         | file[] | ordered collection members        |
-| `.TotalBytes`    | int64  | sum of member sizes               |
-| `.Indexable`     | bool   | whether indexing is allowed       |
-| `.RepositoryURL` | string | resolved canonical repository URL |
+| Field                | Type    | Meaning                                 |
+| -------------------- | ------- | --------------------------------------- |
+| `.Title`             | string  | resolved collection title               |
+| `.Files`             | file[]  | ordered collection members              |
+| `.TotalBytes`        | int64   | sum of member sizes                     |
+| `.Indexable`         | bool    | whether indexing is allowed             |
+| `.RepositoryURL`     | string  | resolved canonical repository URL       |
+| `.ThemeCSS`          | raw CSS | validated semantic screen/print CSS     |
+| `.ThemeCatalogJSON`  | safe JS | validated browser catalog metadata      |
+| `.DefaultLightTheme` | string  | configured light-slot theme ID          |
+| `.DefaultDarkTheme`  | string  | configured dark-slot theme ID           |
+| `.AppearanceEnabled` | boolean | catalog has more than one selectable ID |
 
 Each file has `.Name`, `.Path`, `.ContentType`, `.Bytes`, and `.MediaKind`.
 `.MediaKind` is `image`, `video`, `audio`, or `file`. `.Path` is an already
@@ -474,7 +504,11 @@ A custom template controls presentation only. It cannot rename members or
 alter the marker, result, or uploaded inventory. Airplan still declares and
 uploads every input even when the template omits its link. The template author
 is responsible for page styles, noindex markup, accessibility, copy behavior,
-JavaScript, and any external resources. `airplan template collection` prints
+theme controls/runtime, JavaScript, and any external resources. Theme fields
+are safe opt-in data; Airplan never injects theme assets into a custom
+template. `.AppearanceEnabled` is false when the resolved catalog contains
+one theme, and a custom template should omit appearance controls in that case.
+`airplan template collection` prints
 the exact reusable built-in template; `airplan template` and
 `airplan template document` print the document template.
 
@@ -518,10 +552,10 @@ already is the original file.
 
 ## 5. Upload Behavior
 
-- Every new upload writes ownership marker version 4. Readers continue to
-  manage versions 1 through 3, but writers never emit them. Marker
-  versions describe wire-schema generations; `kind` distinguishes documents
-  from collections. Older clients fail closed on new v4 uploads.
+- Every new upload writes ownership marker version 5. Current readers manage
+  versions 1 through 5; writers emit only version 5. Marker versions describe
+  wire-schema generations; `kind` distinguishes documents from collections.
+  Older clients fail closed on new v5 uploads.
 
 - The exact marker basename supplies an untrusted LIST-only kind hint:
 
@@ -537,12 +571,12 @@ already is the original file.
 
 - Markers are UTF-8 JSON uploaded with
   `Content-Type: application/json` and `Cache-Control: no-store`, and are at
-  most 64 KiB. A v4 document marker is:
+  most 64 KiB. A v5 document marker is:
 
   ```json
   {
     "schema": "airplan-upload",
-    "version": 4,
+    "version": 5,
     "directory": "vq3nhk2p7r4wzt5c6ydjm3xhqd",
     "created_at": "2026-07-21T12:00:00Z",
     "kind": "document",
@@ -567,22 +601,27 @@ already is the original file.
     "repo": "https://github.com/acme/service",
     "producer": { "name": "airplan", "version": "0.8.0" },
     "render": {
-      "generation": 2,
+      "generation": 3,
       "template": { "kind": "builtin" },
       "indexable": false,
       "no_external_assets": false,
-      "mermaid_url": "https://cdn.jsdelivr.net/npm/mermaid@11.16.1/+esm"
+      "mermaid_url": "https://cdn.jsdelivr.net/npm/mermaid@11.16.1/+esm",
+      "themes": {
+        "default_light": "github-light",
+        "default_dark": "github-dark",
+        "catalog_sha256": "43dc88c622af8d051631d4fb9fe027ded3360446142479618dd33cfaeea4da3f"
+      }
     }
   }
   ```
 
-  A v4 collection uses the same declared-object model and records template
+  A v5 collection uses the same declared-object model and records template
   kind `builtin_collection` or `custom_collection`:
 
   ```json
   {
     "schema": "airplan-upload",
-    "version": 4,
+    "version": 5,
     "directory": "vq3nhk2p7r4wzt5c6ydjm3xhqd",
     "created_at": "2026-07-21T12:00:00Z",
     "kind": "collection",
@@ -605,16 +644,21 @@ already is the original file.
     "repo": "https://github.com/acme/service",
     "producer": { "name": "airplan", "version": "0.8.0" },
     "render": {
-      "generation": 2,
+      "generation": 3,
       "template": { "kind": "builtin_collection" },
       "indexable": false,
-      "no_external_assets": false
+      "no_external_assets": false,
+      "themes": {
+        "default_light": "github-light",
+        "default_dark": "github-dark",
+        "catalog_sha256": "43dc88c622af8d051631d4fb9fe027ded3360446142479618dd33cfaeea4da3f"
+      }
     }
   }
   ```
 
 - `schema`, `version`, `directory`, `created_at`, `kind`, `objects`, and
-  `producer` are required in v4. `schema` is exactly `airplan-upload`;
+  `producer` are required in v4 and v5. `schema` is exactly `airplan-upload`;
   `producer.name` is `airplan`, and `producer.version` is the resolved release
   string or `dev`. `directory` matches the
   containing random directory; `created_at` is RFC 3339 UTC. `repo`, when
@@ -624,7 +668,15 @@ already is the original file.
   render recipe. `generation` is a positive page-capability generation, not
   the marker or release version. Custom template recipes store kind `custom`
   or `custom_collection` and the lowercase SHA-256 of the exact template bytes;
-  no local path or template source is stored.
+  no local path or template source is stored. Version 5 generated-page recipes
+  additionally require `themes`: the selected slot IDs and lowercase SHA-256
+  of the canonical normalized catalog embedded in the page. Full custom theme
+  definitions and local configuration paths are not stored. Both default theme
+  IDs use the theme-ID lowercase-slug syntax (maximum 48 bytes), but marker
+  validation does not require them to exist in the reader's current registry,
+  so historical custom IDs remain valid provenance. Version 4 recipes omit
+  `themes`; current readers preserve their complete producer, render,
+  revision, digest, and role data while upgrading them.
 
 - `objects` is non-empty, has unique safe direct basenames, and contains
   exactly one positive-size HTML `page`. Every object declares `name`, `role`,
@@ -635,7 +687,7 @@ already is the original file.
   `index.html` as its page, declares no source, and contains one through 100
   `file` objects whose sizes may be zero. Unknown roles or kinds are invalid.
 
-  In v4, the page object additionally requires `sha256`, the lowercase
+  In v4 and v5, the page object additionally requires `sha256`, the lowercase
   64-hex-character SHA-256 of the exact uploaded page bytes. This durable
   content identity lets interrupted marker-first operations detect and repair
   an old page even when it has the same byte length as the replacement. Other
@@ -649,9 +701,10 @@ already is the original file.
   visible to LIST-only discovery but cannot be inspected as valid, fetched,
   deleted, purged, or synced.
 
-- Version 1 through 3 markers are decoded into the current declared-object model after
-  their original wire rules validate. Version 1 omits `page_bytes` and `repo`;
-  version 2 requires positive `page_bytes` and may include `repo`.
+- Marker versions 1 through 5 are supported through the current declared-object
+  model. Versions 1 through 4 are decoded into it after their original wire
+  rules validate. Version 1 omits `page_bytes` and `repo`; version 2 requires
+  positive `page_bytes` and may include `repo`.
 
 - Purge protection (§9) is declared by a sentinel object at the exact key
   `[key_prefix/]<dir>/.airplan-protected.json`. **Presence of the sentinel at
@@ -673,8 +726,8 @@ already is the original file.
   The body is advisory context only. `reason` is optional, at most 256
   Unicode characters, valid UTF-8, and free of control characters; readers
   drop reasons that violate any of these while the upload stays protected.
-  Marker v4 reserves every direct basename beginning `.airplan-`, in addition
-  to `.airplan.json`; collection member filenames and v4 marker-declared object
+  Marker v4 and v5 reserve every direct basename beginning `.airplan-`, in addition
+  to `.airplan.json`; collection member filenames and v4/v5 marker-declared object
   names must not use that namespace, or a member could forge a control object.
   The sole payload exception is `.airplan-changes.diff` with role `diff`, and
   only for a linked Markdown revision greater than 1; every other
@@ -831,17 +884,21 @@ airplan --profile personal --open plan.md
 `airplan upgrade <url|key>` upgrades one marker-managed, source-backed
 Markdown document in place. Its page URL, source bytes, original `created_at`,
 repository context, and purge-protection sentinel remain unchanged. The
-operation re-renders the page and writes a complete marker v4 with producer and
+operation re-renders the page and writes a complete marker v5 with producer,
+theme identity,
 render provenance. HTML, text, collections, and source-less Markdown are
 ineligible. A marker produced by a newer renderer generation is never
 implicitly downgraded. A custom-template document is eligible only when the
 configured custom template has the marker-declared SHA-256. `--force` plus the
-currently configured template choice explicitly authorizes replacing a stored
-built-in or custom template recipe; `--template PATH` selects a custom
-replacement and `--template=` selects the built-in template. Without force, a
-template mismatch remains ineligible. Planning remains read-only even when a
-configured template cannot be loaded or parsed; execution reports that error
-before writing any object.
+currently configured template and theme choices explicitly authorizes
+replacing a stored built-in/custom template or theme recipe; `--template PATH`
+selects a custom replacement and `--template=` selects the built-in template.
+Without force, a template or v5 theme-recipe mismatch remains ineligible. A
+changed theme configuration therefore requires
+`airplan upgrade --force <url|key>` before `airplan update` can proceed against
+that revision. Planning remains read-only even when a configured template
+cannot be loaded or parsed; execution reports that error before writing any
+object.
 
 `upgrade --check` performs read-only classification. `--force` explicitly
 re-renders an otherwise current target. Planning returns `upgradeable`,
@@ -896,6 +953,11 @@ eligible predecessor is upgraded or repaired. Update may then apply the same
 in-place upgrade machinery to an eligible older marker or renderer generation
 before comparing source bytes; this prerequisite maintenance is part of the
 requested update and remains independently recoverable.
+Update fails closed when the target or latest live revision's v5 theme recipe
+does not match the active catalog and defaults; the explicit remedy is
+`airplan upgrade --force <url|key>` followed by retrying the update. Historical
+members read only as metadata-repair witnesses do not need to match the active
+theme recipe because they are not re-rendered.
 Identical content is a
 successful no-op returning the existing latest URL. An already-consistent
 chain performs no storage or manifest writes; an identical-source retry may
@@ -948,7 +1010,7 @@ These tombstones intentionally accumulate and Airplan lifecycle commands never
 remove them. Thus exactly one transition can win, including when both
 operations first observed the standalone marker.
 
-Every linked v4 Markdown marker contains an immutable `revision` descriptor
+Every linked v4 or v5 Markdown marker contains an immutable `revision` descriptor
 with a 26-character lowercase RFC 4648 base32 `chain_id`, positive `number`,
 and, after revision 1, the previous page URL. Revisions greater than 1 declare
 exactly one `diff` object named `.airplan-changes.diff`, content type
@@ -996,7 +1058,7 @@ linked capability URL; this is intentional.
 mutually exclusive with `--source`. `show` exposes revision identity, latest
 revision/URL, diff state, validated versions metadata, and a separate advisory
 metadata error. Manifest projections may carry `revision_chain_id`, `revision`,
-and `latest_revision`; sync reconstructs them from v4 markers and bounded
+and `latest_revision`; sync reconstructs them from v4/v5 markers and bounded
 metadata reads.
 
 Successful `update --json` output extends the six-field document-upload JSON
@@ -1164,7 +1226,7 @@ output because it does not fetch marker bodies.
 `list`/`purge` operate on the operation service's manifest by default, or
 on its live bucket listing with `--remote`. With an `airplan` backend those
 operations execute on the server. `show` inspects one remote
-marker directory. For v4 markers its human and JSON output includes the
+marker directory. For v4 and v5 markers its human and JSON output includes the
 producer release and renderer generation when present. `get` fetches only objects declared by a valid remote
 ownership marker. `delete` takes an explicit URL or key, but it only
 operates on a directory carrying a valid airplan ownership marker; it
@@ -1212,6 +1274,8 @@ endpoint        = "https://<account-id>.r2.cloudflarestorage.com"
 bucket          = "plans"
 region          = "auto"
 public_base_url = "https://plans.example.com"
+light_theme     = "github-light"
+dark_theme      = "github-dark"
 ```
 
 With profiles (note: TOML requires root-level keys to appear before
@@ -1242,6 +1306,8 @@ default_profile = "work"
 [profiles.work]
 bucket          = "work-plans"
 public_base_url = "https://plans.work.example.com"
+light_theme     = "solarized-light"
+dark_theme      = "tokyo-night"
 
 [profiles.personal]
 endpoint        = "https://s3.eu-west-2.amazonaws.com"
@@ -1259,7 +1325,13 @@ api_token       = "..."
 rendering, and manifest settings. An `airplan` profile requires an absolute
 HTTP(S) `api_url` and `api_token`; HTTPS is required except for loopback hosts.
 It sends operations to that server and never loads ambient AWS credentials or
-writes a second client-side manifest. S3 settings inherited by an `airplan`
+writes a second client-side manifest. Rendering uses the server's resolved
+theme catalog and defaults; client-side `light_theme`, `dark_theme`, `theme`,
+`available_themes`, and custom `themes` definitions are not transmitted.
+Custom definitions are still validated strictly during client config loading;
+valid custom definitions and explicit client theme settings produce
+inactive-field warnings, while built-in defaults do not. S3 settings inherited
+by an `airplan`
 profile, and API settings inherited by an `s3` profile, are inactive. Explicit
 inactive profile settings may produce a warning; inherited ones do not.
 
@@ -1324,6 +1396,9 @@ AIRPLAN_PUBLIC_BASE_URL
 AIRPLAN_KEY_PREFIX
 AIRPLAN_TEMPLATE
 AIRPLAN_COLLECTION_TEMPLATE
+AIRPLAN_LIGHT_THEME
+AIRPLAN_DARK_THEME
+AIRPLAN_THEME
 AIRPLAN_NO_EXTERNAL_ASSETS
 AIRPLAN_MERMAID_URL
 AIRPLAN_REPO
@@ -1389,13 +1464,91 @@ Unknown keys in the config file are an error naming the offending
 key — typo protection, and it keeps the parser exactly in sync with
 the published schema's `additionalProperties: false`.
 
+### Theme catalog
+
+`light_theme` and `dark_theme` select uploader defaults for the two reader
+mode slots. They are profile-aware and may also be overridden by
+`AIRPLAN_LIGHT_THEME` and `AIRPLAN_DARK_THEME`; there are no upload theme
+flags. Either slot may name a theme of either variant. Defaults are
+`github-light` and `github-dark`.
+
+`available_themes` is an optional profile-aware ordered list of selectable
+theme IDs. A profile value replaces, rather than merges with, an inherited
+root list. Omission selects every built-in followed by custom themes in sorted
+ID order; an explicit empty list is valid. Duplicate and unknown IDs are
+errors. If a configured light or dark default is missing, Airplan appends it
+in light-then-dark order and warns on stderr; the same missing ID is appended
+and warned about only once. Reader selects preserve configured order within
+their Light themes and Dark themes groups and omit an empty group.
+
+`theme` forces one theme for both mode slots, makes the selectable catalog
+exactly that theme, and omits the built-in appearance controls. It is
+profile-aware and may be overridden by `AIRPLAN_THEME`. When combined with
+explicit effective `light_theme`, `dark_theme`, or `available_themes`, it wins
+and one warning naming the ignored keys is printed to stderr. Built-in slot
+defaults alone never cause that warning. An unknown forced ID is an error.
+
+The reserved built-in catalog is `github-light`, `catppuccin-latte`,
+`rose-pine-dawn`, `solarized-light`, `tokyo-night-day`, `github-dark`,
+`catppuccin-mocha`, `rose-pine`, `solarized-dark`, `tokyo-night`, and
+`one-dark`. The first five declare variant `light`; the last six declare
+variant `dark`.
+
+Custom themes are global entries available to every profile, not maps merged
+inside profiles:
+
+```toml
+[themes.dracula-docs]
+name = "Dracula Docs"
+variant = "dark"
+background = "#282a36"
+foreground = "#f8f8f2"
+muted = "#a8a8b2"
+accent = "#bd93f9"
+accent_foreground = "#282a36"
+border = "#44475a"
+surface = "#30323e"
+surface_emphasis = "#44475a"
+info = "#8be9fd"
+success = "#50fa7b"
+important = "#bd93f9"
+warning = "#f1fa8c"
+danger = "#ff5555"
+syntax = "derived"
+```
+
+IDs are lowercase ASCII slugs no longer than 48 bytes and cannot shadow a
+built-in. Names are non-empty valid UTF-8 of at most 80 Unicode characters.
+`variant` is exactly `light` or `dark`. Every semantic color is required and
+is normalized to lowercase `#rrggbb` or `#rrggbbaa`. `syntax` is omitted,
+empty, `derived`, or exactly `chroma:<registered-style-name>`; omitted and
+empty both derive highlighting from the semantic tokens. Chroma names are
+validated against the registered list without fallback. Reserved/malformed
+IDs, incomplete token sets, unknown keys, invalid colors or variants, and
+malformed syntax selectors are configuration errors before rendering or upload.
+An unknown forced ID is always an error. Without a forced `theme`, unknown slot
+or available theme IDs are also errors. While a forced theme is active,
+explicit `light_theme`, `dark_theme`, and `available_themes` selectors are
+ignored and are not validated. Known slot defaults omitted
+from `available_themes` are instead appended with the warnings described above.
+
+All custom definitions are validated even when excluded from the selectable
+catalog. Selected entries are canonicalized deterministically, and their
+order plus both defaults are SHA-256 hashed for render provenance. Built-in
+pages embed semantic CSS and lightweight browser metadata only for that
+immutable selection. Mermaid palettes are embedded only on documents that
+contain Mermaid, and cover the selection plus an internal fixed print palette.
+Under `@media print`, page tokens, syntax, and prepared Mermaid output
+are always GitHub Light regardless of mode, slot assignments, or custom themes.
+
 If the config file contains credentials and is group- or
 world-readable, a warning is printed to stderr.
 
-Behavioral defaults: `template`, `collection_template`, `no_source`,
-`indexable`, `no_external_assets`, `mermaid_url`, `repo`, and `timeout` may be
-set at the root or profile level; their flags override the config
-values.
+Behavioral defaults: `template`, `collection_template`, `light_theme`,
+`dark_theme`, `theme`, `available_themes`, `no_source`, `indexable`,
+`no_external_assets`, `mermaid_url`,
+`repo`, and `timeout` may be set at the root or profile level. Applicable flags
+override the config values; theme selection intentionally has no CLI flags.
 
 `template` applies only to rendered documents. `collection_template` applies
 only to collection overview pages. Configuring either does not cause it to be
@@ -1430,7 +1583,9 @@ inspection invocation; flags from an earlier process cannot be observed.
 The default table reports the selected config path, active profile, credential
 mode, and every config field's resolved value and winning source. Sources are
 one of a built-in default, root config key, selected-profile config key,
-`AIRPLAN_*` environment variable, or explicit flag. Config-path and profile
+`AIRPLAN_*` environment variable, explicit flag, or inferred/derived
+resolution. An auto-expanded `available_themes` catalog is the field-level
+inferred example. Config-path and profile
 rows likewise distinguish flag, environment, default path/profile, and
 profile inference. Root-level selection made complete by any combination of
 root config, environment, and flags is described as a complete root-level
@@ -1584,8 +1739,8 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
- "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":4,
- "producer_version":"0.8.0","renderer_version":2}
+ "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":5,
+ "producer_version":"0.8.0","renderer_version":3}
 {"type":"upload","time":"2026-07-21T12:03:00Z",
  "created_at":"2026-07-21T12:03:00Z",
  "key":"gaj4.../index.html",
@@ -1593,8 +1748,8 @@ conforming implementations can share a manifest:
  "url":"https://plans.example.com/gaj4.../index.html",
  "bucket":"plans","profile":"work","kind":"collection",
  "title":"login.png and 1 more","bytes":9216,"objects":4,
- "total_bytes":203512,"marker_version":4,
- "producer_version":"0.8.0","renderer_version":2}
+ "total_bytes":203512,"marker_version":5,
+ "producer_version":"0.8.0","renderer_version":3}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
@@ -1611,8 +1766,8 @@ conforming implementations can share a manifest:
  "url":"https://plans.example.com/vq3n.../plan.html",
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
- "bytes":19200,"marker_version":4,"producer_version":"0.8.0",
- "renderer_version":2}
+ "bytes":19200,"marker_version":5,"producer_version":"0.8.0",
+ "renderer_version":3}
 {"type":"link","time":"2026-08-15T10:05:00Z",
  "created_at":"2026-07-21T12:00:00Z",
  "key":"vq3n.../plan.html","source_key":"vq3n.../plan.md",
@@ -1620,8 +1775,8 @@ conforming implementations can share a manifest:
  "url":"https://plans.example.com/vq3n.../plan.html",
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
- "bytes":19200,"objects":4,"total_bytes":20120,"marker_version":4,
- "producer_version":"0.8.0","renderer_version":2,
+ "bytes":19200,"objects":4,"total_bytes":20120,"marker_version":5,
+ "producer_version":"0.8.0","renderer_version":3,
  "revision_chain_id":"d2x4...","revision":1,"latest_revision":2}
 ```
 
@@ -1636,7 +1791,7 @@ conforming implementations can share a manifest:
   marker declares, and `total_bytes` sums their declared sizes; both are
   optional and absent together on history written before airplan recorded
   them, and on uploads whose marker cannot declare every counted size. Marker
-  v3 and v4 always qualify; marker v2 qualifies only when it declares no source;
+  v3, v4, and v5 always qualify; marker v2 qualifies only when it declares no source;
   marker v1 and v2-with-source do not. When present, both fields are positive;
   a record with only one field or an explicit zero is invalid. They are
   additive: `bytes` keeps its own meaning and is never repurposed. `title` is
@@ -1644,9 +1799,11 @@ conforming implementations can share a manifest:
   root-level settings. `marker_key` is the exact kind-specific ownership key.
   `repo` preserves canonical repository metadata. The full collection
   inventory remains only in the remote marker.
-- Current writers always include `marker_version: 4`; its absence identifies
+- Current writers always include `marker_version: 5`; its absence identifies
   legacy pre-marker history. Readers infer `kind: document` and derive its
-  slug from the page key for valid older records that omit those fields.
+  slug from the page key for valid older records that omit those fields. The
+  renderer-3 theme recipe remains in the remote v5 marker and is not duplicated
+  in this local projection.
 - New `delete` tombstones include `marker_key`, `bucket`, the receiving
   `profile`, and reason `deleted` or `remote_missing`. Their identity is
   `(bucket, marker_key)`. A linked-revision deletion also includes its
@@ -1703,7 +1860,7 @@ conforming implementations can share a manifest:
   Readers retain an otherwise-valid upload with no `marker_version`
   as legacy history, but it never authorizes delete or purge. An
   unsupported nonzero `marker_version` is invalid and skipped with a
-  warning. Marker versions 1, 2, 3, and 4 are managed; pre-marker entries remain
+  warning. Marker versions 1 through 5 are managed; pre-marker entries remain
   visible as read-only legacy history and are never pruned by `sync`.
 
 Concurrent invocations are expected (parallel agents on one
@@ -2083,7 +2240,7 @@ machine) and must be safe:
   connection, never the marker.
   Sync also completes local history in place: for each active, scoped,
   marker-managed record that is missing both `objects` and `total_bytes` and
-  carries a v3 or v4 marker version, or a v2 marker version without a source, it
+  carries a v3, v4, or v5 marker version, or a v2 marker version without a source, it
   fetches and inspects that marker and, only
   for a `complete` inspection, appends an enriched upload record carrying the
   record's original time and identity plus the declared totals. Append-only
@@ -2102,7 +2259,7 @@ machine) and must be safe:
   invalid, or without declared sizes, is counted as deferred and named in a
   warning, and a later sync retries it. Otherwise one unreadable marker would
   fail every later run, because the record keeps qualifying.
-  A complete source-backed v4 Markdown record without a revision projection is
+  A complete source-backed v4 or v5 Markdown record without a revision projection is
   also inspected because another writer may have promoted its marker from
   standalone to revision 1. A discovered complete versions index appends a
   `link` projection with chain, revision, and latest values. A still-standalone
@@ -2141,7 +2298,7 @@ machine) and must be safe:
   deliberately leaves suppressed.
   Enriched records complete uploads already in history, so they are never
   counted as additions. `unchanged` counts scoped records already complete
-  locally, including an inspected v4 Markdown record that remains standalone;
+  locally, including an inspected v4 or v5 Markdown record that remains standalone;
   a totals-enrichment candidate is reported as enriched or deferred and never
   also as unchanged. A partial failure exits nonzero after
   writing the result. Sync provides eventual active-inventory convergence;
@@ -2236,6 +2393,8 @@ connection overrides and server-owned rendering policy flags are rejected
 before input is opened. Inherited settings remain inactive as described in
 §7; a client cannot choose the server's endpoint, bucket, key prefix,
 templates, source policy, indexability, or Mermaid policy.
+Client-side theme selectors and custom definitions are likewise inactive and
+are not sent; hosted pages use the server's resolved theme configuration.
 Raw REST and hosted MCP requests that omit repository context disable
 repository discovery. Hosted requests reject `auto` and accept only `none` or
 a normalizable explicit repository URL, so the server never falls back to

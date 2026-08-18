@@ -236,7 +236,7 @@ func TestIntegrationRoundTrip(t *testing.T) {
 
 	// Exercise real S3-compatible conditional upgrade writes. First prove a
 	// stale marker ETag fails closed without touching the page, then re-plan and
-	// migrate the same source-backed document from marker v3 to v4.
+	// migrate the same source-backed document from marker v3 to the current version.
 	legacyMarker := *marker
 	legacyMarker.Version = 3
 	legacyMarker.Producer = Producer{}

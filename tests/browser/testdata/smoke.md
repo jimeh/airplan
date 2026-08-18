@@ -31,10 +31,37 @@ The generated page should work independently of developer config.
 
 ## Code sample
 
+Inline `code`, [theme contrast guidance](https://example.com), and
+representative prose keep theme contrast visible across dense reading content.
+
+| Surface  | Expected behavior          |
+| -------- | -------------------------- |
+| Controls | Remain legible             |
+| Syntax   | Follows the selected theme |
+
 ```js
 const answer = 42;
 console.log(answer);
 ```
+
+<!-- markdownlint-disable MD028 -->
+
+> [!NOTE]
+> Informational context remains distinct.
+
+> [!TIP]
+> Successful guidance remains distinct.
+
+> [!IMPORTANT]
+> Important guidance remains distinct.
+
+> [!WARNING]
+> Caution remains distinct.
+
+> [!CAUTION]
+> Dangerous actions remain distinct.
+
+<!-- markdownlint-enable MD028 -->
 
 ## Diagram
 
@@ -46,6 +73,19 @@ flowchart LR
 ```mermaid
 flowchart TD
   Source --> Render --> Share
+```
+
+```mermaid
+sequenceDiagram
+  Author->>Airplan: Upload themed document
+  Airplan-->>Reader: Standalone page
+```
+
+```mermaid
+stateDiagram-v2
+  [*] --> System
+  System --> Light
+  System --> Dark
 ```
 
 ## Final checks

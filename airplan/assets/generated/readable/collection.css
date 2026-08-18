@@ -4,22 +4,6 @@
   --buncss-light: initial;
   --buncss-dark: ;
   color-scheme: light dark;
-  --bg: var(--buncss-light, #fff) var(--buncss-dark, #0d1117);
-  --fg: var(--buncss-light, #1f2328) var(--buncss-dark, #e6edf3);
-  --heading: var(--buncss-light, #1f2328) var(--buncss-dark, #f0f6fc);
-  --subheading: var(--buncss-light, #3d444d) var(--buncss-dark, #c9d1d9);
-  --muted: var(--buncss-light, #59636e) var(--buncss-dark, #9198a1);
-  --link: var(--buncss-light, #0969da) var(--buncss-dark, #4493f8);
-  --border: var(--buncss-light, #d1d9e0) var(--buncss-dark, #3d444d);
-  --surface-subtle: var(--buncss-light, #f6f8fa) var(--buncss-dark, #151b23);
-  --code-inline-bg: var(--buncss-light, #eff1f3) var(--buncss-dark, #212830);
-  --code-bg: var(--buncss-light, #f6f8fa) var(--buncss-dark, #151b23);
-  --code-border: var(--buncss-light, #d1d9e0) var(--buncss-dark, #30363d);
-  --control-track: var(--buncss-light, #eff1f3) var(--buncss-dark, #21262d);
-  --control-active: var(--buncss-light, #fff) var(--buncss-dark, #30363d);
-  --control-hover: var(--buncss-light, #eff1f3) var(--buncss-dark, #21262d);
-  --control-divider: var(--buncss-light, #d8dee4) var(--buncss-dark, #30363d);
-  --on-link: var(--buncss-light, #fff) var(--buncss-dark, #0d1117);
   --page-width: 54rem;
 }
 
@@ -28,18 +12,6 @@
     --buncss-light: ;
     --buncss-dark: initial;
   }
-}
-
-:root[data-theme="light"] {
-  --buncss-light: initial;
-  --buncss-dark: ;
-  color-scheme: light;
-}
-
-:root[data-theme="dark"] {
-  --buncss-light: ;
-  --buncss-dark: initial;
-  color-scheme: dark;
 }
 
 * {
@@ -133,18 +105,29 @@ body {
   box-shadow: 0 1px 2px #0003;
 }
 
-.themetoggle button {
+.appearance-trigger {
   width: 1.85rem;
   padding-inline-start: 0;
   padding-inline-end: 0;
 }
 
-.themetoggle:not(:first-child) {
+.appearance-resolved-icon {
+  display: none;
+}
+
+:root[data-airplan-resolved-mode="light"] .appearance-resolved-icon[data-airplan-resolved-icon="light"], :root[data-airplan-resolved-mode="dark"] .appearance-resolved-icon[data-airplan-resolved-icon="dark"] {
+  display: block;
+}
+
+.appearance {
   position: relative;
+}
+
+.appearance:not(:first-child) {
   margin-left: .5rem;
 }
 
-.themetoggle:not(:first-child):before {
+.appearance:not(:first-child):before {
   content: "";
   position: absolute;
   background: var(--control-divider);
@@ -152,6 +135,83 @@ body {
   height: 1rem;
   top: 50%;
   left: -.825rem;
+  transform: translateY(-50%);
+}
+
+.appearance-panel {
+  position: absolute;
+  z-index: 30;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--fg) 14%, transparent);
+  border-radius: 10px;
+  width: min(19rem, 100vw - 2rem);
+  padding: .85rem;
+  top: calc(100% + .5rem);
+  right: 0;
+}
+
+.appearance-heading {
+  color: var(--heading);
+  margin-bottom: .75rem;
+  font-weight: 600;
+}
+
+.appearance-field {
+  display: grid;
+  gap: .35rem;
+}
+
+.appearance-field + .appearance-field {
+  margin-top: .75rem;
+}
+
+.appearance-label {
+  color: var(--muted);
+  font-size: .78rem;
+  font-weight: 600;
+}
+
+.appearance-modes {
+  width: 100%;
+}
+
+.appearance-modes button {
+  flex: 1;
+}
+
+.appearance-select {
+  position: relative;
+  display: grid;
+}
+
+.appearance-panel select {
+  appearance: none;
+  -webkit-appearance: none;
+  color: var(--fg);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  font: inherit;
+  border-radius: 7px;
+  width: 100%;
+  min-height: 2.1rem;
+  padding: .3rem 2.25rem .3rem .5rem;
+}
+
+.appearance-panel select:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.appearance-select .appearance-select-icon {
+  position: absolute;
+  color: var(--muted);
+  pointer-events: none;
+  width: .875rem;
+  height: .875rem;
+  top: 50%;
+  right: .7rem;
   transform: translateY(-50%);
 }
 
@@ -180,17 +240,25 @@ body {
     padding-inline-end: 1rem;
   }
 
-  .themetoggle:not(:first-child) {
+  .appearance:not(:first-child) {
     margin-left: 0;
   }
 
-  .themetoggle:not(:first-child):before {
+  .appearance:not(:first-child):before {
     display: none;
+  }
+
+  .appearance-panel {
+    position: fixed;
+    width: auto;
+    top: 3.5rem;
+    left: .75rem;
+    right: .75rem;
   }
 }
 
 @media print {
-  :root, :root[data-theme] {
+  :root, :root[data-airplan-theme] {
     --buncss-light: initial;
     --buncss-dark: ;
     color-scheme: light;
@@ -368,7 +436,7 @@ h1 {
     justify-self: start;
   }
 
-  .toolbar .themetoggle {
+  .toolbar .appearance {
     grid-column: 3;
     grid-row: 1;
     justify-self: end;

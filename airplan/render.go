@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/alecthomas/chroma/v2"
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
@@ -120,11 +119,8 @@ func bakeTemplate(layout string, replacements ...templateReplacement) string {
 	return strings.NewReplacer(pairs...).Replace(layout)
 }
 
-// Chroma styles used for syntax highlighting in light and dark mode.
-const (
-	syntaxStyleLight = "github"
-	syntaxStyleDark  = "github-dark"
-)
+// Source HTML uses Chroma classes; per-theme CSS supplies their colors.
+const syntaxStyleLight = "github"
 
 var pageTmpl = template.Must(
 	template.New("page").Parse(executableBuiltinTemplate),
@@ -168,6 +164,9 @@ type RenderOptions struct {
 	// template takes full responsibility for the page: styles,
 	// noindex meta, and any interactivity.
 	Template *template.Template
+
+	// Themes is the resolved page-local catalog. nil uses the built-in defaults.
+	Themes *ThemeBundle
 
 	Revision         int
 	RevisionCount    int
@@ -215,79 +214,63 @@ func newMarkdownWithRepository(repository string, source []byte) goldmark.Markdo
 	)
 }
 
-// syntaxCSS renders chroma's class-based stylesheets for the light and
-// dark palettes, scoped so highlighting follows the screen theme while
-// print always uses the light palette (SPEC.md §3). Both palettes must
-// be fully scoped: the styles define different token class sets, so an
-// unscoped light palette would leak dark-on-dark colors into dark mode
-// for classes the dark style doesn't override.
-var syntaxCSS = sync.OnceValues(func() (string, error) {
-	f := chromahtml.New(chromahtml.WithClasses(true))
-	renderStyle := func(name string) (string, error) {
-		var css strings.Builder
-		if err := f.WriteCSS(&css, styles.Get(name)); err != nil {
-			return "", err
-		}
-		return css.String(), nil
-	}
-
-	light, err := renderStyle(syntaxStyleLight)
-	if err != nil {
-		return "", fmt.Errorf("render light syntax css: %w", err)
-	}
-	dark, err := renderStyle(syntaxStyleDark)
-	if err != nil {
-		return "", fmt.Errorf("render dark syntax css: %w", err)
-	}
-
-	var b strings.Builder
-	b.WriteString("@media screen and (prefers-color-scheme: light) {\n")
-	b.WriteString(scopeSyntaxCSS(light, ":root:not([data-theme])"))
-	b.WriteString("}\n")
-
-	b.WriteString("@media print {\n")
-	b.WriteString(light)
-	b.WriteString("}\n")
-
-	b.WriteString("@media screen and (prefers-color-scheme: dark) {\n")
-	b.WriteString(scopeSyntaxCSS(dark, ":root:not([data-theme])"))
-	b.WriteString("}\n")
-
-	b.WriteString("@media screen {\n")
-	b.WriteString(scopeSyntaxCSS(light, `:root[data-theme="light"]`))
-	b.WriteString(scopeSyntaxCSS(dark, `:root[data-theme="dark"]`))
-	b.WriteString("}\n")
-
-	return b.String(), nil
-})
-
-func scopeSyntaxCSS(css, scope string) string {
+func compactScopedSyntaxCSS(css string, scopes ...string) (string, error) {
 	var out strings.Builder
 	for line := range strings.SplitSeq(css, "\n") {
-		commentEnd := strings.Index(line, "*/ ")
-		brace := strings.Index(line, "{")
-		if commentEnd < 0 || brace < commentEnd {
-			out.WriteString(line)
-			out.WriteByte('\n')
+		line = strings.TrimSpace(line)
+		if line == "" {
 			continue
 		}
-
-		selectorStart := commentEnd + len("*/ ")
-		selectors := strings.Split(line[selectorStart:brace], ",")
-		out.WriteString(line[:selectorStart])
-		for i, selector := range selectors {
-			if i > 0 {
-				out.WriteString(", ")
-			}
-			out.WriteString(scope)
-			out.WriteByte(' ')
-			out.WriteString(strings.TrimSpace(selector))
+		brace := strings.Index(line, "{")
+		if brace < 1 || !strings.HasSuffix(line, "}") {
+			return "", fmt.Errorf("airplan: compact unexpected Chroma CSS rule %q", line)
 		}
-		out.WriteByte(' ')
-		out.WriteString(line[brace:])
-		out.WriteByte('\n')
+
+		selectors := strings.Split(line[:brace], ",")
+		written := 0
+		for _, selector := range selectors {
+			selector = strings.TrimSpace(selector)
+			if len(scopes) == 0 {
+				if written > 0 {
+					out.WriteByte(',')
+				}
+				out.WriteString(selector)
+				written++
+				continue
+			}
+			for _, scope := range scopes {
+				if written > 0 {
+					out.WriteByte(',')
+				}
+				out.WriteString(scope)
+				out.WriteByte(' ')
+				out.WriteString(selector)
+				written++
+			}
+		}
+		out.WriteByte('{')
+		declarations := strings.Split(line[brace+1:len(line)-1], ";")
+		written = 0
+		for _, declaration := range declarations {
+			declaration = strings.TrimSpace(declaration)
+			if declaration == "" {
+				continue
+			}
+			colon := strings.IndexByte(declaration, ':')
+			if colon < 1 {
+				return "", fmt.Errorf("airplan: compact unexpected Chroma CSS declaration %q", declaration)
+			}
+			if written > 0 {
+				out.WriteByte(';')
+			}
+			out.WriteString(strings.TrimSpace(declaration[:colon]))
+			out.WriteByte(':')
+			out.WriteString(strings.TrimSpace(declaration[colon+1:]))
+			written++
+		}
+		out.WriteByte('}')
 	}
-	return out.String()
+	return out.String(), nil
 }
 
 // RenderMarkdown renders markdown source to an HTML page with embedded CSS,
@@ -394,9 +377,9 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 		return nil, err
 	}
 	opts.MermaidURL = mermaidURL
-	syntax, err := syntaxCSS()
-	if err != nil {
-		return nil, err
+	bundle := opts.Themes
+	if bundle == nil {
+		bundle = defaultThemeBundle()
 	}
 
 	data.Title = opts.Title
@@ -414,7 +397,15 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 	if data.SourceName == "" {
 		data.SourceName = opts.SourceName
 	}
-	data.SyntaxCSS = template.CSS(syntax)
+	data.SyntaxCSS = bundle.SyntaxCSS
+	data.ThemeCSS = bundle.CSS
+	data.ThemeCatalogJSON = bundle.CatalogJSON
+	if data.HasMermaid {
+		data.MermaidThemeJSON = bundle.MermaidJSON
+	}
+	data.DefaultLightTheme = bundle.DefaultLight
+	data.DefaultDarkTheme = bundle.DefaultDark
+	data.AppearanceEnabled = len(bundle.Catalog) > 1
 
 	var out bytes.Buffer
 	tmpl := pageTmpl

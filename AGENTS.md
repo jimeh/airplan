@@ -74,6 +74,9 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Golden files**: rendering snapshots live in `airplan/testdata/`;
   run `GOLDEN_UPDATE=1 go test ./airplan/ -run TestRenderMarkdownGolden`
   after template/CSS/JS changes.
+- **zsh reserves lowercase `path`**: do not use it as a variable or loop
+  iterator; assigning it rewrites `PATH` and makes commands unavailable in that
+  shell process.
 - **Repository text files use LF on every platform** via
   `.gitattributes`; byte-exact golden and generated-file tests depend
   on this even when Git runs on Windows.

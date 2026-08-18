@@ -119,11 +119,18 @@ func New(ctx context.Context, cfg *Config) (*Client, error) {
 		return &Client{cfg: cfg, remote: transport}, nil
 	}
 	// RenderMarkdown resolves an empty Mermaid URL to this default. Store the
-	// same effective value on the local client so v4 render provenance records
+	// same effective value on the local client so render provenance records
 	// the exact URL used rather than an instruction to consult a future default.
 	if cfg.MermaidURL == "" {
 		cfg.MermaidURL = DefaultMermaidURL
 	}
+	bundle, err := cfg.resolveThemeBundle()
+	if err != nil {
+		return nil, err
+	}
+	cfg.LightTheme = bundle.DefaultLight
+	cfg.DarkTheme = bundle.DefaultDark
+	cfg.ThemeBundle = bundle
 	if err := validatePartialS3Config(cfg); err != nil {
 		return nil, err
 	}
@@ -242,6 +249,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		NoExternalAssets: c.cfg.NoExternalAssets,
 		MermaidURL:       c.cfg.MermaidURL,
 		Repository:       repository,
+		Themes:           c.cfg.ThemeBundle,
 	}, c.template, c.templateErr)
 	if err != nil {
 		return nil, err

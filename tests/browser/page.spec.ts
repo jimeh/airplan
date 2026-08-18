@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,17 +24,44 @@ const sourceFixturePath = join(
 );
 const expectedCode = "const answer = 42;\nconsole.log(answer);\n";
 const mermaidModule = `
-let theme = 'default';
+let theme = 'github-light';
+let themeVariables = {};
 function escapeHTML(value) {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
 }
 export default {
   initialize(config) {
-    theme = config.theme;
+    theme = config.themeVariables.airplanTheme;
+    themeVariables = config.themeVariables;
   },
   async render(id, source) {
-    const name = theme === 'dark' ? 'dark' : 'light';
+    const name = theme;
+    const renderThemeVariables = { ...themeVariables };
+    globalThis.__airplanMermaidRenders ||= {};
+    globalThis.__airplanMermaidRenders[name] = (globalThis.__airplanMermaidRenders[name] || 0) + 1;
+    if (globalThis.__airplanMermaidStartupTheme && !globalThis.__airplanMermaidStartupThemeSent) {
+      globalThis.__airplanMermaidStartupThemeSent = true;
+      setTimeout(() => window.dispatchEvent(new CustomEvent('airplan:themechange', {
+        detail: {
+          mode: 'light', resolvedMode: 'light',
+          theme: globalThis.__airplanMermaidStartupTheme, variant: 'light',
+        },
+      })), 5);
+    }
+    if (globalThis.__airplanMermaidStartupPrint && !globalThis.__airplanMermaidStartupPrintSent) {
+      globalThis.__airplanMermaidStartupPrintSent = true;
+      setTimeout(() => window.dispatchEvent(new Event('beforeprint')), 5);
+    }
+    if (globalThis.__airplanMermaidDelay) {
+      await new Promise((resolve) => setTimeout(resolve, globalThis.__airplanMermaidDelay));
+    }
+    if (name === 'tokyo-night') await new Promise((resolve) => setTimeout(resolve, 20));
+    if (name === 'one-dark') throw new Error('intentional per-theme failure');
+    if (globalThis.__airplanMermaidFailSource &&
+        source.includes(globalThis.__airplanMermaidFailSource)) {
+      throw new Error('intentional per-diagram failure');
+    }
     return {
       svg: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"' +
         ' viewBox="0 0 640 240" role="img" data-mermaid-theme="' + name +
@@ -42,22 +69,36 @@ export default {
         '-label" aria-describedby="' + id + '-desc">' +
         '<title id="' + id + '-title">Diagram</title>' +
         '<desc id="' + id + '-desc">Rendered Mermaid fixture</desc>' +
-        '<defs><marker id="' + id + '-arrow"><path d="M0 0L10 5L0 10z"/>' +
+        '<defs><marker id="' + id + '-arrow"><path fill="' + renderThemeVariables.lineColor +
+        '" d="M0 0L10 5L0 10z"/>' +
         '</marker><linearGradient id="' + id + '-gradient"><stop offset="0"/>' +
         '</linearGradient></defs><style>#' + id + '-node{fill:url(#' + id +
         '-gradient)}#' + id + '-label{font-weight:600}#' + id +
         '-node-extra{opacity:.5}</style>' +
         '<g id="' + id + '-node" aria-labelledby="' + id + '-label">' +
-        '<path d="M20 120H600" marker-end="url(#' + id + '-arrow)"/>' +
+        '<rect x="18" y="72" width="580" height="96" rx="10" fill="' +
+        renderThemeVariables.primaryColor + '" stroke="' + renderThemeVariables.primaryBorderColor + '"/>' +
+        '<path d="M20 120H600" stroke="' + renderThemeVariables.lineColor +
+        '" marker-end="url(#' + id + '-arrow)"/>' +
         '<a href="#' + id + '-node"><text id="' + id + '-label" x="24"' +
-        ' y="112">' + escapeHTML(source) + '</text></a></g></svg>',
+        ' y="112" fill="' + renderThemeVariables.textColor + '">' +
+        escapeHTML(source) + '</text></a></g></svg>',
     };
   },
 };
 `;
+const legacyThemePage = `<!doctype html><html><body>
+<button type="button" id="legacy-dark">Use legacy dark</button>
+<script>document.querySelector('#legacy-dark').addEventListener('click', () => {
+  localStorage.setItem('airplan-theme', 'dark');
+});</script></body></html>`;
 
 let baseURL = "";
 let collectionURL = "";
+let customURL = "";
+let fixedURL = "";
+let fixedCollectionURL = "";
+let subsetURL = "";
 let collectionMembers = new Map<string, Buffer>();
 let fixtureSource = "";
 let mermaidURL = "";
@@ -65,6 +106,10 @@ let server: ReturnType<typeof createServer>;
 let sourceURL = "";
 let tempRoot = "";
 let collectionHTML = Buffer.alloc(0);
+let customHTML = Buffer.alloc(0);
+let fixedHTML = Buffer.alloc(0);
+let fixedCollectionHTML = Buffer.alloc(0);
+let subsetHTML = Buffer.alloc(0);
 let revisionHTML = Buffer.alloc(0);
 const versionRequests: Array<{
   headers: import("node:http").IncomingHttpHeaders;
@@ -125,6 +170,10 @@ test.beforeAll(async () => {
   fixtureSource = await readFile(fixturePath, "utf8");
   const outputPath = join(tempRoot, "index.html");
   const collectionOutputPath = join(tempRoot, "collection.html");
+  const customOutputPath = join(tempRoot, "custom.html");
+  const fixedOutputPath = join(tempRoot, "fixed.html");
+  const fixedCollectionOutputPath = join(tempRoot, "fixed-collection.html");
+  const subsetOutputPath = join(tempRoot, "subset.html");
   const revisionOutputPath = join(tempRoot, "revision.html");
   const configRoot = join(tempRoot, "config");
   const env = cleanEnv();
@@ -135,6 +184,46 @@ test.beforeAll(async () => {
   await execFileAsync(
     binaryPath,
     ["preview", "--repo", "none", "--output", outputPath, fixturePath],
+    { cwd: repoRoot, env },
+  );
+  const subsetConfigPath = join(tempRoot, "subset-config", "airplan.toml");
+  await mkdir(dirname(subsetConfigPath), { recursive: true });
+  await writeFile(
+    subsetConfigPath,
+    `available_themes = ["tokyo-night", "one-dark"]
+light_theme = "one-dark"
+dark_theme = "tokyo-night"
+`,
+  );
+  await execFileAsync(
+    binaryPath,
+    [
+      "preview",
+      "--config",
+      subsetConfigPath,
+      "--repo",
+      "none",
+      "--output",
+      subsetOutputPath,
+      fixturePath,
+    ],
+    { cwd: repoRoot, env },
+  );
+  const fixedConfigPath = join(tempRoot, "fixed-config", "airplan.toml");
+  await mkdir(dirname(fixedConfigPath), { recursive: true });
+  await writeFile(fixedConfigPath, `theme = "tokyo-night"\n`);
+  await execFileAsync(
+    binaryPath,
+    [
+      "preview",
+      "--config",
+      fixedConfigPath,
+      "--repo",
+      "none",
+      "--output",
+      fixedOutputPath,
+      fixturePath,
+    ],
     { cwd: repoRoot, env },
   );
   await execFileAsync(fixtureBinaryPath, [revisionOutputPath], {
@@ -153,6 +242,21 @@ test.beforeAll(async () => {
     binaryPath,
     [
       "preview",
+      "--config",
+      fixedConfigPath,
+      "--files",
+      "--repo",
+      "none",
+      "--output",
+      fixedCollectionOutputPath,
+      join(tempRoot, "notes.bin"),
+    ],
+    { cwd: repoRoot, env },
+  );
+  await execFileAsync(
+    binaryPath,
+    [
+      "preview",
       "--files",
       "--repo",
       "none",
@@ -167,8 +271,52 @@ test.beforeAll(async () => {
     ],
     { cwd: repoRoot, env },
   );
+  const customConfigPath = join(tempRoot, "custom-config", "airplan.toml");
+  await mkdir(dirname(customConfigPath), { recursive: true });
+  await writeFile(
+    customConfigPath,
+    `light_theme = "custom-dark"
+dark_theme = "github-light"
+
+[themes.custom-dark]
+name = "Custom Dark"
+variant = "dark"
+background = "#101010"
+foreground = "#eeeeee"
+muted = "#aaaaaa"
+accent = "#6699ff"
+accent_foreground = "#101010"
+border = "#444444"
+surface = "#202020"
+surface_emphasis = "#303030"
+info = "#55bbdd"
+success = "#66bb77"
+important = "#bb88ee"
+warning = "#ddbb55"
+danger = "#ee6677"
+syntax = "derived"
+`,
+  );
+  await execFileAsync(
+    binaryPath,
+    [
+      "preview",
+      "--config",
+      customConfigPath,
+      "--repo",
+      "none",
+      "--output",
+      customOutputPath,
+      fixturePath,
+    ],
+    { cwd: repoRoot, env },
+  );
   const html = await readFile(outputPath);
   collectionHTML = await readFile(collectionOutputPath);
+  customHTML = await readFile(customOutputPath);
+  fixedHTML = await readFile(fixedOutputPath);
+  fixedCollectionHTML = await readFile(fixedCollectionOutputPath);
+  subsetHTML = await readFile(subsetOutputPath);
   revisionHTML = await readFile(revisionOutputPath);
   collectionMembers = new Map([
     ["/demo.webm", await readFile(join(tempRoot, "demo.webm"))],
@@ -176,7 +324,7 @@ test.beforeAll(async () => {
     ["/notes.bin", await readFile(join(tempRoot, "notes.bin"))],
   ]);
   const sourceHTML = await readFile(sourceFixturePath);
-  const match = html.toString().match(/await import\("([^"]+)"\)/);
+  const match = html.toString().match(/(https:\/\/[^"']+\/mermaid[^"']+\.mjs)/);
   if (!match) throw new Error("rendered fixture has no Mermaid module URL");
   [, mermaidURL] = match;
 
@@ -196,6 +344,16 @@ test.beforeAll(async () => {
       body = html;
     } else if (request.url === "/collection") {
       body = collectionHTML;
+    } else if (request.url === "/custom") {
+      body = customHTML;
+    } else if (request.url === "/subset") {
+      body = subsetHTML;
+    } else if (request.url === "/fixed") {
+      body = fixedHTML;
+    } else if (request.url === "/fixed-collection") {
+      body = fixedCollectionHTML;
+    } else if (request.url === "/legacy-theme") {
+      body = Buffer.from(legacyThemePage);
     } else if (request.url === "/shot.svg") {
       body = await readFile(join(tempRoot, "shot.svg"));
       response.writeHead(200, { "Content-Type": "image/svg+xml" });
@@ -224,6 +382,10 @@ test.beforeAll(async () => {
   const address = server.address() as AddressInfo;
   baseURL = `http://127.0.0.1:${address.port}`;
   collectionURL = `${baseURL}/collection`;
+  customURL = `${baseURL}/custom`;
+  subsetURL = `${baseURL}/subset`;
+  fixedURL = `${baseURL}/fixed`;
+  fixedCollectionURL = `${baseURL}/fixed-collection`;
   sourceURL = `${baseURL}/source`;
 });
 
@@ -307,38 +469,322 @@ test("collection overview presents and links every media kind", async ({ context
 test("collection overview shares document theme controls", async ({ page }) => {
   await page.goto(collectionURL);
   const root = page.locator("html");
-  const lightTheme = page.getByRole("button", { name: "Light theme" });
-  const systemTheme = page.getByRole("button", { name: "System theme" });
-  const darkTheme = page.getByRole("button", { name: "Dark theme" });
+  await page.getByRole("button", { name: "Appearance" }).click();
+  const lightTheme = page.getByRole("button", { name: "Light", exact: true });
+  const systemTheme = page.getByRole("button", { name: "System", exact: true });
+  const darkTheme = page.getByRole("button", { name: "Dark", exact: true });
 
   await expect(systemTheme).toHaveAttribute("aria-pressed", "true");
-  await expect(root).not.toHaveAttribute("data-theme", /.+/);
+  await expect(root).toHaveAttribute("data-airplan-mode", "system");
 
   await darkTheme.click();
-  await expect(root).toHaveAttribute("data-theme", "dark");
+  await expect(root).toHaveAttribute("data-airplan-mode", "dark");
   await expect(darkTheme).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => page.evaluate(() => localStorage.getItem("airplan-theme"))).toBe("dark");
 
   await page.reload();
-  await expect(root).toHaveAttribute("data-theme", "dark");
+  await expect(root).toHaveAttribute("data-airplan-mode", "dark");
+  await page.getByRole("button", { name: "Appearance" }).click();
   await expect(darkTheme).toHaveAttribute("aria-pressed", "true");
 
   await lightTheme.click();
-  await expect(root).toHaveAttribute("data-theme", "light");
+  await expect(root).toHaveAttribute("data-airplan-mode", "light");
   await expect(lightTheme).toHaveAttribute("aria-pressed", "true");
 
   await systemTheme.click();
-  await expect(root).not.toHaveAttribute("data-theme", /.+/);
+  await expect(root).toHaveAttribute("data-airplan-mode", "system");
   await expect(systemTheme).toHaveAttribute("aria-pressed", "true");
   await expect.poll(() => page.evaluate(() => localStorage.getItem("airplan-theme"))).toBeNull();
+});
+
+test("appearance panel groups the full catalog and allows cross-variant slots", async ({
+  page,
+}, testInfo) => {
+  await page.goto(baseURL);
+  const root = page.locator("html");
+  const trigger = page.getByRole("button", { name: "Appearance" });
+  await trigger.click();
+  const panel = page.getByRole("group", { name: "Appearance settings" });
+  await expect(panel).toBeVisible();
+  const lightSelect = page.getByRole("combobox", { name: "Light theme", exact: true });
+  const darkSelect = page.getByRole("combobox", { name: "Dark theme", exact: true });
+  const options = async (select: typeof lightSelect) =>
+    select.locator("option").evaluateAll((nodes) =>
+      nodes.map((node) => ({
+        value: (node as HTMLOptionElement).value,
+        label: node.textContent,
+      })),
+    );
+  expect(await options(lightSelect)).toEqual(await options(darkSelect));
+  await expect(lightSelect.locator("optgroup")).toHaveCount(2);
+  await expect(lightSelect.locator('optgroup[label="Light themes"] option')).toHaveCount(5);
+  await expect(lightSelect.locator('optgroup[label="Dark themes"] option')).toHaveCount(6);
+
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await lightSelect.selectOption("one-dark");
+  await expect(root).toHaveAttribute("data-airplan-resolved-mode", "light");
+  await expect(root).toHaveAttribute("data-airplan-theme", "one-dark");
+  await expect(root).toHaveAttribute("data-airplan-theme-variant", "dark");
+  await expect(root).toHaveCSS("color-scheme", "dark");
+
+  await darkSelect.selectOption("tokyo-night-day");
+  await page.getByRole("button", { name: "Dark", exact: true }).click();
+  await expect(root).toHaveAttribute("data-airplan-resolved-mode", "dark");
+  await expect(root).toHaveAttribute("data-airplan-theme", "tokyo-night-day");
+  await expect(root).toHaveAttribute("data-airplan-theme-variant", "light");
+  await expect(root).toHaveCSS("color-scheme", "light");
+  await page.reload();
+  await expect(root).toHaveAttribute("data-airplan-theme", "tokyo-night-day");
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("airplan-light-theme")))
+    .toBe("one-dark");
+
+  await page.evaluate(() => localStorage.setItem("airplan-light-theme", "custom-on-another-page"));
+  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await page.reload();
+  await expect(root).toHaveAttribute("data-airplan-theme", "github-light");
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("airplan-light-theme")))
+    .toBe("custom-on-another-page");
+
+  if (testInfo.project.name.startsWith("narrow-")) {
+    await trigger.click();
+    const box = await panel.boundingBox();
+    if (!box) throw new Error("appearance panel has no bounds");
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error("appearance panel test has no viewport");
+    expect(box.x).toBeGreaterThanOrEqual(8);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width - 8);
+  }
+  if (testInfo.project.name === "desktop-light" || testInfo.project.name === "narrow-light") {
+    if (!(await panel.isVisible())) await trigger.click();
+    await page.screenshot({ path: testInfo.outputPath("appearance-panel.png"), fullPage: true });
+  }
+});
+
+test("configured subset is the only grouped appearance catalog", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers catalog filtering");
+  await page.goto(subsetURL);
+  await page.getByRole("button", { name: "Appearance" }).click();
+  const light = page.getByRole("combobox", { name: "Light theme", exact: true });
+  const dark = page.getByRole("combobox", { name: "Dark theme", exact: true });
+  for (const select of [light, dark]) {
+    await expect(select.locator('optgroup[label="Light themes"]')).toHaveCount(0);
+    await expect(select.locator('optgroup[label="Dark themes"] option')).toHaveCount(2);
+    await expect(select.locator("option")).toHaveText(["Tokyo Night", "One Dark"]);
+  }
+});
+
+test("forced theme ignores stored preferences and omits appearance controls", async ({
+  browser,
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers fixed pages");
+  await page.addInitScript(() => {
+    localStorage.setItem("airplan-color-mode", "light");
+    localStorage.setItem("airplan-light-theme", "github-light");
+    localStorage.setItem("airplan-dark-theme", "github-dark");
+  });
+  for (const url of [fixedURL, fixedCollectionURL]) {
+    await page.goto(url);
+    await expect(page.locator("html")).toHaveAttribute("data-airplan-theme", "tokyo-night");
+    await expect(page.getByRole("button", { name: "Appearance" })).toHaveCount(0);
+  }
+  await page.goto(fixedURL);
+  await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
+    "data-mermaid-theme",
+    "tokyo-night",
+  );
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
+    "data-mermaid-theme",
+    "github-light",
+  );
+  const noJS = await browser.newContext({ colorScheme: "light", javaScriptEnabled: false });
+  try {
+    const noJSPage = await noJS.newPage();
+    await noJSPage.goto(fixedURL);
+    await expect(noJSPage.getByRole("button", { name: "Appearance" })).toHaveCount(0);
+    await expect(noJSPage.locator("body")).toHaveCSS("background-color", "rgb(26, 27, 38)");
+  } finally {
+    await noJS.close();
+  }
+});
+
+test("appearance controls pair mode labels with icons and align custom select chevrons", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "narrow-light", "one narrow project covers appearance UI");
+  await page.goto(baseURL);
+  const trigger = page.getByRole("button", { name: "Appearance" });
+  await expect(trigger.locator('[data-airplan-resolved-icon="light"]')).toBeVisible();
+  await expect(trigger.locator('[data-airplan-resolved-icon="dark"]')).toBeHidden();
+
+  await trigger.click();
+  for (const name of ["System", "Light", "Dark"]) {
+    await expect(page.getByRole("button", { name, exact: true }).locator("svg.icon")).toHaveCount(
+      1,
+    );
+  }
+  const lightSelect = page.getByRole("combobox", { name: "Light theme", exact: true });
+  const darkSelect = page.getByRole("combobox", { name: "Dark theme", exact: true });
+  await expect(lightSelect).toBeVisible();
+  await expect(darkSelect).toBeVisible();
+  await expect(lightSelect).toHaveCSS("appearance", "none");
+
+  const selectGeometry = await lightSelect.evaluate((select) => {
+    const icon = select.parentElement!.querySelector<SVGElement>("[data-airplan-select-icon]")!;
+    const selectBox = select.getBoundingClientRect();
+    const iconBox = icon.getBoundingClientRect();
+    return {
+      endInset: selectBox.right - iconBox.right,
+      centerOffset: Math.abs(
+        selectBox.top + selectBox.height / 2 - (iconBox.top + iconBox.height / 2),
+      ),
+      pointerEvents: getComputedStyle(icon).pointerEvents,
+    };
+  });
+  expect(selectGeometry.endInset).toBeGreaterThanOrEqual(8);
+  expect(selectGeometry.endInset).toBeLessThanOrEqual(16);
+  expect(selectGeometry.centerOffset).toBeLessThanOrEqual(1);
+  expect(selectGeometry.pointerEvents).toBe("none");
+
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(trigger.locator('[data-airplan-resolved-icon="light"]')).toBeHidden();
+  await expect(trigger.locator('[data-airplan-resolved-icon="dark"]')).toBeVisible();
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await expect(trigger.locator('[data-airplan-resolved-icon="light"]')).toBeVisible();
+  await expect(trigger.locator('[data-airplan-resolved-icon="dark"]')).toBeHidden();
+  await lightSelect.selectOption("one-dark");
+  await expect(trigger.locator('[data-airplan-resolved-icon="light"]')).toBeVisible();
+  await page.getByRole("button", { name: "Dark", exact: true }).click();
+  await expect(trigger.locator('[data-airplan-resolved-icon="light"]')).toBeHidden();
+  await expect(trigger.locator('[data-airplan-resolved-icon="dark"]')).toBeVisible();
+});
+
+test("appearance panel dismisses accessibly and restores focus", async ({ page }) => {
+  await page.goto(baseURL);
+  const trigger = page.getByRole("button", { name: "Appearance" });
+  const panel = page.getByRole("group", { name: "Appearance settings" });
+  await trigger.click();
+  await expect(panel).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(panel).toBeHidden();
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await page.getByRole("heading", { name: "Browser smoke plan" }).click();
+  await expect(panel).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  const sourceView = page.getByRole("button", { name: "Source view" });
+  await sourceView.click();
+  await expect(panel).toBeHidden();
+  await expect(sourceView).toBeFocused();
+});
+
+test("mode follows system changes and legacy state cannot clobber new state", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers storage migration");
+  await page.addInitScript(() => localStorage.setItem("airplan-theme", "dark"));
+  await page.goto(baseURL);
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-mode", "dark");
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("airplan-color-mode")))
+    .toBe("dark");
+  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.getByRole("button", { name: "System", exact: true }).click();
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-resolved-mode", "dark");
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-resolved-mode", "light");
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await page.goto(`${baseURL}/legacy-theme`);
+  await page.getByRole("button", { name: "Use legacy dark" }).click();
+  await page.goto(baseURL);
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-mode", "light");
+});
+
+test("custom uploader themes drive no-JS defaults and derived syntax", async ({
+  browser,
+  page,
+}, testInfo) => {
+  await page.goto(customURL);
+  const expectedTheme = testInfo.project.name.endsWith("-dark") ? "github-light" : "custom-dark";
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-theme", expectedTheme);
+  if (expectedTheme === "custom-dark") {
+    await expect(page.locator("body")).toHaveCSS("background-color", "rgb(16, 16, 16)");
+    await expect(page.locator(".chroma .k, .chroma .kd").first()).toHaveCSS(
+      "color",
+      "rgb(102, 153, 255)",
+    );
+  }
+  if (testInfo.project.name === "desktop-light") {
+    await page.screenshot({ path: testInfo.outputPath("custom-theme.png"), fullPage: true });
+  }
+  await page.getByRole("button", { name: "Appearance" }).click();
+  await expect(
+    page
+      .getByRole("combobox", { name: "Light theme", exact: true })
+      .locator('option[value="custom-dark"]'),
+  ).toHaveText("Custom Dark");
+
+  const noJS = await browser.newContext({
+    colorScheme: testInfo.project.name.endsWith("-dark") ? "dark" : "light",
+    javaScriptEnabled: false,
+  });
+  try {
+    const noJSPage = await noJS.newPage();
+    await noJSPage.goto(customURL);
+    await expect(noJSPage.getByRole("button", { name: "Appearance" })).toHaveCount(0);
+    await expect(noJSPage.locator("body")).toHaveCSS(
+      "background-color",
+      testInfo.project.name.endsWith("-dark") ? "rgb(255, 255, 255)" : "rgb(16, 16, 16)",
+    );
+  } finally {
+    await noJS.close();
+  }
+});
+
+test("every built-in theme produces a coherent live palette", async ({ page }, testInfo) => {
+  await page.goto(baseURL);
+  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  const select = page.getByRole("combobox", { name: "Light theme", exact: true });
+  const catalog = await select.locator("option").evaluateAll((nodes) =>
+    nodes.map((node) => ({
+      id: (node as HTMLOptionElement).value,
+      variant:
+        (node.parentElement as HTMLOptGroupElement | null)?.label === "Dark themes"
+          ? "dark"
+          : "light",
+    })),
+  );
+  expect(catalog).toHaveLength(11);
+  for (const theme of catalog) {
+    await select.selectOption(theme.id);
+    await expect(page.locator("html")).toHaveAttribute("data-airplan-theme", theme.id);
+    await expect(page.locator("html")).toHaveCSS("color-scheme", theme.variant);
+    const colors = await page.locator("body").evaluate((body) => {
+      const styles = getComputedStyle(body);
+      return [styles.backgroundColor, styles.color];
+    });
+    expect(colors[0]).not.toBe(colors[1]);
+    expect(colors[0]).not.toBe("rgba(0, 0, 0, 0)");
+    if (testInfo.project.name === "desktop-light") {
+      await page.screenshot({ path: testInfo.outputPath(`theme-${theme.id}.png`), fullPage: true });
+    }
+  }
 });
 
 test("built-in pages share canonical toolbar control styling", async ({ page }) => {
   const controlStyles = async () =>
     page.evaluate(() => {
       const toolbar = document.querySelector<HTMLElement>(".toolbar")!;
-      const toggle = toolbar.querySelector<HTMLElement>(".themetoggle")!;
-      const button = toggle.querySelector<HTMLButtonElement>('[data-theme="system"]')!;
+      const toggle = toolbar.querySelector<HTMLElement>(".appearance")!;
+      const button = toggle.querySelector<HTMLButtonElement>("[data-airplan-appearance-trigger]")!;
       const icon = button.querySelector<SVGElement>(".icon")!;
       const action = toolbar.querySelector<HTMLButtonElement>(".toolbar-actions button")!;
       const toolbarStyle = getComputedStyle(toolbar);
@@ -393,7 +839,8 @@ test("toolbar controls do not transition during theme changes", async ({ page })
         ),
       )
       .toBe(true);
-    await page.getByRole("button", { name: "Dark theme" }).click();
+    await page.getByRole("button", { name: "Appearance" }).click();
+    await page.getByRole("button", { name: "Dark", exact: true }).click();
     await expect
       .poll(async () =>
         controls.evaluateAll((elements) =>
@@ -642,7 +1089,7 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   const toolbarLayout = await page.locator(".toolbar").evaluate((element) => {
     const view = element.querySelector(".viewtoggle")!.getBoundingClientRect();
     const files = element.querySelector(".file-actions")!.getBoundingClientRect();
-    const theme = element.querySelector(".themetoggle")!.getBoundingClientRect();
+    const theme = element.querySelector(".appearance")!.getBoundingClientRect();
     return {
       display: getComputedStyle(element).display,
       viewCenter: view.top + view.height / 2,
@@ -690,19 +1137,19 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
     .poll(() =>
       toolbar.evaluate((element) =>
         Array.from(
-          element.querySelectorAll(".viewtoggle, .copy-source, .download, .raw, .themetoggle"),
+          element.querySelectorAll(".viewtoggle, .copy-source, .download, .raw, .appearance"),
         )
           .filter((child) => !(child as HTMLElement).hidden)
           .map((child) =>
             Array.from(child.classList).find((name) =>
-              ["viewtoggle", "copy-source", "download", "raw", "themetoggle"].includes(name),
+              ["viewtoggle", "copy-source", "download", "raw", "appearance"].includes(name),
             ),
           ),
       ),
     )
-    .toEqual(["viewtoggle", "copy-source", "themetoggle"]);
+    .toEqual(["viewtoggle", "copy-source", "appearance"]);
   const dividerDisplay = await page
-    .locator(".themetoggle")
+    .locator(".appearance")
     .evaluate((element) => getComputedStyle(element, "::before").display);
   const copyDivider = await page
     .locator(".copy-source")
@@ -713,7 +1160,7 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
       const bounds = element.getBoundingClientRect();
       const styles = getComputedStyle(element);
       const view = element.querySelector(".viewtoggle")!.getBoundingClientRect();
-      const theme = element.querySelector(".themetoggle")!.getBoundingClientRect();
+      const theme = element.querySelector(".appearance")!.getBoundingClientRect();
       const copy = element.querySelector(".copy-source")!.getBoundingClientRect();
       const fileActions = element.querySelector(".file-actions")!.getBoundingClientRect();
       return {
@@ -739,7 +1186,7 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
       const bounds = element.getBoundingClientRect();
       const styles = getComputedStyle(element);
       const view = element.querySelector(".viewtoggle")!.getBoundingClientRect();
-      const theme = element.querySelector(".themetoggle")!.getBoundingClientRect();
+      const theme = element.querySelector(".appearance")!.getBoundingClientRect();
       return {
         left: view.left - bounds.left,
         leftPadding: Number.parseFloat(styles.paddingLeft),
@@ -750,7 +1197,7 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
     expect(alignment.left).toBeCloseTo(alignment.leftPadding, 0);
     expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
     expect(dividerDisplay).not.toBe("none");
-    const dividerSpacing = await page.locator(".themetoggle").evaluate((element) => {
+    const dividerSpacing = await page.locator(".appearance").evaluate((element) => {
       const bounds = element.getBoundingClientRect();
       const divider = getComputedStyle(element, "::before");
       const previousAction = element.previousElementSibling!.lastElementChild!;
@@ -787,33 +1234,38 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
     expect(theme.background).toBeGreaterThan(theme.foreground);
   }
 
-  const lightTheme = page.getByRole("button", { name: "Light theme" });
-  const systemTheme = page.getByRole("button", { name: "System theme" });
-  const darkTheme = page.getByRole("button", { name: "Dark theme" });
+  await page.getByRole("button", { name: "Appearance" }).click();
+  const lightTheme = page.getByRole("button", { name: "Light", exact: true });
+  const systemTheme = page.getByRole("button", { name: "System", exact: true });
+  const darkTheme = page.getByRole("button", { name: "Dark", exact: true });
   const diagram = page.locator("pre.mermaid svg").first();
   await expect(systemTheme).toHaveAttribute("aria-pressed", "true");
-  await expect(diagram).toHaveAttribute("data-mermaid-theme", dark ? "dark" : "light");
+  await expect(diagram).toHaveAttribute(
+    "data-mermaid-theme",
+    dark ? "github-dark" : "github-light",
+  );
 
   await lightTheme.click();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-mode", "light");
   await expect(lightTheme).toHaveAttribute("aria-pressed", "true");
-  await expect(diagram).toHaveAttribute("data-mermaid-theme", "light");
+  await expect(diagram).toHaveAttribute("data-mermaid-theme", "github-light");
   await expect(page.locator(".chroma .nx").first()).toHaveCSS("color", "rgb(31, 35, 40)");
 
   await darkTheme.click();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-mode", "dark");
   await expect(darkTheme).toHaveAttribute("aria-pressed", "true");
-  await expect(diagram).toHaveAttribute("data-mermaid-theme", "dark");
+  await expect(diagram).toHaveAttribute("data-mermaid-theme", "github-dark");
   await expect(page.locator(".chroma .nx").first()).toHaveCSS("color", "rgb(230, 237, 243)");
   await page.reload();
-  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-mode", "dark");
+  await page.getByRole("button", { name: "Appearance" }).click();
   await expect(darkTheme).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
     "data-mermaid-theme",
-    "dark",
+    "github-dark",
   );
   await systemTheme.click();
-  await expect(page.locator("html")).not.toHaveAttribute("data-theme", /.+/);
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-mode", "system");
   await expect(systemTheme).toHaveAttribute("aria-pressed", "true");
 
   const inlineToc = page.locator("#toc");
@@ -862,7 +1314,7 @@ test("Mermaid viewer is shared, theme-aware, and responsive", async ({ page }, t
   await page.goto(baseURL);
 
   const triggers = page.getByRole("button", { name: "Open diagram viewer" });
-  await expect(triggers).toHaveCount(2);
+  await expect(triggers).toHaveCount(4);
   const firstTrigger = triggers.first();
   await expect(firstTrigger).toHaveCSS("opacity", "0");
   await expect(firstTrigger).toHaveCSS("pointer-events", "none");
@@ -939,6 +1391,140 @@ test("Mermaid viewer is shared, theme-aware, and responsive", async ({ page }, t
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
   await expect(triggers.nth(1)).toBeFocused();
+});
+
+test("Mermaid themes render lazily, cache, reject races, and isolate failures", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers Mermaid cache behavior");
+  await page.goto(baseURL);
+  const diagram = page.locator("pre.mermaid svg").first();
+  await expect(diagram).toHaveAttribute("data-mermaid-theme", "github-light");
+  await expect
+    .poll(() =>
+      page.evaluate(() => ({
+        ...(globalThis as typeof globalThis & { __airplanMermaidRenders?: Record<string, number> })
+          .__airplanMermaidRenders,
+      })),
+    )
+    .toMatchObject({ "github-light": 4, "github-dark": 4 });
+
+  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  const select = page.getByRole("combobox", { name: "Light theme", exact: true });
+  await select.selectOption("tokyo-night");
+  await expect(diagram).toHaveAttribute("data-mermaid-theme", "tokyo-night");
+  await select.selectOption("solarized-light");
+  await expect(diagram).toHaveAttribute("data-mermaid-theme", "solarized-light");
+  await select.selectOption("tokyo-night");
+  await expect(diagram).toHaveAttribute("data-mermaid-theme", "tokyo-night");
+  expect(
+    await page.evaluate(
+      () =>
+        (globalThis as typeof globalThis & { __airplanMermaidRenders: Record<string, number> })
+          .__airplanMermaidRenders["tokyo-night"],
+    ),
+  ).toBe(4);
+
+  await select.selectOption("github-dark");
+  await expect(diagram).toHaveAttribute("data-mermaid-theme", "github-dark");
+  await select.selectOption("tokyo-night");
+  await select.selectOption("catppuccin-latte");
+  await expect(diagram).toHaveAttribute("data-mermaid-theme", "catppuccin-latte");
+
+  await select.selectOption("one-dark");
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-theme", "one-dark");
+  await expect(diagram).toHaveAttribute("data-mermaid-theme", "catppuccin-latte");
+  await page.emulateMedia({ media: "print" });
+  await expect(diagram).toHaveAttribute("data-mermaid-theme", "github-light");
+  await page.emulateMedia({ media: "screen" });
+  await expect(diagram).toHaveAttribute("data-mermaid-theme", "catppuccin-latte");
+  await select.selectOption("rose-pine-dawn");
+  await expect(diagram).toHaveAttribute("data-mermaid-theme", "rose-pine-dawn");
+});
+
+test("Mermaid startup applies theme changes that arrive while rendering", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers startup races");
+  await page.addInitScript(() => {
+    const fixtureWindow = globalThis as typeof globalThis & {
+      __airplanMermaidDelay?: number;
+      __airplanMermaidStartupTheme?: string;
+    };
+    fixtureWindow.__airplanMermaidDelay = 30;
+    fixtureWindow.__airplanMermaidStartupTheme = "tokyo-night-day";
+  });
+  await page.goto(baseURL);
+  await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
+    "data-mermaid-theme",
+    "tokyo-night-day",
+  );
+});
+
+test("Mermaid startup applies print changes that arrive while rendering", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers startup print races");
+  await page.addInitScript(() => {
+    localStorage.setItem("airplan-color-mode", "dark");
+    const fixtureWindow = globalThis as typeof globalThis & {
+      __airplanMermaidDelay?: number;
+      __airplanMermaidStartupPrint?: boolean;
+    };
+    fixtureWindow.__airplanMermaidDelay = 30;
+    fixtureWindow.__airplanMermaidStartupPrint = true;
+  });
+  await page.goto(baseURL);
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-theme", "github-dark");
+  await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
+    "data-mermaid-theme",
+    "github-light",
+  );
+});
+
+test("Mermaid print render IDs replace disallowed key characters with hyphens", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers generated IDs");
+  await page.addInitScript(() => {
+    localStorage.setItem("airplan-light-theme", "solarized-dark");
+    localStorage.setItem("airplan-dark-theme", "tokyo-night");
+  });
+  await page.goto(baseURL);
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator("pre.mermaid > svg").first()).toHaveAttribute(
+    "id",
+    "airplan-mermaid---airplan-print-github-light-0",
+  );
+});
+
+test("Mermaid isolates one failed diagram from valid diagrams", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers diagram isolation");
+  await page.goto(baseURL);
+  await page.evaluate(() => {
+    const fixtureWindow = globalThis as typeof globalThis & {
+      __airplanMermaidFailSource?: string;
+    };
+    fixtureWindow.__airplanMermaidFailSource = "Source --> Render";
+  });
+  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "Light theme", exact: true })
+    .selectOption("solarized-light");
+
+  const diagrams = page.locator("pre.mermaid");
+  await expect(diagrams.locator('svg[data-mermaid-theme="solarized-light"]')).toHaveCount(3);
+  await expect(diagrams.nth(0).locator("svg[data-mermaid-theme]")).toHaveAttribute(
+    "data-mermaid-theme",
+    "solarized-light",
+  );
+  await expect(diagrams.nth(1).locator("svg[data-mermaid-theme]")).toHaveAttribute(
+    "data-mermaid-theme",
+    "github-light",
+  );
+  await expect(page.getByRole("button", { name: "Open diagram viewer" })).toHaveCount(4);
 });
 
 test("Mermaid opener media behavior follows input and motion preferences", async ({
@@ -1077,14 +1663,14 @@ test("Mermaid viewer zooms, pans, and preserves its view across themes", async (
     throw new Error("Mermaid viewer state is incomplete");
   }
   await page.evaluate(() => {
-    document.documentElement.dataset.theme = "dark";
+    document.documentElement.dataset.airplanTheme = "github-dark";
     window.dispatchEvent(
       new CustomEvent("airplan:themechange", {
-        detail: { theme: "dark" },
+        detail: { mode: "dark", resolvedMode: "dark", theme: "github-dark", variant: "dark" },
       }),
     );
   });
-  await expect(viewerSVG).toHaveAttribute("data-mermaid-theme", "dark");
+  await expect(viewerSVG).toHaveAttribute("data-mermaid-theme", "github-dark");
   await expect(viewerSVG).not.toHaveAttribute("id", oldCloneID);
   await expect(surface).toHaveAttribute("style", draggedTransform);
   await expect(viewerSVG).toHaveAttribute("style", svgTransform);
@@ -1126,7 +1712,7 @@ test("Mermaid failures preserve source without viewer controls", async ({ page }
   await page.goto(baseURL);
 
   const diagrams = page.locator("pre.mermaid");
-  await expect(diagrams).toHaveCount(2);
+  await expect(diagrams).toHaveCount(4);
   await expect(diagrams.first()).toHaveClass(/mermaid-failed/);
   await expect(diagrams.first()).toContainText("flowchart LR");
   await expect(
@@ -1167,7 +1753,7 @@ test("Mermaid viewer requires native modal dialog support", async ({ page }, tes
   });
   await page.goto(baseURL);
 
-  await expect(page.locator("pre.mermaid svg")).toHaveCount(2);
+  await expect(page.locator("pre.mermaid svg")).toHaveCount(4);
   await expect(
     page.getByRole("button", {
       name: "Open diagram viewer",
@@ -1209,7 +1795,7 @@ test("uploaded source controls share the first row on narrow screens", async ({
     const bounds = element.getBoundingClientRect();
     const styles = getComputedStyle(element);
     const actions = element.querySelector(".file-actions")!.getBoundingClientRect();
-    const theme = element.querySelector(".themetoggle")!.getBoundingClientRect();
+    const theme = element.querySelector(".appearance")!.getBoundingClientRect();
     return {
       actionsCenter: actions.top + actions.height / 2,
       actionsLeft: actions.left - bounds.left,
@@ -1238,11 +1824,12 @@ test("print view is compact and expands disclosures", async ({ browser, page }, 
   await expect(disclosure).not.toHaveAttribute("open", "");
   await expect(disclosure.getByText("Print must include")).toBeHidden();
 
-  const darkTheme = page.getByRole("button", { name: "Dark theme" });
+  await page.getByRole("button", { name: "Appearance" }).click();
+  const darkTheme = page.getByRole("button", { name: "Dark", exact: true });
   await darkTheme.click();
   await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
     "data-mermaid-theme",
-    "dark",
+    "github-dark",
   );
   await page.emulateMedia({ media: "print" });
   await expect(page.locator(".toolbar")).toBeHidden();
@@ -1271,7 +1858,7 @@ test("print view is compact and expands disclosures", async ({ browser, page }, 
   );
   await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
     "data-mermaid-theme",
-    "light",
+    "github-light",
   );
 
   const noJSContext = await browser.newContext({
@@ -1282,6 +1869,9 @@ test("print view is compact and expands disclosures", async ({ browser, page }, 
     const noJSPage = await noJSContext.newPage();
     await noJSPage.goto(baseURL);
     await noJSPage.emulateMedia({ media: "print" });
+    await expect(noJSPage.locator("html")).toHaveCSS("color-scheme", "light");
+    await expect(noJSPage.locator("body")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+    await expect(noJSPage.locator("body")).toHaveCSS("color", "rgb(31, 35, 40)");
     await expect(noJSPage.locator(".frontmatter").getByText("Print coverage")).toBeVisible();
     await expect(
       noJSPage.locator("#print-disclosure").getByText("Print must include"),
@@ -1297,7 +1887,7 @@ test("print view is compact and expands disclosures", async ({ browser, page }, 
   await page.emulateMedia({ media: "screen" });
   await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
     "data-mermaid-theme",
-    "dark",
+    "github-dark",
   );
   const initialStates = await page
     .locator("details")
@@ -1332,9 +1922,47 @@ test("print view is compact and expands disclosures", async ({ browser, page }, 
   expect(states[1]).toEqual(initialStates);
   await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
     "data-mermaid-theme",
-    "dark",
+    "github-dark",
   );
   await expect(frontmatter).not.toHaveAttribute("open", "");
   await expect(disclosure).not.toHaveAttribute("open", "");
   await expect(page.locator("#print-open-disclosure")).toHaveAttribute("open", "");
+});
+
+test("print palette stays GitHub Light from Solarized, One Dark, and custom themes", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers fixed print palettes");
+  for (const sample of [
+    { name: "solarized-light", url: baseURL, select: "solarized-light" },
+    { name: "one-dark", url: baseURL, select: "one-dark" },
+    { name: "custom-dark", url: customURL, select: "" },
+  ]) {
+    await page.emulateMedia({ media: "screen", colorScheme: "light" });
+    await page.goto(sample.url);
+    if (sample.select) {
+      await page.getByRole("button", { name: "Appearance" }).click();
+      await page.getByRole("button", { name: "Light", exact: true }).click();
+      await page
+        .getByRole("combobox", { name: "Light theme", exact: true })
+        .selectOption(sample.select);
+      await expect(page.locator("html")).toHaveAttribute("data-airplan-theme", sample.select);
+    }
+    await page.emulateMedia({ media: "print" });
+    await expect(page.locator("html")).toHaveCSS("color-scheme", "light");
+    await expect(page.locator("body")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+    await expect(page.locator("body")).toHaveCSS("color", "rgb(31, 35, 40)");
+    await expect(page.locator(".chroma .k, .chroma .kd").first()).toHaveCSS(
+      "color",
+      "rgb(207, 34, 46)",
+    );
+    await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
+      "data-mermaid-theme",
+      "github-light",
+    );
+    await page.screenshot({
+      path: testInfo.outputPath(`print-${sample.name}.png`),
+      fullPage: true,
+    });
+  }
 });

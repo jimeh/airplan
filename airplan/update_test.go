@@ -79,6 +79,100 @@ func TestUpdateDocumentRejectsNameThatChangesExistingSlugBeforeMutation(t *testi
 	}
 }
 
+func TestUpdateDocumentRejectsChangedThemeRecipeBeforeMutation(t *testing.T) {
+	store := newUpgradeStore(t)
+	first, err := store.client(t, "").Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	puts := store.puts
+	store.mu.Unlock()
+
+	client := store.clientWithThemes(t, "", "solarized-light", "one-dark")
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL,
+		Input:  Input{Reader: strings.NewReader("two\n"), Name: "plan.md"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "themes do not match") ||
+		!strings.Contains(err.Error(), "airplan upgrade --force") {
+		t.Fatalf("theme mismatch error = %v", err)
+	}
+	var refusal *updateRefusalError
+	if !errors.As(err, &refusal) || refusal.kind != updateRefusalInvalidTarget {
+		t.Fatalf("theme mismatch refusal = %#v (%T)", refusal, err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.puts != puts {
+		t.Fatalf("theme mismatch performed %d writes", store.puts-puts)
+	}
+}
+
+func TestUpdateDocumentRejectsChangedThemeRecipeBeforePromotionRepair(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.failPutKey = first.MarkerKey
+	store.mu.Unlock()
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "predecessor promotion failed") {
+		t.Fatalf("interrupted promotion error = %v", err)
+	}
+
+	mismatched := store.clientWithThemes(t, "", "solarized-light", "one-dark")
+	if err := mismatched.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := mismatched.loadRevisionDocument(context.Background(), first.URL)
+	if err != nil || !doc.needsPromotion {
+		t.Fatalf("promotion fixture = %+v, %v", doc, err)
+	}
+	store.mu.Lock()
+	putsBefore := store.puts
+	objectsBefore := make(map[string][]byte, len(store.objects))
+	for key, body := range store.objects {
+		objectsBefore[key] = append([]byte(nil), body...)
+	}
+	store.mu.Unlock()
+
+	_, err = mismatched.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "themes do not match") ||
+		!strings.Contains(err.Error(), "airplan upgrade --force") {
+		t.Fatalf("promotion theme mismatch error = %v", err)
+	}
+	var refusal *updateRefusalError
+	if !errors.As(err, &refusal) || refusal.kind != updateRefusalInvalidTarget {
+		t.Fatalf("promotion theme mismatch refusal = %#v (%T)", refusal, err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.puts != putsBefore {
+		t.Fatalf("promotion theme mismatch performed %d writes", store.puts-putsBefore)
+	}
+	if len(store.objects) != len(objectsBefore) {
+		t.Fatalf("promotion theme mismatch changed object count from %d to %d",
+			len(objectsBefore), len(store.objects))
+	}
+	for key, before := range objectsBefore {
+		if after, ok := store.objects[key]; !ok || !bytes.Equal(after, before) {
+			t.Fatalf("promotion theme mismatch mutated %q", key)
+		}
+	}
+}
+
 func TestUpdateDocumentCreatesLinkedRevisionsOnlyOnFirstUpdate(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")
@@ -751,6 +845,84 @@ func TestRevisionLinkManifestEventsPreserveCompleteProjection(t *testing.T) {
 	}
 }
 
+func TestRevisionLinkManifestEventsAllowStaleHistoricalThemeRecipes(t *testing.T) {
+	store := newUpgradeStore(t)
+	original := store.client(t, "")
+	first, err := original.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := original.UpdateDocument(
+		context.Background(), UpdateDocumentInput{
+			Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := original.UpdateDocument(
+		context.Background(), UpdateDocumentInput{
+			Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	current := store.clientWithThemes(
+		t, manifest, "solarized-light", "one-dark",
+	)
+	plan, err := current.PlanUpgradeDocument(
+		context.Background(), third.URL, UpgradeDocumentOptions{Force: true},
+	)
+	if err != nil || plan.State != UpgradeStateUpgradeable {
+		t.Fatalf("forced latest-theme upgrade plan = %+v, %v", plan, err)
+	}
+	if _, err := current.UpgradeDocument(context.Background(), *plan); err != nil {
+		t.Fatal(err)
+	}
+	fourth, err := current.UpdateDocument(
+		context.Background(), UpdateDocumentInput{
+			Target: third.URL, Input: Input{Reader: strings.NewReader("four\n")},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fourth.Warnings) != 0 {
+		t.Fatalf("update warnings = %v", fourth.Warnings)
+	}
+
+	records, warnings, err := ReadManifest(manifest)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("records = %+v, warnings = %v, err = %v", records, warnings, err)
+	}
+	links := map[string]ManifestRecord{}
+	for _, record := range records {
+		if record.Type == "link" {
+			links[record.MarkerKey] = record
+		}
+	}
+	for _, want := range []struct {
+		markerKey string
+		revision  int
+	}{
+		{first.MarkerKey, 1},
+		{second.MarkerKey, 2},
+		{third.MarkerKey, 3},
+	} {
+		link, ok := links[want.markerKey]
+		if !ok || link.RevisionChainID != fourth.RevisionChainID ||
+			link.Revision != want.revision || link.LatestRevision != 4 {
+			t.Fatalf("revision %d link projection = %+v, present = %t",
+				want.revision, link, ok)
+		}
+	}
+}
+
 func TestRevisionDeleteManifestTombstoneCarriesChainProjection(t *testing.T) {
 	store := newUpgradeStore(t)
 	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
@@ -1363,6 +1535,59 @@ func TestUpdateDocumentRetryRecreatesMissingSiblingMetadata(t *testing.T) {
 	}
 }
 
+func TestUpdateDocumentRepairsMissingMetadataFromStaleThemeWitness(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	markerBody, ok := store.get(second.MarkerKey)
+	if !ok {
+		t.Fatal("second marker is missing")
+	}
+	marker, err := DecodeUploadMarker(markerBody, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatched := store.clientWithThemes(t, "", "solarized-light", "one-dark")
+	marker.Render.Themes = themeRecipePtr(mismatched.cfg.ThemeBundle)
+	markerBody, err = EncodeUploadMarker(*marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(second.MarkerKey, markerBody)
+	store.mu.Lock()
+	delete(store.objects, third.ID+"/"+VersionsFilename)
+	delete(store.etags, third.ID+"/"+VersionsFilename)
+	store.mu.Unlock()
+
+	result, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: third.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil || !result.Unchanged {
+		t.Fatalf("stale-theme metadata witness repair = %+v, %v", result, err)
+	}
+	if _, ok := store.get(third.ID + "/" + VersionsFilename); !ok {
+		t.Fatal("missing metadata was not repaired")
+	}
+}
+
 func TestDeleteRecreatesMissingSiblingMetadata(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")
@@ -1956,6 +2181,7 @@ func TestRevisionMetadataCapacityPreflightDoesNotMutateStorage(t *testing.T) {
 		Render: &RenderRecipe{
 			Generation: RendererGeneration,
 			Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
+			Themes: themeRecipePtr(defaultThemeBundle()),
 		},
 		Revision: &RevisionDescriptor{
 			ChainID: metadata.ChainID, Number: metadata.CurrentRevision,
@@ -2008,6 +2234,7 @@ func TestLoadRevisionDocumentUsesDeclaredSourceSizeAndRejectsTruncation(t *testi
 		Render: &RenderRecipe{
 			Generation: RendererGeneration,
 			Template:   RenderTemplate{Kind: "builtin"},
+			Themes:     themeRecipePtr(defaultThemeBundle()),
 		},
 		Objects: []MarkerObject{
 			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},

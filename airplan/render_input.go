@@ -20,6 +20,9 @@ type RenderInputOptions struct {
 	// MermaidURL overrides the Mermaid module URL. Empty uses the default.
 	MermaidURL string
 
+	// Themes is the resolved page-local theme bundle. nil uses built-ins.
+	Themes *ThemeBundle
+
 	// Repository is "auto", "none", or an explicit repository URL.
 	// The zero value disables repository discovery for direct callers.
 	Repository string
@@ -198,6 +201,7 @@ func renderInput(
 			MermaidURL:       opts.MermaidURL,
 			RepositoryURL:    doc.RepositoryURL,
 			Template:         tmpl,
+			Themes:           opts.Themes,
 		})
 
 	case FormatText:
@@ -222,6 +226,7 @@ func renderInput(
 			MermaidURL:       opts.MermaidURL,
 			Lang:             in.Lang,
 			Template:         tmpl,
+			Themes:           opts.Themes,
 		})
 
 	case FormatHTML:

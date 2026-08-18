@@ -8,11 +8,13 @@
 <meta name="robots" content="noindex, nofollow">
 {{- end}}
 <title>{{.Title}}</title>
+<script>window.__AIRPLAN_THEME_CATALOG__={{.ThemeCatalogJSON}};</script>
 <script>
 /* airplan:theme-init-js */
 </script>
 <style>
 /* airplan:collection-css */
+{{.ThemeCSS}}
 </style>
 </head>
 <body>
@@ -24,7 +26,9 @@
     <a href="{{.}}">Repository</a>
     {{- end}}
   </div>
+{{- if .AppearanceEnabled}}
 <!-- airplan:theme-toggle -->
+{{- end}}
 </nav>
 <header>
   <h1>{{.Title}}</h1>

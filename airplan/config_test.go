@@ -80,6 +80,125 @@ no_external_assets = true
 	assertEqual(t, cfg.NoExternalAssets, false)
 }
 
+func TestLoadConfigThemeSelection(t *testing.T) {
+	t.Run("omitted catalog keeps every builtin", func(t *testing.T) {
+		cfg, err := LoadConfig(ConfigOptions{Path: writeConfig(t, "", 0o600), Getenv: envMap(nil)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.ThemeBundle.Catalog) != len(builtinThemes()) || len(cfg.Warnings) != 0 {
+			t.Fatalf("catalog count = %d, warnings = %v", len(cfg.ThemeBundle.Catalog), cfg.Warnings)
+		}
+	})
+
+	t.Run("profile replaces root catalog", func(t *testing.T) {
+		path := writeConfig(t, `
+available_themes = ["github-light", "github-dark"]
+light_theme = "github-light"
+dark_theme = "github-dark"
+
+[profiles.work]
+available_themes = ["solarized-light", "one-dark"]
+light_theme = "solarized-light"
+dark_theme = "one-dark"
+`, 0o600)
+		resolution, err := ResolveConfig(ConfigOptions{Path: path, Profile: "work", Getenv: envMap(nil)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, theme := range resolution.Config.ThemeBundle.Catalog {
+			ids = append(ids, theme.ID)
+		}
+		if !reflect.DeepEqual(ids, []string{"solarized-light", "one-dark"}) {
+			t.Fatalf("profile catalog = %v", ids)
+		}
+		if got := resolution.Fields["available_themes"].Source; got == nil || got.Kind != ConfigSourceProfile {
+			t.Fatalf("available_themes source = %#v", got)
+		}
+	})
+
+	t.Run("profile omission inherits root catalog", func(t *testing.T) {
+		path := writeConfig(t, `
+available_themes = ["solarized-light", "one-dark"]
+light_theme = "solarized-light"
+dark_theme = "one-dark"
+
+[profiles.work]
+bucket = "work-plans"
+`, 0o600)
+		resolution, err := ResolveConfig(ConfigOptions{Path: path, Profile: "work", Getenv: envMap(nil)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []string
+		for _, theme := range resolution.Config.ThemeBundle.Catalog {
+			ids = append(ids, theme.ID)
+		}
+		if !reflect.DeepEqual(ids, []string{"solarized-light", "one-dark"}) {
+			t.Fatalf("inherited catalog = %v", ids)
+		}
+		if got := resolution.Fields["available_themes"].Source; got == nil || got.Kind != ConfigSourceRoot {
+			t.Fatalf("available_themes source = %#v", got)
+		}
+	})
+
+	t.Run("missing defaults are appended and warned", func(t *testing.T) {
+		path := writeConfig(t, `available_themes = ["tokyo-night"]`, 0o600)
+		cfg, err := LoadConfig(ConfigOptions{Path: path, Getenv: envMap(nil)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.ThemeBundle.Catalog) != 3 || len(cfg.Warnings) != 2 {
+			t.Fatalf("catalog = %v, warnings = %v", cfg.ThemeBundle.Catalog, cfg.Warnings)
+		}
+	})
+
+	t.Run("forced theme env wins and warns only for explicit conflicts", func(t *testing.T) {
+		path := writeConfig(t, `
+light_theme = "solarized-light"
+available_themes = []
+`, 0o600)
+		resolution, err := ResolveConfig(ConfigOptions{Path: path, Getenv: envMap(map[string]string{"AIRPLAN_THEME": "tokyo-night"})})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cfg := resolution.Config
+		if cfg.Theme != "tokyo-night" || cfg.LightTheme != "tokyo-night" || cfg.DarkTheme != "tokyo-night" || len(cfg.ThemeBundle.Catalog) != 1 {
+			t.Fatalf("resolved forced theme = %+v", cfg)
+		}
+		want := `theme "tokyo-night" overrides light_theme and available_themes`
+		if !reflect.DeepEqual(cfg.Warnings, []string{want}) {
+			t.Fatalf("warnings = %v, want %q", cfg.Warnings, want)
+		}
+		if got := resolution.Fields["theme"].Source; got == nil || got.Name != "AIRPLAN_THEME" {
+			t.Fatalf("theme source = %#v", got)
+		}
+	})
+
+	t.Run("forced theme without conflicts does not warn for defaults", func(t *testing.T) {
+		cfg, err := LoadConfig(ConfigOptions{Path: writeConfig(t, `theme = "one-dark"`, 0o600), Getenv: envMap(nil)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.Warnings) != 0 {
+			t.Fatalf("warnings = %v", cfg.Warnings)
+		}
+	})
+
+	t.Run("excluded invalid custom theme is still rejected", func(t *testing.T) {
+		path := writeConfig(t, `
+available_themes = ["github-light", "github-dark"]
+[themes.invalid]
+name = "Invalid"
+variant = "dark"
+`, 0o600)
+		if _, err := LoadConfig(ConfigOptions{Path: path, Getenv: envMap(nil)}); err == nil || !strings.Contains(err.Error(), `theme "invalid" background`) {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}
+
 func TestLoadConfigBackendDefaultsAndPrecedence(t *testing.T) {
 	t.Run("existing config defaults to s3", func(t *testing.T) {
 		path := writeConfig(t, `
@@ -253,6 +372,65 @@ api_token = "`+token+`"
 			t.Fatal(err)
 		}
 		assertContains(t, strings.Join(cfg.Warnings, "\n"), "api_token")
+	})
+
+	t.Run("warns for explicit client-side theme configuration in hosted mode", func(t *testing.T) {
+		path := writeConfig(t, `
+backend = "airplan"
+api_url = "https://airplan.example.com"
+api_token = "token"
+light_theme = "solarized-light"
+dark_theme = "one-dark"
+theme = "tokyo-night"
+available_themes = ["github-light"]
+
+[themes.docs]
+name = "Docs"
+variant = "dark"
+background = "#10131a"
+foreground = "#e7eaf0"
+muted = "#9aa3b2"
+accent = "#7aa2f7"
+accent_foreground = "#10131a"
+border = "#3b4261"
+surface = "#181c27"
+surface_emphasis = "#242a3a"
+info = "#7dcfff"
+success = "#9ece6a"
+important = "#bb9af7"
+warning = "#e0af68"
+danger = "#f7768e"
+`, 0o600)
+		cfg, err := LoadConfig(ConfigOptions{Path: path, Getenv: envMap(nil)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{
+			`theme "tokyo-night" overrides light_theme, dark_theme, and available_themes`,
+			`config field light_theme is inactive when backend is "airplan"`,
+			`config field dark_theme is inactive when backend is "airplan"`,
+			`config field theme is inactive when backend is "airplan"`,
+			`config field available_themes is inactive when backend is "airplan"`,
+			`config field themes is inactive when backend is "airplan"`,
+		}
+		if !reflect.DeepEqual(cfg.Warnings, want) {
+			t.Fatalf("Warnings = %#v, want %#v", cfg.Warnings, want)
+		}
+	})
+
+	t.Run("does not warn for built-in hosted theme defaults", func(t *testing.T) {
+		path := writeConfig(t, `
+backend = "airplan"
+api_url = "https://airplan.example.com"
+api_token = "token"
+`, 0o600)
+		cfg, err := LoadConfig(ConfigOptions{Path: path, Getenv: envMap(nil)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.Warnings) != 0 {
+			t.Fatalf("Warnings = %v, want none", cfg.Warnings)
+		}
 	})
 }
 

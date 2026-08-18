@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"text/tabwriter"
 	"unicode"
@@ -169,6 +170,10 @@ func configDisplayFields(
 	resolution *airplan.ConfigResolution,
 ) []configDisplayField {
 	cfg := resolution.Config
+	availableThemes := make([]string, 0, len(cfg.ThemeBundle.Catalog))
+	for _, theme := range cfg.ThemeBundle.Catalog {
+		availableThemes = append(availableThemes, theme.ID)
+	}
 	fields := []configDisplayField{
 		{Name: "backend", Value: string(cfg.EffectiveBackend()), Set: true},
 		{Name: "api_url", Value: cfg.APIURL, Set: cfg.APIURL != ""},
@@ -204,11 +209,38 @@ func configDisplayFields(
 			Name: "mermaid_url", Value: cfg.MermaidURL,
 			Set: cfg.MermaidURL != "",
 		},
+		{Name: "light_theme", Value: cfg.LightTheme, Set: true},
+		{Name: "dark_theme", Value: cfg.DarkTheme, Set: true},
+		{Name: "theme", Value: cfg.Theme, Set: cfg.Theme != ""},
+		{
+			Name: "available_themes", Value: availableThemes, Set: true,
+		},
 		{Name: "repo", Value: cfg.Repository, Set: cfg.Repository != ""},
 		{Name: "timeout", Value: cfg.Timeout.String(), Set: true},
 	}
 	for i := range fields {
 		fields[i].Source = resolution.Fields[fields[i].Name].Source
+	}
+	if cfg.Theme != "" {
+		themeSource := resolution.Fields["theme"].Source
+		for i := range fields {
+			switch fields[i].Name {
+			case "light_theme", "dark_theme", "available_themes":
+				fields[i].Source = themeSource
+			}
+		}
+	} else if cfg.AvailableThemes != nil &&
+		!slices.Equal(cfg.AvailableThemes, availableThemes) {
+		inferred := &airplan.ConfigSource{
+			Kind: airplan.ConfigSourceInferred,
+			Name: "resolved available_themes catalog",
+		}
+		for i := range fields {
+			if fields[i].Name == "available_themes" {
+				fields[i].Source = inferred
+				break
+			}
+		}
 	}
 	return fields
 }

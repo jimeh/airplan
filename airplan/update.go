@@ -114,8 +114,12 @@ func (c *Client) updateDocument(
 		return nil, ErrBinaryInput
 	}
 
-	target, err := c.loadRevisionDocument(ctx, input.Target)
+	target, err := c.loadRevisionDocumentForUpdate(ctx, input.Target)
 	if err != nil {
+		var refusal *updateRefusalError
+		if errors.As(err, &refusal) {
+			return nil, err
+		}
 		if errors.Is(err, errRevisionTransitionReserved) {
 			return nil, &updateRefusalError{kind: updateRefusalInvalidUpload, err: err}
 		}
@@ -139,7 +143,7 @@ func (c *Client) updateDocument(
 		if _, upgradeErr := c.UpgradeDocument(ctx, *plan); upgradeErr != nil {
 			return nil, fmt.Errorf("airplan: update prerequisite upgrade failed: %w", upgradeErr)
 		}
-		target, err = c.loadRevisionDocument(ctx, input.Target)
+		target, err = c.loadRevisionDocumentForUpdate(ctx, input.Target)
 		if err != nil {
 			return nil, err
 		}
@@ -171,7 +175,7 @@ func (c *Client) updateDocument(
 			}
 		}
 		previous := latest
-		latest, err = c.loadRevisionDocument(ctx, entry.URL)
+		latest, err = c.loadRevisionDocumentForUpdate(ctx, entry.URL)
 		if err != nil {
 			return nil, fmt.Errorf("airplan: resolve latest revision: %w", err)
 		}
@@ -211,7 +215,7 @@ func (c *Client) updateDocument(
 			*target.versions); err != nil {
 			return nil, err
 		}
-		promoted, loadErr := c.loadRevisionDocument(ctx, target.pageURL)
+		promoted, loadErr := c.loadRevisionDocumentForUpdate(ctx, target.pageURL)
 		if loadErr != nil {
 			return nil, loadErr
 		}
@@ -233,7 +237,7 @@ func (c *Client) updateDocument(
 		if _, upgradeErr := c.UpgradeDocument(ctx, *plan); upgradeErr != nil {
 			return nil, fmt.Errorf("airplan: update prerequisite upgrade failed: %w", upgradeErr)
 		}
-		latest, err = c.loadRevisionDocument(ctx, latest.pageURL)
+		latest, err = c.loadRevisionDocumentForUpdate(ctx, latest.pageURL)
 		if err != nil {
 			return nil, err
 		}
@@ -293,6 +297,15 @@ func (c *Client) updateDocument(
 			err:  errors.New("airplan: latest revision's rendering template cannot be reproduced"),
 		}
 	}
+	if !themeRecipeMatches(recipe.Themes, c.cfg.ThemeBundle) {
+		return nil, &updateRefusalError{
+			kind: updateRefusalInvalidTarget,
+			err: errors.New(
+				"airplan: latest revision's themes do not match the configured catalog; " +
+					"run airplan upgrade --force on the target before updating",
+			),
+		}
+	}
 	pageName := latest.marker.Slug + ".html"
 	sourceName := latest.marker.Slug + ".md"
 	pageKey := BuildKey(c.cfg.KeyPrefix, dir, pageName)
@@ -315,6 +328,7 @@ func (c *Client) updateDocument(
 		SourcePath: "./" + sourceName, Indexable: recipe.Indexable,
 		NoExternalAssets: recipe.NoExternalAssets, MermaidURL: recipe.MermaidURL,
 		RepositoryURL: latest.marker.Repo, Template: c.template,
+		Themes:   c.cfg.ThemeBundle,
 		Revision: newRevision, RevisionCount: newRevision,
 		PreviousRevision: previousRevision, VersionsPath: VersionsFilename,
 		DiffPath: "./" + DiffFilename, DiffText: inlineRevisionDiff(diffBody),
@@ -453,7 +467,7 @@ func (c *Client) updateDocument(
 		if err := c.promoteStandaloneRevision(postCommitCtx, latest, chainID, metadata); err != nil {
 			return nil, err
 		}
-		promoted, loadErr := c.loadRevisionDocument(postCommitCtx, latest.pageURL)
+		promoted, loadErr := c.loadRevisionDocumentForUpdate(postCommitCtx, latest.pageURL)
 		if loadErr != nil || promoted.needsPromotion || promoted.needsPageRepair ||
 			promoted.marker.Revision == nil || promoted.marker.Revision.ChainID != chainID ||
 			promoted.marker.Revision.Number != 1 {
@@ -652,7 +666,7 @@ func (c *Client) repairFirstRevisionPromotionFromMember(
 	if first.URL != member.marker.Revision.PreviousURL {
 		return errors.New("airplan: first revision predecessor cannot be reconciled")
 	}
-	predecessor, err := c.loadRevisionDocument(ctx, first.URL)
+	predecessor, err := c.loadRevisionDocumentForUpdate(ctx, first.URL)
 	if err != nil {
 		return fmt.Errorf("airplan: load first revision predecessor: %w", err)
 	}
@@ -683,7 +697,7 @@ func (c *Client) repairFirstRevisionPromotionFromMember(
 	); err != nil {
 		return err
 	}
-	verified, err := c.loadRevisionDocument(ctx, predecessor.pageURL)
+	verified, err := c.loadRevisionDocumentForUpdate(ctx, predecessor.pageURL)
 	if err != nil || verified.marker.Revision == nil ||
 		verified.marker.Revision.ChainID != member.versions.ChainID ||
 		verified.marker.Revision.Number != 1 || verified.needsPageRepair {
@@ -722,7 +736,7 @@ func (c *Client) loadRevisionDocument(ctx context.Context, target string) (*revi
 	}
 	if marker.Version != MarkerVersion || marker.Kind != UploadKindDocument ||
 		marker.Format != "md" || marker.Source == "" || marker.Render == nil {
-		return nil, errors.New("airplan: update requires a complete v4 source-backed Markdown document; run upgrade first")
+		return nil, errors.New("airplan: update requires a complete v5 source-backed Markdown document; run upgrade first")
 	}
 	if err := validateManagedTarget("update", key, dirPrefix, marker); err != nil {
 		return nil, err
@@ -817,6 +831,26 @@ func (c *Client) loadRevisionDocument(ctx context.Context, target string) (*revi
 	return doc, nil
 }
 
+func (c *Client) loadRevisionDocumentForUpdate(
+	ctx context.Context, target string,
+) (*revisionDocument, error) {
+	doc, err := c.loadRevisionDocument(ctx, target)
+	if err != nil {
+		return nil, err
+	}
+	if doc.marker.Render == nil ||
+		!themeRecipeMatches(doc.marker.Render.Themes, c.cfg.ThemeBundle) {
+		return nil, &updateRefusalError{
+			kind: updateRefusalInvalidTarget,
+			err: errors.New(
+				"airplan: revision themes do not match the configured catalog; " +
+					"run airplan upgrade --force on the target before updating",
+			),
+		}
+	}
+	return doc, nil
+}
+
 func (c *Client) repairMissingRevisionMetadata(
 	ctx context.Context, doc *revisionDocument, hint *VersionsMetadata,
 ) (*revisionDocument, error) {
@@ -860,7 +894,7 @@ func (c *Client) repairMissingRevisionMetadata(
 	}); err != nil {
 		return nil, fmt.Errorf("airplan: repair revision metadata: %w", err)
 	}
-	return c.loadRevisionDocument(ctx, doc.pageURL)
+	return c.loadRevisionDocumentForUpdate(ctx, doc.pageURL)
 }
 
 func (c *Client) loadDeletedRevisionMetadataReceipt(
@@ -921,7 +955,7 @@ func (c *Client) repairRevisionPage(
 	if _, err := c.UpgradeDocument(ctx, *plan); err != nil {
 		return nil, fmt.Errorf("airplan: repair revision page: %w", err)
 	}
-	return c.loadRevisionDocument(ctx, doc.pageURL)
+	return c.loadRevisionDocumentForUpdate(ctx, doc.pageURL)
 }
 
 func cloneRenderRecipe(recipe *RenderRecipe) *RenderRecipe {
@@ -999,6 +1033,7 @@ func (c *Client) promoteStandaloneRevision(
 		Indexable: recipe.Indexable, NoExternalAssets: recipe.NoExternalAssets,
 		MermaidURL: recipe.MermaidURL, RepositoryURL: doc.marker.Repo,
 		Template: c.template, Revision: 1,
+		Themes:        c.cfg.ThemeBundle,
 		RevisionCount: metadata.LatestRevision, VersionsPath: VersionsFilename,
 	})
 	if err != nil {

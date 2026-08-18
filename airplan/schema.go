@@ -3,7 +3,9 @@ package airplan
 import (
 	"encoding/json"
 	"reflect"
+	"sort"
 
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/invopop/jsonschema"
 )
 
@@ -26,10 +28,44 @@ func ConfigSchema() ([]byte, error) {
 	schema.ID = jsonschema.ID(configSchemaID)
 	schema.Title = "Airplan Config"
 	schema.Description = "Airplan TOML config file."
+	customizeThemeSchema(schema)
 
 	out, err := json.MarshalIndent(schema, "", "  ")
 	if err != nil {
 		return nil, err
 	}
 	return append(out, '\n'), nil
+}
+
+func customizeThemeSchema(schema *jsonschema.Schema) {
+	themes, ok := schema.Properties.Get("themes")
+	if ok {
+		maximum := uint64(maxThemeIDLength)
+		reserved := make([]any, 0, len(builtinThemes()))
+		for _, theme := range builtinThemes() {
+			reserved = append(reserved, theme.ID)
+		}
+		themes.PropertyNames = &jsonschema.Schema{
+			Type:      "string",
+			Pattern:   themeIDPattern.String(),
+			MaxLength: &maximum,
+			Not:       &jsonschema.Schema{Enum: reserved},
+		}
+	}
+
+	themeConfig := schema.Definitions["ThemeConfig"]
+	if themeConfig == nil || themeConfig.Properties == nil {
+		return
+	}
+	syntax, ok := themeConfig.Properties.Get("syntax")
+	if !ok {
+		return
+	}
+	names := append([]string(nil), styles.Names()...)
+	sort.Strings(names)
+	syntax.Enum = make([]any, 0, len(names)+2)
+	syntax.Enum = append(syntax.Enum, "", "derived")
+	for _, name := range names {
+		syntax.Enum = append(syntax.Enum, "chroma:"+name)
+	}
 }

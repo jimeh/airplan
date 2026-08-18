@@ -73,6 +73,26 @@
           "type": "string",
           "description": "Absolute HTTPS URL of the Mermaid ECMAScript module."
         },
+        "light_theme": {
+          "type": "string",
+          "description": "Theme assigned to the reader's light mode slot; defaults to github-light."
+        },
+        "dark_theme": {
+          "type": "string",
+          "description": "Theme assigned to the reader's dark mode slot; defaults to github-dark."
+        },
+        "theme": {
+          "type": "string",
+          "description": "Force one theme for every mode and omit appearance controls; overrides light_theme, dark_theme, and available_themes."
+        },
+        "available_themes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true,
+          "description": "Ordered theme IDs available to readers; omitted includes every built-in and custom theme."
+        },
         "repo": {
           "type": "string",
           "description": "Repository context: auto, none, or an explicit GitHub-compatible repository URL."
@@ -84,6 +104,175 @@
       },
       "additionalProperties": false,
       "type": "object"
+    },
+    "ThemeConfig": {
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1
+        },
+        "variant": {
+          "type": "string",
+          "enum": [
+            "light",
+            "dark"
+          ]
+        },
+        "background": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "foreground": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "muted": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "accent": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "accent_foreground": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "border": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "surface": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "surface_emphasis": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "info": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "success": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "important": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "warning": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "danger": {
+          "type": "string",
+          "pattern": "^#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?$"
+        },
+        "syntax": {
+          "type": "string",
+          "enum": [
+            "",
+            "derived",
+            "chroma:abap",
+            "chroma:algol",
+            "chroma:algol_nu",
+            "chroma:arduino",
+            "chroma:ashen",
+            "chroma:aura-theme-dark",
+            "chroma:aura-theme-dark-soft",
+            "chroma:autumn",
+            "chroma:average",
+            "chroma:base16-snazzy",
+            "chroma:borland",
+            "chroma:bw",
+            "chroma:catppuccin-frappe",
+            "chroma:catppuccin-latte",
+            "chroma:catppuccin-macchiato",
+            "chroma:catppuccin-mocha",
+            "chroma:colorful",
+            "chroma:darcula",
+            "chroma:doom-one",
+            "chroma:doom-one2",
+            "chroma:dracula",
+            "chroma:emacs",
+            "chroma:evergarden",
+            "chroma:friendly",
+            "chroma:fruity",
+            "chroma:github",
+            "chroma:github-dark",
+            "chroma:gruvbox",
+            "chroma:gruvbox-light",
+            "chroma:hr_high_contrast",
+            "chroma:hrdark",
+            "chroma:igor",
+            "chroma:kanagawa-dragon",
+            "chroma:kanagawa-lotus",
+            "chroma:kanagawa-wave",
+            "chroma:lovelace",
+            "chroma:manni",
+            "chroma:modus-operandi",
+            "chroma:modus-vivendi",
+            "chroma:monokai",
+            "chroma:monokailight",
+            "chroma:murphy",
+            "chroma:native",
+            "chroma:nord",
+            "chroma:nordic",
+            "chroma:onedark",
+            "chroma:onesenterprise",
+            "chroma:paraiso-dark",
+            "chroma:paraiso-light",
+            "chroma:pastie",
+            "chroma:perldoc",
+            "chroma:pygments",
+            "chroma:rainbow_dash",
+            "chroma:rose-pine",
+            "chroma:rose-pine-dawn",
+            "chroma:rose-pine-moon",
+            "chroma:rpgle",
+            "chroma:rrt",
+            "chroma:solarized-dark",
+            "chroma:solarized-dark256",
+            "chroma:solarized-light",
+            "chroma:swapoff",
+            "chroma:tango",
+            "chroma:tokyonight-day",
+            "chroma:tokyonight-moon",
+            "chroma:tokyonight-night",
+            "chroma:tokyonight-storm",
+            "chroma:trac",
+            "chroma:vim",
+            "chroma:vs",
+            "chroma:vulcan",
+            "chroma:witchhazel",
+            "chroma:xcode",
+            "chroma:xcode-dark"
+          ],
+          "description": "Empty or derived, or chroma:\u003cregistered-style-name\u003e. Empty derives highlighting from semantic tokens."
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "required": [
+        "name",
+        "variant",
+        "background",
+        "foreground",
+        "muted",
+        "accent",
+        "accent_foreground",
+        "border",
+        "surface",
+        "surface_emphasis",
+        "info",
+        "success",
+        "important",
+        "warning",
+        "danger"
+      ]
     }
   },
   "properties": {
@@ -156,6 +345,26 @@
       "type": "string",
       "description": "Absolute HTTPS URL of the Mermaid ECMAScript module."
     },
+    "light_theme": {
+      "type": "string",
+      "description": "Theme assigned to the reader's light mode slot; defaults to github-light."
+    },
+    "dark_theme": {
+      "type": "string",
+      "description": "Theme assigned to the reader's dark mode slot; defaults to github-dark."
+    },
+    "theme": {
+      "type": "string",
+      "description": "Force one theme for every mode and omit appearance controls; overrides light_theme, dark_theme, and available_themes."
+    },
+    "available_themes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Ordered theme IDs available to readers; omitted includes every built-in and custom theme."
+    },
     "repo": {
       "type": "string",
       "description": "Repository context: auto, none, or an explicit GitHub-compatible repository URL."
@@ -174,6 +383,33 @@
       },
       "type": "object",
       "description": "Named profiles that inherit and override root-level settings."
+    },
+    "themes": {
+      "additionalProperties": {
+        "$ref": "#/$defs/ThemeConfig"
+      },
+      "propertyNames": {
+        "not": {
+          "enum": [
+            "github-light",
+            "catppuccin-latte",
+            "rose-pine-dawn",
+            "solarized-light",
+            "tokyo-night-day",
+            "github-dark",
+            "catppuccin-mocha",
+            "rose-pine",
+            "solarized-dark",
+            "tokyo-night",
+            "one-dark"
+          ]
+        },
+        "type": "string",
+        "maxLength": 48,
+        "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+      },
+      "type": "object",
+      "description": "Global custom theme catalog entries available to every profile."
     }
   },
   "additionalProperties": false,
