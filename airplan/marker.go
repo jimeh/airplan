@@ -268,6 +268,11 @@ type markerObjectWire struct {
 
 // EncodeUploadMarker validates and encodes marker as UTF-8 JSON.
 func EncodeUploadMarker(marker UploadMarker) ([]byte, error) {
+	if marker.Version == 4 && marker.Render != nil {
+		render := *marker.Render
+		render.Themes = nil
+		marker.Render = &render
+	}
 	markerName := MarkerFilename
 	if marker.Version >= 3 {
 		var ok bool
@@ -295,11 +300,6 @@ func EncodeUploadMarker(marker UploadMarker) ([]byte, error) {
 			for index := range objects {
 				objects[index].SHA256 = ""
 			}
-		}
-		if marker.Version == 4 && render != nil {
-			copyRecipe := *render
-			copyRecipe.Themes = nil
-			render = &copyRecipe
 		}
 		value = struct {
 			Schema    string              `json:"schema"`

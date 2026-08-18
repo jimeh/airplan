@@ -162,6 +162,7 @@
         "syntax": {
           "type": "string",
           "enum": [
+            "",
             "derived",
             "chroma:abap",
             "chroma:algol",
@@ -238,7 +239,7 @@
             "chroma:xcode",
             "chroma:xcode-dark"
           ],
-          "description": "derived, or chroma:\u003cregistered-style-name\u003e."
+          "description": "Empty or derived, or chroma:\u003cregistered-style-name\u003e. Empty derives highlighting from semantic tokens."
         }
       },
       "additionalProperties": false,

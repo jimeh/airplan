@@ -110,6 +110,67 @@ func TestUpdateDocumentRejectsChangedThemeRecipeBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestUpdateDocumentRejectsChangedThemeRecipeBeforePromotionRepair(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.failPutKey = first.MarkerKey
+	store.mu.Unlock()
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "predecessor promotion failed") {
+		t.Fatalf("interrupted promotion error = %v", err)
+	}
+
+	mismatched := store.clientWithThemes(t, "", "solarized-light", "one-dark")
+	if err := mismatched.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	doc, err := mismatched.loadRevisionDocument(context.Background(), first.URL)
+	if err != nil || !doc.needsPromotion {
+		t.Fatalf("promotion fixture = %+v, %v", doc, err)
+	}
+	store.mu.Lock()
+	putsBefore := store.puts
+	objectsBefore := make(map[string][]byte, len(store.objects))
+	for key, body := range store.objects {
+		objectsBefore[key] = append([]byte(nil), body...)
+	}
+	store.mu.Unlock()
+
+	_, err = mismatched.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "themes do not match") {
+		t.Fatalf("promotion theme mismatch error = %v", err)
+	}
+	var refusal *updateRefusalError
+	if !errors.As(err, &refusal) || refusal.kind != updateRefusalInvalidTarget {
+		t.Fatalf("promotion theme mismatch refusal = %#v (%T)", refusal, err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.puts != putsBefore {
+		t.Fatalf("promotion theme mismatch performed %d writes", store.puts-putsBefore)
+	}
+	if len(store.objects) != len(objectsBefore) {
+		t.Fatalf("promotion theme mismatch changed object count from %d to %d",
+			len(objectsBefore), len(store.objects))
+	}
+	for key, before := range objectsBefore {
+		if after, ok := store.objects[key]; !ok || !bytes.Equal(after, before) {
+			t.Fatalf("promotion theme mismatch mutated %q", key)
+		}
+	}
+}
+
 func TestUpdateDocumentCreatesLinkedRevisionsOnlyOnFirstUpdate(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")

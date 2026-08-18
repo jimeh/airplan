@@ -627,7 +627,7 @@ history is not uploaded.
 Every new upload uses ownership marker version 5 with one declared-object model
 for pages, document sources, and collection files. Documents require a slug;
 collections have no slug and always use `index.html`. Current Airplan releases
-still manage marker versions 1 through 4. Version 4 introduced the producing
+manage marker versions 1 through 5. Version 4 introduced the producing
 Airplan release, renderer/template recipe, revisions, and exact page SHA-256;
 version 5 adds the selected theme IDs and canonical catalog digest. Older
 clients fail closed and must be upgraded before they can manage new v5 uploads.
@@ -888,8 +888,9 @@ syntax = "derived" # or chroma:<registered-style-name>
 ```
 
 Every token is required and colors use `#rrggbb` or `#rrggbbaa`. Built-in IDs
-cannot be replaced, and unknown keys or selected IDs fail before upload. See
-[built-in theme sources](THIRD_PARTY_THEMES.md) for pinned upstream palettes
+cannot be replaced, and unknown keys or selected IDs fail before upload.
+Omitting `syntax` or setting it to an empty string is equivalent to `derived`.
+See [built-in theme sources](THIRD_PARTY_THEMES.md) for pinned upstream palettes
 and licenses. Custom page templates receive safe theme CSS/catalog fields but
 must opt into all theme styling, controls, and runtime behavior themselves.
 

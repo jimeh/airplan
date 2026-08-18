@@ -1469,8 +1469,9 @@ syntax = "derived"
 IDs are lowercase ASCII slugs no longer than 48 bytes and cannot shadow a
 built-in. Names are non-empty valid UTF-8 of at most 80 Unicode characters.
 `variant` is exactly `light` or `dark`. Every semantic color is required and
-is normalized to lowercase `#rrggbb` or `#rrggbbaa`. `syntax` is omitted or
-`derived`, or exactly `chroma:<registered-style-name>`; Chroma names are
+is normalized to lowercase `#rrggbb` or `#rrggbbaa`. `syntax` is omitted,
+empty, `derived`, or exactly `chroma:<registered-style-name>`; omitted and
+empty both derive highlighting from the semantic tokens. Chroma names are
 validated against the registered list without fallback. Reserved/malformed
 IDs, incomplete token sets, unknown keys, invalid colors or variants,
 malformed syntax selectors, and selected IDs absent from the resolved catalog

@@ -98,6 +98,28 @@ func TestResolveThemeBundleAcceptsExactRegisteredChromaStyle(t *testing.T) {
 	}
 }
 
+func TestResolveThemeBundleTreatsEmptySyntaxAsDerived(t *testing.T) {
+	theme := validCustomTheme()
+	theme.Syntax = ""
+	bundle, err := ResolveThemeBundle("custom", DefaultDarkTheme, map[string]ThemeConfig{
+		"custom": theme,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := bundle.Catalog[len(bundle.Catalog)-1].Syntax; got != "derived" {
+		t.Fatalf("normalized empty syntax = %q, want derived", got)
+	}
+}
+
+func TestDefaultThemeBundleIsMemoized(t *testing.T) {
+	first := defaultThemeBundle()
+	second := defaultThemeBundle()
+	if first != second {
+		t.Fatal("default theme bundle was regenerated")
+	}
+}
+
 func TestResolveThemeBundleCustomNormalizationAndDeterminism(t *testing.T) {
 	theme := validCustomTheme()
 	theme.Background = "#AABBCCDD"
@@ -260,7 +282,7 @@ success = "#66bb77"
 important = "#bb88ee"
 warning = "#ddbb55"
 danger = "#ee6677"
-syntax = "derived"
+syntax = ""
 `
 	source := "endpoint = \"https://s3.example.test\"\nbucket = \"plans\"\nlight_theme = \"solarized-light\"\ndark_theme = \"one-dark\"\n\n[profiles.work]\nlight_theme = \"custom\"\ndark_theme = \"github-light\"\n\n" + theme
 	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
@@ -280,6 +302,9 @@ syntax = "derived"
 	}
 	if len(resolution.Config.ThemeBundle.Catalog) != 12 {
 		t.Fatalf("catalog count = %d", len(resolution.Config.ThemeBundle.Catalog))
+	}
+	if got := resolution.Config.ThemeBundle.Catalog[11].Syntax; got != "derived" {
+		t.Fatalf("configured empty syntax = %q, want derived", got)
 	}
 	if got := resolution.Fields["light_theme"].Source; got == nil || got.Kind != ConfigSourceProfile {
 		t.Fatalf("light source = %#v", got)

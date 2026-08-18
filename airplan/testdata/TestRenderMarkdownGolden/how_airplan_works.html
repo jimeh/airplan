@@ -2210,7 +2210,7 @@ try {
         if (E[u].has(n) || T[u].has(n))
           continue;
         try {
-          let b = await e.render(`airplan-mermaid-${n.replace(/[^a-z0-9-]/g, "print")}-${u}`, L);
+          let b = await e.render(`airplan-mermaid-${n.replace(/[^a-z0-9-]/g, "-")}-${u}`, L);
           E[u].set(n, b);
           let $ = f[u];
           if ($.classList.add("mermaid-rendered"), $.classList.remove("mermaid-failed"), !R)

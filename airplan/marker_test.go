@@ -184,7 +184,7 @@ func TestUploadMarkerV4RevisionRoundTripPreservesProvenance(t *testing.T) {
 	marker := validDocumentMarker()
 	marker.Version = 4
 	marker.Render.Generation = 2
-	marker.Render.Themes = nil
+	originalThemes := marker.Render.Themes
 	marker.Revision = &RevisionDescriptor{
 		ChainID: strings.Repeat("r", 26), Number: 2,
 		PreviousURL: "https://plans.example.test/" + strings.Repeat("p", 26) + "/launch-plan.html",
@@ -195,6 +195,9 @@ func TestUploadMarkerV4RevisionRoundTripPreservesProvenance(t *testing.T) {
 	body, err := EncodeUploadMarker(marker)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if marker.Render.Themes != originalThemes || marker.Render.Themes == nil {
+		t.Fatal("v4 encoding mutated the caller's theme-aware render recipe")
 	}
 	decoded, err := DecodeUploadMarker(body, markerTestDir)
 	if err != nil {

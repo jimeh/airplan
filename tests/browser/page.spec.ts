@@ -1304,6 +1304,22 @@ test("Mermaid startup applies print changes that arrive while rendering", async 
   );
 });
 
+test("Mermaid print render IDs replace disallowed key characters with hyphens", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers generated IDs");
+  await page.addInitScript(() => {
+    localStorage.setItem("airplan-light-theme", "solarized-dark");
+    localStorage.setItem("airplan-dark-theme", "tokyo-night");
+  });
+  await page.goto(baseURL);
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator("pre.mermaid > svg").first()).toHaveAttribute(
+    "id",
+    "airplan-mermaid---airplan-print-github-light-0",
+  );
+});
+
 test("Mermaid isolates one failed diagram from valid diagrams", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-light", "one project covers diagram isolation");
   await page.goto(baseURL);

@@ -63,8 +63,8 @@ func customizeThemeSchema(schema *jsonschema.Schema) {
 	}
 	names := append([]string(nil), styles.Names()...)
 	sort.Strings(names)
-	syntax.Enum = make([]any, 0, len(names)+1)
-	syntax.Enum = append(syntax.Enum, "derived")
+	syntax.Enum = make([]any, 0, len(names)+2)
+	syntax.Enum = append(syntax.Enum, "", "derived")
 	for _, name := range names {
 		syntax.Enum = append(syntax.Enum, "chroma:"+name)
 	}

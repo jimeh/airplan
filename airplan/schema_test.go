@@ -123,15 +123,16 @@ func TestConfigSchemaShape(t *testing.T) {
 	gotSyntax := stringSliceAt(t, syntax, "enum")
 	styleNames := append([]string(nil), styles.Names()...)
 	sort.Strings(styleNames)
-	wantSyntax := make([]string, 1, len(styleNames)+1)
-	wantSyntax[0] = "derived"
+	wantSyntax := make([]string, 2, len(styleNames)+2)
+	wantSyntax[0] = ""
+	wantSyntax[1] = "derived"
 	for _, name := range styleNames {
 		wantSyntax = append(wantSyntax, "chroma:"+name)
 	}
 	if !slicesEqual(gotSyntax, wantSyntax) {
 		t.Fatalf("theme syntax enum = %v, want %v", gotSyntax, wantSyntax)
 	}
-	for _, value := range gotSyntax[1:] {
+	for _, value := range gotSyntax[2:] {
 		if !registeredChromaStyle(value[len("chroma:"):]) {
 			t.Fatalf("schema syntax %q is not accepted at runtime", value)
 		}

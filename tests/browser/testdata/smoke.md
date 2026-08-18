@@ -31,8 +31,8 @@ The generated page should work independently of developer config.
 
 ## Code sample
 
-Inline `code`, a [link](https://example.com), and representative prose keep
-theme contrast visible across dense reading content.
+Inline `code`, [theme contrast guidance](https://example.com), and
+representative prose keep theme contrast visible across dense reading content.
 
 | Surface  | Expected behavior          |
 | -------- | -------------------------- |
@@ -43,6 +43,8 @@ theme contrast visible across dense reading content.
 const answer = 42;
 console.log(answer);
 ```
+
+<!-- markdownlint-disable MD028 -->
 
 > [!NOTE]
 > Informational context remains distinct.
@@ -58,6 +60,8 @@ console.log(answer);
 
 > [!CAUTION]
 > Dangerous actions remain distinct.
+
+<!-- markdownlint-enable MD028 -->
 
 ## Diagram
 

@@ -497,7 +497,7 @@ try {
         if (variants[index].has(key) || failedVariants[index].has(key)) continue;
         try {
           const rendered = await mermaid.render(
-            `airplan-mermaid-${key.replace(/[^a-z0-9-]/g, "print")}-${index}`,
+            `airplan-mermaid-${key.replace(/[^a-z0-9-]/g, "-")}-${index}`,
             source,
           );
           variants[index].set(key, rendered);

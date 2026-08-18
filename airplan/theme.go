@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/alecthomas/chroma/v2"
@@ -57,7 +58,7 @@ type ThemeConfig struct {
 	Name    string       `toml:"name" json:"name" jsonschema:"required,minLength=1,maxLength=80"`
 	Variant ThemeVariant `toml:"variant" json:"variant" jsonschema:"required,enum=light,enum=dark"`
 	ThemeTokens
-	Syntax string `toml:"syntax" json:"syntax,omitempty" jsonschema_description:"derived, or chroma:<registered-style-name>."`
+	Syntax string `toml:"syntax" json:"syntax,omitempty" jsonschema_description:"Empty or derived, or chroma:<registered-style-name>. Empty derives highlighting from semantic tokens."`
 }
 
 // Theme is one normalized catalog entry.
@@ -378,7 +379,7 @@ type ThemeRecipe struct {
 
 func themeRecipe(bundle *ThemeBundle) ThemeRecipe {
 	if bundle == nil {
-		bundle, _ = ResolveThemeBundle("", "", nil)
+		bundle = defaultThemeBundle()
 	}
 	return ThemeRecipe{DefaultLight: bundle.DefaultLight, DefaultDark: bundle.DefaultDark, CatalogSHA256: bundle.CatalogSHA256}
 }
@@ -388,10 +389,10 @@ func themeRecipePtr(bundle *ThemeBundle) *ThemeRecipe {
 	return &value
 }
 
-func defaultThemeBundle() *ThemeBundle {
+var defaultThemeBundle = sync.OnceValue(func() *ThemeBundle {
 	bundle, err := ResolveThemeBundle("", "", nil)
 	if err != nil {
 		panic(err)
 	}
 	return bundle
-}
+})

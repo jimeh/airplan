@@ -96,6 +96,12 @@ describe("reader theme state", () => {
     persistTheme(storage, "dark", "light-a");
     expect(storage.getItem(lightThemeKey)).toBe("dark-a");
     expect(storage.getItem(darkThemeKey)).toBe("light-a");
+    expect(loadThemeState(catalog, false, storage)).toMatchObject({
+      lightTheme: "dark-a",
+      darkTheme: "light-a",
+      theme: "dark-a",
+      variant: "dark",
+    });
   });
 
   test("survives storage exceptions", () => {
