@@ -214,33 +214,63 @@ func newMarkdownWithRepository(repository string, source []byte) goldmark.Markdo
 	)
 }
 
-func scopeSyntaxCSS(css, scope string) string {
+func compactScopedSyntaxCSS(css string, scopes ...string) (string, error) {
 	var out strings.Builder
 	for line := range strings.SplitSeq(css, "\n") {
-		commentEnd := strings.Index(line, "*/ ")
-		brace := strings.Index(line, "{")
-		if commentEnd < 0 || brace < commentEnd {
-			out.WriteString(line)
-			out.WriteByte('\n')
+		line = strings.TrimSpace(line)
+		if line == "" {
 			continue
 		}
-
-		selectorStart := commentEnd + len("*/ ")
-		selectors := strings.Split(line[selectorStart:brace], ",")
-		out.WriteString(line[:selectorStart])
-		for i, selector := range selectors {
-			if i > 0 {
-				out.WriteString(", ")
-			}
-			out.WriteString(scope)
-			out.WriteByte(' ')
-			out.WriteString(strings.TrimSpace(selector))
+		brace := strings.Index(line, "{")
+		if brace < 1 || !strings.HasSuffix(line, "}") {
+			return "", fmt.Errorf("airplan: compact unexpected Chroma CSS rule %q", line)
 		}
-		out.WriteByte(' ')
-		out.WriteString(line[brace:])
-		out.WriteByte('\n')
+
+		selectors := strings.Split(line[:brace], ",")
+		written := 0
+		for _, selector := range selectors {
+			selector = strings.TrimSpace(selector)
+			if len(scopes) == 0 {
+				if written > 0 {
+					out.WriteByte(',')
+				}
+				out.WriteString(selector)
+				written++
+				continue
+			}
+			for _, scope := range scopes {
+				if written > 0 {
+					out.WriteByte(',')
+				}
+				out.WriteString(scope)
+				out.WriteByte(' ')
+				out.WriteString(selector)
+				written++
+			}
+		}
+		out.WriteByte('{')
+		declarations := strings.Split(line[brace+1:len(line)-1], ";")
+		written = 0
+		for _, declaration := range declarations {
+			declaration = strings.TrimSpace(declaration)
+			if declaration == "" {
+				continue
+			}
+			colon := strings.IndexByte(declaration, ':')
+			if colon < 1 {
+				return "", fmt.Errorf("airplan: compact unexpected Chroma CSS declaration %q", declaration)
+			}
+			if written > 0 {
+				out.WriteByte(';')
+			}
+			out.WriteString(strings.TrimSpace(declaration[:colon]))
+			out.WriteByte(':')
+			out.WriteString(strings.TrimSpace(declaration[colon+1:]))
+			written++
+		}
+		out.WriteByte('}')
 	}
-	return out.String()
+	return out.String(), nil
 }
 
 // RenderMarkdown renders markdown source to an HTML page with embedded CSS,

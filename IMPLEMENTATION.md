@@ -198,8 +198,10 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   recipe; TypeScript owns reader mode/slot state and interaction only.
 - Highlighting: Chroma emits class-based markup. Built-ins select exact
   registered styles and custom themes either select `chroma:<name>` or build a
-  semantic style with `chroma.NewStyleBuilder`. Every screen stylesheet is
-  scoped to one exact theme ID, with a separate fixed GitHub print stylesheet.
+  semantic style with `chroma.NewStyleBuilder`. Generated rules are compacted,
+  and themes with byte-identical Chroma output share declaration blocks through
+  grouped selectors. Every selector remains scoped to one exact theme ID, with
+  a separate fixed GitHub print stylesheet.
 - Mermaid: a stateless Goldmark node renderer intercepts only exact
   `mermaid` fences ahead of Chroma and emits escaped source containers. The
   built-in template bakes a document-specific Mermaid module into its

@@ -112,6 +112,31 @@ func TestResolveThemeBundleTreatsEmptySyntaxAsDerived(t *testing.T) {
 	}
 }
 
+func TestResolveThemeBundleCompactsAndDeduplicatesSyntaxCSS(t *testing.T) {
+	alpha := validCustomTheme()
+	alpha.Name = "Alpha"
+	alpha.Syntax = "chroma:github"
+	beta := validCustomTheme()
+	beta.Name = "Beta"
+	beta.Syntax = "chroma:github"
+	bundle, err := ResolveThemeBundle("alpha", DefaultDarkTheme, map[string]ThemeConfig{
+		"alpha": alpha,
+		"beta":  beta,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	css := string(bundle.SyntaxCSS)
+	if strings.Contains(css, "\n") || strings.Contains(css, "/*") || strings.Contains(css, " { ") {
+		t.Fatalf("syntax CSS is not compact: %q", css[:min(len(css), 200)])
+	}
+	grouped := `:root[data-airplan-theme="github-light"] .bg,:root[data-airplan-theme="alpha"] .bg,:root[data-airplan-theme="beta"] .bg{background-color:#f7f7f7}`
+	if !strings.Contains(css, grouped) {
+		t.Fatalf("identical syntax styles are not grouped; missing %q", grouped)
+	}
+}
+
 func TestDefaultThemeBundleIsMemoized(t *testing.T) {
 	first := defaultThemeBundle()
 	second := defaultThemeBundle()

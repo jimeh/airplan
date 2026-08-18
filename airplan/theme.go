@@ -294,9 +294,15 @@ func compositeHex(value, background string) string {
 }
 
 func renderThemeSyntaxCSS(catalog []Theme, lightID, darkID string) (string, error) {
-	formatter := chromahtml.New(chromahtml.WithClasses(true))
+	formatter := chromahtml.New(chromahtml.WithClasses(true), chromahtml.WithCSSComments(false))
 	var out strings.Builder
 	cssByID := make(map[string]string, len(catalog))
+	type styleGroup struct {
+		css    string
+		scopes []string
+	}
+	groups := make([]styleGroup, 0, len(catalog))
+	groupByCSS := make(map[string]int, len(catalog))
 	for _, theme := range catalog {
 		style, err := syntaxStyle(theme)
 		if err != nil {
@@ -307,20 +313,44 @@ func renderThemeSyntaxCSS(catalog []Theme, lightID, darkID string) (string, erro
 			return "", fmt.Errorf("airplan: render syntax style for %q: %w", theme.ID, err)
 		}
 		cssByID[theme.ID] = css.String()
-		out.WriteString("@media screen{\n")
-		out.WriteString(scopeSyntaxCSS(css.String(), `:root[data-airplan-theme="`+theme.ID+`"]`))
-		out.WriteString("}\n")
+		scope := `:root[data-airplan-theme="` + theme.ID + `"]`
+		if index, ok := groupByCSS[css.String()]; ok {
+			groups[index].scopes = append(groups[index].scopes, scope)
+		} else {
+			groupByCSS[css.String()] = len(groups)
+			groups = append(groups, styleGroup{css: css.String(), scopes: []string{scope}})
+		}
 	}
-	out.WriteString("@media screen and (prefers-color-scheme:light){\n")
-	out.WriteString(scopeSyntaxCSS(cssByID[lightID], `:root:not([data-airplan-theme])`))
-	out.WriteString("}\n@media screen and (prefers-color-scheme:dark){\n")
-	out.WriteString(scopeSyntaxCSS(cssByID[darkID], `:root:not([data-airplan-theme])`))
-	out.WriteString("}\n")
+	out.WriteString("@media screen{")
+	for _, group := range groups {
+		css, err := compactScopedSyntaxCSS(group.css, group.scopes...)
+		if err != nil {
+			return "", err
+		}
+		out.WriteString(css)
+	}
+	out.WriteString("}@media screen and (prefers-color-scheme:light){")
+	lightCSS, err := compactScopedSyntaxCSS(cssByID[lightID], `:root:not([data-airplan-theme])`)
+	if err != nil {
+		return "", err
+	}
+	out.WriteString(lightCSS)
+	out.WriteString("}@media screen and (prefers-color-scheme:dark){")
+	darkCSS, err := compactScopedSyntaxCSS(cssByID[darkID], `:root:not([data-airplan-theme])`)
+	if err != nil {
+		return "", err
+	}
+	out.WriteString(darkCSS)
+	out.WriteByte('}')
 	var printCSS strings.Builder
 	if err := formatter.WriteCSS(&printCSS, styles.Get("github")); err != nil {
 		return "", err
 	}
-	out.WriteString("@media print{\n" + printCSS.String() + "}\n")
+	compactPrintCSS, err := compactScopedSyntaxCSS(printCSS.String())
+	if err != nil {
+		return "", err
+	}
+	out.WriteString("@media print{" + compactPrintCSS + "}")
 	return out.String(), nil
 }
 
