@@ -6,6 +6,7 @@ lockfile = true
 run_auto_install = true
 
 [tools]
+bun = "1"
 node = "24"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1"
 goreleaser = "2"
@@ -14,21 +15,13 @@ lefthook = "2"
 actionlint = "1"
 zizmor = "1"
 pinact = "4"
-oxfmt = "0"
 syft = "1"
 "github:jimeh/treeboot" = "0"
 
 [tasks.build]
 description = "Build the airplan binary (skipped when nothing changed)"
 run = "go build -o bin/airplan ."
-sources = [
-  "main.go",
-  "go.mod",
-  "go.sum",
-  "cli/**/*.go",
-  "airplan/**/*",
-  "skills/**/*",
-]
+sources = ["main.go", "go.mod", "go.sum", "cli/**/*.go", "airplan/**/*", "skills/**/*"]
 outputs = ["bin/airplan"]
 
 [tasks.test]
@@ -49,11 +42,11 @@ run = "go test -tags integration -count=1 -v -run TestIntegration ./airplan/"
 
 [tasks."test:browser"]
 description = "Run rendered-page browser smoke tests in Chromium"
-run = [
-  "npm ci",
-  "npx playwright install chromium",
-  "npx playwright test",
-]
+run = ["bun ci", "bunx playwright install chromium", "bun run test:browser"]
+
+[tasks."test:web"]
+description = "Run pure TypeScript unit tests"
+run = "bun run test:web"
 
 [tasks."test:container-integration"]
 description = "Run the MinIO-backed Airplan server image smoke test"
@@ -61,17 +54,29 @@ depends = ["container:build"]
 run = "scripts/container/integration.sh"
 
 [tasks."audit:deps"]
-description = "Verify and scan Go and npm dependencies"
-run = ["go mod verify", "govulncheck ./...", "npm audit --audit-level=high"]
+description = "Verify and scan Go and Bun dependencies"
+run = ["go mod verify", "govulncheck ./...", "bun audit --audit-level=high"]
 
 [tasks.generate]
 description = "Regenerate committed generated files"
-run = "go generate ./..."
+run = ["go generate ./...", "bun run build:web"]
+
+[tasks."generate:web"]
+description = "Regenerate committed browser assets"
+run = "bun run build:web"
+
+[tasks."generate:web:check"]
+description = "Check committed browser assets are up to date"
+run = "bun run build:web:check"
 
 [tasks."generate:check"]
 description = "Check generated files are up to date"
+depends = ["generate:go:check", "generate:web:check"]
+
+[tasks."generate:go:check"]
+description = "Check Go-owned generated files are up to date"
 run = [
-	"go run ./internal/cmd/checkopenapi",
+  "go run ./internal/cmd/checkopenapi",
   "go run ./internal/cmd/genschema --check schema/airplan.schema.json",
   "go run ./internal/cmd/genmermaid --check internal/deps/mermaid.json airplan/mermaid_generated.go",
 ]
@@ -90,7 +95,23 @@ run = "go run ./internal/cmd/updatemermaid"
 
 [tasks.lint]
 description = "All lints"
-depends = ["lint:go", "lint:workflows"]
+depends = ["lint:go", "lint:web", "lint:workflows"]
+
+[tasks."lint:web"]
+description = "Lint TypeScript and CSS"
+depends = ["lint:ts", "lint:css"]
+
+[tasks."lint:ts"]
+description = "Lint TypeScript with ordinary and type-aware rules"
+run = "bun run lint:ts"
+
+[tasks."lint:css"]
+description = "Lint authored CSS"
+run = "bun run lint:css"
+
+[tasks."typecheck:web"]
+description = "Typecheck browser and Playwright TypeScript projects"
+run = "bun run typecheck:web"
 
 [tasks."lint:go"]
 description = "Lint Go code"
@@ -107,11 +128,11 @@ run = [
 
 [tasks.format]
 description = "Format everything (write mode)"
-depends = ["format:go", "format:markdown"]
+depends = ["format:go", "format:web"]
 
 [tasks."format:check"]
 description = "Check formatting without writing changes"
-depends = ["format:go:check", "format:markdown:check"]
+depends = ["format:go:check", "format:web:check"]
 
 [tasks."format:go"]
 description = "Format Go code"
@@ -123,39 +144,43 @@ run = "golangci-lint fmt --diff"
 
 [tasks."format:markdown"]
 description = "Format Markdown files"
-run = "oxfmt \"**/*.md\""
+run = "bun run oxfmt -- \"**/*.md\""
 
 [tasks."format:markdown:check"]
 description = "Check Markdown formatting without writing changes"
-run = "oxfmt --check \"**/*.md\""
+run = "bun run oxfmt -- --check \"**/*.md\""
+
+[tasks."format:web"]
+description = "Format web sources and repository text"
+run = "bun run format"
+
+[tasks."format:web:check"]
+description = "Check web sources and repository text formatting"
+run = "bun run format:check"
 
 [tasks.check]
 description = "Fast confidence gate: lints, generation, format checks, tests"
-depends = ["check:go", "lint:workflows", "format:markdown:check"]
+depends = [
+  "check:go",
+  "generate:web:check",
+  "lint:web",
+  "typecheck:web",
+  "test:web",
+  "lint:workflows",
+  "format:web:check",
+]
 
 [tasks."check:go"]
 description = "Go confidence gate: lint, generation, format, version, tests"
-depends = [
-  "lint:go",
-  "generate:check",
-  "format:go:check",
-  "check:go-version",
-  "test",
-]
+depends = ["lint:go", "generate:go:check", "format:go:check", "check:go-version", "test"]
 
 [tasks."release:snapshot"]
 description = "Build a release snapshot without publishing"
-run = [
-  "goreleaser check",
-  "goreleaser release --snapshot --clean --skip=publish",
-]
+run = ["goreleaser check", "goreleaser release --snapshot --clean --skip=publish"]
 
 [tasks."container:context"]
 description = "Build snapshot binaries and prepare the container context"
-run = [
-  "goreleaser build --snapshot --clean",
-  "go run ./internal/cmd/preparecontainer",
-]
+run = ["goreleaser build --snapshot --clean", "go run ./internal/cmd/preparecontainer"]
 
 [tasks."container:build"]
 description = "Build and load the native Airplan server image"
@@ -180,7 +205,7 @@ run = [
 
 [tasks.setup]
 description = "Install tools and git hooks"
-run = ["mise install", "lefthook install"]
+run = ["mise install", "bun ci", "lefthook install"]
 
 [tasks.treeboot]
 description = "Bootstrap the current worktree with treeboot"

@@ -208,6 +208,9 @@ func isContractSensitive(path string) bool {
 	if strings.HasPrefix(path, "airplan/assets/") {
 		return true
 	}
+	if strings.HasPrefix(path, "web/src/") || strings.HasPrefix(path, "web/styles/") {
+		return true
+	}
 	if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 		return false
 	}

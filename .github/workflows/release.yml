@@ -137,6 +137,7 @@ jobs:
           # injection vector for published artifacts (zizmor
           # cache-poisoning).
           cache: false
+          install_args: goreleaser
       - name: Build and upload draft release
         run: mise exec -- goreleaser release --clean
         env:

@@ -1,0 +1,22 @@
+{
+  "extends": ["stylelint-config-standard"],
+  "ignoreFiles": ["airplan/assets/generated/**/*.css"],
+  "rules": {
+    "alpha-value-notation": null,
+    "color-function-alias-notation": null,
+    "color-function-notation": null,
+    "color-hex-length": null,
+    "comment-empty-line-before": null,
+    "custom-property-empty-line-before": null,
+    "declaration-block-no-redundant-longhand-properties": null,
+    "declaration-empty-line-before": null,
+    "media-feature-range-notation": null,
+    "no-descending-specificity": null,
+    "property-no-vendor-prefix": null,
+    "rule-empty-line-before": null,
+    "selector-class-pattern": [
+      "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*(?:--[a-z0-9]+(?:-[a-z0-9]+)*)?$",
+      { "message": "Expected a kebab-case or BEM class selector" }
+    ]
+  }
+}

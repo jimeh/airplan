@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.38.0.
+may contradict it. Targets spec version 0.39.0.
 
 ---
 
@@ -28,8 +28,27 @@ Considered alternatives:
 - **Rust**: equally good binary/startup story, slower to iterate for a
   tool this small; markdown-to-styled-HTML story (comrak + hand-rolled
   highlighting) is more work than goldmark + chroma.
-- **Node/Bun/Python**: runtime dependency or heavyweight bundles;
-  fails the "single static binary, fast startup" constraint.
+- **Node/Bun/Python as the application runtime**: runtime dependency or
+  heavyweight bundles; fails the "single static binary, fast startup"
+  constraint. Bun and Node are development-only tools and are not shipped.
+
+**Web build tooling.** Bun owns package installation, the lockfile, TypeScript
+and CSS builds, and package scripts. Maintained browser assets and Playwright
+tests are strict TypeScript under `web/` and `tests/browser/`. TypeScript 7,
+Oxlint with its type-aware backend, Oxfmt, and Stylelint are package-local and
+pinned by `bun.lock`. Bun emits deterministic readable and minified browser
+assets; only the generated JavaScript and CSS under
+`airplan/assets/generated/` are embedded in the Go binary. Node remains
+available solely as Playwright's supported runtime. `bunfig.toml` applies a
+seven-day minimum release age to every direct and transitive dependency with
+no standing exclusions. Its isolated linker keeps transitive package contents
+under `node_modules/.bun/`, outside Go's `./...` package discovery boundary.
+
+Production JavaScript applies Bun's syntax and identifier minification while
+retaining printer whitespace. This keeps unexpected Go-template delimiters
+visible to a fail-closed byte check instead of rewriting executable source.
+CSS may separate adjacent structural braces, but a token-aware pass preserves
+strings, comments, and escapes so delimiter-like authored content is rejected.
 
 ## 2. Dependencies (deliberately few)
 
@@ -190,14 +209,17 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   constants; a networked updater observes a 72-hour minimum age, stays within
   the current major, verifies jsDelivr, and refreshes generated/rendered
   artifacts. Dependency-only updates do not alter this document or SPEC.md.
-- Built-in document and collection templates share source assets for base
-  styling, early theme selection, runtime theme behavior, and theme-control
-  markup. A generalized bake step expands shared and page-specific assets into
-  each embedded layout before parsing. The source-friendly expansion retains
-  asset comments for `airplan template [document|collection]`; executable
-  expansion removes source-only comments so rendered output stays clean. Both
-  commands therefore emit complete, standalone, reusable templates without
-  exposing internal bake markers.
+- Built-in document and collection templates share authored TypeScript and CSS
+  for base styling, early theme selection, runtime theme behavior, and
+  theme-control markup. `web/build.ts` uses explicit Bun browser targets and
+  formats to generate readable and minified page-specific bundles. It replaces
+  exactly one inert Mermaid URL sentinel with the existing Go template action,
+  rejects template delimiters from all other generated content, and produces
+  no runtime network dependency beyond conditional Mermaid loading. A
+  generalized bake step expands readable assets for
+  `airplan template [document|collection]` and minified assets for executable
+  built-ins. Both commands therefore emit complete, standalone, reusable
+  templates without exposing internal bake markers.
 - Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, structured headings/ToC entries, format metadata,
@@ -545,6 +567,10 @@ deletion has succeeded.
   and lock cancellation, sync reconciliation, and document-only slug filters.
 - Golden files: markdown fixtures → rendered HTML snapshots
   (`testdata/`, `GOLDEN_UPDATE=1` convention).
+- Web: strict TypeScript compiler projects cover browser and Playwright code;
+  Oxlint runs ordinary and type-aware rules; Stylelint checks authored CSS;
+  Bun unit tests cover pure tooling policy; and generation checks rebuild into
+  a temporary directory and byte-compare the committed asset set.
 - Browser: Chromium collection fixtures cover image/video/audio and generic
   cards, direct and copy links, no-JavaScript behavior, hostile-looking names,
   narrow/wide layouts, and light/dark themes for built-in and custom templates.

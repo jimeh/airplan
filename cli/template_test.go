@@ -146,11 +146,11 @@ func assertDumpedSharedThemeAssets(t *testing.T, dumped string) {
 		{"theme-toggle markup", `role="group" aria-label="Color theme"`},
 		{
 			"early persisted-theme initialization",
-			`const theme = localStorage.getItem('airplan-theme');`,
+			`const theme = localStorage.getItem("airplan-theme");`,
 		},
 		{
 			"runtime theme behavior",
-			`window.dispatchEvent(new CustomEvent('airplan:themechange'`,
+			`window.dispatchEvent(new CustomEvent("airplan:themechange"`,
 		},
 	} {
 		if !strings.Contains(dumped, sentinel.value) {
