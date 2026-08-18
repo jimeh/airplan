@@ -40,4 +40,13 @@ describe("Go template delimiter safety", () => {
       "page.js: generated asset contains template delimiter {{",
     );
   });
+
+  test("strips Bun source labels with either path separator", () => {
+    const bundledSource = 'const value = "preserved";\n';
+    const forwardSlash = `// web/src/page.ts\n${bundledSource}`;
+    const backslash = `// web\\src\\page.ts\r\n${bundledSource}`;
+
+    expect(prepareGeneratedSource(forwardSlash, "page.js", "minified")).toBe(bundledSource);
+    expect(prepareGeneratedSource(backslash, "page.js", "minified")).toBe(bundledSource);
+  });
 });

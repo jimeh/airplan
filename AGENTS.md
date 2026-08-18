@@ -42,7 +42,8 @@ this implementation is built and must not contradict the spec.
 | `mise run build`                      | binary at `bin/airplan` (skipped when unchanged)           |
 
 Run `mise run check` before handing off; `verify` for broad or risky
-changes. Lefthook pre-commit hooks lint/format-check staged files.
+changes. Lefthook pre-commit hooks lint/format-check staged files and reject
+stale generated browser assets.
 Tool versions: major-version constraints live in `mise.toml`; exact
 pins live in `mise.lock` (commit both when bumping tools).
 The exact Go version lives in `.go-version`, is consumed by local mise and
@@ -114,7 +115,8 @@ coverage has no equivalent local task on non-Windows hosts.
   Shared base/theme assets and theme-toggle markup are baked into both complete
   standalone template outputs; document and collection assets remain
   page-specific. Keep new bake markers and assets covered by template
-  round-trip and marker tests.
+  round-trip and marker tests. Bun version bumps require `mise run test:browser`
+  because its minifier output ships in rendered pages.
 - **Generated template delimiters fail closed**: production JavaScript uses
   Bun syntax/identifier minification without whitespace collapsing, then
   rejects unexpected `{{` or `}}` bytes unchanged. CSS only separates adjacent

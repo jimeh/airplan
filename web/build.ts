@@ -120,7 +120,7 @@ function replaceMermaidSentinel(source: string, path: string): string {
 }
 
 function stripBunSourceLabels(source: string): string {
-  return source.replace(/^[\t ]*\/\/ web\/src\/[^\r\n]+\r?\n/gm, "");
+  return source.replace(/^[\t ]*\/\/ web[\\/]src[\\/][^\r\n]+\r?\n/gm, "");
 }
 
 export function prepareGeneratedSource(source: string, output: string, variant: Variant): string {

@@ -295,8 +295,24 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 
 	t.Run("system and explicit palettes present", func(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "Hi"})
+		backgroundStart := strings.Index(out, "--bg:")
+		if backgroundStart < 0 {
+			t.Fatal("base background palette is missing")
+		}
+		backgroundEnd := strings.Index(out[backgroundStart:], ";")
+		if backgroundEnd < 0 {
+			t.Fatal("base background palette is incomplete")
+		}
+		backgroundPalette := out[backgroundStart : backgroundStart+backgroundEnd]
+		for name, color := range map[string]string{
+			"light": "#fff",
+			"dark":  "#0d1117",
+		} {
+			if !strings.Contains(backgroundPalette, color) {
+				t.Errorf("base background palette is missing %s color %q", name, color)
+			}
+		}
 		for _, fragment := range []string{
-			"--bg:var(--buncss-light,#fff)var(--buncss-dark,#0d1117)",
 			"prefers-color-scheme: dark",
 			":root:not([data-theme]) .chroma .k",
 			`:root[data-theme="light"] .chroma .k`,

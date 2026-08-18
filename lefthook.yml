@@ -23,6 +23,9 @@ pre-commit:
     css-lint:
       glob: "web/styles/*.css"
       run: bun run stylelint -- {staged_files}
+    web-generated:
+      glob: "{web/src/**,web/styles/**,web/build.ts}"
+      run: mise run generate:web:check
     web-typecheck:
       glob: "{web/**,tests/browser/**,playwright.config.ts,package.json,bun.lock,tsconfig*.json,.oxlintrc.json}"
       run: mise run typecheck:web && mise run lint:ts

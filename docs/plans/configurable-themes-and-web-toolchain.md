@@ -417,9 +417,9 @@ with browser assets embedded through `go:embed`.
 
 Because embedded assets and dumped template bytes are contract-sensitive even
 when behavior is preserved, update the source-friendly template description
-and advance the spec patch version if required by the repository's spec-sync
-policy. Pull request 2 then advances the spec minor version for the observable
-theme feature.
+and advance the spec minor version under the pre-1.0 policy for this observable
+template-output contract change. Pull request 2 then advances the next minor
+version for the observable theme feature.
 
 ### 6.7 Pull request 1 verification
 
