@@ -1303,7 +1303,7 @@ func (c *Client) recordRevisionAppend(
 		if revision.Deleted || revision.Number == result.Revision {
 			continue
 		}
-		doc, err := c.loadRevisionDocumentForUpdate(ctx, revision.URL)
+		doc, err := c.loadRevisionDocument(ctx, revision.URL)
 		if err != nil {
 			result.Warnings = append(result.Warnings, "manifest chain links not fully recorded")
 			return

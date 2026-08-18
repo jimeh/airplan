@@ -845,6 +845,84 @@ func TestRevisionLinkManifestEventsPreserveCompleteProjection(t *testing.T) {
 	}
 }
 
+func TestRevisionLinkManifestEventsAllowStaleHistoricalThemeRecipes(t *testing.T) {
+	store := newUpgradeStore(t)
+	original := store.client(t, "")
+	first, err := original.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := original.UpdateDocument(
+		context.Background(), UpdateDocumentInput{
+			Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := original.UpdateDocument(
+		context.Background(), UpdateDocumentInput{
+			Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
+	current := store.clientWithThemes(
+		t, manifest, "solarized-light", "one-dark",
+	)
+	plan, err := current.PlanUpgradeDocument(
+		context.Background(), third.URL, UpgradeDocumentOptions{Force: true},
+	)
+	if err != nil || plan.State != UpgradeStateUpgradeable {
+		t.Fatalf("forced latest-theme upgrade plan = %+v, %v", plan, err)
+	}
+	if _, err := current.UpgradeDocument(context.Background(), *plan); err != nil {
+		t.Fatal(err)
+	}
+	fourth, err := current.UpdateDocument(
+		context.Background(), UpdateDocumentInput{
+			Target: third.URL, Input: Input{Reader: strings.NewReader("four\n")},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(fourth.Warnings) != 0 {
+		t.Fatalf("update warnings = %v", fourth.Warnings)
+	}
+
+	records, warnings, err := ReadManifest(manifest)
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("records = %+v, warnings = %v, err = %v", records, warnings, err)
+	}
+	links := map[string]ManifestRecord{}
+	for _, record := range records {
+		if record.Type == "link" {
+			links[record.MarkerKey] = record
+		}
+	}
+	for _, want := range []struct {
+		markerKey string
+		revision  int
+	}{
+		{first.MarkerKey, 1},
+		{second.MarkerKey, 2},
+		{third.MarkerKey, 3},
+	} {
+		link, ok := links[want.markerKey]
+		if !ok || link.RevisionChainID != fourth.RevisionChainID ||
+			link.Revision != want.revision || link.LatestRevision != 4 {
+			t.Fatalf("revision %d link projection = %+v, present = %t",
+				want.revision, link, ok)
+		}
+	}
+}
+
 func TestRevisionDeleteManifestTombstoneCarriesChainProjection(t *testing.T) {
 	store := newUpgradeStore(t)
 	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")

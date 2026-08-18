@@ -774,7 +774,9 @@ AWS credential chain. S3 values inherited from a root configuration are
 inactive for that profile. Conversely, API settings are inactive for an `s3`
 profile. Hosted rendering uses the server's theme configuration: explicit
 client `light_theme`, `dark_theme`, `theme`, `available_themes`, and custom
-`themes` definitions are not transmitted and produce inactive-field warnings.
+`themes` definitions are not transmitted. Custom definitions are still
+validated strictly at client config load; valid definitions and explicit theme
+selectors produce inactive-field warnings.
 
 Select a profile for one command with `--profile` / `-p`, or for profile-aware
 commands in a project-specific shell environment with `AIRPLAN_PROFILE`:

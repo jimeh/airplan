@@ -1327,8 +1327,10 @@ It sends operations to that server and never loads ambient AWS credentials or
 writes a second client-side manifest. Rendering uses the server's resolved
 theme catalog and defaults; client-side `light_theme`, `dark_theme`, `theme`,
 `available_themes`, and custom `themes` definitions are not transmitted.
-Explicit client theme settings produce inactive-field warnings, while built-in
-defaults do not. S3 settings inherited by an `airplan`
+Custom definitions are still validated strictly during client config loading;
+valid custom definitions and explicit client theme settings produce
+inactive-field warnings, while built-in defaults do not. S3 settings inherited
+by an `airplan`
 profile, and API settings inherited by an `s3` profile, are inactive. Explicit
 inactive profile settings may produce a warning; inherited ones do not.
 
@@ -1580,7 +1582,9 @@ inspection invocation; flags from an earlier process cannot be observed.
 The default table reports the selected config path, active profile, credential
 mode, and every config field's resolved value and winning source. Sources are
 one of a built-in default, root config key, selected-profile config key,
-`AIRPLAN_*` environment variable, or explicit flag. Config-path and profile
+`AIRPLAN_*` environment variable, explicit flag, or inferred/derived
+resolution. An auto-expanded `available_themes` catalog is the field-level
+inferred example. Config-path and profile
 rows likewise distinguish flag, environment, default path/profile, and
 profile inference. Root-level selection made complete by any combination of
 root config, environment, and flags is described as a complete root-level
