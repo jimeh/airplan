@@ -269,18 +269,18 @@ body{background:#fff;color:#1f2328}}
   }
 
   (function() {
-    let E = document, A = E.documentElement, I = window.__AIRPLAN_THEME_CATALOG__;
+    let E = document, A = E.documentElement;
+    E.querySelectorAll(".js-only").forEach((h) => {
+      h.hidden = !1;
+    });
+    let I = window.__AIRPLAN_THEME_CATALOG__;
     if (!I)
       return;
     let H = I, V = window.matchMedia("(prefers-color-scheme: dark)"), Y;
     try {
       Y = window.localStorage;
     } catch {}
-    let f = window.__airplanThemeState ?? _E(H, V.matches, Y);
-    E.querySelectorAll(".js-only").forEach((h) => {
-      h.hidden = !1;
-    });
-    let J = E.querySelector("[data-airplan-appearance-trigger]"), O = E.querySelector("[data-airplan-appearance-panel]"), K = E.querySelector('select[data-airplan-theme-slot="light"]'), j = E.querySelector('select[data-airplan-theme-slot="dark"]'), x = Array.from(E.querySelectorAll("[data-airplan-color-mode]"));
+    let f = window.__airplanThemeState ?? _E(H, V.matches, Y), J = E.querySelector("[data-airplan-appearance-trigger]"), O = E.querySelector("[data-airplan-appearance-panel]"), K = E.querySelector('select[data-airplan-theme-slot="light"]'), j = E.querySelector('select[data-airplan-theme-slot="dark"]'), x = Array.from(E.querySelectorAll("[data-airplan-color-mode]"));
     function n(h) {
       if (!h || h.options.length > 0)
         return;

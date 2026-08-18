@@ -183,7 +183,7 @@ func (c *Client) PlanUpgradeDocument(
 	if marker.Version >= 5 && marker.Render != nil &&
 		!themeRecipeMatches(marker.Render.Themes, c.cfg.ThemeBundle) && !opts.Force {
 		plan.State, plan.Reason = UpgradeStateIneligible,
-			"configured themes do not match the stored render recipe"
+			"configured themes do not match the stored render recipe; rerun with upgrade --force to replace it"
 		return plan, nil
 	}
 	pageKey := dirPrefix + marker.Page

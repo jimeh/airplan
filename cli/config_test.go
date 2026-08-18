@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -208,16 +209,111 @@ func TestConfigShowThemeWarningsStayOnStderr(t *testing.T) {
 	if !json.Valid([]byte(stdout)) || strings.Contains(stdout, "not listed in available_themes") {
 		t.Fatalf("stdout is contaminated: %q", stdout)
 	}
-	if strings.Count(stderr, "not listed in available_themes") != 2 {
-		t.Fatalf("stderr = %q, want two theme warnings", stderr)
+	wantStderr := "airplan: warning: light_theme \"github-light\" is not listed in available_themes; adding it\n" +
+		"airplan: warning: dark_theme \"github-dark\" is not listed in available_themes; adding it\n"
+	if stderr != wantStderr {
+		t.Fatalf("stderr = %q, want %q", stderr, wantStderr)
 	}
 	var output configShowJSON
 	if err := json.Unmarshal([]byte(stdout), &output); err != nil {
 		t.Fatal(err)
 	}
-	if field := output.Fields["available_themes"]; !field.Set || field.Source == nil || field.Source.Kind != airplan.ConfigSourceRoot {
+	field := output.Fields["available_themes"]
+	wantValue := []any{"tokyo-night", "github-light", "github-dark"}
+	wantSource := &airplan.ConfigSource{
+		Kind: airplan.ConfigSourceInferred,
+		Name: "resolved available_themes catalog",
+	}
+	if !field.Set || !reflect.DeepEqual(field.Value, wantValue) ||
+		!reflect.DeepEqual(field.Source, wantSource) {
 		t.Fatalf("available_themes field = %+v", field)
 	}
+
+	table, tableStderr, err := executeConfigCommand(t, "show", "--config", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tableStderr != wantStderr {
+		t.Fatalf("table stderr = %q, want %q", tableStderr, wantStderr)
+	}
+	assertConfigTableRow(t, table, "available_themes",
+		"[tokyo-night github-light github-dark]",
+		"resolved available_themes catalog")
+}
+
+func TestConfigShowForcedThemeUsesWinningThemeProvenance(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("AIRPLAN_THEME", "tokyo-night")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte(`light_theme = "solarized-light"
+dark_theme = "one-dark"
+available_themes = ["github-light", "github-dark"]
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, err := executeConfigCommand(
+		t, "show", "--json", "--config", path,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantStderr := "airplan: warning: theme \"tokyo-night\" overrides light_theme, dark_theme, and available_themes\n"
+	if stderr != wantStderr {
+		t.Fatalf("stderr = %q, want %q", stderr, wantStderr)
+	}
+	var output configShowJSON
+	if err := json.Unmarshal([]byte(stdout), &output); err != nil {
+		t.Fatal(err)
+	}
+	wantSource := &airplan.ConfigSource{
+		Kind: airplan.ConfigSourceEnv, Name: "AIRPLAN_THEME",
+	}
+	for _, name := range []string{
+		"light_theme", "dark_theme", "theme", "available_themes",
+	} {
+		field := output.Fields[name]
+		if !reflect.DeepEqual(field.Source, wantSource) {
+			t.Fatalf("%s source = %#v, want %#v", name, field.Source, wantSource)
+		}
+	}
+	if got := output.Fields["light_theme"].Value; got != "tokyo-night" {
+		t.Fatalf("light_theme value = %v", got)
+	}
+	if got := output.Fields["dark_theme"].Value; got != "tokyo-night" {
+		t.Fatalf("dark_theme value = %v", got)
+	}
+	if got := output.Fields["available_themes"].Value; !reflect.DeepEqual(got, []any{"tokyo-night"}) {
+		t.Fatalf("available_themes value = %#v", got)
+	}
+
+	table, tableStderr, err := executeConfigCommand(t, "show", "--config", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tableStderr != wantStderr {
+		t.Fatalf("table stderr = %q, want %q", tableStderr, wantStderr)
+	}
+	assertConfigTableRow(t, table, "light_theme", "tokyo-night", "AIRPLAN_THEME")
+	assertConfigTableRow(t, table, "dark_theme", "tokyo-night", "AIRPLAN_THEME")
+	assertConfigTableRow(t, table, "theme", "tokyo-night", "AIRPLAN_THEME")
+	assertConfigTableRow(t, table, "available_themes", "[tokyo-night]", "AIRPLAN_THEME")
+}
+
+func assertConfigTableRow(
+	t *testing.T, table, name, value, source string,
+) {
+	t.Helper()
+	want := strings.Join([]string{name, value, source}, " ")
+	for _, line := range strings.Split(table, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), name+" ") {
+			if got := strings.Join(strings.Fields(line), " "); got != want {
+				t.Fatalf("%s row = %q, want %q", name, got, want)
+			}
+			return
+		}
+	}
+	t.Fatalf("table missing %s row:\n%s", name, table)
 }
 
 func TestConfigShowReturnsResolutionErrors(t *testing.T) {

@@ -373,6 +373,65 @@ api_token = "`+token+`"
 		}
 		assertContains(t, strings.Join(cfg.Warnings, "\n"), "api_token")
 	})
+
+	t.Run("warns for explicit client-side theme configuration in hosted mode", func(t *testing.T) {
+		path := writeConfig(t, `
+backend = "airplan"
+api_url = "https://airplan.example.com"
+api_token = "token"
+light_theme = "solarized-light"
+dark_theme = "one-dark"
+theme = "tokyo-night"
+available_themes = ["github-light"]
+
+[themes.docs]
+name = "Docs"
+variant = "dark"
+background = "#10131a"
+foreground = "#e7eaf0"
+muted = "#9aa3b2"
+accent = "#7aa2f7"
+accent_foreground = "#10131a"
+border = "#3b4261"
+surface = "#181c27"
+surface_emphasis = "#242a3a"
+info = "#7dcfff"
+success = "#9ece6a"
+important = "#bb9af7"
+warning = "#e0af68"
+danger = "#f7768e"
+`, 0o600)
+		cfg, err := LoadConfig(ConfigOptions{Path: path, Getenv: envMap(nil)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{
+			`theme "tokyo-night" overrides light_theme, dark_theme, and available_themes`,
+			`config field light_theme is inactive when backend is "airplan"`,
+			`config field dark_theme is inactive when backend is "airplan"`,
+			`config field theme is inactive when backend is "airplan"`,
+			`config field available_themes is inactive when backend is "airplan"`,
+			`config field themes is inactive when backend is "airplan"`,
+		}
+		if !reflect.DeepEqual(cfg.Warnings, want) {
+			t.Fatalf("Warnings = %#v, want %#v", cfg.Warnings, want)
+		}
+	})
+
+	t.Run("does not warn for built-in hosted theme defaults", func(t *testing.T) {
+		path := writeConfig(t, `
+backend = "airplan"
+api_url = "https://airplan.example.com"
+api_token = "token"
+`, 0o600)
+		cfg, err := LoadConfig(ConfigOptions{Path: path, Getenv: envMap(nil)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.Warnings) != 0 {
+			t.Fatalf("Warnings = %v, want none", cfg.Warnings)
+		}
+	})
 }
 
 func TestLoadConfigRepositoryPrecedenceAndDefault(t *testing.T) {

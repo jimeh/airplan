@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"text/tabwriter"
 	"unicode"
@@ -219,6 +220,27 @@ func configDisplayFields(
 	}
 	for i := range fields {
 		fields[i].Source = resolution.Fields[fields[i].Name].Source
+	}
+	if cfg.Theme != "" {
+		themeSource := resolution.Fields["theme"].Source
+		for i := range fields {
+			switch fields[i].Name {
+			case "light_theme", "dark_theme", "available_themes":
+				fields[i].Source = themeSource
+			}
+		}
+	} else if cfg.AvailableThemes != nil &&
+		!slices.Equal(cfg.AvailableThemes, availableThemes) {
+		inferred := &airplan.ConfigSource{
+			Kind: airplan.ConfigSourceInferred,
+			Name: "resolved available_themes catalog",
+		}
+		for i := range fields {
+			if fields[i].Name == "available_themes" {
+				fields[i].Source = inferred
+				break
+			}
+		}
 	}
 	return fields
 }

@@ -459,7 +459,9 @@ func ResolveConfig(opts ConfigOptions) (*ConfigResolution, error) {
 	if loaded {
 		warnReadableCredentials(cfg, path, fileConfig)
 	}
-	warnInactiveBackendFields(cfg, opts, getenv, meta, loaded, profile)
+	warnInactiveBackendFields(
+		cfg, opts, getenv, meta, loaded, profile, fileConfig,
+	)
 
 	return &ConfigResolution{
 		Config: cfg,
@@ -1440,6 +1442,7 @@ func warnInactiveBackendFields(
 	meta toml.MetaData,
 	loaded bool,
 	profile string,
+	fileConfig FileConfig,
 ) {
 	var inactive []string
 	switch cfg.EffectiveBackend() {
@@ -1448,6 +1451,7 @@ func warnInactiveBackendFields(
 	case BackendAirplan:
 		inactive = []string{
 			"endpoint", "access_key_id", "secret_access_key",
+			"light_theme", "dark_theme", "theme", "available_themes",
 		}
 	default:
 		return
@@ -1463,6 +1467,10 @@ func warnInactiveBackendFields(
 			"config field %s is inactive when backend is %q",
 			name, cfg.EffectiveBackend(),
 		))
+	}
+	if cfg.EffectiveBackend() == BackendAirplan && len(fileConfig.Themes) > 0 {
+		cfg.Warnings = append(cfg.Warnings,
+			`config field themes is inactive when backend is "airplan"`)
 	}
 }
 

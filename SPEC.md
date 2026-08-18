@@ -481,13 +481,18 @@ occur before any storage mutation.
 
 Collection template data contract:
 
-| Field            | Type   | Meaning                           |
-| ---------------- | ------ | --------------------------------- |
-| `.Title`         | string | resolved collection title         |
-| `.Files`         | file[] | ordered collection members        |
-| `.TotalBytes`    | int64  | sum of member sizes               |
-| `.Indexable`     | bool   | whether indexing is allowed       |
-| `.RepositoryURL` | string | resolved canonical repository URL |
+| Field                | Type    | Meaning                                 |
+| -------------------- | ------- | --------------------------------------- |
+| `.Title`             | string  | resolved collection title               |
+| `.Files`             | file[]  | ordered collection members              |
+| `.TotalBytes`        | int64   | sum of member sizes                     |
+| `.Indexable`         | bool    | whether indexing is allowed             |
+| `.RepositoryURL`     | string  | resolved canonical repository URL       |
+| `.ThemeCSS`          | raw CSS | validated semantic screen/print CSS     |
+| `.ThemeCatalogJSON`  | safe JS | validated browser catalog metadata      |
+| `.DefaultLightTheme` | string  | configured light-slot theme ID          |
+| `.DefaultDarkTheme`  | string  | configured dark-slot theme ID           |
+| `.AppearanceEnabled` | boolean | catalog has more than one selectable ID |
 
 Each file has `.Name`, `.Path`, `.ContentType`, `.Bytes`, and `.MediaKind`.
 `.MediaKind` is `image`, `video`, `audio`, or `file`. `.Path` is an already
@@ -499,7 +504,11 @@ A custom template controls presentation only. It cannot rename members or
 alter the marker, result, or uploaded inventory. Airplan still declares and
 uploads every input even when the template omits its link. The template author
 is responsible for page styles, noindex markup, accessibility, copy behavior,
-JavaScript, and any external resources. `airplan template collection` prints
+theme controls/runtime, JavaScript, and any external resources. Theme fields
+are safe opt-in data; Airplan never injects theme assets into a custom
+template. `.AppearanceEnabled` is false when the resolved catalog contains
+one theme, and a custom template should omit appearance controls in that case.
+`airplan template collection` prints
 the exact reusable built-in template; `airplan template` and
 `airplan template document` print the document template.
 
@@ -600,7 +609,7 @@ already is the original file.
       "themes": {
         "default_light": "github-light",
         "default_dark": "github-dark",
-        "catalog_sha256": "6ef869946a1ccb9fc60de82d7643b0a5267d0a5e33c4ed0ba9b80ad98f18fb36"
+        "catalog_sha256": "43dc88c622af8d051631d4fb9fe027ded3360446142479618dd33cfaeea4da3f"
       }
     }
   }
@@ -642,7 +651,7 @@ already is the original file.
       "themes": {
         "default_light": "github-light",
         "default_dark": "github-dark",
-        "catalog_sha256": "6ef869946a1ccb9fc60de82d7643b0a5267d0a5e33c4ed0ba9b80ad98f18fb36"
+        "catalog_sha256": "43dc88c622af8d051631d4fb9fe027ded3360446142479618dd33cfaeea4da3f"
       }
     }
   }
@@ -662,8 +671,11 @@ already is the original file.
   no local path or template source is stored. Version 5 generated-page recipes
   additionally require `themes`: the selected slot IDs and lowercase SHA-256
   of the canonical normalized catalog embedded in the page. Full custom theme
-  definitions and local configuration paths are not stored. Version 4 recipes
-  omit `themes`; current readers preserve their complete producer, render,
+  definitions and local configuration paths are not stored. Both default theme
+  IDs use the theme-ID lowercase-slug syntax (maximum 48 bytes), but marker
+  validation does not require them to exist in the reader's current registry,
+  so historical custom IDs remain valid provenance. Version 4 recipes omit
+  `themes`; current readers preserve their complete producer, render,
   revision, digest, and role data while upgrading them.
 
 - `objects` is non-empty, has unique safe direct basenames, and contains
@@ -877,12 +889,15 @@ render provenance. HTML, text, collections, and source-less Markdown are
 ineligible. A marker produced by a newer renderer generation is never
 implicitly downgraded. A custom-template document is eligible only when the
 configured custom template has the marker-declared SHA-256. `--force` plus the
-currently configured template choice explicitly authorizes replacing a stored
-built-in or custom template recipe; `--template PATH` selects a custom
-replacement and `--template=` selects the built-in template. Without force, a
-template mismatch remains ineligible. Planning remains read-only even when a
-configured template cannot be loaded or parsed; execution reports that error
-before writing any object.
+currently configured template and theme choices explicitly authorizes
+replacing a stored built-in/custom template or theme recipe; `--template PATH`
+selects a custom replacement and `--template=` selects the built-in template.
+Without force, a template or v5 theme-recipe mismatch remains ineligible. A
+changed theme configuration therefore requires
+`airplan upgrade --force <url|key>` before `airplan update` can proceed against
+that revision. Planning remains read-only even when a configured template
+cannot be loaded or parsed; execution reports that error before writing any
+object.
 
 `upgrade --check` performs read-only classification. `--force` explicitly
 re-renders an otherwise current target. Planning returns `upgradeable`,
@@ -937,6 +952,11 @@ eligible predecessor is upgraded or repaired. Update may then apply the same
 in-place upgrade machinery to an eligible older marker or renderer generation
 before comparing source bytes; this prerequisite maintenance is part of the
 requested update and remains independently recoverable.
+Update fails closed when the target or latest live revision's v5 theme recipe
+does not match the active catalog and defaults; the explicit remedy is
+`airplan upgrade --force <url|key>` followed by retrying the update. Historical
+members read only as metadata-repair witnesses do not need to match the active
+theme recipe because they are not re-rendered.
 Identical content is a
 successful no-op returning the existing latest URL. An already-consistent
 chain performs no storage or manifest writes; an identical-source retry may
@@ -1304,7 +1324,11 @@ api_token       = "..."
 rendering, and manifest settings. An `airplan` profile requires an absolute
 HTTP(S) `api_url` and `api_token`; HTTPS is required except for loopback hosts.
 It sends operations to that server and never loads ambient AWS credentials or
-writes a second client-side manifest. S3 settings inherited by an `airplan`
+writes a second client-side manifest. Rendering uses the server's resolved
+theme catalog and defaults; client-side `light_theme`, `dark_theme`, `theme`,
+`available_themes`, and custom `themes` definitions are not transmitted.
+Explicit client theme settings produce inactive-field warnings, while built-in
+defaults do not. S3 settings inherited by an `airplan`
 profile, and API settings inherited by an `s3` profile, are inactive. Explicit
 inactive profile settings may produce a warning; inherited ones do not.
 
@@ -1497,9 +1521,12 @@ is normalized to lowercase `#rrggbb` or `#rrggbbaa`. `syntax` is omitted,
 empty, `derived`, or exactly `chroma:<registered-style-name>`; omitted and
 empty both derive highlighting from the semantic tokens. Chroma names are
 validated against the registered list without fallback. Reserved/malformed
-IDs, incomplete token sets, unknown keys, invalid colors or variants, malformed
-syntax selectors, and unknown slot, forced, or available theme IDs are
-configuration errors before rendering or upload. Known slot defaults omitted
+IDs, incomplete token sets, unknown keys, invalid colors or variants, and
+malformed syntax selectors are configuration errors before rendering or upload.
+An unknown forced ID is always an error. Without a forced `theme`, unknown slot
+or available theme IDs are also errors. While a forced theme is active,
+explicit `light_theme`, `dark_theme`, and `available_themes` selectors are
+ignored and are not validated. Known slot defaults omitted
 from `available_themes` are instead appended with the warnings described above.
 
 All custom definitions are validated even when excluded from the selectable
@@ -2361,6 +2388,8 @@ connection overrides and server-owned rendering policy flags are rejected
 before input is opened. Inherited settings remain inactive as described in
 §7; a client cannot choose the server's endpoint, bucket, key prefix,
 templates, source policy, indexability, or Mermaid policy.
+Client-side theme selectors and custom definitions are likewise inactive and
+are not sent; hosted pages use the server's resolved theme configuration.
 Raw REST and hosted MCP requests that omit repository context disable
 repository discovery. Hosted requests reject `auto` and accept only `none` or
 a normalizable explicit repository URL, so the server never falls back to

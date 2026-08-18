@@ -96,7 +96,8 @@ func TestUpdateDocumentRejectsChangedThemeRecipeBeforeMutation(t *testing.T) {
 		Target: first.URL,
 		Input:  Input{Reader: strings.NewReader("two\n"), Name: "plan.md"},
 	})
-	if err == nil || !strings.Contains(err.Error(), "themes do not match") {
+	if err == nil || !strings.Contains(err.Error(), "themes do not match") ||
+		!strings.Contains(err.Error(), "airplan upgrade --force") {
 		t.Fatalf("theme mismatch error = %v", err)
 	}
 	var refusal *updateRefusalError
@@ -148,7 +149,8 @@ func TestUpdateDocumentRejectsChangedThemeRecipeBeforePromotionRepair(t *testing
 	_, err = mismatched.UpdateDocument(context.Background(), UpdateDocumentInput{
 		Target: first.URL, Input: Input{Reader: strings.NewReader("three\n")},
 	})
-	if err == nil || !strings.Contains(err.Error(), "themes do not match") {
+	if err == nil || !strings.Contains(err.Error(), "themes do not match") ||
+		!strings.Contains(err.Error(), "airplan upgrade --force") {
 		t.Fatalf("promotion theme mismatch error = %v", err)
 	}
 	var refusal *updateRefusalError
@@ -1452,6 +1454,59 @@ func TestUpdateDocumentRetryRecreatesMissingSiblingMetadata(t *testing.T) {
 	metadata, err := DecodeVersionsMetadata(body, client.cfg, first.Key)
 	if err != nil || metadata.CurrentRevision != 1 || metadata.LatestRevision != 3 {
 		t.Fatalf("recreated metadata = %+v, err = %v", metadata, err)
+	}
+}
+
+func TestUpdateDocumentRepairsMissingMetadataFromStaleThemeWitness(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	markerBody, ok := store.get(second.MarkerKey)
+	if !ok {
+		t.Fatal("second marker is missing")
+	}
+	marker, err := DecodeUploadMarker(markerBody, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mismatched := store.clientWithThemes(t, "", "solarized-light", "one-dark")
+	marker.Render.Themes = themeRecipePtr(mismatched.cfg.ThemeBundle)
+	markerBody, err = EncodeUploadMarker(*marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(second.MarkerKey, markerBody)
+	store.mu.Lock()
+	delete(store.objects, third.ID+"/"+VersionsFilename)
+	delete(store.etags, third.ID+"/"+VersionsFilename)
+	store.mu.Unlock()
+
+	result, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: third.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err != nil || !result.Unchanged {
+		t.Fatalf("stale-theme metadata witness repair = %+v, %v", result, err)
+	}
+	if _, ok := store.get(third.ID + "/" + VersionsFilename); !ok {
+		t.Fatal("missing metadata was not repaired")
 	}
 }
 

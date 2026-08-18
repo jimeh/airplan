@@ -811,8 +811,11 @@ func validateMarkerV4Plus(
 	if render.Themes == nil {
 		return invalid("themes render recipe is required")
 	}
-	if render.Themes.DefaultLight == "" || render.Themes.DefaultDark == "" {
-		return invalid("themes default_light and default_dark are required")
+	if !validThemeID(render.Themes.DefaultLight) {
+		return invalid("themes default_light must be a lowercase ASCII slug up to %d characters", maxThemeIDLength)
+	}
+	if !validThemeID(render.Themes.DefaultDark) {
+		return invalid("themes default_dark must be a lowercase ASCII slug up to %d characters", maxThemeIDLength)
 	}
 	if !validSHA256(render.Themes.CatalogSHA256) {
 		return invalid("themes catalog_sha256 must be 64 lowercase hex characters")

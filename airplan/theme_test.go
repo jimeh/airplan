@@ -45,6 +45,21 @@ func TestResolveThemeBundleBuiltinsAndCrossVariantDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultThemeRecipeMatchesSpecExamples(t *testing.T) {
+	const wantDigest = "43dc88c622af8d051631d4fb9fe027ded3360446142479618dd33cfaeea4da3f"
+	if got := defaultThemeBundle().CatalogSHA256; got != wantDigest {
+		t.Fatalf("default catalog digest = %q, want SPEC digest %q", got, wantDigest)
+	}
+	spec, err := os.ReadFile("../SPEC.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	needle := `"catalog_sha256": "` + wantDigest + `"`
+	if got := strings.Count(string(spec), needle); got != 2 {
+		t.Fatalf("SPEC default catalog digest examples = %d, want 2", got)
+	}
+}
+
 func TestResolveThemeBundleSelectableCatalog(t *testing.T) {
 	t.Run("explicit order and missing defaults", func(t *testing.T) {
 		bundle, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{

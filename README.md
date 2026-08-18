@@ -483,7 +483,11 @@ one. Built-in Markdown pages merely carry dormant, cache-busted discovery so a
 future revision 2 can add history without replacing the original page URL.
 Template mismatches are refused unless `--force` explicitly replaces the
 stored recipe; pass `--template PATH` for a custom replacement or
-`--template=` to return to the built-in template.
+`--template=` to return to the built-in template. Version 5 pages also record
+their theme catalog and defaults. After changing theme configuration, run
+`airplan upgrade --force <url|key>` before updating that revision; update
+otherwise fails closed rather than re-rendering it under a different theme
+recipe implicitly.
 `--all-profiles` inventories configured profiles even when none is selected by
 default and ignores `AIRPLAN_PROFILE` for that inventory; every participating
 profile must use direct S3. It cannot be combined with an explicit `--profile`.
@@ -768,7 +772,9 @@ api_token = "..."
 `airplan` profile needs only `api_url` and `api_token`; it does not load the
 AWS credential chain. S3 values inherited from a root configuration are
 inactive for that profile. Conversely, API settings are inactive for an `s3`
-profile.
+profile. Hosted rendering uses the server's theme configuration: explicit
+client `light_theme`, `dark_theme`, `theme`, `available_themes`, and custom
+`themes` definitions are not transmitted and produce inactive-field warnings.
 
 Select a profile for one command with `--profile` / `-p`, or for profile-aware
 commands in a project-specific shell environment with `AIRPLAN_PROFILE`:
@@ -904,7 +910,9 @@ syntax = "derived" # or chroma:<registered-style-name>
 ```
 
 Every token is required and colors use `#rrggbb` or `#rrggbbaa`. Built-in IDs
-cannot be replaced, and unknown keys or selected IDs fail before upload.
+cannot be replaced, and unknown keys or selected IDs fail before upload unless
+the selector is one of the slot/list values intentionally ignored by an active
+forced `theme`.
 Omitting `syntax` or setting it to an empty string is equivalent to `derived`.
 See [built-in theme sources](THIRD_PARTY_THEMES.md) for pinned upstream palettes
 and licenses. Custom page templates receive safe theme CSS/catalog fields,

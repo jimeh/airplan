@@ -25,6 +25,10 @@ declare global {
   "use strict";
   const d = document;
   const root = d.documentElement;
+  d.querySelectorAll<HTMLElement>(".js-only").forEach((element) => {
+    element.hidden = false;
+  });
+
   const embeddedCatalog = window.__AIRPLAN_THEME_CATALOG__;
   if (!embeddedCatalog) return;
   const catalog: ThemeCatalog = embeddedCatalog;
@@ -34,11 +38,6 @@ declare global {
     storage = window.localStorage;
   } catch {}
   let state = window.__airplanThemeState ?? loadThemeState(catalog, themeMedia.matches, storage);
-
-  d.querySelectorAll<HTMLElement>(".js-only").forEach((element) => {
-    element.hidden = false;
-  });
-
   const trigger = d.querySelector<HTMLButtonElement>("[data-airplan-appearance-trigger]");
   const panel = d.querySelector<HTMLElement>("[data-airplan-appearance-panel]");
   const lightSelect = d.querySelector<HTMLSelectElement>('select[data-airplan-theme-slot="light"]');

@@ -180,6 +180,36 @@ func TestUploadMarkerV5RequiresApplicableProvenance(t *testing.T) {
 	}
 }
 
+func TestUploadMarkerV5ValidatesThemeDefaultIDs(t *testing.T) {
+	t.Parallel()
+
+	for _, field := range []string{"default_light", "default_dark"} {
+		for _, value := range []string{
+			"Tokyo-Night", "bad\x01theme", strings.Repeat("a", maxThemeIDLength+1),
+		} {
+			t.Run(field+"/"+fmt.Sprintf("%q", value), func(t *testing.T) {
+				marker := validDocumentMarker()
+				if field == "default_light" {
+					marker.Render.Themes.DefaultLight = value
+				} else {
+					marker.Render.Themes.DefaultDark = value
+				}
+				if _, err := EncodeUploadMarker(marker); err == nil ||
+					!strings.Contains(err.Error(), field) {
+					t.Fatalf("theme default %s=%q error = %v", field, value, err)
+				}
+			})
+		}
+	}
+
+	marker := validDocumentMarker()
+	marker.Render.Themes.DefaultLight = "historical-custom-light"
+	marker.Render.Themes.DefaultDark = "historical-custom-dark"
+	if _, err := EncodeUploadMarker(marker); err != nil {
+		t.Fatalf("historical custom theme IDs rejected: %v", err)
+	}
+}
+
 func TestUploadMarkerV4RevisionRoundTripPreservesProvenance(t *testing.T) {
 	marker := validDocumentMarker()
 	marker.Version = 4

@@ -300,7 +300,10 @@ func (c *Client) updateDocument(
 	if !themeRecipeMatches(recipe.Themes, c.cfg.ThemeBundle) {
 		return nil, &updateRefusalError{
 			kind: updateRefusalInvalidTarget,
-			err:  errors.New("airplan: latest revision's themes do not match the configured catalog"),
+			err: errors.New(
+				"airplan: latest revision's themes do not match the configured catalog; " +
+					"run airplan upgrade --force on the target before updating",
+			),
 		}
 	}
 	pageName := latest.marker.Slug + ".html"
@@ -839,7 +842,10 @@ func (c *Client) loadRevisionDocumentForUpdate(
 		!themeRecipeMatches(doc.marker.Render.Themes, c.cfg.ThemeBundle) {
 		return nil, &updateRefusalError{
 			kind: updateRefusalInvalidTarget,
-			err:  errors.New("airplan: latest revision's themes do not match the configured catalog"),
+			err: errors.New(
+				"airplan: revision themes do not match the configured catalog; " +
+					"run airplan upgrade --force on the target before updating",
+			),
 		}
 	}
 	return doc, nil
@@ -854,7 +860,7 @@ func (c *Client) repairMissingRevisionMetadata(
 	metadata := hint
 	if metadata == nil && doc.marker.Revision.Number > 1 &&
 		doc.marker.Revision.PreviousURL != "" {
-		previous, err := c.loadRevisionDocumentForUpdate(ctx, doc.marker.Revision.PreviousURL)
+		previous, err := c.loadRevisionDocument(ctx, doc.marker.Revision.PreviousURL)
 		if err != nil {
 			if !errors.Is(err, errOwnershipMarkerMissing) {
 				return nil, fmt.Errorf("airplan: find revision metadata repair source: %w", err)
@@ -923,11 +929,7 @@ func (c *Client) loadDeletedRevisionMetadataReceipt(
 		if entry.Deleted || entry.Number == targetRevision {
 			continue
 		}
-		witness, loadErr := c.loadRevisionDocumentForUpdate(ctx, entry.URL)
-		var refusal *updateRefusalError
-		if errors.As(loadErr, &refusal) {
-			return nil, loadErr
-		}
+		witness, loadErr := c.loadRevisionDocument(ctx, entry.URL)
 		if loadErr != nil || witness.versions == nil ||
 			witness.versions.ChainID != metadata.ChainID ||
 			liveVersionsRevision(witness.versions, targetRevision) == nil {

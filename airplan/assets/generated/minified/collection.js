@@ -50,18 +50,18 @@
   }
 
   (function() {
-    let e = document, n = e.documentElement, o = window.__AIRPLAN_THEME_CATALOG__;
+    let e = document, n = e.documentElement;
+    e.querySelectorAll(".js-only").forEach((t) => {
+      t.hidden = !1;
+    });
+    let o = window.__AIRPLAN_THEME_CATALOG__;
     if (!o)
       return;
     let a = o, u = window.matchMedia("(prefers-color-scheme: dark)"), r;
     try {
       r = window.localStorage;
     } catch {}
-    let i = window.__airplanThemeState ?? A(a, u.matches, r);
-    e.querySelectorAll(".js-only").forEach((t) => {
-      t.hidden = !1;
-    });
-    let d = e.querySelector("[data-airplan-appearance-trigger]"), c = e.querySelector("[data-airplan-appearance-panel]"), m = e.querySelector('select[data-airplan-theme-slot="light"]'), p = e.querySelector('select[data-airplan-theme-slot="dark"]'), v = Array.from(e.querySelectorAll("[data-airplan-color-mode]"));
+    let i = window.__airplanThemeState ?? A(a, u.matches, r), d = e.querySelector("[data-airplan-appearance-trigger]"), c = e.querySelector("[data-airplan-appearance-panel]"), m = e.querySelector('select[data-airplan-theme-slot="light"]'), p = e.querySelector('select[data-airplan-theme-slot="dark"]'), v = Array.from(e.querySelectorAll("[data-airplan-color-mode]"));
     function b(t) {
       if (!t || t.options.length > 0)
         return;

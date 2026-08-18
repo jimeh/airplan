@@ -118,6 +118,10 @@ type ThemeBundle struct {
 
 var themeIDPattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
 
+func validThemeID(id string) bool {
+	return len(id) <= maxThemeIDLength && themeIDPattern.MatchString(id)
+}
+
 func builtinThemes() []Theme {
 	return []Theme{
 		builtinTheme("github-light", "GitHub Light", ThemeVariantLight, "github", ThemeTokens{"#ffffff", "#1f2328", "#59636e", "#0969da", "#ffffff", "#d1d9e0", "#f6f8fa", "#eff1f3", "#0969da", "#1a7f37", "#8250df", "#9a6700", "#cf222e"}),
@@ -303,7 +307,7 @@ func joinConfigKeys(keys []string) string {
 }
 
 func normalizeTheme(id string, cfg ThemeConfig) (Theme, error) {
-	if len(id) > maxThemeIDLength || !themeIDPattern.MatchString(id) {
+	if !validThemeID(id) {
 		return Theme{}, fmt.Errorf("airplan: invalid custom theme ID %q: use a lowercase ASCII slug up to %d characters", id, maxThemeIDLength)
 	}
 	if !utf8.ValidString(cfg.Name) || strings.TrimSpace(cfg.Name) == "" || utf8.RuneCountInString(cfg.Name) > maxThemeNameLength {

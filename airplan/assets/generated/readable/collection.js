@@ -73,6 +73,9 @@
   (function() {
     const d = document;
     const root = d.documentElement;
+    d.querySelectorAll(".js-only").forEach((element) => {
+      element.hidden = false;
+    });
     const embeddedCatalog = window.__AIRPLAN_THEME_CATALOG__;
     if (!embeddedCatalog)
       return;
@@ -83,9 +86,6 @@
       storage = window.localStorage;
     } catch {}
     let state = window.__airplanThemeState ?? loadThemeState(catalog, themeMedia.matches, storage);
-    d.querySelectorAll(".js-only").forEach((element) => {
-      element.hidden = false;
-    });
     const trigger = d.querySelector("[data-airplan-appearance-trigger]");
     const panel = d.querySelector("[data-airplan-appearance-panel]");
     const lightSelect = d.querySelector('select[data-airplan-theme-slot="light"]');

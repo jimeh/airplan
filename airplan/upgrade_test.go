@@ -192,7 +192,8 @@ func TestPlanUpgradeV5ThemeMismatchRequiresForce(t *testing.T) {
 		t.Fatal(err)
 	}
 	if plan.State != UpgradeStateIneligible ||
-		!strings.Contains(plan.Reason, "themes do not match") {
+		!strings.Contains(plan.Reason, "themes do not match") ||
+		!strings.Contains(plan.Reason, "upgrade --force") {
 		t.Fatalf("theme mismatch plan = %+v", plan)
 	}
 	forced, err := client.PlanUpgradeDocument(
