@@ -39,8 +39,28 @@ export default {
     const name = theme;
     globalThis.__airplanMermaidRenders ||= {};
     globalThis.__airplanMermaidRenders[name] = (globalThis.__airplanMermaidRenders[name] || 0) + 1;
+    if (globalThis.__airplanMermaidStartupTheme && !globalThis.__airplanMermaidStartupThemeSent) {
+      globalThis.__airplanMermaidStartupThemeSent = true;
+      setTimeout(() => window.dispatchEvent(new CustomEvent('airplan:themechange', {
+        detail: {
+          mode: 'light', resolvedMode: 'light',
+          theme: globalThis.__airplanMermaidStartupTheme, variant: 'light',
+        },
+      })), 5);
+    }
+    if (globalThis.__airplanMermaidStartupPrint && !globalThis.__airplanMermaidStartupPrintSent) {
+      globalThis.__airplanMermaidStartupPrintSent = true;
+      setTimeout(() => window.dispatchEvent(new Event('beforeprint')), 5);
+    }
+    if (globalThis.__airplanMermaidDelay) {
+      await new Promise((resolve) => setTimeout(resolve, globalThis.__airplanMermaidDelay));
+    }
     if (name === 'tokyo-night') await new Promise((resolve) => setTimeout(resolve, 20));
     if (name === 'one-dark') throw new Error('intentional per-theme failure');
+    if (globalThis.__airplanMermaidFailSource &&
+        source.includes(globalThis.__airplanMermaidFailSource)) {
+      throw new Error('intentional per-diagram failure');
+    }
     return {
       svg: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"' +
         ' viewBox="0 0 640 240" role="img" data-mermaid-theme="' + name +
@@ -478,6 +498,13 @@ test("appearance panel dismisses accessibly and restores focus", async ({ page }
   await trigger.click();
   await page.getByRole("heading", { name: "Browser smoke plan" }).click();
   await expect(panel).toBeHidden();
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  const sourceView = page.getByRole("button", { name: "Source view" });
+  await sourceView.click();
+  await expect(panel).toBeHidden();
+  await expect(sourceView).toBeFocused();
 });
 
 test("mode follows system changes and legacy state cannot clobber new state", async ({
@@ -1201,7 +1228,7 @@ test("Mermaid themes render lazily, cache, reject races, and isolate failures", 
           .__airplanMermaidRenders,
       })),
     )
-    .toMatchObject({ "github-light": 8, "github-dark": 4 });
+    .toMatchObject({ "github-light": 4, "github-dark": 4 });
 
   await page.getByRole("button", { name: "Appearance" }).click();
   await page.getByRole("button", { name: "Light", exact: true }).click();
@@ -1235,6 +1262,72 @@ test("Mermaid themes render lazily, cache, reject races, and isolate failures", 
   await expect(diagram).toHaveAttribute("data-mermaid-theme", "catppuccin-latte");
   await select.selectOption("rose-pine-dawn");
   await expect(diagram).toHaveAttribute("data-mermaid-theme", "rose-pine-dawn");
+});
+
+test("Mermaid startup applies theme changes that arrive while rendering", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers startup races");
+  await page.addInitScript(() => {
+    const fixtureWindow = globalThis as typeof globalThis & {
+      __airplanMermaidDelay?: number;
+      __airplanMermaidStartupTheme?: string;
+    };
+    fixtureWindow.__airplanMermaidDelay = 30;
+    fixtureWindow.__airplanMermaidStartupTheme = "tokyo-night-day";
+  });
+  await page.goto(baseURL);
+  await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
+    "data-mermaid-theme",
+    "tokyo-night-day",
+  );
+});
+
+test("Mermaid startup applies print changes that arrive while rendering", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers startup print races");
+  await page.addInitScript(() => {
+    localStorage.setItem("airplan-color-mode", "dark");
+    const fixtureWindow = globalThis as typeof globalThis & {
+      __airplanMermaidDelay?: number;
+      __airplanMermaidStartupPrint?: boolean;
+    };
+    fixtureWindow.__airplanMermaidDelay = 30;
+    fixtureWindow.__airplanMermaidStartupPrint = true;
+  });
+  await page.goto(baseURL);
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-theme", "github-dark");
+  await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
+    "data-mermaid-theme",
+    "github-light",
+  );
+});
+
+test("Mermaid isolates one failed diagram from valid diagrams", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers diagram isolation");
+  await page.goto(baseURL);
+  await page.evaluate(() => {
+    const fixtureWindow = globalThis as typeof globalThis & {
+      __airplanMermaidFailSource?: string;
+    };
+    fixtureWindow.__airplanMermaidFailSource = "Source --> Render";
+  });
+  await page.getByRole("button", { name: "Appearance" }).click();
+  await page.getByRole("button", { name: "Light", exact: true }).click();
+  await page.getByLabel("Light mode theme").selectOption("solarized-light");
+
+  const diagrams = page.locator("pre.mermaid");
+  await expect(diagrams.locator('svg[data-mermaid-theme="solarized-light"]')).toHaveCount(3);
+  await expect(diagrams.nth(0).locator("svg[data-mermaid-theme]")).toHaveAttribute(
+    "data-mermaid-theme",
+    "solarized-light",
+  );
+  await expect(diagrams.nth(1).locator("svg[data-mermaid-theme]")).toHaveAttribute(
+    "data-mermaid-theme",
+    "github-light",
+  );
+  await expect(page.getByRole("button", { name: "Open diagram viewer" })).toHaveCount(4);
 });
 
 test("Mermaid opener media behavior follows input and motion preferences", async ({
@@ -1579,6 +1672,9 @@ test("print view is compact and expands disclosures", async ({ browser, page }, 
     const noJSPage = await noJSContext.newPage();
     await noJSPage.goto(baseURL);
     await noJSPage.emulateMedia({ media: "print" });
+    await expect(noJSPage.locator("html")).toHaveCSS("color-scheme", "light");
+    await expect(noJSPage.locator("body")).toHaveCSS("background-color", "rgb(255, 255, 255)");
+    await expect(noJSPage.locator("body")).toHaveCSS("color", "rgb(31, 35, 40)");
     await expect(noJSPage.locator(".frontmatter").getByText("Print coverage")).toBeVisible();
     await expect(
       noJSPage.locator("#print-disclosure").getByText("Print must include"),

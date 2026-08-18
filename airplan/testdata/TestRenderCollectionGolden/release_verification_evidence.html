@@ -60,7 +60,7 @@
 :root{--buncss-light:initial;--buncss-dark: ;color-scheme:light dark;--page-width:54rem}@media (prefers-color-scheme:dark){:root{--buncss-light: ;--buncss-dark:initial} }*{box-sizing:border-box}body{background:var(--bg);color:var(--fg);-webkit-text-size-adjust:100%;margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif,Apple Color Emoji,Segoe UI Emoji;font-size:16px;line-height:1.7}.toolbar{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items: center;gap:.5rem;width:100%;padding:.75rem 1.25rem 0;font-size:.85rem}.toolbar:not(:has(>:not([hidden]))){display:none}.toolbar a,.toolbar button{display:inline-flex;white-space:nowrap;font:inherit;color:var(--muted);text-decoration:none;cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;gap:.4rem;padding:.4rem .65rem}.toolbar a:hover,.toolbar button:hover{color:var(--fg);background:var(--control-hover)}.toolbar a:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar button:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar-actions{display:inline-flex;align-items: center;gap:.5rem}.mode-toggle{display:inline-flex;background:var(--control-track);border:0;border-radius:8px;gap:2px;padding:2px}.mode-toggle button{border:0;border-radius:6px;padding:.3rem .55rem}.mode-toggle button:hover{color:var(--fg)}.mode-toggle button.active{color:var(--fg);background:var(--control-active);box-shadow:0 1px 2px #0003}.appearance-trigger{width:1.85rem;padding-inline-start:0;padding-inline-end:0}.appearance{position:relative}.appearance:not(:first-child){margin-left:.5rem}.appearance:not(:first-child):before{content:"";position:absolute;background:var(--control-divider);width:1px;height:1rem;top:50%;left:-.825rem;transform:translateY(-50%)}.appearance-panel{position:absolute;z-index:30;color:var(--fg);background:var(--bg);border:1px solid var(--border);box-shadow:0 10px 30px color-mix(in srgb,var(--fg)14%,transparent);border-radius:10px;width:min(19rem,100vw - 2rem);padding:.85rem;top:calc(100% + .5rem);right:0}.appearance-heading{color:var(--heading);margin-bottom:.75rem;font-weight:600}.appearance-field{display:grid;gap:.35rem}.appearance-field+.appearance-field{margin-top:.75rem}.appearance-label{color:var(--muted);font-size:.78rem;font-weight:600}.appearance-modes{width:100%}.appearance-modes button{flex:1}.appearance-panel select{color:var(--fg);background:var(--surface-subtle);border:1px solid var(--border);font:inherit;border-radius:7px;width:100%;min-height:2.1rem;padding:.3rem 1.75rem .3rem .5rem}.appearance-panel select:focus-visible{outline:2px solid var(--link);outline-offset:2px}.icon{flex:none;width:16px;height:16px}.sr-status{position:absolute;overflow:hidden;clip-path:inset(50%);white-space:nowrap;width:1px;height:1px}[hidden]{display:none!important}@media (max-width:36rem){.toolbar{padding-inline-start:1rem;padding-inline-end:1rem}.appearance:not(:first-child){margin-left:0}.appearance:not(:first-child):before{display:none}.appearance-panel{position:fixed;width:auto;top:3.5rem;left:.75rem;right:.75rem} }@media print{:root,:root[data-airplan-theme]{--buncss-light:initial;--buncss-dark: ;color-scheme:light}.toolbar{display:none!important} }.page-shell{width:min(100%,var(--page-width));min-height:100vh;margin:0 auto;padding-bottom:4rem}header,.files{margin-inline-start:1.5rem;margin-inline-end:1.5rem}header{border-bottom:1px solid var(--border);padding:1.5rem 0 1.75rem}h1{color:var(--heading);letter-spacing:-.025em;overflow-wrap:anywhere;margin:.35em 0;font-size:2em;font-weight:700;line-height:1.25}.summary{color:var(--muted);margin:0;font-size:.9rem}.files{list-style:none;padding:0}.file{border-bottom:1px solid var(--border);padding:1.5rem 0 1.75rem}.file-header{display:flex;justify-content:space-between;align-items: flex-start;gap:1rem}.details{min-width:0}.details h2{color:var(--heading);overflow-wrap:anywhere;margin:0;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.95rem;font-weight:600;line-height:1.5}.meta{color:var(--muted);overflow-wrap:anywhere;margin-top:.2rem;font-size:.8rem}.actions{display:flex;flex-wrap:wrap;flex:none;justify-content:flex-end;gap:.15rem;margin:-.35rem 0 0;font-size:.82rem}.actions a,.actions button{display:inline-flex;color:var(--muted);font:inherit;text-decoration:none;white-space:nowrap;cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;min-height:2.1rem;padding:.4rem .65rem}.actions a:hover,.actions button:hover{background:var(--control-hover);color:var(--fg)}.actions :where(a,button):focus-visible{outline:2px solid var(--link);outline-offset:2px}.actions a:first-child{color:var(--link)}.preview{display:flex;overflow:hidden;background:var(--surface-subtle);border-radius:8px;justify-content:center;align-items: center;margin-top:1rem}.preview--audio{border:1px solid var(--border)}.preview-link{display:block;width:100%}.preview-link:focus-visible{outline:2px solid var(--link);outline-offset:-2px}.preview img{display:block;width:100%;height:auto}.preview video{display:block;object-fit:contain;width:100%;max-height:70vh}.preview audio{width:min(100% - 2rem,40rem);margin:1.5rem 1rem}@media (max-width:36rem){.toolbar{display:grid;grid-template-columns:max-content 1fr max-content;justify-content:stretch}.collection-actions{grid-column:1/3;grid-row:1;justify-self:start}.toolbar .appearance{grid-column:3;grid-row:1;justify-self:end}header,.files{margin-inline-start:1.25rem;margin-inline-end:1.25rem}header{padding-top:1rem}h1{font-size:1.75em}.file-header{display:block}.actions{justify-content:flex-start;margin:.65rem 0 -.35rem -.65rem} }
 
 :root{color-scheme:light;--bg:#ffffff;--fg:#1f2328;--heading:#1f2328;--subheading:#474b4f;--muted:#59636e;--link:#0969da;--border:#d1d9e0;--surface-subtle:#f6f8fa;--code-inline-bg:#fafbfc;--code-bg:#f6f8fa;--code-border:#dee4e9;--control-track:#f6f8fa;--control-active:#eff1f3;--control-hover:#f6f7f8;--control-divider:#dde3e8;--on-link:#ffffff;--info:#0969da;--success:#1a7f37;--important:#8250df;--warning:#9a6700;--danger:#cf222e;--alert-info-bg:#e1edfb;--alert-success-bg:#e4f0e7;--alert-important-bg:#f0eafb;--alert-warning-bg:#f3ede0;--alert-danger-bg:#f9e4e6;--dialog-backdrop:#00000080}
-@media (prefers-color-scheme:dark){:root:not([data-airplan-theme]){color-scheme:dark;--bg:#0d1117;--fg:#e6edf3;--heading:#e6edf3;--subheading:#bfc5cb;--muted:#9198a1;--link:#4493f8;--border:#3d444d;--surface-subtle:#151b23;--code-inline-bg:#11171e;--code-bg:#151b23;--code-border:#2f363e;--control-track:#151b23;--control-active:#212830;--control-hover:#181e25;--control-divider:#313740;--on-link:#0d1117;--info:#58a6ff;--success:#3fb950;--important:#a371f7;--warning:#d29922;--danger:#f85149;--alert-info-bg:#162333;--alert-success-bg:#13251e;--alert-important-bg:#1f1d32;--alert-warning-bg:#252118;--alert-danger-bg:#29191d;--dialog-backdrop:#00000080}
+@media screen and (prefers-color-scheme:dark){:root:not([data-airplan-theme]){color-scheme:dark;--bg:#0d1117;--fg:#e6edf3;--heading:#e6edf3;--subheading:#bfc5cb;--muted:#9198a1;--link:#4493f8;--border:#3d444d;--surface-subtle:#151b23;--code-inline-bg:#11171e;--code-bg:#151b23;--code-border:#2f363e;--control-track:#151b23;--control-active:#212830;--control-hover:#181e25;--control-divider:#313740;--on-link:#0d1117;--info:#58a6ff;--success:#3fb950;--important:#a371f7;--warning:#d29922;--danger:#f85149;--alert-info-bg:#162333;--alert-success-bg:#13251e;--alert-important-bg:#1f1d32;--alert-warning-bg:#252118;--alert-danger-bg:#29191d;--dialog-backdrop:#00000080}
 }
 :root[data-airplan-theme="github-light"]{color-scheme:light;--bg:#ffffff;--fg:#1f2328;--heading:#1f2328;--subheading:#474b4f;--muted:#59636e;--link:#0969da;--border:#d1d9e0;--surface-subtle:#f6f8fa;--code-inline-bg:#fafbfc;--code-bg:#f6f8fa;--code-border:#dee4e9;--control-track:#f6f8fa;--control-active:#eff1f3;--control-hover:#f6f7f8;--control-divider:#dde3e8;--on-link:#ffffff;--info:#0969da;--success:#1a7f37;--important:#8250df;--warning:#9a6700;--danger:#cf222e;--alert-info-bg:#e1edfb;--alert-success-bg:#e4f0e7;--alert-important-bg:#f0eafb;--alert-warning-bg:#f3ede0;--alert-danger-bg:#f9e4e6;--dialog-backdrop:#00000080}
 :root[data-airplan-theme="catppuccin-latte"]{color-scheme:light;--bg:#eff1f5;--fg:#4c4f69;--heading:#4c4f69;--subheading:#696c82;--muted:#6c6f85;--link:#1e66f5;--border:#bcc0cc;--surface-subtle:#e6e9ef;--code-inline-bg:#eaedf2;--code-bg:#e6e9ef;--code-border:#cbced8;--control-track:#e6e9ef;--control-active:#dce0e8;--control-hover:#e5e8ee;--control-divider:#c9ccd6;--on-link:#eff1f5;--info:#209fb5;--success:#40a02b;--important:#8839ef;--warning:#df8e1d;--danger:#d20f39;--alert-info-bg:#d6e7ed;--alert-success-bg:#dae7dd;--alert-important-bg:#e3dbf4;--alert-warning-bg:#ede5db;--alert-danger-bg:#ecd6de;--dialog-backdrop:#00000080}
@@ -178,7 +178,7 @@ body{background:#fff;color:#1f2328}}
   function q(e) {
     return e === "system" || e === "light" || e === "dark";
   }
-  function T(e, n) {
+  function s(e, n) {
     try {
       return e?.getItem(n) ?? null;
     } catch {
@@ -194,18 +194,18 @@ body{background:#fff;color:#1f2328}}
     } catch {}
   }
   function A(e, n, l) {
-    let a = T(l, "airplan-color-mode");
+    let a = s(l, "airplan-color-mode");
     if (a === null) {
-      let p = T(l, "airplan-theme");
+      let p = s(l, "airplan-theme");
       if (a = p === "light" || p === "dark" ? p : "system", a !== "system")
         f(l, "airplan-color-mode", a);
     }
-    let u = q(a) ? a : "system", o = new Set(e.themes.map((p) => p.id)), i = T(l, "airplan-light-theme"), c = T(l, "airplan-dark-theme"), d = i !== null && o.has(i) ? i : e.defaultLight, m = c !== null && o.has(c) ? c : e.defaultDark;
-    return _(e, u, d, m, n);
+    let u = q(a) ? a : "system", r = new Set(e.themes.map((p) => p.id)), i = s(l, "airplan-light-theme"), d = s(l, "airplan-dark-theme"), c = i !== null && r.has(i) ? i : e.defaultLight, m = d !== null && r.has(d) ? d : e.defaultDark;
+    return L(e, u, c, m, n);
   }
-  function _(e, n, l, a, u) {
-    let o = new Map(e.themes.map((E) => [E.id, E])), i = o.has(l) ? l : e.defaultLight, c = o.has(a) ? a : e.defaultDark, d = n === "system" ? u ? "dark" : "light" : n, m = d === "light" ? i : c, p = o.get(m)?.variant ?? d;
-    return { mode: n, resolvedMode: d, lightTheme: i, darkTheme: c, theme: m, variant: p };
+  function L(e, n, l, a, u) {
+    let r = new Map(e.themes.map((v) => [v.id, v])), i = r.has(l) ? l : e.defaultLight, d = r.has(a) ? a : e.defaultDark, c = n === "system" ? u ? "dark" : "light" : n, m = c === "light" ? i : d, p = r.get(m)?.variant ?? c;
+    return { mode: n, resolvedMode: c, lightTheme: i, darkTheme: d, theme: m, variant: p };
   }
   function H(e, n) {
     if (n === "system")
@@ -229,78 +229,84 @@ body{background:#fff;color:#1f2328}}
     let e = document, n = e.documentElement, l = window.__AIRPLAN_THEME_CATALOG__;
     if (!l)
       return;
-    let a = l, u = window.matchMedia("(prefers-color-scheme: dark)"), o;
+    let a = l, u = window.matchMedia("(prefers-color-scheme: dark)"), r;
     try {
-      o = window.localStorage;
+      r = window.localStorage;
     } catch {}
-    let i = window.__airplanThemeState ?? A(a, u.matches, o);
+    let i = window.__airplanThemeState ?? A(a, u.matches, r);
     e.querySelectorAll(".js-only").forEach((t) => {
       t.hidden = !1;
     });
-    let c = e.querySelector("[data-airplan-appearance-trigger]"), d = e.querySelector("[data-airplan-appearance-panel]"), m = e.querySelector('select[data-airplan-theme-slot="light"]'), p = e.querySelector('select[data-airplan-theme-slot="dark"]'), E = Array.from(e.querySelectorAll("[data-airplan-color-mode]"));
-    function s(t) {
+    let d = e.querySelector("[data-airplan-appearance-trigger]"), c = e.querySelector("[data-airplan-appearance-panel]"), m = e.querySelector('select[data-airplan-theme-slot="light"]'), p = e.querySelector('select[data-airplan-theme-slot="dark"]'), v = Array.from(e.querySelectorAll("[data-airplan-color-mode]"));
+    function b(t) {
       if (!t || t.options.length > 0)
         return;
-      for (let [r, v] of [
+      for (let [o, E] of [
         ["light", "Light themes"],
         ["dark", "Dark themes"]
       ]) {
         let h = e.createElement("optgroup");
-        h.label = v;
-        for (let C of a.themes) {
-          if (C.variant !== r)
+        h.label = E;
+        for (let T of a.themes) {
+          if (T.variant !== o)
             continue;
-          let L = e.createElement("option");
-          L.value = C.id, L.textContent = C.name, h.append(L);
+          let C = e.createElement("option");
+          C.value = T.id, C.textContent = T.name, h.append(C);
         }
         t.append(h);
       }
     }
-    s(m), s(p);
-    function M(t, r = !0) {
-      if (i = t, window.__airplanThemeState = i, n.dataset.airplanMode = i.mode, n.dataset.airplanResolvedMode = i.resolvedMode, n.dataset.airplanTheme = i.theme, n.dataset.airplanThemeVariant = i.variant, E.forEach((v) => {
-        let h = v.dataset.airplanColorMode === i.mode;
-        v.classList.toggle("active", h), v.setAttribute("aria-pressed", String(h));
+    b(m), b(p);
+    function _(t, o = !0) {
+      if (i = t, window.__airplanThemeState = i, n.dataset.airplanMode = i.mode, n.dataset.airplanResolvedMode = i.resolvedMode, n.dataset.airplanTheme = i.theme, n.dataset.airplanThemeVariant = i.variant, v.forEach((E) => {
+        let h = E.dataset.airplanColorMode === i.mode;
+        E.classList.toggle("active", h), E.setAttribute("aria-pressed", String(h));
       }), m)
         m.value = i.lightTheme;
       if (p)
         p.value = i.darkTheme;
-      if (r)
+      if (o)
         window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: B(i) }));
     }
     function S(t = {}) {
-      M(_(a, t.mode ?? i.mode, t.lightTheme ?? i.lightTheme, t.darkTheme ?? i.darkTheme, u.matches));
+      _(L(a, t.mode ?? i.mode, t.lightTheme ?? i.lightTheme, t.darkTheme ?? i.darkTheme, u.matches));
     }
-    function w(t, r = !1) {
-      if (!d || !c)
+    function w(t, o = !1) {
+      if (!c || !d)
         return;
-      if (d.hidden = !t, c.setAttribute("aria-expanded", String(t)), t)
-        d.querySelector("button,select")?.focus();
-      else if (r)
-        c.focus();
+      if (c.hidden = !t, d.setAttribute("aria-expanded", String(t)), t)
+        c.querySelector("button,select")?.focus();
+      else if (o)
+        d.focus();
     }
-    c?.addEventListener("click", () => w(Boolean(d?.hidden ?? !0))), E.forEach((t) => t.addEventListener("click", () => {
-      let r = t.dataset.airplanColorMode;
-      if (!r)
+    d?.addEventListener("click", () => w(Boolean(c?.hidden ?? !0))), v.forEach((t) => t.addEventListener("click", () => {
+      let o = t.dataset.airplanColorMode;
+      if (!o)
         return;
-      H(o, r), S({ mode: r });
+      H(r, o), S({ mode: o });
     }));
-    function b(t, r) {
-      x(o, t, r.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: r.value } })), S(t === "light" ? { lightTheme: r.value } : { darkTheme: r.value });
+    function M(t, o) {
+      x(r, t, o.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: o.value } })), S(t === "light" ? { lightTheme: o.value } : { darkTheme: o.value });
     }
-    m?.addEventListener("change", () => b("light", m)), p?.addEventListener("change", () => b("dark", p)), u.addEventListener("change", () => {
+    m?.addEventListener("change", () => M("light", m)), p?.addEventListener("change", () => M("dark", p)), u.addEventListener("change", () => {
       if (i.mode === "system")
         S();
     }), e.addEventListener("keydown", (t) => {
-      if (t.key === "Escape" && d && !d.hidden)
+      if (t.key === "Escape" && c && !c.hidden)
         t.preventDefault(), w(!1, !0);
     }), e.addEventListener("pointerdown", (t) => {
-      if (!d || d.hidden || !c)
+      if (!c || c.hidden || !d)
         return;
-      let r = t.target;
-      if (!d.contains(r) && !c.contains(r))
-        w(!1);
-    }), M(i, !1);
+      let o = t.target;
+      if (!(o instanceof Node) || c.contains(o) || d.contains(o))
+        return;
+      let h = (o instanceof Element ? o : o.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), T = c.contains(e.activeElement) && !h;
+      if (w(!1), T)
+        setTimeout(() => {
+          if (e.activeElement === e.body || c.contains(e.activeElement))
+            d.focus();
+        });
+    }), _(i, !1);
   })();
 
   (function() {
@@ -315,15 +321,15 @@ body{background:#fff;color:#1f2328}}
         return;
       }
       navigator.clipboard.writeText(u).then(function() {
-        var o = n.get(a);
-        if (o)
-          window.clearTimeout(o.timer);
-        var i = o ? o.label : a.textContent;
+        var r = n.get(a);
+        if (r)
+          window.clearTimeout(r.timer);
+        var i = r ? r.label : a.textContent;
         a.textContent = "Copied";
-        var c = window.setTimeout(function() {
+        var d = window.setTimeout(function() {
           a.textContent = i, n.delete(a);
         }, 1200);
-        n.set(a, { label: i, timer: c });
+        n.set(a, { label: i, timer: d });
       }, function() {
         prompt("Copy link", u);
       });

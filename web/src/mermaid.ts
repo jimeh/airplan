@@ -22,32 +22,79 @@ const diagrams = Array.from(document.querySelectorAll<HTMLPreElement>("pre.merma
 const mermaidModuleURL = "__AIRPLAN_MERMAID_MODULE_URL__";
 const sources = diagrams.map((diagram) => diagram.textContent);
 const variants = diagrams.map(() => new Map<string, MermaidRenderResult>());
-const failedThemes = new Set<string>();
+const failedVariants = diagrams.map(() => new Set<string>());
 const catalog = window.__AIRPLAN_THEME_CATALOG__ as ThemeCatalog | undefined;
 const printMedia = matchMedia("print");
 const printThemeKey = "__airplan-print-github-light";
 let mermaidCloneID = 0;
 let viewer: MermaidViewer | null = null;
 let visibleTheme = window.__airplanThemeState?.theme ?? catalog?.defaultLight ?? "github-light";
-let lastScreenTheme = visibleTheme;
+const lastScreenThemes = diagrams.map(() => visibleTheme);
+let printActive = printMedia.matches;
+let prepareTheme: ((themeID: string, show?: boolean) => Promise<void>) | undefined;
+const pendingThemes = new Set<string>();
 const requestGuard = createLatestRequestGuard();
 
-function showTheme(theme: string): boolean {
-  if (!variants.every((themes) => themes.has(theme))) return false;
-  variants.forEach((themes, index) => {
-    const rendered = themes.get(theme);
-    if (!rendered) return;
-    diagrams[index].innerHTML = rendered.svg;
-    if (rendered.bindFunctions) rendered.bindFunctions(diagrams[index]);
-    if (viewer) viewer.enhance(diagrams[index]);
-  });
-  if (theme !== printThemeKey) lastScreenTheme = theme;
+function showVariant(index: number, theme: string, trackScreen = true): boolean {
+  const rendered = variants[index].get(theme);
+  if (!rendered) return false;
+  diagrams[index].innerHTML = rendered.svg;
+  if (rendered.bindFunctions) rendered.bindFunctions(diagrams[index]);
+  if (viewer) viewer.enhance(diagrams[index]);
+  if (trackScreen && theme !== printThemeKey) lastScreenThemes[index] = theme;
   return true;
 }
 
-function restoreScreenTheme(): void {
-  if (!showTheme(visibleTheme)) showTheme(lastScreenTheme);
+function showTheme(theme: string): boolean {
+  let complete = true;
+  variants.forEach((_themes, index) => {
+    if (!showVariant(index, theme)) complete = false;
+  });
+  return complete;
 }
+
+function restoreScreenTheme(): void {
+  variants.forEach((_themes, index) => {
+    if (!showVariant(index, visibleTheme)) {
+      showVariant(index, lastScreenThemes[index]);
+    }
+  });
+}
+
+function requestPreparation(themeID: string, show = true): void {
+  if (prepareTheme) {
+    void prepareTheme(themeID, show);
+  } else {
+    pendingThemes.add(themeID);
+  }
+}
+
+window.addEventListener("airplan:themechange", (event) => {
+  const detail = (event as CustomEvent<AirplanThemeChangeDetail>).detail;
+  visibleTheme = detail.theme;
+  if (!printActive) requestPreparation(detail.theme);
+});
+window.addEventListener("airplan:themeprepare", (event) => {
+  const detail = (event as CustomEvent<{ theme: string }>).detail;
+  requestPreparation(detail.theme, false);
+});
+printMedia.addEventListener("change", (event) => {
+  printActive = event.matches;
+  if (printActive) showTheme(printThemeKey);
+  else {
+    requestPreparation(visibleTheme);
+    restoreScreenTheme();
+  }
+});
+window.addEventListener("beforeprint", () => {
+  printActive = true;
+  showTheme(printThemeKey);
+});
+window.addEventListener("afterprint", () => {
+  printActive = false;
+  requestPreparation(visibleTheme);
+  restoreScreenTheme();
+});
 
 function createButton(label: string, action: string, content: string) {
   const button = document.createElement("button");
@@ -413,18 +460,20 @@ try {
   };
   const themeByID = new Map(catalog.themes.map((theme) => [theme.id, theme]));
   let queue = Promise.resolve();
+  const preparations = new Map<string, Promise<void>>();
 
-  function renderTheme(themeID: string, key = themeID): Promise<boolean> {
-    if (variants.every((cache) => cache.has(key))) return Promise.resolve(true);
-    if (failedThemes.has(key)) return Promise.resolve(false);
+  function themePrepared(key: string): boolean {
+    return variants.every((cache, index) => cache.has(key) || failedVariants[index].has(key));
+  }
+
+  function renderTheme(themeID: string, key = themeID): Promise<void> {
+    if (themePrepared(key)) return Promise.resolve();
+    const existing = preparations.get(key);
+    if (existing) return existing;
     const theme = themeByID.get(themeID);
-    if (!theme) return Promise.resolve(false);
-    let result = false;
-    queue = queue.then(async () => {
-      if (variants.every((cache) => cache.has(key))) {
-        result = true;
-        return;
-      }
+    if (!theme) return Promise.resolve();
+    const task = queue.then(async () => {
+      if (themePrepared(key)) return;
       try {
         mermaid.initialize({
           startOnLoad: false,
@@ -433,49 +482,56 @@ try {
           theme: "base",
           themeVariables: theme.mermaid,
         });
-        const rendered: MermaidRenderResult[] = [];
-        for (const [index, source] of sources.entries()) {
-          rendered.push(
-            await mermaid.render(
-              `airplan-mermaid-${key.replace(/[^a-z0-9-]/g, "print")}-${index}`,
-              source,
-            ),
+      } catch (error) {
+        failedVariants.forEach((failures, index) => {
+          failures.add(key);
+          if (variants[index].size === 0) {
+            diagrams[index].textContent = sources[index];
+            diagrams[index].classList.add("mermaid-failed");
+          }
+        });
+        console.warn(`airplan: Mermaid ${themeID} initialization failed`, error);
+        return;
+      }
+      for (const [index, source] of sources.entries()) {
+        if (variants[index].has(key) || failedVariants[index].has(key)) continue;
+        try {
+          const rendered = await mermaid.render(
+            `airplan-mermaid-${key.replace(/[^a-z0-9-]/g, "print")}-${index}`,
+            source,
           );
-        }
-        rendered.forEach((value, index) => variants[index].set(key, value));
-        diagrams.forEach((diagram) => {
+          variants[index].set(key, rendered);
+          const diagram = diagrams[index];
           diagram.classList.add("mermaid-rendered");
           diagram.classList.remove("mermaid-failed");
-        });
-        if (!viewer) viewer = createMermaidViewer();
-        result = true;
-      } catch (error) {
-        failedThemes.add(key);
-        if (!variants.some((cache) => cache.size > 0)) {
-          diagrams.forEach((diagram, index) => {
-            diagram.textContent = sources[index];
-            diagram.classList.add("mermaid-failed");
-          });
+          if (!viewer) viewer = createMermaidViewer();
+        } catch (error) {
+          failedVariants[index].add(key);
+          if (variants[index].size === 0) {
+            diagrams[index].textContent = source;
+            diagrams[index].classList.add("mermaid-failed");
+          }
+          console.warn(`airplan: Mermaid ${themeID} diagram ${index + 1} rendering failed`, error);
         }
-        console.warn(`airplan: Mermaid ${themeID} diagram rendering failed`, error);
       }
     });
-    return queue.then(() => result);
+    queue = task.catch(() => {});
+    preparations.set(key, task);
+    void task.then(
+      () => preparations.delete(key),
+      () => preparations.delete(key),
+    );
+    return task;
   }
 
   async function requestTheme(themeID: string, show = true): Promise<void> {
-    const request = requestGuard.next();
-    if (await renderTheme(themeID)) {
-      if (
-        show &&
-        requestGuard.isCurrent(request) &&
-        visibleTheme === themeID &&
-        !printMedia.matches
-      ) {
-        showTheme(themeID);
-      }
+    const request = show ? requestGuard.next() : 0;
+    await renderTheme(themeID);
+    if (show && requestGuard.isCurrent(request) && visibleTheme === themeID && !printActive) {
+      showTheme(themeID);
     }
   }
+  prepareTheme = requestTheme;
 
   const state = window.__airplanThemeState;
   const startup = new Set([
@@ -483,26 +539,23 @@ try {
     state?.darkTheme ?? catalog.defaultDark,
   ]);
   for (const themeID of startup) await renderTheme(themeID);
-  await renderTheme("github-light", printThemeKey);
-  showTheme(visibleTheme);
-
-  window.addEventListener("airplan:themechange", (event) => {
-    const detail = (event as CustomEvent<AirplanThemeChangeDetail>).detail;
-    visibleTheme = detail.theme;
-    void requestTheme(detail.theme);
-  });
-  window.addEventListener("airplan:themeprepare", (event) => {
-    const detail = (event as CustomEvent<{ theme: string }>).detail;
-    void requestTheme(detail.theme, false);
-  });
-  printMedia.addEventListener("change", (event) => {
-    if (event.matches) showTheme(printThemeKey);
-    else restoreScreenTheme();
-  });
-  // The print variant was prepared during startup; this path is synchronous so
-  // the browser cannot overtake an asynchronous Mermaid render.
-  window.addEventListener("beforeprint", () => showTheme(printThemeKey));
-  window.addEventListener("afterprint", restoreScreenTheme);
+  await preparations.get("github-light");
+  if (themePrepared("github-light")) {
+    variants.forEach((cache, index) => {
+      const rendered = cache.get("github-light");
+      if (rendered) cache.set(printThemeKey, rendered);
+      if (failedVariants[index].has("github-light")) {
+        failedVariants[index].add(printThemeKey);
+      }
+    });
+  } else {
+    await renderTheme("github-light", printThemeKey);
+  }
+  for (const themeID of pendingThemes) await renderTheme(themeID);
+  pendingThemes.clear();
+  await renderTheme(visibleTheme);
+  if (printActive) showTheme(printThemeKey);
+  else restoreScreenTheme();
 } catch (error) {
   diagrams.forEach((diagram, index) => {
     diagram.textContent = sources[index];

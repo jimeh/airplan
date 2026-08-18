@@ -1677,8 +1677,8 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
- "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":4,
- "producer_version":"0.8.0","renderer_version":2}
+ "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":5,
+ "producer_version":"0.8.0","renderer_version":3}
 {"type":"upload","time":"2026-07-21T12:03:00Z",
  "created_at":"2026-07-21T12:03:00Z",
  "key":"gaj4.../index.html",
@@ -1686,8 +1686,8 @@ conforming implementations can share a manifest:
  "url":"https://plans.example.com/gaj4.../index.html",
  "bucket":"plans","profile":"work","kind":"collection",
  "title":"login.png and 1 more","bytes":9216,"objects":4,
- "total_bytes":203512,"marker_version":4,
- "producer_version":"0.8.0","renderer_version":2}
+ "total_bytes":203512,"marker_version":5,
+ "producer_version":"0.8.0","renderer_version":3}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
@@ -1704,8 +1704,8 @@ conforming implementations can share a manifest:
  "url":"https://plans.example.com/vq3n.../plan.html",
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
- "bytes":19200,"marker_version":4,"producer_version":"0.8.0",
- "renderer_version":2}
+ "bytes":19200,"marker_version":5,"producer_version":"0.8.0",
+ "renderer_version":3}
 {"type":"link","time":"2026-08-15T10:05:00Z",
  "created_at":"2026-07-21T12:00:00Z",
  "key":"vq3n.../plan.html","source_key":"vq3n.../plan.md",
@@ -1713,8 +1713,8 @@ conforming implementations can share a manifest:
  "url":"https://plans.example.com/vq3n.../plan.html",
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
- "bytes":19200,"objects":4,"total_bytes":20120,"marker_version":4,
- "producer_version":"0.8.0","renderer_version":2,
+ "bytes":19200,"objects":4,"total_bytes":20120,"marker_version":5,
+ "producer_version":"0.8.0","renderer_version":3,
  "revision_chain_id":"d2x4...","revision":1,"latest_revision":2}
 ```
 
@@ -1737,9 +1737,11 @@ conforming implementations can share a manifest:
   root-level settings. `marker_key` is the exact kind-specific ownership key.
   `repo` preserves canonical repository metadata. The full collection
   inventory remains only in the remote marker.
-- Current writers always include `marker_version: 4`; its absence identifies
+- Current writers always include `marker_version: 5`; its absence identifies
   legacy pre-marker history. Readers infer `kind: document` and derive its
-  slug from the page key for valid older records that omit those fields.
+  slug from the page key for valid older records that omit those fields. The
+  renderer-3 theme recipe remains in the remote v5 marker and is not duplicated
+  in this local projection.
 - New `delete` tombstones include `marker_key`, `bucket`, the receiving
   `profile`, and reason `deleted` or `remote_missing`. Their identity is
   `(bucket, marker_key)`. A linked-revision deletion also includes its

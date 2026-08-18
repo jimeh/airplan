@@ -61,7 +61,7 @@
 :root{--buncss-light:initial;--buncss-dark: ;color-scheme:light dark;--page-width:54rem}@media (prefers-color-scheme:dark){:root{--buncss-light: ;--buncss-dark:initial} }*{box-sizing:border-box}body{background:var(--bg);color:var(--fg);-webkit-text-size-adjust:100%;margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif,Apple Color Emoji,Segoe UI Emoji;font-size:16px;line-height:1.7}.toolbar{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items: center;gap:.5rem;width:100%;padding:.75rem 1.25rem 0;font-size:.85rem}.toolbar:not(:has(>:not([hidden]))){display:none}.toolbar a,.toolbar button{display:inline-flex;white-space:nowrap;font:inherit;color:var(--muted);text-decoration:none;cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;gap:.4rem;padding:.4rem .65rem}.toolbar a:hover,.toolbar button:hover{color:var(--fg);background:var(--control-hover)}.toolbar a:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar button:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar-actions{display:inline-flex;align-items: center;gap:.5rem}.mode-toggle{display:inline-flex;background:var(--control-track);border:0;border-radius:8px;gap:2px;padding:2px}.mode-toggle button{border:0;border-radius:6px;padding:.3rem .55rem}.mode-toggle button:hover{color:var(--fg)}.mode-toggle button.active{color:var(--fg);background:var(--control-active);box-shadow:0 1px 2px #0003}.appearance-trigger{width:1.85rem;padding-inline-start:0;padding-inline-end:0}.appearance{position:relative}.appearance:not(:first-child){margin-left:.5rem}.appearance:not(:first-child):before{content:"";position:absolute;background:var(--control-divider);width:1px;height:1rem;top:50%;left:-.825rem;transform:translateY(-50%)}.appearance-panel{position:absolute;z-index:30;color:var(--fg);background:var(--bg);border:1px solid var(--border);box-shadow:0 10px 30px color-mix(in srgb,var(--fg)14%,transparent);border-radius:10px;width:min(19rem,100vw - 2rem);padding:.85rem;top:calc(100% + .5rem);right:0}.appearance-heading{color:var(--heading);margin-bottom:.75rem;font-weight:600}.appearance-field{display:grid;gap:.35rem}.appearance-field+.appearance-field{margin-top:.75rem}.appearance-label{color:var(--muted);font-size:.78rem;font-weight:600}.appearance-modes{width:100%}.appearance-modes button{flex:1}.appearance-panel select{color:var(--fg);background:var(--surface-subtle);border:1px solid var(--border);font:inherit;border-radius:7px;width:100%;min-height:2.1rem;padding:.3rem 1.75rem .3rem .5rem}.appearance-panel select:focus-visible{outline:2px solid var(--link);outline-offset:2px}.icon{flex:none;width:16px;height:16px}.sr-status{position:absolute;overflow:hidden;clip-path:inset(50%);white-space:nowrap;width:1px;height:1px}[hidden]{display:none!important}@media (max-width:36rem){.toolbar{padding-inline-start:1rem;padding-inline-end:1rem}.appearance:not(:first-child){margin-left:0}.appearance:not(:first-child):before{display:none}.appearance-panel{position:fixed;width:auto;top:3.5rem;left:.75rem;right:.75rem} }@media print{:root,:root[data-airplan-theme]{--buncss-light:initial;--buncss-dark: ;color-scheme:light}.toolbar{display:none!important} }:root{--mark-bg:var(--alert-warning-bg);--alert-note:var(--info);--alert-note-bg:var(--alert-info-bg);--alert-tip:var(--success);--alert-tip-bg:var(--alert-success-bg);--alert-important:var(--important);--alert-warning:var(--warning);--alert-caution:var(--danger);--alert-caution-bg:var(--alert-danger-bg);--prose-width:78ch;--toc-width:14rem}html{scroll-behavior:smooth}.page-shell{display:grid;grid-template-columns:minmax(12rem,1fr)minmax(0,var(--page-width))minmax(12rem,1fr);grid-template-rows:auto 1fr;min-height:100vh}.toolbar{grid-column:2;grid-row:1}.toc{grid-column:1;grid-row:2;position:sticky;width:min(var(--toc-width),calc(100% - 2rem));overflow-y:auto;place-self: start end;max-height:calc(100vh - 3rem);margin:1.5rem 1.25rem 0 0;font-size:.85rem;top:1.5rem}.toc-title{color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin:0 0 .75rem;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.7rem;font-weight:600}.toc-list{list-style:none;margin:0;padding:0}.toc-list li+li{margin-top:.1rem}.toc-list a{display:block;color:var(--muted);text-decoration:none;overflow-wrap:anywhere;padding:.3rem 0;line-height:1.35}.toc-list a:hover{color:var(--fg)}.toc-list a:focus-visible{color:var(--fg)}.toc-list a.active{color:var(--link)}.toc-level-1{margin-top:.65rem;font-weight:650}.toc-level-1:first-child{margin-top:0}.toc-level-3 a{padding-left:1rem;font-size:.8rem}.toc-trigger{display:none;position:fixed;right:1.25rem;bottom:calc(1.25rem + env(safe-area-inset-bottom));z-index:20;color:var(--on-link);background:var(--link);cursor:pointer;opacity:0;visibility:hidden;pointer-events:none;border:0;border-radius:50%;justify-content:center;align-items: center;width:3rem;height:3rem;padding:0;transition:opacity .15s ease-in-out,visibility .15s ease-in-out,transform .15s ease-in-out,box-shadow .15s ease-in-out;transform:translateY(.5rem);box-shadow:0 4px 16px #0003}.toc-trigger.is-visible{opacity:1;visibility:visible;transform:translateY(0)}.toc-trigger:hover{box-shadow:0 6px 20px #00000047}.toc-trigger .icon{width:20px;height:20px}.toc-trigger:focus-visible{outline:2px solid var(--link);outline-offset:3px}.toc-dialog-close:focus-visible{outline:2px solid var(--link);outline-offset:3px}.toc-dialog{position:fixed;width:min(100%,42rem);max-width:none;max-height:70vh;color:var(--fg);background:var(--bg);overflow:hidden;border:0;border-radius:16px 16px 0 0;max-height:70svh;margin:0 auto;padding:0;inset:auto 0 0;box-shadow:0 -8px 32px #0003}.toc-dialog::backdrop{background:var(--dialog-backdrop)}.toc-dialog-panel{display:flex;max-height:inherit;flex-direction:column}.toc-dialog-header{display:flex;flex:none;justify-content:space-between;align-items: center;padding:1.25rem 1.25rem .75rem}.toc-dialog-title{color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin:0;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.75rem;font-weight:600}.toc-dialog-close{display:inline-flex;color:var(--muted);cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;width:2.25rem;height:2.25rem;padding:0}.toc-dialog-close:hover{color:var(--fg);background:var(--control-hover)}.toc-dialog-nav{padding:.25rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain;min-height:0}.toc-dialog .toc-list a{padding-block-start:.55rem;padding-block-end:.55rem}body.toc-dialog-open{overflow:hidden}.icon-check,.icon-x,.is-copied .icon-copy,.is-failed .icon-copy{display:none}.is-copied .icon-check,.is-failed .icon-x{display:inline}.viewtoggle{margin-right:auto}.revision-heading{color:var(--muted);margin:0 0 1rem;font-size:.8rem;font-weight:600}.revision-heading.is-picker{position:relative;display:inline-flex;cursor:pointer;border-radius:6px;align-items: center;gap:.4rem}.revision-heading.is-picker:after{content:"";opacity:.75;border-bottom:1.5px solid;border-right:1.5px solid;flex:none;width:6px;height:6px;transform:translateY(-1px)rotate(45deg)}.revision-heading.is-picker:hover{color:var(--fg)}.revision-heading.is-picker:focus-within{outline:2px solid var(--link);outline-offset:3px}.revision-heading.is-picker select{position:absolute;opacity:0;cursor:pointer;width:100%;height:100%;inset:0}.revision-heading.is-stale{border-left:3px solid var(--alert-warning);color:var(--fg);background:var(--alert-warning-bg);padding:.5rem .75rem}.revision-heading.is-stale select{width:calc(100% + 3px);left:-3px}.changes-view pre{overflow-x:auto}.file-actions{flex-wrap:wrap}.codewrap{position:relative;margin:0 0 1.5em}.codewrap pre{margin:0}.codecopy{position:absolute;display:inline-flex;font:inherit;color:var(--muted);background:var(--code-bg);cursor:pointer;opacity:0;border:1px solid #0000;border-radius:6px;justify-content:center;align-items: center;padding:.35rem;transition:opacity .15s ease-in-out;top:.5em;right:.5em}.codecopy .icon{width:14px;height:14px}.codewrap:hover .codecopy{opacity:1}.codecopy:focus-visible{opacity:1}.codecopy:hover{color:var(--fg);border-color:var(--muted)}@media (hover:none){.codecopy{opacity:1;pointer-events:auto} }@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.toc-trigger,.codecopy{transition:none} }.content{grid-column:2;grid-row:2;overflow-wrap:break-word;width:100%;min-width:0;padding:1.5rem 1.5rem 4rem}.content>p,.content>ul,.content>ol,.content>blockquote,.content>.footnotes{max-width:var(--prose-width)}h1,h2,h3,h4,h5,h6{color:var(--heading);letter-spacing:-.015em;margin:2em 0 .75em;scroll-margin-top:.75em;font-weight:700;line-height:1.25}h1{letter-spacing:-.025em;margin-top:.35em;font-size:2em}h2{margin-top:2.25em;font-size:1.5em}h3{color:var(--subheading);font-size:1.2em}h4{font-size:1.05em}h5,h6{font-size:1em}h6{color:var(--muted)}p,ul,ol,blockquote,table,pre{margin:0 0 1.25em}dl{margin:1.25rem 0}dt{margin-top:.8rem;font-weight:650}dd{color:var(--muted);margin:.25rem 0 0 1.25rem}.frontmatter{border:1px solid var(--border);overflow:hidden;border-radius:.5rem;margin:0 0 1.75rem}.frontmatter summary{color:var(--muted);cursor:pointer;user-select:none;padding:.55rem .75rem;font-size:.82rem;font-weight:600}.frontmatter summary span{text-transform:uppercase;margin-left:.35rem;font-weight:400}.frontmatter .chroma{border:0;border-radius:0;margin:0}.columns{display:flex;gap:1.5rem;min-width:0;margin:1.5rem 0}.column{overflow-wrap:anywhere;flex:1 1 0;min-width:0}.column[style]{flex:0 1 var(--column-width)}.column>:first-child{margin-top:0}.column>:last-child{margin-bottom:0}a{color:var(--link)}ul,ol{padding-left:1.75em}li+li{margin-top:.2em}li>ul,li>ol{margin-bottom:0}ul:has(>li>input[type=checkbox]){list-style:none;padding-left:.5em}li>input[type=checkbox]{vertical-align:middle;margin:0 .4em .2em 0}blockquote{border-left:.25em solid var(--border);color:var(--muted);padding:0 1em}blockquote>:first-child{margin-top:0}blockquote>:last-child{margin-bottom:0}.markdown-alert{--alert-color:var(--alert-note);--alert-bg:var(--alert-note-bg);border-left:3px solid var(--alert-color);background:var(--alert-bg);color:var(--fg);border-radius:6px;margin:1.5em 0;padding:.85em 1em}.markdown-alert-title{display:flex;color:var(--alert-color);letter-spacing:.04em;text-transform:uppercase;align-items: center;gap:.5em;margin:0 0 .55em;font-size:.8rem;font-weight:700;line-height:1.4}.markdown-alert-icon{flex:none;width:1em;height:1em}.markdown-alert>:last-child{margin-bottom:0}.markdown-alert-tip{--alert-color:var(--alert-tip);--alert-bg:var(--alert-tip-bg)}.markdown-alert-important{--alert-color:var(--alert-important);--alert-bg:var(--alert-important-bg)}.markdown-alert-warning{--alert-color:var(--alert-warning);--alert-bg:var(--alert-warning-bg)}.markdown-alert-caution{--alert-color:var(--alert-caution);--alert-bg:var(--alert-caution-bg)}hr{border:0;border-top:1px solid var(--border);height:0;margin:2em 0}img{max-width:100%}table{border-collapse:collapse;border-spacing:0;display:block;overflow-x:auto;width:max-content;max-width:100%}th,td{border:1px solid var(--border);padding:.35em .8em}th{font-weight:600}thead tr,tbody tr:nth-child(2n){background:var(--code-bg)}code,pre,kbd,samp{font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace}code{background:var(--code-inline-bg);border:1px solid var(--code-border);border-radius:4px;padding:.15em .35em;font-size:.875em}pre{background:var(--code-bg);border:1px solid var(--code-border);overflow-x:auto;scrollbar-color:var(--border)transparent;scrollbar-width:thin;border-radius:8px;padding:1em 1.25em;line-height:1.6}pre::-webkit-scrollbar{height:6px}pre::-webkit-scrollbar-track{background:0 0}pre::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}pre code{background:0 0;border:0;padding:0;font-size:.875em}.chroma{background:var(--code-bg)!important}pre.mermaid{white-space:pre-wrap;max-width:100%}pre.mermaid.mermaid-rendered{position:relative;display:flex;justify-content:center}pre.mermaid.mermaid-rendered svg{max-width:100%;height:auto}pre.mermaid.mermaid-failed{display:block;color:var(--muted)}.mermaid-open{position:absolute;z-index:1;opacity:0;pointer-events:none;transition:opacity .15s ease-in-out;top:.5rem;right:.5rem}pre.mermaid:hover>.mermaid-open,pre.mermaid:focus-within>.mermaid-open{opacity:1;pointer-events:auto}.mermaid-open:focus-visible{opacity:1;pointer-events:auto}.mermaid-button{display:inline-flex;color:var(--fg);background:var(--control-active);border:1px solid var(--border);font:inherit;cursor:pointer;border-radius:6px;justify-content:center;align-items: center;min-width:2rem;height:2rem;padding:0 .55rem;font-size:.8rem;line-height:1}.mermaid-button:hover{color:var(--fg);background:var(--control-hover)}.mermaid-button:focus-visible{outline:2px solid var(--link);outline-offset:2px}.mermaid-canvas:focus-visible{outline:2px solid var(--link);outline-offset:2px}.mermaid-open .icon{width:15px;height:15px}body.mermaid-dialog-open{overflow:hidden}.mermaid-dialog{position:fixed;width:calc(100vw - 2rem);height:calc(100vh - 2rem);overflow:hidden;color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:none;height:calc(100svh - 2rem);max-height:none;margin:auto;padding:0;inset:0;box-shadow:0 12px 48px #00000047}.mermaid-dialog::backdrop{background:var(--dialog-backdrop)}.mermaid-dialog-shell{display:grid;grid-template-rows:auto minmax(0,1fr)auto;height:100%}.mermaid-dialog-header{display:flex;background:var(--bg);border-bottom:1px solid var(--border);justify-content:space-between;align-items: center;gap:1rem;min-width:0;padding:.65rem .75rem}.mermaid-dialog-header>strong{overflow:hidden;color:var(--muted);letter-spacing:.08em;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.75rem;font-weight:600}.mermaid-toolbar{display:flex;align-items: center;gap:.35rem}.mermaid-toolbar [data-airplan-mermaid-close]{margin-left:.35rem}.mermaid-zoom-value{color:var(--muted);font-variant-numeric:tabular-nums;text-align:center;min-width:3.5rem;font-size:.8rem}.mermaid-canvas{position:relative;overflow:hidden;touch-action:none;color:var(--fg);background-color:var(--surface-subtle);background-image:radial-gradient(circle,color-mix(in srgb,var(--muted)24%,transparent)1px,transparent 1px);cursor:grab;user-select:none;background-size:1.25rem 1.25rem;min-height:0}.mermaid-canvas-panning{cursor:grabbing}.mermaid-surface{position:absolute;will-change:transform;top:50%;left:50%}.mermaid-surface svg{display:block;transform-origin:center;will-change:transform}.mermaid-help{color:var(--muted);background:var(--bg);border-top:1px solid var(--border);text-align:center;margin:0;padding:.4rem .75rem;font-size:.75rem;line-height:1.4}@media (hover:none),(any-pointer:coarse){.mermaid-open{opacity:1;pointer-events:auto} }@media (prefers-reduced-motion:reduce){.mermaid-open{transition:none} }.filehead{color:var(--muted);background:var(--surface-subtle);border:1px solid var(--code-border);border-bottom:0;border-radius:8px 8px 0 0;padding:.6em 1em;font-size:.8rem}.filehead code{color:var(--fg);background:0 0;padding:0}.filehead+pre{border-radius:0 0 8px 8px;margin-top:0}.source-heading{display:flex;color:var(--muted);align-items: center;gap:.45rem;margin:0 0 .75rem;font-size:.8rem;font-weight:600}.source-heading .icon{width:14px;height:14px}mark{background:var(--mark-bg);color:inherit}.footnotes{border-top:1px solid var(--border);color:var(--muted);margin-top:3em;padding-top:1em;font-size:.9em}.footnotes hr{display:none}@media (max-width:78rem){.page-shell{display:block}.toolbar,.toc,.content{max-width:var(--page-width);width:100%;margin-inline-start:auto;margin-inline-end:auto}.toc{position:static;overflow:visible;max-height:none;padding:1.25rem 1.5rem 0}.toc-trigger{display:inline-flex}.toc-trigger.is-visible{pointer-events:auto} }@media (max-width:48rem){.toolbar{display:grid;grid-template-columns:max-content 1fr max-content;justify-content:stretch}.toolbar .viewtoggle{grid-column:1/3;grid-row:1;justify-self:start;margin-right:0}.toolbar .appearance{grid-column:3;grid-row:1;justify-self:end;margin-left:0}.toolbar .appearance:before{display:none}.toolbar .file-actions{grid-column:1/-1;grid-row:2;justify-self:start}.toolbar:not(:has(.viewtoggle)) .file-actions{grid-column:1/3;grid-row:1}.toc,.content{padding-inline-start:1.25rem;padding-inline-end:1.25rem}.mermaid-dialog{width:calc(100vw - 1rem);height:calc(100vh - 1rem);height:calc(100svh - 1rem)}.mermaid-dialog-header{flex-direction:column;align-items: flex-start;gap:.5rem}.mermaid-toolbar{width:100%}.mermaid-toolbar [data-airplan-mermaid-close]{margin-left:auto} }@media (max-width:48rem),print{.columns{display:block}.column+.column{margin-top:1.5rem} }@media print{.toc,.toc-trigger,.toc-dialog,.codecopy,.mermaid-open,.mermaid-dialog,.source-view,.changes-view{display:none!important}#rendered{display:block!important}body{color:#000;background:#fff;font-size:10.5pt;line-height:1.45}.content{padding:0}h1,h2,h3,h4,h5,h6{break-after:avoid-page;margin-top:1.4em;margin-bottom:.55em}h1{margin-top:.2em}h2{margin-top:1.65em}p,ul,ol,blockquote,table,pre{margin-bottom:.9em}p,li{orphans:3;widows:3}dl{margin-block-start:.9em;margin-block-end:.9em}.frontmatter{margin-bottom:1.2em}.markdown-alert,.columns{margin-block-start:1em;margin-block-end:1em}.column+.column{margin-top:1em}hr{margin-block-start:1.4em;margin-block-end:1.4em}details::details-content{content-visibility:visible!important} }
 
 :root{color-scheme:light;--bg:#ffffff;--fg:#1f2328;--heading:#1f2328;--subheading:#474b4f;--muted:#59636e;--link:#0969da;--border:#d1d9e0;--surface-subtle:#f6f8fa;--code-inline-bg:#fafbfc;--code-bg:#f6f8fa;--code-border:#dee4e9;--control-track:#f6f8fa;--control-active:#eff1f3;--control-hover:#f6f7f8;--control-divider:#dde3e8;--on-link:#ffffff;--info:#0969da;--success:#1a7f37;--important:#8250df;--warning:#9a6700;--danger:#cf222e;--alert-info-bg:#e1edfb;--alert-success-bg:#e4f0e7;--alert-important-bg:#f0eafb;--alert-warning-bg:#f3ede0;--alert-danger-bg:#f9e4e6;--dialog-backdrop:#00000080}
-@media (prefers-color-scheme:dark){:root:not([data-airplan-theme]){color-scheme:dark;--bg:#0d1117;--fg:#e6edf3;--heading:#e6edf3;--subheading:#bfc5cb;--muted:#9198a1;--link:#4493f8;--border:#3d444d;--surface-subtle:#151b23;--code-inline-bg:#11171e;--code-bg:#151b23;--code-border:#2f363e;--control-track:#151b23;--control-active:#212830;--control-hover:#181e25;--control-divider:#313740;--on-link:#0d1117;--info:#58a6ff;--success:#3fb950;--important:#a371f7;--warning:#d29922;--danger:#f85149;--alert-info-bg:#162333;--alert-success-bg:#13251e;--alert-important-bg:#1f1d32;--alert-warning-bg:#252118;--alert-danger-bg:#29191d;--dialog-backdrop:#00000080}
+@media screen and (prefers-color-scheme:dark){:root:not([data-airplan-theme]){color-scheme:dark;--bg:#0d1117;--fg:#e6edf3;--heading:#e6edf3;--subheading:#bfc5cb;--muted:#9198a1;--link:#4493f8;--border:#3d444d;--surface-subtle:#151b23;--code-inline-bg:#11171e;--code-bg:#151b23;--code-border:#2f363e;--control-track:#151b23;--control-active:#212830;--control-hover:#181e25;--control-divider:#313740;--on-link:#0d1117;--info:#58a6ff;--success:#3fb950;--important:#a371f7;--warning:#d29922;--danger:#f85149;--alert-info-bg:#162333;--alert-success-bg:#13251e;--alert-important-bg:#1f1d32;--alert-warning-bg:#252118;--alert-danger-bg:#29191d;--dialog-backdrop:#00000080}
 }
 :root[data-airplan-theme="github-light"]{color-scheme:light;--bg:#ffffff;--fg:#1f2328;--heading:#1f2328;--subheading:#474b4f;--muted:#59636e;--link:#0969da;--border:#d1d9e0;--surface-subtle:#f6f8fa;--code-inline-bg:#fafbfc;--code-bg:#f6f8fa;--code-border:#dee4e9;--control-track:#f6f8fa;--control-active:#eff1f3;--control-hover:#f6f7f8;--control-divider:#dde3e8;--on-link:#ffffff;--info:#0969da;--success:#1a7f37;--important:#8250df;--warning:#9a6700;--danger:#cf222e;--alert-info-bg:#e1edfb;--alert-success-bg:#e4f0e7;--alert-important-bg:#f0eafb;--alert-warning-bg:#f3ede0;--alert-danger-bg:#f9e4e6;--dialog-backdrop:#00000080}
 :root[data-airplan-theme="catppuccin-latte"]{color-scheme:light;--bg:#eff1f5;--fg:#4c4f69;--heading:#4c4f69;--subheading:#696c82;--muted:#6c6f85;--link:#1e66f5;--border:#bcc0cc;--surface-subtle:#e6e9ef;--code-inline-bg:#eaedf2;--code-bg:#e6e9ef;--code-border:#cbced8;--control-track:#e6e9ef;--control-active:#dce0e8;--control-hover:#e5e8ee;--control-divider:#c9ccd6;--on-link:#eff1f5;--info:#209fb5;--success:#40a02b;--important:#8839ef;--warning:#df8e1d;--danger:#d20f39;--alert-info-bg:#d6e7ed;--alert-success-bg:#dae7dd;--alert-important-bg:#e3dbf4;--alert-warning-bg:#ede5db;--alert-danger-bg:#ecd6de;--dialog-backdrop:#00000080}
@@ -1349,45 +1349,45 @@ body{background:#fff;color:#1f2328}}
   function BE(E) {
     return E === "system" || E === "light" || E === "dark";
   }
-  function r(E, u) {
+  function r(E, f) {
     try {
-      return E?.getItem(u) ?? null;
+      return E?.getItem(f) ?? null;
     } catch {
       return null;
     }
   }
-  function L(E, u, G) {
+  function L(E, f, I) {
     try {
-      if (G === null)
-        E?.removeItem(u);
+      if (I === null)
+        E?.removeItem(f);
       else
-        E?.setItem(u, G);
+        E?.setItem(f, I);
     } catch {}
   }
-  function _E(E, u, G) {
-    let H = r(G, "airplan-color-mode");
+  function _E(E, f, I) {
+    let H = r(I, "airplan-color-mode");
     if (H === null) {
-      let I = r(G, "airplan-theme");
-      if (H = I === "light" || I === "dark" ? I : "system", H !== "system")
-        L(G, "airplan-color-mode", H);
+      let j = r(I, "airplan-theme");
+      if (H = j === "light" || j === "dark" ? j : "system", H !== "system")
+        L(I, "airplan-color-mode", H);
     }
-    let V = BE(H) ? H : "system", Y = new Set(E.themes.map((I) => I.id)), M = r(G, "airplan-light-theme"), J = r(G, "airplan-dark-theme"), j = M !== null && Y.has(M) ? M : E.defaultLight, K = J !== null && Y.has(J) ? J : E.defaultDark;
-    return a(E, V, j, K, u);
+    let V = BE(H) ? H : "system", Y = new Set(E.themes.map((j) => j.id)), A = r(I, "airplan-light-theme"), J = r(I, "airplan-dark-theme"), O = A !== null && Y.has(A) ? A : E.defaultLight, K = J !== null && Y.has(J) ? J : E.defaultDark;
+    return a(E, V, O, K, f);
   }
-  function a(E, u, G, H, V) {
-    let Y = new Map(E.themes.map((w) => [w.id, w])), M = Y.has(G) ? G : E.defaultLight, J = Y.has(H) ? H : E.defaultDark, j = u === "system" ? V ? "dark" : "light" : u, K = j === "light" ? M : J, I = Y.get(K)?.variant ?? j;
-    return { mode: u, resolvedMode: j, lightTheme: M, darkTheme: J, theme: K, variant: I };
+  function a(E, f, I, H, V) {
+    let Y = new Map(E.themes.map((x) => [x.id, x])), A = Y.has(I) ? I : E.defaultLight, J = Y.has(H) ? H : E.defaultDark, O = f === "system" ? V ? "dark" : "light" : f, K = O === "light" ? A : J, j = Y.get(K)?.variant ?? O;
+    return { mode: f, resolvedMode: O, lightTheme: A, darkTheme: J, theme: K, variant: j };
   }
-  function hE(E, u) {
-    if (u === "system")
+  function hE(E, f) {
+    if (f === "system")
       L(E, "airplan-color-mode", null), L(E, "airplan-theme", null);
     else
-      L(E, "airplan-color-mode", u), L(E, "airplan-theme", u);
+      L(E, "airplan-color-mode", f), L(E, "airplan-theme", f);
   }
-  function AE(E, u, G) {
-    L(E, u === "light" ? "airplan-light-theme" : "airplan-dark-theme", G);
+  function uE(E, f, I) {
+    L(E, f === "light" ? "airplan-light-theme" : "airplan-dark-theme", I);
   }
-  function ME(E) {
+  function AE(E) {
     return {
       mode: E.mode,
       resolvedMode: E.resolvedMode,
@@ -1397,104 +1397,110 @@ body{background:#fff;color:#1f2328}}
   }
 
   (function() {
-    let E = document, u = E.documentElement, G = window.__AIRPLAN_THEME_CATALOG__;
-    if (!G)
+    let E = document, f = E.documentElement, I = window.__AIRPLAN_THEME_CATALOG__;
+    if (!I)
       return;
-    let H = G, V = window.matchMedia("(prefers-color-scheme: dark)"), Y;
+    let H = I, V = window.matchMedia("(prefers-color-scheme: dark)"), Y;
     try {
       Y = window.localStorage;
     } catch {}
-    let M = window.__airplanThemeState ?? _E(H, V.matches, Y);
+    let A = window.__airplanThemeState ?? _E(H, V.matches, Y);
     E.querySelectorAll(".js-only").forEach((h) => {
       h.hidden = !1;
     });
-    let J = E.querySelector("[data-airplan-appearance-trigger]"), j = E.querySelector("[data-airplan-appearance-panel]"), K = E.querySelector('select[data-airplan-theme-slot="light"]'), I = E.querySelector('select[data-airplan-theme-slot="dark"]'), w = Array.from(E.querySelectorAll("[data-airplan-color-mode]"));
+    let J = E.querySelector("[data-airplan-appearance-trigger]"), O = E.querySelector("[data-airplan-appearance-panel]"), K = E.querySelector('select[data-airplan-theme-slot="light"]'), j = E.querySelector('select[data-airplan-theme-slot="dark"]'), x = Array.from(E.querySelectorAll("[data-airplan-color-mode]"));
     function b(h) {
       if (!h || h.options.length > 0)
         return;
-      for (let [O, C] of [
+      for (let [M, W] of [
         ["light", "Light themes"],
         ["dark", "Dark themes"]
       ]) {
-        let $ = E.createElement("optgroup");
-        $.label = C;
-        for (let x of H.themes) {
-          if (x.variant !== O)
+        let Z = E.createElement("optgroup");
+        Z.label = W;
+        for (let w of H.themes) {
+          if (w.variant !== M)
             continue;
           let X = E.createElement("option");
-          X.value = x.id, X.textContent = x.name, $.append(X);
+          X.value = w.id, X.textContent = w.name, Z.append(X);
         }
-        h.append($);
+        h.append(Z);
       }
     }
-    b(K), b(I);
-    function F(h, O = !0) {
-      if (M = h, window.__airplanThemeState = M, u.dataset.airplanMode = M.mode, u.dataset.airplanResolvedMode = M.resolvedMode, u.dataset.airplanTheme = M.theme, u.dataset.airplanThemeVariant = M.variant, w.forEach((C) => {
-        let $ = C.dataset.airplanColorMode === M.mode;
-        C.classList.toggle("active", $), C.setAttribute("aria-pressed", String($));
+    b(K), b(j);
+    function R(h, M = !0) {
+      if (A = h, window.__airplanThemeState = A, f.dataset.airplanMode = A.mode, f.dataset.airplanResolvedMode = A.resolvedMode, f.dataset.airplanTheme = A.theme, f.dataset.airplanThemeVariant = A.variant, x.forEach((W) => {
+        let Z = W.dataset.airplanColorMode === A.mode;
+        W.classList.toggle("active", Z), W.setAttribute("aria-pressed", String(Z));
       }), K)
-        K.value = M.lightTheme;
-      if (I)
-        I.value = M.darkTheme;
-      if (O)
-        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: ME(M) }));
+        K.value = A.lightTheme;
+      if (j)
+        j.value = A.darkTheme;
+      if (M)
+        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: AE(A) }));
     }
     function U(h = {}) {
-      F(a(H, h.mode ?? M.mode, h.lightTheme ?? M.lightTheme, h.darkTheme ?? M.darkTheme, V.matches));
+      R(a(H, h.mode ?? A.mode, h.lightTheme ?? A.lightTheme, h.darkTheme ?? A.darkTheme, V.matches));
     }
-    function y(h, O = !1) {
-      if (!j || !J)
+    function m(h, M = !1) {
+      if (!O || !J)
         return;
-      if (j.hidden = !h, J.setAttribute("aria-expanded", String(h)), h)
-        j.querySelector("button,select")?.focus();
-      else if (O)
+      if (O.hidden = !h, J.setAttribute("aria-expanded", String(h)), h)
+        O.querySelector("button,select")?.focus();
+      else if (M)
         J.focus();
     }
-    J?.addEventListener("click", () => y(Boolean(j?.hidden ?? !0))), w.forEach((h) => h.addEventListener("click", () => {
-      let O = h.dataset.airplanColorMode;
-      if (!O)
+    J?.addEventListener("click", () => m(Boolean(O?.hidden ?? !0))), x.forEach((h) => h.addEventListener("click", () => {
+      let M = h.dataset.airplanColorMode;
+      if (!M)
         return;
-      hE(Y, O), U({ mode: O });
+      hE(Y, M), U({ mode: M });
     }));
-    function v(h, O) {
-      AE(Y, h, O.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: O.value } })), U(h === "light" ? { lightTheme: O.value } : { darkTheme: O.value });
+    function n(h, M) {
+      uE(Y, h, M.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: M.value } })), U(h === "light" ? { lightTheme: M.value } : { darkTheme: M.value });
     }
-    K?.addEventListener("change", () => v("light", K)), I?.addEventListener("change", () => v("dark", I)), V.addEventListener("change", () => {
-      if (M.mode === "system")
+    K?.addEventListener("change", () => n("light", K)), j?.addEventListener("change", () => n("dark", j)), V.addEventListener("change", () => {
+      if (A.mode === "system")
         U();
     }), E.addEventListener("keydown", (h) => {
-      if (h.key === "Escape" && j && !j.hidden)
-        h.preventDefault(), y(!1, !0);
+      if (h.key === "Escape" && O && !O.hidden)
+        h.preventDefault(), m(!1, !0);
     }), E.addEventListener("pointerdown", (h) => {
-      if (!j || j.hidden || !J)
+      if (!O || O.hidden || !J)
         return;
-      let O = h.target;
-      if (!j.contains(O) && !J.contains(O))
-        y(!1);
-    }), F(M, !1);
+      let M = h.target;
+      if (!(M instanceof Node) || O.contains(M) || J.contains(M))
+        return;
+      let Z = (M instanceof Element ? M : M.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), w = O.contains(E.activeElement) && !Z;
+      if (m(!1), w)
+        setTimeout(() => {
+          if (E.activeElement === E.body || O.contains(E.activeElement))
+            J.focus();
+        });
+    }), R(A, !1);
   })();
 
   (function() {
     var E = document;
-    let u = E.getElementById("rendered");
-    if (!u)
+    let f = E.getElementById("rendered");
+    if (!f)
       return;
-    let G = u;
+    let I = f;
     var H = E.querySelector('meta[name="airplan-versions"]'), V = window.location.pathname.split("/").filter(Boolean), Y = V.slice(0, -2);
-    function M(S, f) {
+    function A(S, B) {
       if (typeof S !== "string")
         return null;
       try {
         var _ = new URL(S);
         if (_.origin !== window.location.origin || _.username || _.password || _.search || _.hash)
           return null;
-        var B = _.pathname.split("/").filter(Boolean);
-        if (B.length !== Y.length + 2 || !Y.every(function(Z, c) {
-          return B[c] === Z;
-        }) || !/^[a-z2-7]{26}$/.test(B[B.length - 2]))
+        var G = _.pathname.split("/").filter(Boolean);
+        if (G.length !== Y.length + 2 || !Y.every(function($, c) {
+          return G[c] === $;
+        }) || !/^[a-z2-7]{26}$/.test(G[G.length - 2]))
           return null;
-        var Q = B[B.length - 1];
-        if (f ? Q !== ".airplan-changes.diff" : !Q.endsWith(".html"))
+        var Q = G[G.length - 1];
+        if (B ? Q !== ".airplan-changes.diff" : !Q.endsWith(".html"))
           return null;
         return _.href;
       } catch {
@@ -1502,61 +1508,61 @@ body{background:#fff;color:#1f2328}}
       }
     }
     function J(S) {
-      var f = E.querySelector('meta[name="airplan-revision"]'), _ = f ? Number(f.content) : Number(S.current_revision);
+      var B = E.querySelector('meta[name="airplan-revision"]'), _ = B ? Number(B.content) : Number(S.current_revision);
       if (!Number.isInteger(_) || _ <= 0 || S.current_revision !== _ || !Number.isInteger(S.latest_revision) || !Number.isInteger(S.last_assigned_revision) || !Array.isArray(S.revisions) || S.revisions.length === 0 || S.last_assigned_revision !== S.revisions.length || !/^[a-z2-7]{26}$/.test(S.chain_id))
         throw Error("revision identity is invalid");
-      var B = !1, Q = 0, Z = S.revisions.filter(function(A) {
-        if (!A || !Number.isInteger(A.number) || A.number !== Q + 1)
-          return B = !0, !1;
-        if (Q = A.number, A.deleted)
+      var G = !1, Q = 0, $ = S.revisions.filter(function(u) {
+        if (!u || !Number.isInteger(u.number) || u.number !== Q + 1)
+          return G = !0, !1;
+        if (Q = u.number, u.deleted)
           return !1;
-        if (A.safeURL = M(A.url, !1), !A.safeURL)
-          return B = !0, !1;
-        if (A.number > 1) {
-          var R = M(A.diff_url, !0);
-          if (!R || new URL(R).pathname.replace(/[^/]+$/, "") !== new URL(A.safeURL).pathname.replace(/[^/]+$/, ""))
-            return B = !0, !1;
+        if (u.safeURL = A(u.url, !1), !u.safeURL)
+          return G = !0, !1;
+        if (u.number > 1) {
+          var C = A(u.diff_url, !0);
+          if (!C || new URL(C).pathname.replace(/[^/]+$/, "") !== new URL(u.safeURL).pathname.replace(/[^/]+$/, ""))
+            return G = !0, !1;
         }
         return !0;
       });
-      if (B || S.revisions[0].number !== 1 || !Z.some(function(A) {
-        return A.number === _;
+      if (G || S.revisions[0].number !== 1 || !$.some(function(u) {
+        return u.number === _;
       }))
         throw Error("revision entries are invalid");
-      var c = Z.find(function(A) {
-        return A.number === _;
-      }), qE = window.location.origin + window.location.pathname;
-      if (!c || c.safeURL !== qE)
+      var c = $.find(function(u) {
+        return u.number === _;
+      }), ME = window.location.origin + window.location.pathname;
+      if (!c || c.safeURL !== ME)
         throw Error("current revision URL is invalid");
-      var k = Math.max.apply(null, Z.map(function(A) {
-        return A.number;
+      var k = Math.max.apply(null, $.map(function(u) {
+        return u.number;
       }));
       if (k !== S.latest_revision)
         throw Error("latest is invalid");
-      var W = E.querySelector("[data-revision-heading]");
-      if (!W) {
-        W = E.createElement("p"), W.className = "revision-heading", W.setAttribute("data-revision-heading", "");
+      var F = E.querySelector("[data-revision-heading]");
+      if (!F) {
+        F = E.createElement("p"), F.className = "revision-heading", F.setAttribute("data-revision-heading", "");
         var SE = E.getElementById("rendered");
         if (!SE)
           throw Error("rendered view is unavailable");
-        SE.prepend(W);
+        SE.prepend(F);
       }
-      var o = _ < k, fE = o ? "Revision " + _ + " of " + k : "Revision " + _ + " (Latest)", d = E.createElement("span");
-      d.className = "revision-picker-label", d.textContent = fE, d.setAttribute("aria-hidden", "true");
+      var o = _ < k, qE = o ? "Revision " + _ + " of " + k : "Revision " + _ + " (Latest)", d = E.createElement("span");
+      d.className = "revision-picker-label", d.textContent = qE, d.setAttribute("aria-hidden", "true");
       var D = E.createElement("select");
-      D.setAttribute("aria-label", "Document revision"), Z.forEach(function(A) {
-        var R = E.createElement("option");
-        R.value = A.safeURL || "", R.textContent = A.number === k ? "Revision " + A.number + " (Latest)" : "Revision " + A.number + " of " + k, R.selected = A.number === _, D.appendChild(R);
+      D.setAttribute("aria-label", "Document revision"), $.forEach(function(u) {
+        var C = E.createElement("option");
+        C.value = u.safeURL || "", C.textContent = u.number === k ? "Revision " + u.number + " (Latest)" : "Revision " + u.number + " of " + k, C.selected = u.number === _, D.appendChild(C);
       }), D.addEventListener("change", function() {
-        var A = D.selectedIndex;
-        if (A < 0 || A >= Z.length)
+        var u = D.selectedIndex;
+        if (u < 0 || u >= $.length)
           return;
-        window.location.assign(Z[A].safeURL || "");
-      }), W.replaceChildren(d, D), W.classList.add("is-picker"), W.classList.toggle("is-stale", o), E.body.classList.toggle("airplan-stale-revision", o);
+        window.location.assign($[u].safeURL || "");
+      }), F.replaceChildren(d, D), F.classList.add("is-picker"), F.classList.toggle("is-stale", o), E.body.classList.toggle("airplan-stale-revision", o);
     }
     if (H) {
-      var j = new URL(H.content, window.location.href);
-      j.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2)), fetch(j, { cache: "no-store", credentials: "same-origin" }).then(function(S) {
+      var O = new URL(H.content, window.location.href);
+      O.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2)), fetch(O, { cache: "no-store", credentials: "same-origin" }).then(function(S) {
         if (S.status === 404)
           return null;
         if (!S.ok)
@@ -1576,441 +1582,485 @@ body{background:#fff;color:#1f2328}}
     }
     var K = E.createElement("div");
     K.className = "sr-status", K.setAttribute("aria-live", "polite"), E.body.appendChild(K);
-    var I = null;
-    function w() {
-      if (I !== null)
+    var j = null;
+    function x() {
+      if (j !== null)
         return;
-      I = Array.from(E.querySelectorAll("details:not([open])")), I.forEach(function(S) {
+      j = Array.from(E.querySelectorAll("details:not([open])")), j.forEach(function(S) {
         S.open = !0;
       });
     }
     function b() {
-      if (I === null)
+      if (j === null)
         return;
-      I.forEach(function(S) {
+      j.forEach(function(S) {
         S.open = !1;
-      }), I = null;
+      }), j = null;
     }
-    window.addEventListener("beforeprint", w), window.addEventListener("afterprint", b);
-    function F(S, f, _) {
-      K.textContent = f;
-      var B = S.querySelector(".action-label"), Q = B ? B.textContent : "";
-      if (B)
-        B.textContent = _ ? "Copied" : "Failed";
+    window.addEventListener("beforeprint", x), window.addEventListener("afterprint", b);
+    function R(S, B, _) {
+      K.textContent = B;
+      var G = S.querySelector(".action-label"), Q = G ? G.textContent : "";
+      if (G)
+        G.textContent = _ ? "Copied" : "Failed";
       S.classList.add(_ ? "is-copied" : "is-failed"), S.disabled = !0, setTimeout(function() {
-        if (S.classList.remove("is-copied", "is-failed"), S.disabled = !1, B)
-          B.textContent = Q;
+        if (S.classList.remove("is-copied", "is-failed"), S.disabled = !1, G)
+          G.textContent = Q;
       }, 1200);
     }
-    function U(S, f) {
+    function U(S, B) {
       if (!navigator.clipboard) {
-        F(f, "Copy failed", !1);
+        R(B, "Copy failed", !1);
         return;
       }
       navigator.clipboard.writeText(S).then(function() {
-        F(f, "Copied!", !0);
+        R(B, "Copied!", !0);
       }, function() {
-        F(f, "Copy failed", !1);
+        R(B, "Copy failed", !1);
       });
     }
-    var y = '<svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>', v = '<svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>', h = '<svg class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', O = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 4h9M5 8h9M5 12h9"/><circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="12" r=".75" fill="currentColor" stroke="none"/></svg>', C = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', $ = E.getElementById("source"), x = E.getElementById("changes"), X = E.getElementById("toc"), z = null, q = null, e = window.matchMedia("(max-width: 78rem)");
-    function P() {
+    var m = '<svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>', n = '<svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>', h = '<svg class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', M = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 4h9M5 8h9M5 12h9"/><circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="12" r=".75" fill="currentColor" stroke="none"/></svg>', W = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', Z = E.getElementById("source"), w = E.getElementById("changes"), X = E.getElementById("toc"), z = null, q = null, e = window.matchMedia("(max-width: 78rem)");
+    function p() {
       if (q && q.open)
         q.close();
     }
-    function p() {
+    function y() {
       if (!X || !z || !q)
         return;
-      var S = e.matches && !G.hidden && X.getBoundingClientRect().bottom < 0 && !q.open;
-      if (z.classList.toggle("is-visible", S), z.tabIndex = S ? 0 : -1, z.setAttribute("aria-hidden", S ? "false" : "true"), q.open && (!e.matches || G.hidden))
-        P();
+      var S = e.matches && !I.hidden && X.getBoundingClientRect().bottom < 0 && !q.open;
+      if (z.classList.toggle("is-visible", S), z.tabIndex = S ? 0 : -1, z.setAttribute("aria-hidden", S ? "false" : "true"), q.open && (!e.matches || I.hidden))
+        p();
     }
     if (E.querySelectorAll(".viewtoggle button").forEach(function(S) {
       S.addEventListener("click", function() {
-        var f = S.dataset.view;
-        if (G.hidden = f !== "rendered", $)
-          $.hidden = f !== "source";
-        if (x)
-          x.hidden = f !== "changes";
+        var B = S.dataset.view;
+        if (I.hidden = B !== "rendered", Z)
+          Z.hidden = B !== "source";
+        if (w)
+          w.hidden = B !== "changes";
         if (X)
-          X.hidden = f !== "rendered";
+          X.hidden = B !== "rendered";
         E.querySelectorAll(".viewtoggle button").forEach(function(_) {
           _.classList.toggle("active", _ === S), _.setAttribute("aria-pressed", _ === S ? "true" : "false");
-        }), p();
+        }), y();
       });
     }), X) {
       let S = function() {
-        if (m.length === 0) {
-          p();
+        if (P.length === 0) {
+          y();
           return;
         }
         var _ = 0;
-        if (uE.forEach(function(Q, Z) {
+        if (fE.forEach(function(Q, $) {
           if (Q && Q.getBoundingClientRect().top <= 128)
-            _ = Z;
+            _ = $;
         }), window.innerHeight + window.scrollY >= E.documentElement.scrollHeight - 2)
-          _ = m.length - 1;
-        var B = m[_].getAttribute("href");
+          _ = P.length - 1;
+        var G = P[_].getAttribute("href");
         i.forEach(function(Q) {
-          var Z = Q.getAttribute("href") === B;
-          if (Q.classList.toggle("active", Z), Z)
+          var $ = Q.getAttribute("href") === G;
+          if (Q.classList.toggle("active", $), $)
             Q.setAttribute("aria-current", "location");
           else
             Q.removeAttribute("aria-current");
-        }), p();
-      }, f = function() {
+        }), y();
+      }, B = function() {
         if (s)
           return;
         s = !0, window.requestAnimationFrame(function() {
           s = !1, S();
         });
       };
-      var m = Array.from(X.querySelectorAll('a[href^="#"]')), EE = X.querySelector(".toc-list");
+      var P = Array.from(X.querySelectorAll('a[href^="#"]')), EE = X.querySelector(".toc-list");
       if (EE)
         if (q = E.createElement("dialog"), typeof q.showModal === "function") {
           q.className = "toc-dialog", q.id = "toc-dialog", q.setAttribute("aria-labelledby", "toc-dialog-title");
-          var n = E.createElement("div");
-          n.className = "toc-dialog-panel";
+          var v = E.createElement("div");
+          v.className = "toc-dialog-panel";
           var l = E.createElement("div");
           l.className = "toc-dialog-header";
           var g = E.createElement("h2");
           g.className = "toc-dialog-title", g.id = "toc-dialog-title", g.textContent = "Contents";
           var N = E.createElement("button");
-          N.className = "toc-dialog-close", N.type = "button", N.setAttribute("aria-label", "Close table of contents"), N.innerHTML = C, l.appendChild(g), l.appendChild(N);
+          N.className = "toc-dialog-close", N.type = "button", N.setAttribute("aria-label", "Close table of contents"), N.innerHTML = W, l.appendChild(g), l.appendChild(N);
           var T = E.createElement("nav");
-          T.className = "toc-dialog-nav", T.setAttribute("aria-label", "Table of contents"), T.appendChild(EE.cloneNode(!0)), n.appendChild(l), n.appendChild(T), q.appendChild(n), z = E.createElement("button"), z.className = "toc-trigger", z.type = "button", z.tabIndex = -1, z.setAttribute("aria-label", "Open table of contents"), z.setAttribute("aria-controls", "toc-dialog"), z.setAttribute("aria-haspopup", "dialog"), z.setAttribute("aria-hidden", "true"), z.innerHTML = O, E.body.appendChild(z), E.body.appendChild(q), z.addEventListener("click", function() {
-            q.showModal(), E.body.classList.add("toc-dialog-open"), p();
+          T.className = "toc-dialog-nav", T.setAttribute("aria-label", "Table of contents"), T.appendChild(EE.cloneNode(!0)), v.appendChild(l), v.appendChild(T), q.appendChild(v), z = E.createElement("button"), z.className = "toc-trigger", z.type = "button", z.tabIndex = -1, z.setAttribute("aria-label", "Open table of contents"), z.setAttribute("aria-controls", "toc-dialog"), z.setAttribute("aria-haspopup", "dialog"), z.setAttribute("aria-hidden", "true"), z.innerHTML = M, E.body.appendChild(z), E.body.appendChild(q), z.addEventListener("click", function() {
+            q.showModal(), E.body.classList.add("toc-dialog-open"), y();
             var _ = q.querySelector("a.active");
             if (_)
               _.scrollIntoView({ block: "nearest" });
-          }), N.addEventListener("click", P), q.addEventListener("click", function(_) {
+          }), N.addEventListener("click", p), q.addEventListener("click", function(_) {
             if (_.target === q)
-              P();
+              p();
           }), q.addEventListener("keydown", function(_) {
             if (_.key === "Escape")
-              _.preventDefault(), P();
+              _.preventDefault(), p();
           }), q.addEventListener("close", function() {
-            if (E.body.classList.remove("toc-dialog-open"), p(), z.classList.contains("is-visible"))
+            if (E.body.classList.remove("toc-dialog-open"), y(), z.classList.contains("is-visible"))
               setTimeout(function() {
                 z.focus();
               }, 50);
           }), T.querySelectorAll("a").forEach(function(_) {
-            _.addEventListener("click", P);
+            _.addEventListener("click", p);
           });
         } else
           q = null;
-      var i = m.slice();
+      var i = P.slice();
       if (q)
         i = i.concat(Array.from(q.querySelectorAll('a[href^="#"]')));
-      var uE = m.map(function(_) {
+      var fE = P.map(function(_) {
         return E.getElementById((_.getAttribute("href") || "").slice(1));
       }), s = !1;
-      E.addEventListener("scroll", f, { passive: !0 }), window.addEventListener("resize", S), S();
+      E.addEventListener("scroll", B, { passive: !0 }), window.addEventListener("resize", S), S();
     }
     let t = E.querySelector(".copy-source");
-    if (t && $)
+    if (t && Z)
       t.addEventListener("click", function() {
-        var S = $.querySelector("pre");
+        var S = Z.querySelector("pre");
         U(S ? S.textContent : "", t);
       });
-    G.querySelectorAll("pre").forEach(function(S) {
+    I.querySelectorAll("pre").forEach(function(S) {
       if (S.classList.contains("mermaid"))
         return;
-      var f = E.createElement("div");
-      f.className = "codewrap", S.parentNode?.insertBefore(f, S), f.appendChild(S);
+      var B = E.createElement("div");
+      B.className = "codewrap", S.parentNode?.insertBefore(B, S), B.appendChild(S);
       var _ = E.createElement("button");
-      _.className = "codecopy", _.type = "button", _.setAttribute("aria-label", "Copy code"), _.title = "Copy code", _.innerHTML = y + v + h, _.addEventListener("click", function() {
-        var B = S.querySelector("code");
-        U((B || S).textContent, _);
-      }), f.appendChild(_);
+      _.className = "codecopy", _.type = "button", _.setAttribute("aria-label", "Copy code"), _.title = "Copy code", _.innerHTML = m + n + h, _.addEventListener("click", function() {
+        var G = S.querySelector("code");
+        U((G || S).textContent, _);
+      }), B.appendChild(_);
     });
   })();
 })();
 
 </script>
 <script type="module" referrerpolicy="no-referrer">
-function s() {
-  let E = 0;
+function ee() {
+  let e = 0;
   return {
-    next: () => ++E,
-    isCurrent: (N) => N === E
+    next: () => ++e,
+    isCurrent: (i) => i === e
   };
 }
 
-var W = Array.from(document.querySelectorAll("pre.mermaid")), Nj = "https://cdn.jsdelivr.net/npm/mermaid@11.16.1/dist/mermaid.esm.min.mjs", h = W.map((E) => E.textContent), z = W.map(() => new Map), o = new Set, V = window.__AIRPLAN_THEME_CATALOG__, n = matchMedia("print"), T = "__airplan-print-github-light", Qj = 0, y = null, S = window.__airplanThemeState?.theme ?? V?.defaultLight ?? "github-light", e = S, r = s();
-function M(E) {
-  if (!z.every((N) => N.has(E)))
+var f = Array.from(document.querySelectorAll("pre.mermaid")), se = "https://cdn.jsdelivr.net/npm/mermaid@11.16.1/dist/mermaid.esm.min.mjs", Y = f.map((e) => e.textContent), E = f.map(() => new Map), T = f.map(() => new Set), y = window.__AIRPLAN_THEME_CATALOG__, ie = matchMedia("print"), C = "__airplan-print-github-light", ce = 0, R = null, V = window.__airplanThemeState?.theme ?? y?.defaultLight ?? "github-light", re = f.map(() => V), P = ie.matches, Z, D = new Set, te = ee();
+function X(e, i, l = !0) {
+  let r = E[e].get(i);
+  if (!r)
     return !1;
-  if (z.forEach((N, U) => {
-    let $ = N.get(E);
-    if (!$)
-      return;
-    if (W[U].innerHTML = $.svg, $.bindFunctions)
-      $.bindFunctions(W[U]);
-    if (y)
-      y.enhance(W[U]);
-  }), E !== T)
-    e = E;
+  if (f[e].innerHTML = r.svg, r.bindFunctions)
+    r.bindFunctions(f[e]);
+  if (R)
+    R.enhance(f[e]);
+  if (l && i !== C)
+    re[e] = i;
   return !0;
 }
-function a() {
-  if (!M(S))
-    M(e);
+function F(e) {
+  let i = !0;
+  return E.forEach((l, r) => {
+    if (!X(r, e))
+      i = !1;
+  }), i;
 }
-function x(E, N, U) {
-  let $ = document.createElement("button");
-  return $.type = "button", $.className = "mermaid-button", $.setAttribute(`data-airplan-mermaid-${N}`, ""), $.setAttribute("aria-label", E), $.title = E, $.innerHTML = U, $;
+function K() {
+  E.forEach((e, i) => {
+    if (!X(i, V))
+      X(i, re[i]);
+  });
 }
-function _j(E) {
-  let N = E.getAttribute("viewBox")?.trim().split(/[\s,]+/).map(Number);
-  if (N?.length === 4 && Number.isFinite(N[2]) && N[2] > 0 && Number.isFinite(N[3]) && N[3] > 0)
-    return { width: N[2], height: N[3] };
-  let U = Number.parseFloat(E.getAttribute("width") || ""), $ = Number.parseFloat(E.getAttribute("height") || "");
+function I(e, i = !0) {
+  if (Z)
+    Z(e, i);
+  else
+    D.add(e);
+}
+window.addEventListener("airplan:themechange", (e) => {
+  let i = e.detail;
+  if (V = i.theme, !P)
+    I(i.theme);
+});
+window.addEventListener("airplan:themeprepare", (e) => {
+  let i = e.detail;
+  I(i.theme, !1);
+});
+ie.addEventListener("change", (e) => {
+  if (P = e.matches, P)
+    F(C);
+  else
+    I(V), K();
+});
+window.addEventListener("beforeprint", () => {
+  P = !0, F(C);
+});
+window.addEventListener("afterprint", () => {
+  P = !1, I(V), K();
+});
+function z(e, i, l) {
+  let r = document.createElement("button");
+  return r.type = "button", r.className = "mermaid-button", r.setAttribute(`data-airplan-mermaid-${i}`, ""), r.setAttribute("aria-label", e), r.title = e, r.innerHTML = l, r;
+}
+function de(e) {
+  let i = e.getAttribute("viewBox")?.trim().split(/[\s,]+/).map(Number);
+  if (i?.length === 4 && Number.isFinite(i[2]) && i[2] > 0 && Number.isFinite(i[3]) && i[3] > 0)
+    return { width: i[2], height: i[3] };
+  let l = Number.parseFloat(e.getAttribute("width") || ""), r = Number.parseFloat(e.getAttribute("height") || "");
   return {
-    width: Number.isFinite(U) && U > 0 ? U : 800,
-    height: Number.isFinite($) && $ > 0 ? $ : 600
+    width: Number.isFinite(l) && l > 0 ? l : 800,
+    height: Number.isFinite(r) && r > 0 ? r : 600
   };
 }
-function $j(E) {
-  let N = E.cloneNode(!0), U = `airplan-mermaid-viewer-${Qj++}-`, $ = new Map, Z = [N, ...N.querySelectorAll("*")];
-  Z.forEach((C) => {
-    let J = C.getAttribute("id");
-    if (!J)
+function me(e) {
+  let i = e.cloneNode(!0), l = `airplan-mermaid-viewer-${ce++}-`, r = new Map, h = [i, ...i.querySelectorAll("*")];
+  h.forEach((c) => {
+    let s = c.getAttribute("id");
+    if (!s)
       return;
-    let Q = `${U}${J}`;
-    $.set(J, Q), C.setAttribute("id", Q);
-  }), Z.forEach((C) => {
-    Array.from(C.attributes).forEach((J) => {
-      let Q = J.value;
-      if ($.forEach((H, _) => {
-        if (Q = Q.replaceAll(`url(#${_})`, `url(#${H})`), Q === `#${_}`)
-          Q = `#${H}`;
-      }), J.name === "aria-labelledby" || J.name === "aria-describedby")
-        Q = Q.split(/\s+/).map((H) => $.get(H) || H).join(" ");
-      if (Q !== J.value)
-        C.setAttribute(J.name, Q);
+    let d = `${l}${s}`;
+    r.set(s, d), c.setAttribute("id", d);
+  }), h.forEach((c) => {
+    Array.from(c.attributes).forEach((s) => {
+      let d = s.value;
+      if (r.forEach((a, n) => {
+        if (d = d.replaceAll(`url(#${n})`, `url(#${a})`), d === `#${n}`)
+          d = `#${a}`;
+      }), s.name === "aria-labelledby" || s.name === "aria-describedby")
+        d = d.split(/\s+/).map((a) => r.get(a) || a).join(" ");
+      if (d !== s.value)
+        c.setAttribute(s.name, d);
     });
   });
-  let q = Array.from($).sort(([C], [J]) => J.length - C.length);
-  return N.querySelectorAll("style").forEach((C) => {
-    let J = C.textContent || "";
-    q.forEach(([Q, H]) => {
-      let _ = Q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), O = new RegExp(`#${_}(?![\\w-])`, "g");
-      J = J.replace(O, () => `#${H}`);
-    }), C.textContent = J;
-  }), N;
+  let w = Array.from(r).sort(([c], [s]) => s.length - c.length);
+  return i.querySelectorAll("style").forEach((c) => {
+    let s = c.textContent || "";
+    w.forEach(([d, a]) => {
+      let n = d.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), m = new RegExp(`#${n}(?![\\w-])`, "g");
+      s = s.replace(m, () => `#${a}`);
+    }), c.textContent = s;
+  }), i;
 }
-function t(E, N, U) {
-  return Math.min(Math.max(E, N), U);
+function ne(e, i, l) {
+  return Math.min(Math.max(e, i), l);
 }
-function Aj() {
-  let E = document.createElement("dialog");
-  if (typeof E.showModal !== "function")
+function ue() {
+  let e = document.createElement("dialog");
+  if (typeof e.showModal !== "function")
     return null;
-  E.id = "airplan-mermaid-dialog", E.className = "mermaid-dialog", E.setAttribute("data-airplan-mermaid-dialog", ""), E.setAttribute("aria-labelledby", "airplan-mermaid-dialog-title");
-  let N = document.createElement("div");
-  N.className = "mermaid-dialog-shell";
-  let U = document.createElement("header");
-  U.className = "mermaid-dialog-header";
-  let $ = document.createElement("strong");
-  $.id = "airplan-mermaid-dialog-title", $.textContent = "Mermaid diagram", U.appendChild($);
-  let Z = document.createElement("div");
-  Z.className = "mermaid-toolbar", Z.setAttribute("role", "toolbar"), Z.setAttribute("aria-label", "Diagram zoom controls");
-  let q = x("Zoom out", "zoom-out", "&minus;"), C = document.createElement("output");
-  C.className = "mermaid-zoom-value", C.setAttribute("data-airplan-mermaid-zoom-value", ""), C.setAttribute("aria-live", "polite"), C.textContent = "100%";
-  let J = x("Zoom in", "zoom-in", "+"), Q = x("Fit diagram", "fit", "Fit"), H = x("Close diagram viewer", "close", '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>');
-  Z.append(q, C, J, Q, H), U.appendChild(Z);
-  let _ = document.createElement("div");
-  _.className = "mermaid-canvas", _.setAttribute("data-airplan-mermaid-canvas", ""), _.tabIndex = 0, _.setAttribute("role", "group"), _.setAttribute("aria-label", "Zoomable Mermaid diagram. Scroll or use plus and minus to zoom. Drag or use arrow keys to pan.");
-  let O = document.createElement("div");
-  O.className = "mermaid-surface", O.setAttribute("data-airplan-mermaid-surface", ""), _.appendChild(O);
-  let K = document.createElement("p");
-  K.className = "mermaid-help", K.textContent = "Scroll to zoom · Drag to pan · 0 to fit", N.append(U, _, K), E.appendChild(N), document.body.appendChild(E);
-  let L = null, D = null, b = null, k = 1, p = 1, R = 1, P = 0, B = 0, X = null, v = 0, g = 0, c = 0, d = 0;
-  function Y() {
-    if (O.style.transform = `translate(${P}px, ${B}px)`, b)
-      b.style.transform = `translate(-50%, -50%) scale(${R})`;
-    C.textContent = `${Math.round(R * 100)}%`;
+  e.id = "airplan-mermaid-dialog", e.className = "mermaid-dialog", e.setAttribute("data-airplan-mermaid-dialog", ""), e.setAttribute("aria-labelledby", "airplan-mermaid-dialog-title");
+  let i = document.createElement("div");
+  i.className = "mermaid-dialog-shell";
+  let l = document.createElement("header");
+  l.className = "mermaid-dialog-header";
+  let r = document.createElement("strong");
+  r.id = "airplan-mermaid-dialog-title", r.textContent = "Mermaid diagram", l.appendChild(r);
+  let h = document.createElement("div");
+  h.className = "mermaid-toolbar", h.setAttribute("role", "toolbar"), h.setAttribute("aria-label", "Diagram zoom controls");
+  let w = z("Zoom out", "zoom-out", "&minus;"), c = document.createElement("output");
+  c.className = "mermaid-zoom-value", c.setAttribute("data-airplan-mermaid-zoom-value", ""), c.setAttribute("aria-live", "polite"), c.textContent = "100%";
+  let s = z("Zoom in", "zoom-in", "+"), d = z("Fit diagram", "fit", "Fit"), a = z("Close diagram viewer", "close", '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>');
+  h.append(w, c, s, d, a), l.appendChild(h);
+  let n = document.createElement("div");
+  n.className = "mermaid-canvas", n.setAttribute("data-airplan-mermaid-canvas", ""), n.tabIndex = 0, n.setAttribute("role", "group"), n.setAttribute("aria-label", "Zoomable Mermaid diagram. Scroll or use plus and minus to zoom. Drag or use arrow keys to pan.");
+  let m = document.createElement("div");
+  m.className = "mermaid-surface", m.setAttribute("data-airplan-mermaid-surface", ""), n.appendChild(m);
+  let G = document.createElement("p");
+  G.className = "mermaid-help", G.textContent = "Scroll to zoom · Drag to pan · 0 to fit", i.append(l, n, G), e.appendChild(i), document.body.appendChild(e);
+  let v = null, u = null, L = null, b = 1, $ = 1, g = 1, S = 0, M = 0, _ = null, O = 0, U = 0, j = 0, J = 0;
+  function N() {
+    if (m.style.transform = `translate(${S}px, ${M}px)`, L)
+      L.style.transform = `translate(-50%, -50%) scale(${g})`;
+    c.textContent = `${Math.round(g * 100)}%`;
   }
-  function w() {
-    let j = _.getBoundingClientRect(), F = Math.max(j.width - 48, 1), A = Math.max(j.height - 48, 1);
-    R = t(Math.min(F / k, A / p, 1), 0.05, 8), P = 0, B = 0, Y();
+  function H() {
+    let t = n.getBoundingClientRect(), p = Math.max(t.width - 48, 1), o = Math.max(t.height - 48, 1);
+    g = ne(Math.min(p / b, o / $, 1), 0.05, 8), S = 0, M = 0, N();
   }
-  function I(j, F, A) {
-    let G = t(j, 0.05, 8);
-    if (G === R)
+  function x(t, p, o) {
+    let A = ne(t, 0.05, 8);
+    if (A === g)
       return;
-    if (F !== void 0 && A !== void 0) {
-      let f = _.getBoundingClientRect(), Ej = F - (f.left + f.width / 2) - P, Jj = A - (f.top + f.height / 2) - B, i = G / R;
-      P += Ej * (1 - i), B += Jj * (1 - i);
+    if (p !== void 0 && o !== void 0) {
+      let B = n.getBoundingClientRect(), oe = p - (B.left + B.width / 2) - S, le = o - (B.top + B.height / 2) - M, k = A / g;
+      S += oe * (1 - k), M += le * (1 - k);
     }
-    R = G, Y();
+    g = A, N();
   }
-  function m(j, F) {
-    let A = $j(j);
-    b = A;
-    let G = _j(j);
-    if (k = G.width, p = G.height, A.style.width = `${k}px`, A.style.height = `${p}px`, A.style.maxWidth = "none", A.style.maxHeight = "none", O.replaceChildren(A), F)
-      w();
+  function Q(t, p) {
+    let o = me(t);
+    L = o;
+    let A = de(t);
+    if (b = A.width, $ = A.height, o.style.width = `${b}px`, o.style.height = `${$}px`, o.style.maxWidth = "none", o.style.maxHeight = "none", m.replaceChildren(o), p)
+      H();
     else
-      Y();
+      N();
   }
-  function u() {
-    if (E.open)
-      E.close();
+  function q() {
+    if (e.open)
+      e.close();
   }
-  function jj(j, F) {
-    let A = j.querySelector("svg");
-    if (!A)
+  function ae(t, p) {
+    let o = t.querySelector("svg");
+    if (!o)
       return;
-    L = j, D = F, m(A, !1), E.showModal(), document.body.classList.add("mermaid-dialog-open"), w(), _.focus();
+    v = t, u = p, Q(o, !1), e.showModal(), document.body.classList.add("mermaid-dialog-open"), H(), n.focus();
   }
-  q.addEventListener("click", () => I(R / 1.25)), J.addEventListener("click", () => I(R * 1.25)), Q.addEventListener("click", w), H.addEventListener("click", u), E.addEventListener("cancel", (j) => {
-    j.preventDefault(), u();
-  }), E.addEventListener("click", (j) => {
-    if (j.target === E)
-      u();
-  }), E.addEventListener("close", () => {
-    document.body.classList.remove("mermaid-dialog-open"), X = null, _.classList.remove("mermaid-canvas-panning");
-    let j = D;
-    if (L = null, D = null, j?.isConnected)
-      setTimeout(() => j.focus(), 0);
-  }), E.addEventListener("keydown", (j) => {
-    if (j.ctrlKey || j.metaKey || j.altKey)
+  w.addEventListener("click", () => x(g / 1.25)), s.addEventListener("click", () => x(g * 1.25)), d.addEventListener("click", H), a.addEventListener("click", q), e.addEventListener("cancel", (t) => {
+    t.preventDefault(), q();
+  }), e.addEventListener("click", (t) => {
+    if (t.target === e)
+      q();
+  }), e.addEventListener("close", () => {
+    document.body.classList.remove("mermaid-dialog-open"), _ = null, n.classList.remove("mermaid-canvas-panning");
+    let t = u;
+    if (v = null, u = null, t?.isConnected)
+      setTimeout(() => t.focus(), 0);
+  }), e.addEventListener("keydown", (t) => {
+    if (t.ctrlKey || t.metaKey || t.altKey)
       return;
-    if (j.key === "+" || j.key === "=") {
-      j.preventDefault(), I(R * 1.25);
+    if (t.key === "+" || t.key === "=") {
+      t.preventDefault(), x(g * 1.25);
       return;
     }
-    if (j.key === "-") {
-      j.preventDefault(), I(R / 1.25);
+    if (t.key === "-") {
+      t.preventDefault(), x(g / 1.25);
       return;
     }
-    if (j.key === "0") {
-      j.preventDefault(), w();
+    if (t.key === "0") {
+      t.preventDefault(), H();
       return;
     }
-    if (j.target !== _)
+    if (t.target !== n)
       return;
-    let F = j.shiftKey ? 120 : 40, A = {
-      ArrowLeft: [F, 0],
-      ArrowRight: [-F, 0],
-      ArrowUp: [0, F],
-      ArrowDown: [0, -F]
-    }[j.key];
-    if (!A)
+    let p = t.shiftKey ? 120 : 40, o = {
+      ArrowLeft: [p, 0],
+      ArrowRight: [-p, 0],
+      ArrowUp: [0, p],
+      ArrowDown: [0, -p]
+    }[t.key];
+    if (!o)
       return;
-    j.preventDefault(), P += A[0], B += A[1], Y();
-  }), _.addEventListener("wheel", (j) => {
-    j.preventDefault(), I(R * (j.deltaY < 0 ? 1.2 : 0.8333333333333334), j.clientX, j.clientY);
-  }, { passive: !1 }), _.addEventListener("pointerdown", (j) => {
-    if (j.button !== 0)
+    t.preventDefault(), S += o[0], M += o[1], N();
+  }), n.addEventListener("wheel", (t) => {
+    t.preventDefault(), x(g * (t.deltaY < 0 ? 1.2 : 0.8333333333333334), t.clientX, t.clientY);
+  }, { passive: !1 }), n.addEventListener("pointerdown", (t) => {
+    if (t.button !== 0)
       return;
-    X = j.pointerId, v = j.clientX, g = j.clientY, c = P, d = B, _.classList.add("mermaid-canvas-panning");
+    _ = t.pointerId, O = t.clientX, U = t.clientY, j = S, J = M, n.classList.add("mermaid-canvas-panning");
     try {
-      _.setPointerCapture(j.pointerId);
+      n.setPointerCapture(t.pointerId);
     } catch {}
-  }), _.addEventListener("pointermove", (j) => {
-    if (X !== j.pointerId)
+  }), n.addEventListener("pointermove", (t) => {
+    if (_ !== t.pointerId)
       return;
-    P = c + j.clientX - v, B = d + j.clientY - g, Y();
+    S = j + t.clientX - O, M = J + t.clientY - U, N();
   });
-  function l(j) {
-    if (X !== j.pointerId)
+  function W(t) {
+    if (_ !== t.pointerId)
       return;
     try {
-      _.releasePointerCapture(j.pointerId);
+      n.releasePointerCapture(t.pointerId);
     } catch {}
-    X = null, _.classList.remove("mermaid-canvas-panning");
+    _ = null, n.classList.remove("mermaid-canvas-panning");
   }
-  return _.addEventListener("pointerup", l), _.addEventListener("pointercancel", l), {
-    enhance(j) {
-      let F = j.querySelector("svg");
-      if (!F)
+  return n.addEventListener("pointerup", W), n.addEventListener("pointercancel", W), {
+    enhance(t) {
+      let p = t.querySelector("svg");
+      if (!p)
         return;
-      let A = j.querySelector(":scope > [data-airplan-mermaid-open]");
-      if (!A) {
-        A = x("Open diagram viewer", "open", '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.75 2A1.75 1.75 0 0 0 2 3.75v2.5a.75.75 0 0 0 1.5 0v-2.5a.25.25 0 0 1 .25-.25h2.5a.75.75 0 0 0 0-1.5Zm6 0a.75.75 0 0 0 0 1.5h2.5a.25.25 0 0 1 .25.25v2.5a.75.75 0 0 0 1.5 0v-2.5A1.75 1.75 0 0 0 12.25 2ZM2.75 9a.75.75 0 0 1 .75.75v2.5c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 2 12.25v-2.5A.75.75 0 0 1 2.75 9m10.5 0a.75.75 0 0 1 .75.75v2.5A1.75 1.75 0 0 1 12.25 14h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 .75-.75"/></svg>'), A.classList.add("mermaid-open"), A.setAttribute("aria-haspopup", "dialog"), A.setAttribute("aria-controls", E.id);
-        let G = A;
-        A.addEventListener("click", () => jj(j, G)), j.appendChild(A);
+      let o = t.querySelector(":scope > [data-airplan-mermaid-open]");
+      if (!o) {
+        o = z("Open diagram viewer", "open", '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.75 2A1.75 1.75 0 0 0 2 3.75v2.5a.75.75 0 0 0 1.5 0v-2.5a.25.25 0 0 1 .25-.25h2.5a.75.75 0 0 0 0-1.5Zm6 0a.75.75 0 0 0 0 1.5h2.5a.25.25 0 0 1 .25.25v2.5a.75.75 0 0 0 1.5 0v-2.5A1.75 1.75 0 0 0 12.25 2ZM2.75 9a.75.75 0 0 1 .75.75v2.5c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 2 12.25v-2.5A.75.75 0 0 1 2.75 9m10.5 0a.75.75 0 0 1 .75.75v2.5A1.75 1.75 0 0 1 12.25 14h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 .75-.75"/></svg>'), o.classList.add("mermaid-open"), o.setAttribute("aria-haspopup", "dialog"), o.setAttribute("aria-controls", e.id);
+        let A = o;
+        o.addEventListener("click", () => ae(t, A)), t.appendChild(o);
       }
-      if (L === j && E.open)
-        D = A, m(F, !1);
+      if (v === t && e.open)
+        u = o, Q(p, !1);
     }
   };
 }
 try {
-  let $ = function(J, Q = J) {
-    if (z.every((O) => O.has(Q)))
-      return Promise.resolve(!0);
-    if (o.has(Q))
-      return Promise.resolve(!1);
-    let H = N.get(J);
-    if (!H)
-      return Promise.resolve(!1);
-    let _ = !1;
-    return U = U.then(async () => {
-      if (z.every((O) => O.has(Q))) {
-        _ = !0;
+  let h = function(a) {
+    return E.every((n, m) => n.has(a) || T[m].has(a));
+  }, w = function(a, n = a) {
+    if (h(n))
+      return Promise.resolve();
+    let m = r.get(n);
+    if (m)
+      return m;
+    let G = i.get(a);
+    if (!G)
+      return Promise.resolve();
+    let v = l.then(async () => {
+      if (h(n))
         return;
-      }
       try {
-        E.initialize({
+        e.initialize({
           startOnLoad: !1,
           securityLevel: "strict",
           secure: ["theme", "themeVariables", "themeCSS", "darkMode"],
           theme: "base",
-          themeVariables: H.mermaid
+          themeVariables: G.mermaid
         });
-        let O = [];
-        for (let [K, L] of h.entries())
-          O.push(await E.render(`airplan-mermaid-${Q.replace(/[^a-z0-9-]/g, "print")}-${K}`, L));
-        if (O.forEach((K, L) => z[L].set(Q, K)), W.forEach((K) => {
-          K.classList.add("mermaid-rendered"), K.classList.remove("mermaid-failed");
-        }), !y)
-          y = Aj();
-        _ = !0;
-      } catch (O) {
-        if (o.add(Q), !z.some((K) => K.size > 0))
-          W.forEach((K, L) => {
-            K.textContent = h[L], K.classList.add("mermaid-failed");
-          });
-        console.warn(`airplan: Mermaid ${J} diagram rendering failed`, O);
+      } catch (u) {
+        T.forEach((L, b) => {
+          if (L.add(n), E[b].size === 0)
+            f[b].textContent = Y[b], f[b].classList.add("mermaid-failed");
+        }), console.warn(`airplan: Mermaid ${a} initialization failed`, u);
+        return;
       }
-    }), U.then(() => _);
+      for (let [u, L] of Y.entries()) {
+        if (E[u].has(n) || T[u].has(n))
+          continue;
+        try {
+          let b = await e.render(`airplan-mermaid-${n.replace(/[^a-z0-9-]/g, "print")}-${u}`, L);
+          E[u].set(n, b);
+          let $ = f[u];
+          if ($.classList.add("mermaid-rendered"), $.classList.remove("mermaid-failed"), !R)
+            R = ue();
+        } catch (b) {
+          if (T[u].add(n), E[u].size === 0)
+            f[u].textContent = L, f[u].classList.add("mermaid-failed");
+          console.warn(`airplan: Mermaid ${a} diagram ${u + 1} rendering failed`, b);
+        }
+      }
+    });
+    return l = v.catch(() => {}), r.set(n, v), v.then(() => r.delete(n), () => r.delete(n)), v;
   };
-  if (!V)
+  if (!y)
     throw Error("theme catalog is unavailable");
-  let { default: E } = await import(Nj), N = new Map(V.themes.map((J) => [J.id, J])), U = Promise.resolve();
-  async function Z(J, Q = !0) {
-    let H = r.next();
-    if (await $(J)) {
-      if (Q && r.isCurrent(H) && S === J && !n.matches)
-        M(J);
-    }
+  let { default: e } = await import(se), i = new Map(y.themes.map((a) => [a.id, a])), l = Promise.resolve(), r = new Map;
+  async function c(a, n = !0) {
+    let m = n ? te.next() : 0;
+    if (await w(a), n && te.isCurrent(m) && V === a && !P)
+      F(a);
   }
-  let q = window.__airplanThemeState, C = new Set([
-    q?.lightTheme ?? V.defaultLight,
-    q?.darkTheme ?? V.defaultDark
+  Z = c;
+  let s = window.__airplanThemeState, d = new Set([
+    s?.lightTheme ?? y.defaultLight,
+    s?.darkTheme ?? y.defaultDark
   ]);
-  for (let J of C)
-    await $(J);
-  await $("github-light", T), M(S), window.addEventListener("airplan:themechange", (J) => {
-    let Q = J.detail;
-    S = Q.theme, Z(Q.theme);
-  }), window.addEventListener("airplan:themeprepare", (J) => {
-    let Q = J.detail;
-    Z(Q.theme, !1);
-  }), n.addEventListener("change", (J) => {
-    if (J.matches)
-      M(T);
-    else
-      a();
-  }), window.addEventListener("beforeprint", () => M(T)), window.addEventListener("afterprint", a);
-} catch (E) {
-  W.forEach((N, U) => {
-    N.textContent = h[U], N.classList.add("mermaid-failed");
-  }), console.warn("airplan: Mermaid rendering failed", E);
+  for (let a of d)
+    await w(a);
+  if (await r.get("github-light"), h("github-light"))
+    E.forEach((a, n) => {
+      let m = a.get("github-light");
+      if (m)
+        a.set(C, m);
+      if (T[n].has("github-light"))
+        T[n].add(C);
+    });
+  else
+    await w("github-light", C);
+  for (let a of D)
+    await w(a);
+  if (D.clear(), await w(V), P)
+    F(C);
+  else
+    K();
+} catch (e) {
+  f.forEach((i, l) => {
+    i.textContent = Y[l], i.classList.add("mermaid-failed");
+  }), console.warn("airplan: Mermaid rendering failed", e);
 }
 
 </script>

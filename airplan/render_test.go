@@ -350,7 +350,8 @@ func TestRenderMarkdownMermaid(t *testing.T) {
 		`theme: "base"`,
 		`themeVariables: theme.mermaid`,
 		`secure: ["theme", "themeVariables", "themeCSS", "darkMode"]`,
-		`window.addEventListener("beforeprint", () => showTheme(printThemeKey))`,
+		`window.addEventListener("beforeprint", () => {`,
+		`showTheme(printThemeKey);`,
 		`window.addEventListener("airplan:themechange"`,
 	} {
 		if !strings.Contains(mermaidSource, fragment) {

@@ -70,6 +70,20 @@ func TestResolveThemeBundlePrintCSSIgnoresConfiguredDefaults(t *testing.T) {
 	}
 }
 
+func TestResolveThemeBundleNoJSDarkDefaultIsScreenOnly(t *testing.T) {
+	bundle, err := ResolveThemeBundle("", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	css := string(bundle.CSS)
+	if !strings.Contains(css, "@media screen and (prefers-color-scheme:dark){") {
+		t.Fatal("no-JS dark default is not constrained to screen media")
+	}
+	if strings.Contains(css, "@media (prefers-color-scheme:dark){") {
+		t.Fatal("no-JS dark default can override the fixed print palette")
+	}
+}
+
 func TestResolveThemeBundleAcceptsExactRegisteredChromaStyle(t *testing.T) {
 	theme := validCustomTheme()
 	theme.Syntax = "chroma:github"

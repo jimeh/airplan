@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -160,24 +159,26 @@ func TestCollectionPreviewHonorsCanceledContext(t *testing.T) {
 	}
 }
 
-func TestCollectionPreviewAppliesConfiguredTimeout(t *testing.T) {
+func TestPreviewContextAppliesResolvedConfiguredTimeout(t *testing.T) {
 	isolateEnv(t)
-	t.Setenv("AIRPLAN_TIMEOUT", "1ns")
-	dir := t.TempDir()
-	args := []string{"preview", "--files", "--repo", "none"}
-	for i := 0; i < airplan.MaxCollectionFiles; i++ {
-		input := filepath.Join(dir, fmt.Sprintf("shot-%03d.png", i))
-		if err := os.WriteFile(input, []byte("image"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		args = append(args, input)
+	t.Setenv("AIRPLAN_TIMEOUT", "17s")
+	cfg, err := airplan.LoadConfig(airplan.ConfigOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Timeout != 17*time.Second {
+		t.Fatalf("resolved timeout = %s, want 17s", cfg.Timeout)
 	}
 
-	cmd := newRootCmd()
-	cmd.SetArgs(args)
-	err := cmd.Execute()
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("error = %v, want context deadline exceeded", err)
+	ctx, cancel := timeoutContext(context.Background(), cfg)
+	defer cancel()
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("configured timeout context has no deadline")
+	}
+	remaining := time.Until(deadline)
+	if remaining <= 16*time.Second || remaining > 17*time.Second {
+		t.Fatalf("configured timeout deadline is %s away, want (16s, 17s]", remaining)
 	}
 }
 

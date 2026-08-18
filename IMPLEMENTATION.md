@@ -528,13 +528,13 @@ outside the project's signing and notarization pipeline.
    config-dependent storage work.
 2. Render a document in memory, or preflight every open collection file and
    render its overview, before generating a random directory.
-3. Resolve repository context, build the complete normalized v4 object set with
-   producer and applicable render provenance, and
-   encode the kind-specific marker.
+3. Resolve repository context, build the complete normalized v5 object set with
+   producer and applicable render provenance, including the resolved theme
+   recipe for rendered pages, and encode the kind-specific marker.
 4. Put the marker first. Documents then put optional source and page;
    collections stream files in argument order and put `index.html` last.
 5. Print no URL until all declared PUTs succeed. Then emit the document URL or
-   ordered direct collection URLs plus overview, and best-effort append one v4
+   ordered direct collection URLs plus overview, and best-effort append one v5
    manifest record.
 6. Discover both marker names through one LIST snapshot. The basename supplies
    only a kind hint; `show` validates content and every declared size.
@@ -546,11 +546,10 @@ outside the project's signing and notarization pipeline.
    record.
 8. Upgrade source-backed Markdown pages with marker-first/page-last conditional
    writes. Planning records the observed marker and page entity tags plus the
-   declared v4 page digest without rendering. Execution replans live state even
-   for a submitted current plan, fails on drift, verifies the new marker and
-   page bytes, and appends an
-   `upgrade` manifest event while leaving source, protection, and revision
-   control objects untouched.
+   declared v4-or-newer page digest without rendering. Execution replans live
+   state even for a submitted current plan, fails on drift, verifies the new
+   marker and page bytes, and appends an `upgrade` manifest event while leaving
+   source, protection, and revision control objects untouched.
 9. Sync complete normalized uploads into compact local history. Confirm every
    LIST-absent active marker with a targeted GET before local tombstoning.
 

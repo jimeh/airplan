@@ -174,8 +174,18 @@
       if (!panel || panel.hidden || !trigger)
         return;
       const target = event.target;
-      if (!panel.contains(target) && !trigger.contains(target))
-        setPanel(false);
+      if (!(target instanceof Node) || panel.contains(target) || trigger.contains(target))
+        return;
+      const targetElement = target instanceof Element ? target : target.parentElement;
+      const outsideFocusable = targetElement?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])');
+      const restoreFocus = panel.contains(d.activeElement) && !outsideFocusable;
+      setPanel(false);
+      if (restoreFocus) {
+        setTimeout(() => {
+          if (d.activeElement === d.body || panel.contains(d.activeElement))
+            trigger.focus();
+        });
+      }
     });
     apply(state, false);
   })();

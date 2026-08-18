@@ -251,7 +251,7 @@ func renderThemeCSS(catalog []Theme, lightID, darkID string) (string, error) {
 	}
 	writeProperties(`:root`, byID[lightID])
 	// No-JS dark system default follows the uploader's configured dark slot.
-	out.WriteString("@media (prefers-color-scheme:dark){")
+	out.WriteString("@media screen and (prefers-color-scheme:dark){")
 	writeProperties(`:root:not([data-airplan-theme])`, byID[darkID])
 	out.WriteString("}\n")
 	for _, theme := range catalog {
