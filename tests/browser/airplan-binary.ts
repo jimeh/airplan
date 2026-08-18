@@ -1,15 +1,15 @@
-import { execFile } from 'node:child_process';
-import { mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
+import { execFile } from "node:child_process";
+import { mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
-const windows = process.platform === 'win32';
+const windows = process.platform === "win32";
 
 /** Repository root, resolved from this module's own location. */
-export const repoRoot = join(here, '..', '..');
+export const repoRoot = join(here, "..", "..");
 
 /**
  * Path of the airplan binary the browser tests drive. The global setup
@@ -19,14 +19,14 @@ export const repoRoot = join(here, '..', '..');
  */
 export const binaryPath = join(
   repoRoot,
-  'bin',
-  windows ? 'airplan-browser.exe' : 'airplan-browser',
+  "bin",
+  windows ? "airplan-browser.exe" : "airplan-browser",
 );
 
 export const fixtureBinaryPath = join(
   repoRoot,
-  'bin',
-  windows ? 'airplan-browser-fixture.exe' : 'airplan-browser-fixture',
+  "bin",
+  windows ? "airplan-browser-fixture.exe" : "airplan-browser-fixture",
 );
 
 /**
@@ -35,9 +35,7 @@ export const fixtureBinaryPath = join(
  */
 export function cleanEnv() {
   return Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([name]) => !name.startsWith('AIRPLAN_'),
-    ),
+    Object.entries(process.env).filter(([name]) => !name.startsWith("AIRPLAN_")),
   );
 }
 
@@ -50,15 +48,13 @@ export async function buildAirplan() {
   // of pointing XDG_CONFIG_HOME at its temporary fixture root, which Go
   // consults for the env file only on Unix. Explicit process variables
   // still win, so an exported GOPROXY or GOMODCACHE keeps working.
-  env.GOENV = 'off';
+  env.GOENV = "off";
 
   // Ask the toolchain where it lives, then build through that binary
   // rather than PATH. Both resolve to the same Go; going direct only
   // keeps a mise shim from mutating the build environment on the way.
-  const { stdout: goRoot } = await execFileAsync(
-    'go', ['env', 'GOROOT'], { cwd: repoRoot, env },
-  );
-  const goPath = join(goRoot.trim(), 'bin', windows ? 'go.exe' : 'go');
+  const { stdout: goRoot } = await execFileAsync("go", ["env", "GOROOT"], { cwd: repoRoot, env });
+  const goPath = join(goRoot.trim(), "bin", windows ? "go.exe" : "go");
 
   // `go build -o` does create missing parents, but `go help build`
   // promises only that it writes to the named file or directory, so
@@ -67,12 +63,9 @@ export async function buildAirplan() {
 
   // -o to an explicit path: a bare "go build ." would try to write a
   // binary named airplan over the airplan/ package directory.
-  await execFileAsync(
-    goPath, ['build', '-o', binaryPath, '.'], { cwd: repoRoot, env },
-  );
-  await execFileAsync(
-    goPath,
-    ['build', '-o', fixtureBinaryPath, './tests/browser/fixture'],
-    { cwd: repoRoot, env },
-  );
+  await execFileAsync(goPath, ["build", "-o", binaryPath, "."], { cwd: repoRoot, env });
+  await execFileAsync(goPath, ["build", "-o", fixtureBinaryPath, "./tests/browser/fixture"], {
+    cwd: repoRoot,
+    env,
+  });
 }

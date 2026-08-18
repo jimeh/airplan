@@ -1,8 +1,7 @@
+@import url("./shared.css");
+
 :root {
-  --dialog-backdrop: light-dark(
-    rgba(31, 35, 40, 0.45),
-    rgba(0, 0, 0, 0.66)
-  );
+  --dialog-backdrop: light-dark(rgba(31, 35, 40, 0.45), rgba(0, 0, 0, 0.66));
   --mark-bg: light-dark(#fff8c5, #693e00);
   --alert-note: light-dark(#0969da, #4493f8);
   --alert-note-bg: light-dark(#ddf4ff, #121d2f);
@@ -24,8 +23,7 @@ html {
 
 .page-shell {
   display: grid;
-  grid-template-columns:
-    minmax(12rem, 1fr) minmax(0, var(--page-width)) minmax(12rem, 1fr);
+  grid-template-columns: minmax(12rem, 1fr) minmax(0, var(--page-width)) minmax(12rem, 1fr);
   grid-template-rows: auto 1fr;
   min-height: 100vh;
 }
@@ -52,8 +50,8 @@ html {
 .toc-title {
   margin: 0 0 0.75rem;
   color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -189,8 +187,8 @@ html {
 .toc-dialog-title {
   margin: 0;
   color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -218,8 +216,7 @@ html {
 
 .toc-dialog-nav {
   min-height: 0;
-  padding: 0.25rem 1.25rem
-    calc(1.5rem + env(safe-area-inset-bottom));
+  padding: 0.25rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom));
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -393,7 +390,12 @@ body.toc-dialog-open {
   max-width: var(--prose-width);
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   color: var(--heading);
   font-weight: 700;
   letter-spacing: -0.015em;
@@ -417,11 +419,23 @@ h3 {
   font-size: 1.2em;
   color: var(--subheading);
 }
-h4 { font-size: 1.05em; }
-h5, h6 { font-size: 1em; }
-h6 { color: var(--muted); }
+h4 {
+  font-size: 1.05em;
+}
+h5,
+h6 {
+  font-size: 1em;
+}
+h6 {
+  color: var(--muted);
+}
 
-p, ul, ol, blockquote, table, pre {
+p,
+ul,
+ol,
+blockquote,
+table,
+pre {
   margin: 0 0 1.25em;
 }
 
@@ -484,14 +498,19 @@ dd {
   flex: 0 1 var(--column-width);
 }
 
-.column > :first-child { margin-top: 0; }
-.column > :last-child { margin-bottom: 0; }
+.column > :first-child {
+  margin-top: 0;
+}
+.column > :last-child {
+  margin-bottom: 0;
+}
 
 a {
   color: var(--link);
 }
 
-ul, ol {
+ul,
+ol {
   padding-left: 1.75em;
 }
 
@@ -499,7 +518,8 @@ li + li {
   margin-top: 0.2em;
 }
 
-li > ul, li > ol {
+li > ul,
+li > ol {
   margin-bottom: 0;
 }
 
@@ -519,8 +539,12 @@ blockquote {
   color: var(--muted);
 }
 
-blockquote > :first-child { margin-top: 0; }
-blockquote > :last-child { margin-bottom: 0; }
+blockquote > :first-child {
+  margin-top: 0;
+}
+blockquote > :last-child {
+  margin-bottom: 0;
+}
 
 .markdown-alert {
   --alert-color: var(--alert-note);
@@ -596,7 +620,8 @@ table {
   overflow-x: auto;
 }
 
-th, td {
+th,
+td {
   border: 1px solid var(--border);
   padding: 0.35em 0.8em;
 }
@@ -605,13 +630,17 @@ th {
   font-weight: 600;
 }
 
-thead tr, tbody tr:nth-child(even) {
+thead tr,
+tbody tr:nth-child(even) {
   background: var(--code-bg);
 }
 
-code, pre, kbd, samp {
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+code,
+pre,
+kbd,
+samp {
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
 code {
@@ -774,8 +803,8 @@ body.mermaid-dialog-open {
 .mermaid-dialog-header > strong {
   overflow: hidden;
   color: var(--muted);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.08em;
@@ -1044,7 +1073,12 @@ mark {
     padding: 0;
   }
 
-  h1, h2, h3, h4, h5, h6 {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
     margin-top: 1.4em;
     margin-bottom: 0.55em;
     break-after: avoid-page;
@@ -1058,11 +1092,17 @@ mark {
     margin-top: 1.65em;
   }
 
-  p, ul, ol, blockquote, table, pre {
+  p,
+  ul,
+  ol,
+  blockquote,
+  table,
+  pre {
     margin-bottom: 0.9em;
   }
 
-  p, li {
+  p,
+  li {
     orphans: 3;
     widows: 3;
   }

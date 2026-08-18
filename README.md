@@ -1007,19 +1007,31 @@ mise run container:build    # build and load the native image; requires Docker
 mise run container:check    # validate amd64 + arm64 images; requires Docker
 mise run test:container-integration # container server smoke; requires Docker
 mise run test:browser       # Chromium page smoke tests; installs browser
-mise run audit:deps         # audit Go modules and npm dependencies
+mise run test:web           # pure TypeScript unit tests
+mise run typecheck:web      # strict browser + Playwright TypeScript checks
+mise run generate:web:check # verify committed browser assets
+mise run audit:deps         # audit Go modules and Bun dependencies
 mise run release:snapshot   # build release artifacts without publishing
 mise run verify             # broad local validation
 mise run update:mermaid     # update an eligible, 72-hour-old Mermaid pin
 ```
 
-The browser suite requires Node.js and Chromium. The shared task installs the
-locked npm dependencies and matching Chromium build on demand. CI also installs
-Chromium's Linux system dependencies first. Failed CI runs retain the Playwright
-HTML report, traces, screenshots, and other test results for seven days.
-On a Linux development host missing those system libraries, run `npm ci`
-followed by `npx playwright install-deps chromium` once; the latter may require
-elevated privileges.
+`mise run setup` installs Bun and Node, performs a frozen `bun ci`, and installs
+the Git hooks. Bun is the repository package manager and builds the maintained
+TypeScript and CSS into readable and minified committed browser assets. Node is
+retained only as Playwright's supported runtime. `bunfig.toml` rejects every
+direct and transitive package release newer than seven days with no standing
+exclusions. A confirmed security update may add a narrowly scoped temporary
+exception in the same update and must remove it once the release reaches the
+normal age.
+
+The browser suite requires Chromium. The shared task installs the matching
+build on demand, and CI also installs Chromium's Linux system dependencies.
+Failed CI runs retain the Playwright HTML report, traces, screenshots, and
+other test results for seven days. On a Linux development host missing those
+system libraries, run `bun ci` followed by
+`bunx playwright install-deps chromium` once; the latter may require elevated
+privileges.
 
 `mise run check:spec-sync` compares the branch with `origin/main` by default.
 Set `SPEC_SYNC_BASE` to check against another revision. It requires a SPEC.md

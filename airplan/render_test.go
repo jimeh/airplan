@@ -84,12 +84,84 @@ func TestRenderMarkdownGolden(t *testing.T) {
 }
 
 func TestPageRevisionNavigationUsesValidatedInMemoryURL(t *testing.T) {
-	if strings.Contains(pageJS, "select.value") {
+	if strings.Contains(readablePageJS, "select.value") {
 		t.Fatal("revision navigation rereads an attacker-mutable URL from the DOM")
 	}
-	if !strings.Contains(pageJS, "live[selected].safeURL") {
+	if !strings.Contains(readablePageJS, "[selected].safeURL") {
 		t.Fatal("revision navigation does not use the validated in-memory URL")
 	}
+}
+
+func TestGeneratedAssetsAreTemplateSafe(t *testing.T) {
+	assets := map[string]string{
+		"readable theme init": readableThemeInitJS,
+		"readable page JS":    readablePageJS,
+		"readable page CSS":   readablePageCSS,
+		"readable collection": readableCollectionJS + readableCollectionCSS,
+		"minified theme init": minifiedThemeInitJS,
+		"minified page JS":    minifiedPageJS,
+		"minified page CSS":   minifiedPageCSS,
+		"minified collection": minifiedCollectionJS + minifiedCollectionCSS,
+	}
+	for name, asset := range assets {
+		t.Run(name, func(t *testing.T) {
+			for _, delimiter := range []string{"{{", "}}"} {
+				if strings.Contains(asset, delimiter) {
+					t.Fatalf("generated asset contains template delimiter %q", delimiter)
+				}
+			}
+		})
+	}
+
+	for name, asset := range map[string]string{
+		"readable Mermaid": readableMermaidJS,
+		"minified Mermaid": minifiedMermaidJS,
+	} {
+		t.Run(name, func(t *testing.T) {
+			const action = "{{.MermaidURL}}"
+			if strings.Count(asset, action) != 1 {
+				t.Fatalf("Mermaid asset has %d URL actions, want 1", strings.Count(asset, action))
+			}
+			withoutAction := strings.Replace(asset, action, "", 1)
+			for _, delimiter := range []string{"{{", "}}"} {
+				if strings.Contains(withoutAction, delimiter) {
+					t.Fatalf("generated Mermaid asset contains extra template delimiter %q", delimiter)
+				}
+			}
+		})
+	}
+}
+
+func TestMinifiedAssetsSurviveTemplateExecution(t *testing.T) {
+	assertAsset := func(t *testing.T, output, name, asset string) {
+		t.Helper()
+		if !strings.Contains(output, asset) {
+			t.Fatalf("rendered output does not contain the exact %s asset", name)
+		}
+	}
+
+	page := render(t, []byte("```mermaid\ngraph TD\n  A --> B\n```\n"), RenderOptions{})
+	assertAsset(t, page, "theme init", minifiedThemeInitJS)
+	assertAsset(t, page, "page CSS", minifiedPageCSS)
+	assertAsset(t, page, "page JS", minifiedPageJS)
+	expectedMermaid := strings.Replace(
+		minifiedMermaidJS,
+		"{{.MermaidURL}}",
+		`"`+DefaultMermaidURL+`"`,
+		1,
+	)
+	assertAsset(t, page, "Mermaid JS", expectedMermaid)
+
+	collection, _, err := RenderCollection(context.Background(), FilesInput{
+		Files: []FileInput{{Name: "plan.md", Reader: bytes.NewReader(nil)}},
+	}, CollectionRenderOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectionPage := string(collection)
+	assertAsset(t, collectionPage, "collection theme init", minifiedThemeInitJS)
+	assertAsset(t, collectionPage, "collection CSS", minifiedCollectionCSS)
+	assertAsset(t, collectionPage, "collection JS", minifiedCollectionJS)
 }
 
 func TestRenderMarkdownPageFeatures(t *testing.T) {
@@ -118,7 +190,7 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 			`aria-label="Light theme"`,
 			`aria-label="System theme"`,
 			`aria-label="Dark theme"`,
-			`localStorage.getItem('airplan-theme')`,
+			`localStorage.getItem("airplan-theme")`,
 		} {
 			if !strings.Contains(out, fragment) {
 				t.Errorf("theme control missing %q", fragment)
@@ -224,7 +296,7 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 	t.Run("system and explicit palettes present", func(t *testing.T) {
 		out := render(t, src, RenderOptions{Title: "Hi"})
 		for _, fragment := range []string{
-			"light-dark(#ffffff, #0d1117)",
+			"--bg:var(--buncss-light,#fff)var(--buncss-dark,#0d1117)",
 			"prefers-color-scheme: dark",
 			":root:not([data-theme]) .chroma .k",
 			`:root[data-theme="light"] .chroma .k`,
@@ -253,12 +325,13 @@ func TestRenderMarkdownMermaid(t *testing.T) {
 	if !strings.Contains(out, "await import(\""+DefaultMermaidURL+"\")") {
 		t.Fatal("pinned Mermaid module import missing")
 	}
-	if !strings.Contains(out, "await mermaid.render(") ||
-		!strings.Contains(out, "airplan-mermaid-${theme}-${index}") {
+	mermaidSource := readableMermaidJS + "\n" + readablePageCSS
+	if !strings.Contains(mermaidSource, "await mermaid.render(") ||
+		!strings.Contains(mermaidSource, "airplan-mermaid-${theme}-${index}") {
 		t.Fatal("Mermaid theme variants are not rendered independently")
 	}
-	if !strings.Contains(out,
-		"diagram.classList.add('mermaid-rendered')") {
+	if !strings.Contains(mermaidSource,
+		`diagram.classList.add("mermaid-rendered")`) {
 		t.Fatal("successful Mermaid diagrams are not marked as rendered")
 	}
 	for _, fragment := range []string{
@@ -266,21 +339,21 @@ func TestRenderMarkdownMermaid(t *testing.T) {
 		"data-airplan-mermaid-open",
 		"cloneMermaidSVG",
 	} {
-		if !strings.Contains(out, fragment) {
+		if !strings.Contains(mermaidSource, fragment) {
 			t.Errorf("Mermaid viewer asset missing %q", fragment)
 		}
 	}
 	for _, fragment := range []string{
-		"theme: theme === 'dark' ? 'dark' : 'default'",
-		"secure: ['theme', 'themeVariables', 'themeCSS', 'darkMode']",
-		"window.addEventListener('beforeprint', () => showTheme('light'))",
-		"window.addEventListener('airplan:themechange'",
+		`theme: theme === "dark" ? "dark" : "default"`,
+		`secure: ["theme", "themeVariables", "themeCSS", "darkMode"]`,
+		`window.addEventListener("beforeprint", () => showTheme("light"))`,
+		`window.addEventListener("airplan:themechange"`,
 	} {
-		if !strings.Contains(out, fragment) {
+		if !strings.Contains(mermaidSource, fragment) {
 			t.Errorf("Mermaid theme handling missing %q", fragment)
 		}
 	}
-	if !strings.Contains(out, "pre.mermaid.mermaid-rendered {") {
+	if !strings.Contains(mermaidSource, "pre.mermaid.mermaid-rendered {") {
 		t.Fatal("rendered Mermaid layout is not state-scoped")
 	}
 	if strings.Contains(out, `class="codewrap"><pre class="mermaid"`) {
@@ -424,6 +497,7 @@ func TestResolveTitle(t *testing.T) {
 func TestRenderMarkdownInteractivity(t *testing.T) {
 	src := []byte("# Hi\n\n```go\npackage main\n```\n")
 	out := render(t, src, RenderOptions{Title: "Hi"})
+	assets := out + "\n" + readablePageJS + "\n" + readablePageCSS
 
 	for name, frag := range map[string]string{
 		"view toggle":           `class="viewtoggle mode-toggle js-only" hidden`,
@@ -441,7 +515,7 @@ func TestRenderMarkdownInteractivity(t *testing.T) {
 		"embedded script":       "<script>",
 		"highlighted fence":     `<span class="kn">package</span>`,
 	} {
-		if !strings.Contains(out, frag) {
+		if !strings.Contains(assets, frag) {
 			t.Errorf("page missing %s (%q)", name, frag)
 		}
 	}

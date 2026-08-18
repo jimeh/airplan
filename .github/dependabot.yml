@@ -33,7 +33,7 @@ updates:
     cooldown:
       default-days: 7
     groups:
-      browser-test-dependencies:
+      web-dependencies:
         patterns: ["*"]
     commit-message:
       prefix: "chore(deps)"

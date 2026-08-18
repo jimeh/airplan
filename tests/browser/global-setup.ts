@@ -1,4 +1,4 @@
-import { buildAirplan } from './airplan-binary.js';
+import { buildAirplan } from "./airplan-binary.ts";
 
 /**
  * Build the airplan binary once for the whole run.

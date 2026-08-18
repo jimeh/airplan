@@ -1,0 +1,246 @@
+import { copyFile, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const generatedRoot = join(repositoryRoot, "airplan", "assets", "generated");
+const mermaidSentinel = "__AIRPLAN_MERMAID_MODULE_URL__";
+const mermaidTemplateAction = "{{.MermaidURL}}";
+const check = process.argv.slice(2).includes("--check");
+
+interface Entry {
+  input: string;
+  output: string;
+  format?: "esm" | "iife";
+}
+
+type Variant = "readable" | "minified";
+
+const scriptEntries: Entry[] = [
+  { input: "web/src/theme-init.ts", output: "theme-init.js", format: "iife" },
+  { input: "web/src/page.ts", output: "page.js", format: "iife" },
+  { input: "web/src/collection.ts", output: "collection.js", format: "iife" },
+  { input: "web/src/mermaid.ts", output: "mermaid.js.tmpl", format: "esm" },
+];
+const styleEntries: Entry[] = [
+  { input: "web/styles/page.css", output: "page.css" },
+  { input: "web/styles/collection.css", output: "collection.css" },
+];
+
+async function walk(directory: string): Promise<string[]> {
+  const paths: string[] = [];
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      paths.push(...(await walk(path)));
+    } else {
+      paths.push(path);
+    }
+  }
+  return paths.sort();
+}
+
+export function assertTemplateSafe(source: string, path: string): void {
+  const delimiter = source.includes("{{") ? "{{" : source.includes("}}") ? "}}" : "";
+  if (delimiter) {
+    const offset = source.indexOf(delimiter);
+    const context = JSON.stringify(source.slice(Math.max(0, offset - 20), offset + 22));
+    throw new Error(
+      `${path}: generated asset contains template delimiter ${delimiter} near ${context}`,
+    );
+  }
+}
+
+export function separateCSSStructuralDelimiters(source: string): string {
+  let separated = "";
+  let quote: '"' | "'" | null = null;
+  let inComment = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const character = source[index];
+    const next = source[index + 1];
+
+    if (inComment) {
+      separated += character;
+      if (character === "*" && next === "/") {
+        separated += next;
+        index += 1;
+        inComment = false;
+      }
+      continue;
+    }
+
+    if (quote) {
+      separated += character;
+      if (character === "\\" && next !== undefined) {
+        separated += next;
+        index += 1;
+      } else if (character === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (character === "/" && next === "*") {
+      separated += character + next;
+      index += 1;
+      inComment = true;
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      separated += character;
+      quote = character;
+      continue;
+    }
+    if (character === "\\" && next !== undefined) {
+      separated += character + next;
+      index += 1;
+      continue;
+    }
+    if ((character === "{" || character === "}") && separated.endsWith(character)) {
+      separated += " ";
+    }
+    separated += character;
+  }
+  return separated;
+}
+
+function replaceMermaidSentinel(source: string, path: string): string {
+  const quotedSentinels = [JSON.stringify(mermaidSentinel), `'${mermaidSentinel}'`];
+  const matches = quotedSentinels.filter((sentinel) => source.includes(sentinel));
+  if (matches.length !== 1) {
+    throw new Error(`${path}: expected exactly one quoted Mermaid URL sentinel`);
+  }
+  const quoted = matches[0];
+  if (source.indexOf(quoted) !== source.lastIndexOf(quoted)) {
+    throw new Error(`${path}: expected exactly one Mermaid URL sentinel`);
+  }
+  return source.replace(quoted, mermaidTemplateAction);
+}
+
+function stripBunSourceLabels(source: string): string {
+  return source.replace(/^[\t ]*\/\/ web\/src\/[^\r\n]+\r?\n/gm, "");
+}
+
+export function prepareGeneratedSource(source: string, output: string, variant: Variant): string {
+  const isStyle = output.endsWith(".css");
+  if (isStyle) {
+    source = separateCSSStructuralDelimiters(source);
+  } else if (variant === "minified") {
+    // Bun emits path labels when whitespace minification is disabled. They are
+    // build metadata, and html/template would discard them during baking.
+    source = stripBunSourceLabels(source);
+  }
+
+  if (output.endsWith(".tmpl")) {
+    source = replaceMermaidSentinel(source, output);
+    const withoutAction = source.replace(mermaidTemplateAction, "");
+    assertTemplateSafe(withoutAction, output);
+  } else {
+    assertTemplateSafe(source, output);
+  }
+  if (variant === "readable") {
+    const comment = isStyle ? "/*" : "//";
+    const suffix = comment === "/*" ? " */" : "";
+    source = `${comment} Code generated by web/build.ts; DO NOT EDIT.${suffix}\n${source}`;
+  }
+  return source;
+}
+
+async function buildEntry(root: string, variant: Variant, entry: Entry): Promise<void> {
+  const temporaryOut = join(root, "bun");
+  const isStyle = entry.output.endsWith(".css");
+  const result = await Bun.build({
+    entrypoints: [join(repositoryRoot, entry.input)],
+    emitDCEAnnotations: false,
+    format: entry.format,
+    minify:
+      variant === "readable"
+        ? false
+        : isStyle
+          ? true
+          : { identifiers: true, syntax: true, whitespace: false },
+    naming: basename(entry.output).replace(/\.tmpl$/, ""),
+    outdir: temporaryOut,
+    root: repositoryRoot,
+    sourcemap: "none",
+    target: "browser",
+  });
+  if (!result.success || result.outputs.length !== 1) {
+    const messages = result.logs.map((message) => message.message).join("\n");
+    throw new Error(`${entry.input}: Bun build failed\n${messages}`);
+  }
+
+  const source = prepareGeneratedSource(await result.outputs[0].text(), entry.output, variant);
+
+  const destination = join(root, variant, entry.output);
+  await mkdir(dirname(destination), { recursive: true });
+  await writeFile(destination, source);
+}
+
+async function buildAll(root: string): Promise<void> {
+  for (const variant of ["readable", "minified"] as const) {
+    for (const entry of [...scriptEntries, ...styleEntries]) {
+      await buildEntry(root, variant, entry);
+    }
+  }
+  await rm(join(root, "bun"), { recursive: true, force: true });
+}
+
+async function compareGenerated(candidateRoot: string): Promise<void> {
+  const expected = (await walk(candidateRoot)).map((path) => relative(candidateRoot, path));
+  const actual = await readdir(generatedRoot).then(
+    async () => (await walk(generatedRoot)).map((path) => relative(generatedRoot, path)),
+    () => [] as string[],
+  );
+  const expectedList = expected.join("\n");
+  const actualList = actual.join("\n");
+  if (expectedList !== actualList) {
+    throw new Error(
+      `generated asset list is stale\nexpected:\n${expectedList}\nactual:\n${actualList}`,
+    );
+  }
+  for (const path of expected) {
+    const [wanted, current] = await Promise.all([
+      readFile(join(candidateRoot, path)),
+      readFile(join(generatedRoot, path)),
+    ]);
+    if (!wanted.equals(current)) {
+      throw new Error(`${path}: generated asset is stale`);
+    }
+  }
+}
+
+async function replaceGenerated(candidateRoot: string): Promise<void> {
+  await rm(generatedRoot, { recursive: true, force: true });
+  for (const path of await walk(candidateRoot)) {
+    const destination = join(generatedRoot, relative(candidateRoot, path));
+    await mkdir(dirname(destination), { recursive: true });
+    await copyFile(path, destination);
+  }
+}
+
+async function main(): Promise<void> {
+  // Bun derives readable bundle source labels from the process working directory.
+  // Anchor it so direct and Mise invocations produce identical committed bytes.
+  process.chdir(repositoryRoot);
+
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "airplan-web-"));
+  try {
+    await buildAll(temporaryRoot);
+    if (check) {
+      await compareGenerated(temporaryRoot);
+      console.error("web assets are up to date");
+    } else {
+      await replaceGenerated(temporaryRoot);
+      console.error("generated web assets");
+    }
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+}
+
+if (import.meta.main) {
+  await main();
+}

@@ -28,29 +28,41 @@ var builtinTemplateLayout string
 //go:embed assets/collection.html.tmpl
 var builtinCollectionTemplateLayout string
 
-//go:embed assets/shared.css
-var sharedCSS string
+//go:embed assets/generated/readable/page.css
+var readablePageCSS string
 
-//go:embed assets/page.css
-var pageCSS string
+//go:embed assets/generated/readable/collection.css
+var readableCollectionCSS string
 
-//go:embed assets/collection.css
-var collectionCSS string
+//go:embed assets/generated/readable/theme-init.js
+var readableThemeInitJS string
 
-//go:embed assets/theme-init.js
-var themeInitJS string
+//go:embed assets/generated/readable/page.js
+var readablePageJS string
 
-//go:embed assets/theme.js
-var themeJS string
+//go:embed assets/generated/readable/mermaid.js.tmpl
+var readableMermaidJS string
 
-//go:embed assets/page.js
-var pageJS string
+//go:embed assets/generated/readable/collection.js
+var readableCollectionJS string
 
-//go:embed assets/mermaid.js.tmpl
-var mermaidJS string
+//go:embed assets/generated/minified/page.css
+var minifiedPageCSS string
 
-//go:embed assets/collection.js
-var collectionJS string
+//go:embed assets/generated/minified/collection.css
+var minifiedCollectionCSS string
+
+//go:embed assets/generated/minified/theme-init.js
+var minifiedThemeInitJS string
+
+//go:embed assets/generated/minified/page.js
+var minifiedPageJS string
+
+//go:embed assets/generated/minified/mermaid.js.tmpl
+var minifiedMermaidJS string
+
+//go:embed assets/generated/minified/collection.js
+var minifiedCollectionJS string
 
 //go:embed assets/theme-toggle.html.tmpl
 var themeToggle string
@@ -60,23 +72,19 @@ var themeToggle string
 // SyntaxCSS remains data because it is coupled to generated highlighting
 // classes (SPEC.md §3).
 var builtinTemplate = bakeTemplate(builtinTemplateLayout,
-	templateReplacement{"/* airplan:shared-css */", sharedCSS},
-	templateReplacement{"/* airplan:page-css */", pageCSS},
-	templateReplacement{"/* airplan:theme-init-js */", themeInitJS},
-	templateReplacement{"/* airplan:theme-js */", themeJS},
-	templateReplacement{"/* airplan:page-js */", pageJS},
-	templateReplacement{"/* airplan:mermaid-js */", mermaidJS},
+	templateReplacement{"/* airplan:page-css */", readablePageCSS},
+	templateReplacement{"/* airplan:theme-init-js */", readableThemeInitJS},
+	templateReplacement{"/* airplan:page-js */", readablePageJS},
+	templateReplacement{"/* airplan:mermaid-js */", readableMermaidJS},
 	templateReplacement{"<!-- airplan:theme-toggle -->", themeToggle},
 )
 
 // builtinCollectionTemplate is the exact reusable custom-template source
 // printed by `airplan template collection`.
 var builtinCollectionTemplate = bakeTemplate(builtinCollectionTemplateLayout,
-	templateReplacement{"/* airplan:shared-css */", sharedCSS},
-	templateReplacement{"/* airplan:collection-css */", collectionCSS},
-	templateReplacement{"/* airplan:theme-init-js */", themeInitJS},
-	templateReplacement{"/* airplan:theme-js */", themeJS},
-	templateReplacement{"/* airplan:collection-js */", collectionJS},
+	templateReplacement{"/* airplan:collection-css */", readableCollectionCSS},
+	templateReplacement{"/* airplan:theme-init-js */", readableThemeInitJS},
+	templateReplacement{"/* airplan:collection-js */", readableCollectionJS},
 	templateReplacement{"<!-- airplan:theme-toggle -->", themeToggle},
 )
 
@@ -85,22 +93,18 @@ var builtinCollectionTemplate = bakeTemplate(builtinCollectionTemplateLayout,
 // Keeping the comments in builtinTemplate makes its dumped customization
 // source useful without introducing trailing spaces in rendered pages.
 var executableBuiltinTemplate = bakeTemplate(builtinTemplateLayout,
-	templateReplacement{"/* airplan:shared-css */", templateAsset(sharedCSS)},
-	templateReplacement{"/* airplan:page-css */", templateAsset(pageCSS)},
-	templateReplacement{"/* airplan:theme-init-js */", templateAsset(themeInitJS)},
-	templateReplacement{"/* airplan:theme-js */", templateAsset(themeJS)},
-	templateReplacement{"/* airplan:page-js */", templateAsset(pageJS)},
-	templateReplacement{"/* airplan:mermaid-js */", templateAsset(mermaidJS)},
+	templateReplacement{"/* airplan:page-css */", minifiedPageCSS},
+	templateReplacement{"/* airplan:theme-init-js */", minifiedThemeInitJS},
+	templateReplacement{"/* airplan:page-js */", minifiedPageJS},
+	templateReplacement{"/* airplan:mermaid-js */", minifiedMermaidJS},
 	templateReplacement{"<!-- airplan:theme-toggle -->", themeToggle},
 )
 
 var executableBuiltinCollectionTemplate = bakeTemplate(
 	builtinCollectionTemplateLayout,
-	templateReplacement{"/* airplan:shared-css */", templateAsset(sharedCSS)},
-	templateReplacement{"/* airplan:collection-css */", templateAsset(collectionCSS)},
-	templateReplacement{"/* airplan:theme-init-js */", templateAsset(themeInitJS)},
-	templateReplacement{"/* airplan:theme-js */", templateAsset(themeJS)},
-	templateReplacement{"/* airplan:collection-js */", templateAsset(collectionJS)},
+	templateReplacement{"/* airplan:collection-css */", minifiedCollectionCSS},
+	templateReplacement{"/* airplan:theme-init-js */", minifiedThemeInitJS},
+	templateReplacement{"/* airplan:collection-js */", minifiedCollectionJS},
 	templateReplacement{"<!-- airplan:theme-toggle -->", themeToggle},
 )
 
@@ -114,36 +118,6 @@ func bakeTemplate(layout string, replacements ...templateReplacement) string {
 		pairs = append(pairs, replacement.marker, replacement.source)
 	}
 	return strings.NewReplacer(pairs...).Replace(layout)
-}
-
-// templateAsset removes source-only full-line comments before CSS and
-// JavaScript are parsed as literal html/template content. html/template
-// replaces those comments with spaces, which would otherwise introduce
-// trailing whitespace into generated pages.
-func templateAsset(source string) string {
-	lines := strings.Split(source, "\n")
-	out := make([]string, 0, len(lines))
-	inBlockComment := false
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if inBlockComment {
-			if strings.Contains(trimmed, "*/") {
-				inBlockComment = false
-			}
-			continue
-		}
-		if strings.HasPrefix(trimmed, "/*") {
-			if !strings.Contains(trimmed, "*/") {
-				inBlockComment = true
-			}
-			continue
-		}
-		if strings.HasPrefix(trimmed, "//") {
-			continue
-		}
-		out = append(out, line)
-	}
-	return strings.Join(out, "\n")
 }
 
 // Chroma styles used for syntax highlighting in light and dark mode.

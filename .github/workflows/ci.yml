@@ -26,7 +26,24 @@ jobs:
         with:
           add_shims_to_path: false
           cache_save: ${{ github.event_name != 'pull_request' }}
+          install_args: golangci-lint
       - run: mise run lint:go
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+        with:
+          add_shims_to_path: false
+          cache_save: ${{ github.event_name != 'pull_request' }}
+          install_args: bun
+      - run: bun ci
+      - run: mise run typecheck:web
+      - run: mise run lint:web
+      - run: mise run test:web
 
   test:
     strategy:
@@ -46,7 +63,8 @@ jobs:
         with:
           add_shims_to_path: false
           cache_save: ${{ github.event_name != 'pull_request' }}
-      - run: mise run test
+          install: false
+      - run: mise run --skip-tools test
 
   format:
     runs-on: ubuntu-latest
@@ -62,6 +80,8 @@ jobs:
         with:
           add_shims_to_path: false
           cache_save: ${{ github.event_name != 'pull_request' }}
+          install_args: bun golangci-lint
+      - run: bun ci
       - run: mise run format:check
 
   generated:
@@ -78,6 +98,8 @@ jobs:
         with:
           add_shims_to_path: false
           cache_save: ${{ github.event_name != 'pull_request' }}
+          install_args: bun
+      - run: bun ci
       - run: mise run generate:check
       - run: mise run check:go-version
 
@@ -97,7 +119,8 @@ jobs:
         with:
           add_shims_to_path: false
           cache_save: false
-      - run: mise run check:spec-sync
+          install: false
+      - run: mise run --skip-tools check:spec-sync
         env:
           SPEC_SYNC_BASE: ${{ github.event.pull_request.base.sha }}
           SPEC_SYNC_WARN_ONLY: "1"
@@ -116,7 +139,8 @@ jobs:
         with:
           add_shims_to_path: false
           cache_save: ${{ github.event_name != 'pull_request' }}
-      - run: mise run test-integration
+          install: false
+      - run: mise run --skip-tools test-integration
 
   container:
     runs-on: ubuntu-latest
@@ -133,6 +157,7 @@ jobs:
         with:
           add_shims_to_path: false
           cache_save: ${{ github.event_name != 'pull_request' }}
+          install_args: goreleaser syft
       - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
       - run: mise run container:check
       - run: scripts/container/integration.sh
@@ -151,9 +176,10 @@ jobs:
         with:
           add_shims_to_path: false
           cache_save: ${{ github.event_name != 'pull_request' }}
-      - run: mise exec -- npm ci
-      - run: mise exec -- npx playwright install --with-deps chromium
-      - run: mise exec -- npm run test:browser
+          install_args: bun node
+      - run: bun ci
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:browser
       - if: ${{ failure() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -187,6 +213,7 @@ jobs:
         with:
           add_shims_to_path: false
           cache_save: ${{ github.event_name != 'pull_request' }}
+          install: false
       # -o to a scratch path: a bare "go build ." would try to write a
       # binary named airplan over the airplan/ package directory.
       - run: go build -o "$RUNNER_TEMP/airplan" .

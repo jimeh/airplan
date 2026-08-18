@@ -23,8 +23,14 @@ func TestIsContractSensitive(t *testing.T) {
 		{path: "airplan/testdata/page.html", want: false},
 		{path: "airplan/assets/page.js", want: true},
 		{path: "airplan/assets/theme/style.css", want: true},
+		{path: "web/src/page.ts", want: true},
+		{path: "web/src/theme.ts", want: true},
+		{path: "web/styles/page.css", want: true},
+		{path: "web/styles/shared.css", want: true},
+		{path: "web/build.ts", want: false},
+		{path: "web/build.test.ts", want: false},
 		{path: "schema/airplan.schema.json", want: true},
-		{path: "tests/browser/page.spec.js", want: false},
+		{path: "tests/browser/page.spec.ts", want: false},
 		{path: "internal/cmd/genschema/main.go", want: false},
 		{path: "README.md", want: false},
 		{path: "SPEC.md", want: false},
@@ -108,6 +114,10 @@ func TestAnalyze(t *testing.T) {
 				"airplan/assets/page.js",
 				"cli/removed.go",
 				"internal/moved.go",
+				"tests/browser/page.spec.ts",
+				"web/build.ts",
+				"web/src/page.ts",
+				"web/styles/shared.css",
 			},
 			v: versions{
 				baseSpec: "0.19.1", currentSpec: "0.19.1",
@@ -115,7 +125,8 @@ func TestAnalyze(t *testing.T) {
 			},
 			want: []string{
 				"contract-sensitive paths changed without a SPEC.md version bump: " +
-					"airplan/assets/page.js, cli/removed.go, main.go",
+					"airplan/assets/page.js, cli/removed.go, main.go, " +
+					"web/src/page.ts, web/styles/shared.css",
 			},
 		},
 	}

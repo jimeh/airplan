@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.38.0**
+**Spec version: 0.38.1**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -403,9 +403,11 @@ A custom template takes full responsibility for the page: page styles,
 noindex meta, and any interactivity. `.SyntaxCSS` is supplied because it
 is coupled to the generated highlighting classes; the built-in page's
 own CSS and JavaScript are baked directly into its template rather than
-exposed as data. `airplan template` prints that exact, self-contained
-built-in template to stdout. Saving the output and passing it back via
-`--template` must work unchanged.
+exposed as data. `airplan template` prints a source-friendly, self-contained
+representation of the built-in template to stdout. The executable may embed
+an equivalent minified representation of those static assets. Saving the
+printed output and passing it back via `--template` must work unchanged and
+produce the same page behavior.
 
 Portability boundary: the data contract above is
 implementation-independent; the template _syntax_ is

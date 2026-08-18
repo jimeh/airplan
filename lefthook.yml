@@ -12,7 +12,20 @@ pre-commit:
     markdown:
       glob: "*.md"
       exclude: "airplan/testdata/*"
-      run: oxfmt --check --no-error-on-unmatched-pattern {staged_files}
+      run: bun run oxfmt -- --check --no-error-on-unmatched-pattern {staged_files}
+    web-format:
+      glob: "*.{ts,mts,css,json,toml}"
+      exclude: "{airplan/assets/generated/**,airplan/testdata/**,bun.lock,schema/airplan.schema.json}"
+      run: bun run oxfmt -- --check --no-error-on-unmatched-pattern {staged_files}
+    web-lint:
+      glob: "*.{ts,mts}"
+      run: bun run oxlint -- {staged_files}
+    css-lint:
+      glob: "web/styles/*.css"
+      run: bun run stylelint -- {staged_files}
+    web-typecheck:
+      glob: "{web/**,tests/browser/**,playwright.config.ts,package.json,bun.lock,tsconfig*.json,.oxlintrc.json}"
+      run: mise run typecheck:web && mise run lint:ts
     workflows:
       glob: ".github/workflows/*.yml"
       run: mise run lint:workflows

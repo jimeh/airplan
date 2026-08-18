@@ -1,0 +1,239 @@
+var W = ((t) => typeof require < "u" ? require : typeof Proxy < "u" ? new Proxy(t, {
+  get: (a, r) => (typeof require < "u" ? require : a)[r]
+}) : t)(function(t) {
+  if (typeof require < "u")
+    return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + t + '" is not supported');
+});
+
+var E = Array.from(document.querySelectorAll("pre.mermaid"));
+var z = E.map((t) => t.textContent), A = E.map(() => ({})), j = matchMedia("(prefers-color-scheme: dark)"), J = matchMedia("print"), Q = 0, R = null;
+function H() {
+  let t = document.documentElement.dataset.theme;
+  return t === "light" || t === "dark" ? t : j.matches ? "dark" : "light";
+}
+function L(t) {
+  A.forEach((a, r) => {
+    let n = a[t] || a.light || a.dark;
+    if (!n)
+      return;
+    if (E[r].innerHTML = n.svg, n.bindFunctions)
+      n.bindFunctions(E[r]);
+    if (R)
+      R.enhance(E[r]);
+  });
+}
+function y(t, a, r) {
+  let n = document.createElement("button");
+  return n.type = "button", n.className = "mermaid-button", n.setAttribute(`data-airplan-mermaid-${a}`, ""), n.setAttribute("aria-label", t), n.title = t, n.innerHTML = r, n;
+}
+function _(t) {
+  let a = t.getAttribute("viewBox")?.trim().split(/[\s,]+/).map(Number);
+  if (a?.length === 4 && Number.isFinite(a[2]) && a[2] > 0 && Number.isFinite(a[3]) && a[3] > 0)
+    return { width: a[2], height: a[3] };
+  let r = Number.parseFloat(t.getAttribute("width") || ""), n = Number.parseFloat(t.getAttribute("height") || "");
+  return {
+    width: Number.isFinite(r) && r > 0 ? r : 800,
+    height: Number.isFinite(n) && n > 0 ? n : 600
+  };
+}
+function ee(t) {
+  let a = t.cloneNode(!0), r = `airplan-mermaid-viewer-${Q++}-`, n = new Map, u = [a, ...a.querySelectorAll("*")];
+  u.forEach((s) => {
+    let l = s.getAttribute("id");
+    if (!l)
+      return;
+    let d = `${r}${l}`;
+    n.set(l, d), s.setAttribute("id", d);
+  }), u.forEach((s) => {
+    Array.from(s.attributes).forEach((l) => {
+      let d = l.value;
+      if (n.forEach((p, o) => {
+        if (d = d.replaceAll(`url(#${o})`, `url(#${p})`), d === `#${o}`)
+          d = `#${p}`;
+      }), l.name === "aria-labelledby" || l.name === "aria-describedby")
+        d = d.split(/\s+/).map((p) => n.get(p) || p).join(" ");
+      if (d !== l.value)
+        s.setAttribute(l.name, d);
+    });
+  });
+  let S = Array.from(n).sort(([s], [l]) => l.length - s.length);
+  return a.querySelectorAll("style").forEach((s) => {
+    let l = s.textContent || "";
+    S.forEach(([d, p]) => {
+      let o = d.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), f = new RegExp(`#${o}(?![\\w-])`, "g");
+      l = l.replace(f, () => `#${p}`);
+    }), s.textContent = l;
+  }), a;
+}
+function X(t, a, r) {
+  return Math.min(Math.max(t, a), r);
+}
+function te() {
+  let t = document.createElement("dialog");
+  if (typeof t.showModal !== "function")
+    return null;
+  t.id = "airplan-mermaid-dialog", t.className = "mermaid-dialog", t.setAttribute("data-airplan-mermaid-dialog", ""), t.setAttribute("aria-labelledby", "airplan-mermaid-dialog-title");
+  let a = document.createElement("div");
+  a.className = "mermaid-dialog-shell";
+  let r = document.createElement("header");
+  r.className = "mermaid-dialog-header";
+  let n = document.createElement("strong");
+  n.id = "airplan-mermaid-dialog-title", n.textContent = "Mermaid diagram", r.appendChild(n);
+  let u = document.createElement("div");
+  u.className = "mermaid-toolbar", u.setAttribute("role", "toolbar"), u.setAttribute("aria-label", "Diagram zoom controls");
+  let S = y("Zoom out", "zoom-out", "&minus;"), s = document.createElement("output");
+  s.className = "mermaid-zoom-value", s.setAttribute("data-airplan-mermaid-zoom-value", ""), s.setAttribute("aria-live", "polite"), s.textContent = "100%";
+  let l = y("Zoom in", "zoom-in", "+"), d = y("Fit diagram", "fit", "Fit"), p = y("Close diagram viewer", "close", '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>');
+  u.append(S, s, l, d, p), r.appendChild(u);
+  let o = document.createElement("div");
+  o.className = "mermaid-canvas", o.setAttribute("data-airplan-mermaid-canvas", ""), o.tabIndex = 0, o.setAttribute("role", "group"), o.setAttribute("aria-label", "Zoomable Mermaid diagram. Scroll or use plus and minus to zoom. Drag or use arrow keys to pan.");
+  let f = document.createElement("div");
+  f.className = "mermaid-surface", f.setAttribute("data-airplan-mermaid-surface", ""), o.appendChild(f);
+  let x = document.createElement("p");
+  x.className = "mermaid-help", x.textContent = "Scroll to zoom · Drag to pan · 0 to fit", a.append(r, o, x), t.appendChild(a), document.body.appendChild(t);
+  let T = null, V = null, $ = null, G = 1, N = 1, m = 1, g = 0, b = 0, v = null, B = 0, D = 0, F = 0, I = 0;
+  function w() {
+    if (f.style.transform = `translate(${g}px, ${b}px)`, $)
+      $.style.transform = `translate(-50%, -50%) scale(${m})`;
+    s.textContent = `${Math.round(m * 100)}%`;
+  }
+  function C() {
+    let e = o.getBoundingClientRect(), c = Math.max(e.width - 48, 1), i = Math.max(e.height - 48, 1);
+    m = X(Math.min(c / G, i / N, 1), 0.05, 8), g = 0, b = 0, w();
+  }
+  function M(e, c, i) {
+    let h = X(e, 0.05, 8);
+    if (h === m)
+      return;
+    if (c !== void 0 && i !== void 0) {
+      let k = o.getBoundingClientRect(), O = c - (k.left + k.width / 2) - g, U = i - (k.top + k.height / 2) - b, q = h / m;
+      g += O * (1 - q), b += U * (1 - q);
+    }
+    m = h, w();
+  }
+  function Y(e, c) {
+    let i = ee(e);
+    $ = i;
+    let h = _(e);
+    if (G = h.width, N = h.height, i.style.width = `${G}px`, i.style.height = `${N}px`, i.style.maxWidth = "none", i.style.maxHeight = "none", f.replaceChildren(i), c)
+      C();
+    else
+      w();
+  }
+  function P() {
+    if (t.open)
+      t.close();
+  }
+  function K(e, c) {
+    let i = e.querySelector("svg");
+    if (!i)
+      return;
+    T = e, V = c, Y(i, !1), t.showModal(), document.body.classList.add("mermaid-dialog-open"), C(), o.focus();
+  }
+  S.addEventListener("click", () => M(m / 1.25)), l.addEventListener("click", () => M(m * 1.25)), d.addEventListener("click", C), p.addEventListener("click", P), t.addEventListener("cancel", (e) => {
+    e.preventDefault(), P();
+  }), t.addEventListener("click", (e) => {
+    if (e.target === t)
+      P();
+  }), t.addEventListener("close", () => {
+    document.body.classList.remove("mermaid-dialog-open"), v = null, o.classList.remove("mermaid-canvas-panning");
+    let e = V;
+    if (T = null, V = null, e?.isConnected)
+      setTimeout(() => e.focus(), 0);
+  }), t.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey)
+      return;
+    if (e.key === "+" || e.key === "=") {
+      e.preventDefault(), M(m * 1.25);
+      return;
+    }
+    if (e.key === "-") {
+      e.preventDefault(), M(m / 1.25);
+      return;
+    }
+    if (e.key === "0") {
+      e.preventDefault(), C();
+      return;
+    }
+    if (e.target !== o)
+      return;
+    let c = e.shiftKey ? 120 : 40, i = {
+      ArrowLeft: [c, 0],
+      ArrowRight: [-c, 0],
+      ArrowUp: [0, c],
+      ArrowDown: [0, -c]
+    }[e.key];
+    if (!i)
+      return;
+    e.preventDefault(), g += i[0], b += i[1], w();
+  }), o.addEventListener("wheel", (e) => {
+    e.preventDefault(), M(m * (e.deltaY < 0 ? 1.2 : 0.8333333333333334), e.clientX, e.clientY);
+  }, { passive: !1 }), o.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0)
+      return;
+    v = e.pointerId, B = e.clientX, D = e.clientY, F = g, I = b, o.classList.add("mermaid-canvas-panning");
+    try {
+      o.setPointerCapture(e.pointerId);
+    } catch {}
+  }), o.addEventListener("pointermove", (e) => {
+    if (v !== e.pointerId)
+      return;
+    g = F + e.clientX - B, b = I + e.clientY - D, w();
+  });
+  function Z(e) {
+    if (v !== e.pointerId)
+      return;
+    try {
+      o.releasePointerCapture(e.pointerId);
+    } catch {}
+    v = null, o.classList.remove("mermaid-canvas-panning");
+  }
+  return o.addEventListener("pointerup", Z), o.addEventListener("pointercancel", Z), {
+    enhance(e) {
+      let c = e.querySelector("svg");
+      if (!c)
+        return;
+      let i = e.querySelector(":scope > [data-airplan-mermaid-open]");
+      if (!i) {
+        i = y("Open diagram viewer", "open", '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.75 2A1.75 1.75 0 0 0 2 3.75v2.5a.75.75 0 0 0 1.5 0v-2.5a.25.25 0 0 1 .25-.25h2.5a.75.75 0 0 0 0-1.5Zm6 0a.75.75 0 0 0 0 1.5h2.5a.25.25 0 0 1 .25.25v2.5a.75.75 0 0 0 1.5 0v-2.5A1.75 1.75 0 0 0 12.25 2ZM2.75 9a.75.75 0 0 1 .75.75v2.5c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 2 12.25v-2.5A.75.75 0 0 1 2.75 9m10.5 0a.75.75 0 0 1 .75.75v2.5A1.75 1.75 0 0 1 12.25 14h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 .75-.75"/></svg>'), i.classList.add("mermaid-open"), i.setAttribute("aria-haspopup", "dialog"), i.setAttribute("aria-controls", t.id);
+        let h = i;
+        i.addEventListener("click", () => K(e, h)), e.appendChild(i);
+      }
+      if (T === e && t.open)
+        V = i, Y(c, !1);
+    }
+  };
+}
+try {
+  let { default: t } = await import({{.MermaidURL}});
+  for (let [a, r] of E.entries()) {
+    for (let n of ["light", "dark"])
+      try {
+        t.initialize({
+          startOnLoad: !1,
+          securityLevel: "strict",
+          secure: ["theme", "themeVariables", "themeCSS", "darkMode"],
+          theme: n === "dark" ? "dark" : "default"
+        }), A[a][n] = await t.render(`airplan-mermaid-${n}-${a}`, z[a]);
+      } catch (u) {
+        console.warn(`airplan: Mermaid ${n} diagram rendering failed`, u);
+      }
+    if (A[a].light || A[a].dark)
+      r.classList.add("mermaid-rendered");
+    else
+      r.textContent = z[a], r.classList.add("mermaid-failed");
+  }
+  if (A.some((a) => a.light || a.dark))
+    R = te();
+  L(H()), window.addEventListener("airplan:themechange", (a) => {
+    let r = a.detail;
+    L(r.theme);
+  }), J.addEventListener("change", (a) => {
+    L(a.matches ? "light" : H());
+  }), window.addEventListener("beforeprint", () => L("light")), window.addEventListener("afterprint", () => L(H()));
+} catch (t) {
+  E.forEach((a, r) => {
+    a.textContent = z[r], a.classList.add("mermaid-failed");
+  }), console.warn("airplan: Mermaid rendering failed", t);
+}

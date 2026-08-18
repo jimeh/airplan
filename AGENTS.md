@@ -32,9 +32,9 @@ this implementation is built and must not contradict the spec.
 | `mise run container:check`            | validate amd64 + arm64 images (needs Docker)               |
 | `mise run test:container-integration` | MinIO image lifecycle (needs Docker)                       |
 | `mise run test:browser`               | Chromium page smoke tests (installs browser on demand)     |
-| `mise run audit:deps`                 | verify modules + scan Go and npm dependencies              |
-| `mise run lint`                       | all lints: `lint:go`, `lint:workflows`                     |
-| `mise run format` / `format:check`    | write / check formatting (`:go`, `:markdown`)              |
+| `mise run audit:deps`                 | verify modules + scan Go and Bun dependencies              |
+| `mise run lint`                       | all lints: Go, web, and workflows                          |
+| `mise run format` / `format:check`    | write / check Go, web, and repository text                 |
 | `mise run generate`                   | refresh committed generated files                          |
 | `mise run generate:check`             | fail if generated files are stale                          |
 | `mise run release:snapshot`           | build release artifacts without publishing                 |
@@ -59,10 +59,11 @@ coverage has no equivalent local task on non-Windows hosts.
   Tests assert this; don't print to stdout casually in `cli/`.
 - **SPEC synchronization sensor**: `mise run check:spec-sync` compares against
   `SPEC_SYNC_BASE` (default `origin/main`). It treats `main.go`, non-test Go
-  files under `cli/` and `airplan/`, `airplan/assets/`, and
-  `schema/airplan.schema.json` as contract-sensitive, including deletions and
-  moves out of those paths. Local policy findings fail; PR CI reports them as
-  warnings while signal quality matures. Git and parsing errors always fail.
+  files under `cli/` and `airplan/`, authored page behavior under `web/src/`
+  and `web/styles/`, `airplan/assets/`, and `schema/airplan.schema.json` as
+  contract-sensitive, including deletions and moves out of those paths. Local
+  policy findings fail; PR CI reports them as warnings while signal quality
+  matures. Git and parsing errors always fail.
 - **CLI tests must clear `AIRPLAN_*` selectors**: worktree-local
   `mise.local.toml` commonly exports `AIRPLAN_PROFILE`, so `mise run check`
   runs `go test` with it set while a bare `go test` may not. Local listing
@@ -105,13 +106,28 @@ coverage has no equivalent local task on non-Windows hosts.
   may retain the same content-derived ETag when identical bytes are rewritten.
   Never use an identity PUT as a serialization claim; write a schema-equivalent
   but byte-distinct body and keep a real MinIO assertion that its ETag changes.
-- **Page assets** (`airplan/assets/`): embedded via go:embed. Mermaid is the
+- **Page assets** (`web/`, `airplan/assets/generated/`): authored TypeScript and
+  CSS are built by Bun into committed readable/minified assets embedded via
+  go:embed. `generate:web:check` byte-compares a temporary rebuild. Mermaid is the
   only airplan-managed external load and is conditional. Update its pin with
   `mise run update:mermaid`; dependency-only updates never bump SPEC.md.
   Shared base/theme assets and theme-toggle markup are baked into both complete
   standalone template outputs; document and collection assets remain
   page-specific. Keep new bake markers and assets covered by template
   round-trip and marker tests.
+- **Generated template delimiters fail closed**: production JavaScript uses
+  Bun syntax/identifier minification without whitespace collapsing, then
+  rejects unexpected `{{` or `}}` bytes unchanged. CSS only separates adjacent
+  structural braces outside strings, comments, and escapes; quoted delimiters
+  remain intact and cause generation to fail. Never globally rewrite brace
+  pairs in generated assets.
+- **Bun ambient types currently require library checking to be skipped**:
+  `tsconfig.tooling.json` uses `skipLibCheck` because Bun 1.3's declarations do
+  not typecheck against the pinned Node 24 declarations under TypeScript 7.
+  Maintained browser, build, and Playwright sources remain strictly checked.
+- **Bun installs use the isolated linker**: transitive packages stay below
+  ignored `node_modules/.bun/`. A hoisted dependency containing Go source can
+  otherwise become an accidental package discovered by `go list ./...`.
 - **Live demos**: README demo links are maintained by
   `.github/workflows/update-demos.yml` from the sources and upload-mode goldens
   in `airplan/testdata/`. Published demo URLs are permanent; automation may
@@ -159,10 +175,10 @@ coverage has no equivalent local task on non-Windows hosts.
   from squash-merged titles.
 - **Actions are SHA-pinned** (pinact); `mise run lint:workflows`
   fails on tag-pinned actions. `pinact run` re-pins after bumping.
-- **Dependency intake is delayed by seven days** for routine Go module, npm,
+- **Dependency intake is delayed by seven days** for routine Go module, Bun,
   and GitHub Actions updates. Security updates bypass the Dependabot cooldown.
   `mise run audit:deps` verifies Go modules, checks reachable Go
-  vulnerabilities, and audits npm development dependencies at high severity.
+  vulnerabilities, and audits Bun development dependencies at high severity.
 - **Cross-compilation target variables belong on the build step**, not the CI
   job. Job-level `GOOS`/`GOARCH` values make mise install target-platform Go
   tools that cannot run on the host runner.
