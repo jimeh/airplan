@@ -122,8 +122,8 @@ type TemplateData struct {
 	DiffText            string
 	HighlightedDiffHTML template.HTML
 
-	// Pages, CurrentPage, Entrypoint, and Assets describe a complete document
-	// bundle. They are empty for legacy single-page rendering.
+	// Pages, CurrentPage, Entrypoint, and Assets describe the document. Ordinary
+	// single-page rendering exposes one current entry page and no assets.
 	Pages       []DocumentTemplatePage
 	CurrentPage DocumentTemplatePage
 	Entrypoint  string

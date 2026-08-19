@@ -168,7 +168,10 @@ func materializeRenderedDocument(
 			return fmt.Errorf("airplan: set preview file permissions: %w", err)
 		}
 	}
-	if err := os.Rename(temporary, abs); err != nil {
+	if err := os.Chmod(temporary, 0o755); err != nil {
+		return fmt.Errorf("airplan: set preview directory permissions: %w", err)
+	}
+	if err := publishDirectoryNoReplace(temporary, abs); err != nil {
 		return fmt.Errorf("airplan: publish preview directory %q: %w", destination, err)
 	}
 	complete = true

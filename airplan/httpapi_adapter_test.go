@@ -81,6 +81,137 @@ func TestHTTPAPIUploadsDocumentBundleThroughOperationFacade(t *testing.T) {
 	}
 }
 
+func TestHTTPAPIRejectsInvalidBundleAsUnprocessableUpload(t *testing.T) {
+	store := newUpgradeStore(t)
+	const token = "01234567890123456789012345678901"
+	handler, err := httpapi.NewHandler(
+		&HTTPOperations{Client: store.client(t, ""), ServerVersion: "test"},
+		httpapi.Options{Token: token},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	apiClient, err := httpapi.NewClient(server.URL, token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = apiClient.UploadDocumentBundle(context.Background(), httpapi.DocumentUpload{
+		Metadata: httpapi.DocumentMetadata{
+			Name:   "notes.md",
+			Assets: []httpapi.DocumentAssetDescriptor{{Path: "notes.html", Size: 5}},
+		},
+		Document: strings.NewReader("# Notes\n"),
+		Assets: []httpapi.DocumentAsset{{
+			DocumentAssetDescriptor: httpapi.DocumentAssetDescriptor{
+				Path: "notes.html", Size: 5,
+			},
+			Reader: strings.NewReader("asset"),
+		}},
+	})
+	var problem *httpapi.ProblemError
+	if !errors.As(err, &problem) ||
+		problem.Problem.Status != http.StatusUnprocessableEntity ||
+		problem.Problem.Code != "invalid_upload" {
+		t.Fatalf("error = %v, want 422 invalid_upload", err)
+	}
+	if store.puts != 0 {
+		t.Fatalf("storage PUTs = %d, want 0", store.puts)
+	}
+}
+
+func TestHTTPAPIDocumentBundleMatchesDirectPipeline(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	asset := []byte("asset")
+	direct, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{
+			Reader: strings.NewReader("# Entry\n\n[Page](docs/page.md)\n"),
+			Path:   "README.md",
+		},
+		Pages: []PageInput{{
+			Reader: strings.NewReader("# Page\n"), Path: "docs/page.md",
+		}},
+		Assets: []AssetInput{{
+			Reader: bytes.NewReader(asset), Path: "images/data.bin",
+			Size: int64(len(asset)), ContentType: "application/octet-stream",
+		}},
+		RepositoryURL: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const token = "01234567890123456789012345678901"
+	handler, err := httpapi.NewHandler(
+		&HTTPOperations{Client: client, ServerVersion: "test"},
+		httpapi.Options{Token: token},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	apiClient, err := httpapi.NewClient(server.URL, token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, err := apiClient.UploadDocumentBundle(context.Background(), httpapi.DocumentUpload{
+		Metadata: httpapi.DocumentMetadata{
+			Name:  "README.md",
+			Pages: []httpapi.DocumentPageDescriptor{{Path: "docs/page.md"}},
+			Assets: []httpapi.DocumentAssetDescriptor{{
+				Path: "images/data.bin", Size: int64(len(asset)),
+				ContentType: "application/octet-stream",
+			}},
+		},
+		Document: strings.NewReader("# Entry\n\n[Page](docs/page.md)\n"),
+		Pages: []httpapi.DocumentPage{{
+			DocumentPageDescriptor: httpapi.DocumentPageDescriptor{Path: "docs/page.md"},
+			Reader:                 strings.NewReader("# Page\n"),
+			Size:                   int64(len("# Page\n")),
+		}},
+		Assets: []httpapi.DocumentAsset{{
+			DocumentAssetDescriptor: httpapi.DocumentAssetDescriptor{
+				Path: "images/data.bin", Size: int64(len(asset)),
+				ContentType: "application/octet-stream",
+			},
+			Reader: bytes.NewReader(asset),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remote.Pages) != len(direct.Pages) ||
+		len(remote.Assets) != len(direct.Assets) {
+		t.Fatalf("direct = %+v, REST = %+v", direct, remote)
+	}
+	directMarker := decodeStoredMarker(t, store, direct.MarkerKey, direct.ID)
+	remoteMarker := decodeStoredMarker(t, store, remote.MarkerKey, remote.ID)
+	directMarker.Directory, remoteMarker.Directory = "", ""
+	directMarker.CreatedAt, remoteMarker.CreatedAt = time.Time{}, time.Time{}
+	if !reflect.DeepEqual(directMarker, remoteMarker) {
+		t.Fatalf("direct marker = %+v\nREST marker = %+v", directMarker, remoteMarker)
+	}
+}
+
+func decodeStoredMarker(
+	t *testing.T, store *upgradeStore, key, directory string,
+) *UploadMarker {
+	t.Helper()
+	body, ok := store.get(key)
+	if !ok {
+		t.Fatalf("marker %q is missing", key)
+	}
+	marker, err := DecodeUploadMarker(body, directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return marker
+}
+
 func TestHTTPAPIUpdateRefusesIneligibleAndMissingTargetsWithTypedStatuses(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")
@@ -591,6 +722,19 @@ func TestAPIOperationErrorClassifiesRevisionHistoryCapacity(t *testing.T) {
 		problem.Problem.Status != http.StatusUnprocessableEntity ||
 		problem.Problem.Code != "revision_history_full" ||
 		strings.Contains(problem.Problem.Detail, "capacity detail") {
+		t.Fatalf("problem = %+v, error = %v", problem, got)
+	}
+}
+
+func TestAPIOperationErrorClassifiesInvalidDocumentInput(t *testing.T) {
+	got := apiOperationError(invalidDocumentInput(errors.New(
+		"schema-valid generated path collision detail",
+	)))
+	var problem *httpapi.ProblemError
+	if !errors.As(got, &problem) ||
+		problem.Problem.Status != http.StatusUnprocessableEntity ||
+		problem.Problem.Code != "invalid_upload" ||
+		strings.Contains(problem.Problem.Detail, "collision detail") {
 		t.Fatalf("problem = %+v, error = %v", problem, got)
 	}
 }

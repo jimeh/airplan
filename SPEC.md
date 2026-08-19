@@ -157,14 +157,20 @@ fully resolved root. Symlinks are accepted only when their target remains in
 that root. Recursive directory discovery is not supported.
 
 Each item has a stable logical path relative to the bundle root, using `/`
-separators. The entry logical path is its basename. Logical paths must be
-relative and non-empty, and must not contain empty, `.`, `..`, reserved
-`.airplan-*`, backslash, NUL, or control-character segments. Airplan rejects
-duplicate normalized paths, case-folded collisions, generated-page collisions,
+separators. The entry logical path is its basename, including for direct Go,
+REST, and inline MCP callers; supporting page and asset paths may be nested.
+Logical paths must be relative and non-empty, and must not contain empty, `.`,
+`..`, reserved `.airplan-*`, backslash, NUL, or control-character segments.
+Segments ending in a dot or space and Windows device basenames such as `CON`,
+`AUX`, `COM1`, and `LPT1` are invalid so every accepted bundle can be
+materialized portably. Airplan rejects duplicate normalized paths, case-folded
+collisions, generated-page collisions, file-versus-directory prefix conflicts,
 and any path that escapes the bundle root. It does not rename conflicting
 objects. URL assembly percent-encodes each segment separately and preserves `/`
-as hierarchy. Direct Go, REST, and inline MCP callers provide logical paths
-explicitly and do not invoke local filesystem inference.
+as hierarchy. A relative URL whose first segment contains `:` receives an
+explicit `./` prefix so a browser cannot interpret it as a URL scheme. Direct
+Go, REST, and inline MCP callers provide logical paths explicitly and do not
+invoke local filesystem inference.
 
 A document accepts at most 100 user-supplied items in total, including its
 entry, managed pages, and assets. `--max-size` remains the per-managed-page
@@ -172,6 +178,8 @@ source limit and defaults to 10 MiB. `--max-total-page-size` defaults to 100 MiB
 across all managed source bytes. Generated HTML has a separate 100 MiB aggregate
 ceiling. `--max-asset-size` defaults to 1 GiB per asset, and
 `--max-total-size` applies to document assets with its existing 2 GiB default.
+Because a simple document has no assets, explicitly setting
+`--max-total-size` for a non-bundle document upload or preview is an error.
 CLI zero values disable their client-side limit. At the Go API boundary, a
 negative value disables a client-side limit. A server may advertise and enforce
 lower limits. Size failures identify the logical path and effective limit.
@@ -1262,6 +1270,9 @@ preserves final-newline distinctions in source sections. It is
 bounded to 32 MiB and generated before remote mutation. At most 512 KiB is
 embedded for server-highlighted display; larger diffs retain the Changes view
 and its raw sibling-object link without embedding the diff body in the page.
+Every bundle diff begins with `# airplan revisions: N -> M`; this remains a
+parseable adjacent range when a revision changes only metadata or assets and
+there are no unified source headers.
 Each immutable `--- revision-N/<logical-path>` header remains the authoritative
 predecessor number when that predecessor has since become a metadata tombstone
 and its URL is no longer present in the chain index; re-rendering must not infer
@@ -2770,6 +2781,9 @@ func (c *Client) UploadDocument(
     ctx context.Context,
     in DocumentInput,
 ) (*DocumentResult, error)
+
+// InvalidDocumentInputError reports bundle path, generated-name, and explicit
+// asset content-type validation failures. Callers classify it with errors.As.
 
 type PageResult struct {
     Path        string `json:"path"`

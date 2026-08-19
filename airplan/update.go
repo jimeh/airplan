@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"time"
@@ -105,26 +106,7 @@ func (c *Client) UpdateDocument(
 	if c.remote != nil {
 		return c.remote.UpdateDocument(ctx, input)
 	}
-	result, err := c.CreateDocumentRevision(ctx, CreateDocumentRevisionInput{
-		Target: input.Target,
-		Document: DocumentInput{
-			Entry: PageInput{
-				Reader: input.Input.Reader, Path: input.Input.Name,
-				Format: input.Input.Format, Title: input.Input.Title,
-				Lang: input.Input.Lang,
-			},
-			Slug: input.Input.Slug, Title: input.Input.Title,
-			MaxPageSize:   input.Input.MaxSize,
-			RepositoryURL: input.Input.RepositoryURL,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &UpdateDocumentResult{
-		Result: result.Result, PreviousURL: result.PreviousURL,
-		DiffURL: result.DiffURL, Unchanged: result.Unchanged,
-	}, nil
+	return c.updateDocument(ctx, input, MaxDiffSize)
 }
 
 // CreateDocumentRevision is the canonical complete-document revision API.
@@ -140,55 +122,7 @@ func (c *Client) CreateDocumentRevision(
 	if c != nil && c.remote != nil {
 		return c.remote.CreateDocumentRevision(ctx, input)
 	}
-	if len(input.Document.Pages) != 0 || len(input.Document.Assets) != 0 {
-		return c.createBundleRevision(ctx, input, MaxDiffSize)
-	}
-	if err := validateUpdateDocumentInput(UpdateDocumentInput{
-		Target: input.Target,
-		Input: Input{
-			Reader: input.Document.Entry.Reader,
-			Name:   input.Document.Entry.Path, Format: input.Document.Entry.Format,
-			Slug:    input.Document.Slug,
-			Title:   firstNonEmpty(input.Document.Title, input.Document.Entry.Title),
-			MaxSize: input.Document.MaxPageSize, Lang: input.Document.Entry.Lang,
-			RepositoryURL: input.Document.RepositoryURL,
-		},
-	}); err != nil {
-		return nil, err
-	}
-	pageLimit := effectiveLimit(input.Document.MaxPageSize, DefaultMaxInputSize)
-	source, err := readInput(ctx, input.Document.Entry.Reader, pageLimit)
-	if err != nil {
-		return nil, err
-	}
-	spool, err := newPayloadSpool()
-	if err != nil {
-		return nil, err
-	}
-	defer spool.cleanup()
-	payload, err := spool.put("source", source)
-	if err != nil {
-		return nil, err
-	}
-	reader, err := payload.open()
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = reader.Close() }()
-	legacy := Input{
-		Reader: reader, Name: input.Document.Entry.Path,
-		Format: input.Document.Entry.Format, Slug: input.Document.Slug,
-		Title:   firstNonEmpty(input.Document.Title, input.Document.Entry.Title),
-		MaxSize: input.Document.MaxPageSize, Lang: input.Document.Entry.Lang,
-		RepositoryURL: input.Document.RepositoryURL,
-	}
-	result, err := c.updateDocument(ctx, UpdateDocumentInput{Target: input.Target, Input: legacy}, MaxDiffSize)
-	if err != nil {
-		return nil, err
-	}
-	document := DocumentResult{Result: result.Result}
-	document.Pages = []PageResult{{Path: input.Document.Entry.Path, Format: result.Format, Title: result.Title, URL: result.URL, Key: result.Key, SourceURL: result.SourceURL, SourceKey: result.SourceKey, Bytes: result.Bytes}}
-	return &DocumentRevisionResult{DocumentResult: document, PreviousURL: result.PreviousURL, DiffURL: result.DiffURL, Unchanged: result.Unchanged}, nil
+	return c.createBundleRevision(ctx, input, MaxDiffSize)
 }
 
 func (c *Client) updateDocument(
@@ -234,133 +168,9 @@ func (c *Client) updateDocument(
 		return nil, errors.New("airplan: update supports Markdown input only")
 	}
 
-	target, err := c.loadRevisionDocumentForUpdate(ctx, input.Target)
+	_, latest, err := c.prepareRevisionTarget(ctx, input.Target)
 	if err != nil {
-		var refusal *updateRefusalError
-		if errors.As(err, &refusal) {
-			return nil, err
-		}
-		if errors.Is(err, errRevisionTransitionReserved) {
-			return nil, &updateRefusalError{kind: updateRefusalInvalidUpload, err: err}
-		}
-		plan, planErr := c.PlanUpgradeDocument(ctx, input.Target, UpgradeDocumentOptions{})
-		if planErr != nil {
-			return nil, err
-		}
-		if plan.State == UpgradeStateCurrent {
-			return nil, err
-		}
-		if plan.State != UpgradeStateUpgradeable {
-			kind := updateRefusalInvalidTarget
-			switch plan.State {
-			case UpgradeStateMissing:
-				kind = updateRefusalMissing
-			case UpgradeStateInvalid:
-				kind = updateRefusalInvalidUpload
-			}
-			return nil, &updateRefusalError{kind: kind, err: err}
-		}
-		if _, upgradeErr := c.UpgradeDocument(ctx, *plan); upgradeErr != nil {
-			return nil, fmt.Errorf("airplan: update prerequisite upgrade failed: %w", upgradeErr)
-		}
-		target, err = c.loadRevisionDocumentForUpdate(ctx, input.Target)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if target.needsMetadata {
-		target, err = c.repairMissingRevisionMetadata(ctx, target, nil)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if target.needsPageRepair {
-		target, err = c.repairRevisionPage(ctx, target)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if err := c.repairFirstRevisionPromotionFromMember(ctx, target); err != nil {
 		return nil, err
-	}
-	latest := target
-	seen := map[string]bool{latest.pageKey: true}
-	for latest.versions != nil &&
-		latest.versions.LatestRevision != latest.versions.CurrentRevision {
-		entry := liveVersionsRevision(latest.versions, latest.versions.LatestRevision)
-		if entry == nil {
-			return nil, &updateRefusalError{
-				kind: updateRefusalInvalidUpload,
-				err:  errors.New("airplan: revision metadata has no live latest entry"),
-			}
-		}
-		previous := latest
-		latest, err = c.loadRevisionDocumentForUpdate(ctx, entry.URL)
-		if err != nil {
-			return nil, fmt.Errorf("airplan: resolve latest revision: %w", err)
-		}
-		if seen[latest.pageKey] {
-			return nil, &updateRefusalError{
-				kind: updateRefusalInvalidUpload,
-				err:  errors.New("airplan: revision metadata latest link forms a cycle"),
-			}
-		}
-		seen[latest.pageKey] = true
-		if latest.needsMetadata {
-			latest, err = c.repairMissingRevisionMetadata(ctx, latest, previous.versions)
-			if err != nil {
-				return nil, err
-			}
-		}
-		if latest.versions == nil || latest.versions.ChainID != previous.versions.ChainID ||
-			latest.versions.CurrentRevision != previous.versions.LatestRevision {
-			return nil, &updateRefusalError{
-				kind: updateRefusalInvalidUpload,
-				err:  errors.New("airplan: revision metadata cannot be reconciled with latest member"),
-			}
-		}
-		if latest.needsPageRepair {
-			latest, err = c.repairRevisionPage(ctx, latest)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-	if target.needsPromotion {
-		if latest.marker.Revision == nil || latest.marker.Revision.ChainID != target.versions.ChainID ||
-			latest.marker.Revision.PreviousURL != target.pageURL {
-			return nil, errors.New("airplan: interrupted predecessor promotion cannot be reconciled")
-		}
-		if err := c.promoteStandaloneRevision(ctx, target, target.versions.ChainID,
-			*target.versions); err != nil {
-			return nil, err
-		}
-		promoted, loadErr := c.loadRevisionDocumentForUpdate(ctx, target.pageURL)
-		if loadErr != nil {
-			return nil, loadErr
-		}
-		if promoted.needsPromotion || promoted.needsPageRepair ||
-			promoted.marker.Revision == nil ||
-			promoted.marker.Revision.ChainID != target.versions.ChainID ||
-			promoted.marker.Revision.Number != 1 {
-			return nil, errors.New("airplan: interrupted predecessor promotion verification failed")
-		}
-	}
-	if latest.marker.Render != nil && latest.marker.Render.Generation < RendererGeneration {
-		plan, planErr := c.PlanUpgradeDocument(ctx, latest.pageURL, UpgradeDocumentOptions{})
-		if planErr != nil {
-			return nil, planErr
-		}
-		if plan.State != UpgradeStateUpgradeable {
-			return nil, fmt.Errorf("airplan: latest revision requires an upgrade: %s", plan.Reason)
-		}
-		if _, upgradeErr := c.UpgradeDocument(ctx, *plan); upgradeErr != nil {
-			return nil, fmt.Errorf("airplan: update prerequisite upgrade failed: %w", upgradeErr)
-		}
-		latest, err = c.loadRevisionDocumentForUpdate(ctx, latest.pageURL)
-		if err != nil {
-			return nil, err
-		}
 	}
 	if input.Input.Name != "" &&
 		SanitizeSlug(filenameStem(input.Input.Name)) != latest.marker.Slug {
@@ -789,6 +599,165 @@ func validateUpdateDocumentInput(input UpdateDocumentInput) error {
 	return nil
 }
 
+// prepareRevisionTarget applies the shared prerequisite state machine used by
+// both the canonical complete-replacement API and the deprecated entry-only
+// compatibility API. It returns the originally addressed member and the
+// latest live member after upgrade, repair, and chain validation.
+func (c *Client) prepareRevisionTarget(
+	ctx context.Context, targetValue string,
+) (*revisionDocument, *revisionDocument, error) {
+	target, err := c.loadRevisionDocumentForUpdate(ctx, targetValue)
+	if err != nil {
+		var refusal *updateRefusalError
+		if errors.As(err, &refusal) {
+			return nil, nil, err
+		}
+		if errors.Is(err, errRevisionTransitionReserved) {
+			return nil, nil, &updateRefusalError{
+				kind: updateRefusalInvalidUpload, err: err,
+			}
+		}
+		plan, planErr := c.PlanUpgradeDocument(
+			ctx, targetValue, UpgradeDocumentOptions{},
+		)
+		if planErr != nil || plan.State == UpgradeStateCurrent {
+			return nil, nil, err
+		}
+		if plan.State != UpgradeStateUpgradeable {
+			kind := updateRefusalInvalidTarget
+			switch plan.State {
+			case UpgradeStateMissing:
+				kind = updateRefusalMissing
+			case UpgradeStateInvalid:
+				kind = updateRefusalInvalidUpload
+			}
+			return nil, nil, &updateRefusalError{kind: kind, err: err}
+		}
+		if _, upgradeErr := c.UpgradeDocument(ctx, *plan); upgradeErr != nil {
+			return nil, nil, fmt.Errorf(
+				"airplan: update prerequisite upgrade failed: %w", upgradeErr,
+			)
+		}
+		target, err = c.loadRevisionDocumentForUpdate(ctx, targetValue)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if target.needsMetadata {
+		target, err = c.repairMissingRevisionMetadata(ctx, target, nil)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if target.needsPageRepair {
+		target, err = c.repairRevisionPage(ctx, target)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if err := c.repairFirstRevisionPromotionFromMember(ctx, target); err != nil {
+		return nil, nil, err
+	}
+
+	latest := target
+	seen := map[string]bool{latest.pageKey: true}
+	for latest.versions != nil &&
+		latest.versions.LatestRevision != latest.versions.CurrentRevision {
+		entry := liveVersionsRevision(latest.versions, latest.versions.LatestRevision)
+		if entry == nil {
+			return nil, nil, &updateRefusalError{
+				kind: updateRefusalInvalidUpload,
+				err:  errors.New("airplan: revision metadata has no live latest entry"),
+			}
+		}
+		previous := latest
+		latest, err = c.loadRevisionDocumentForUpdate(ctx, entry.URL)
+		if err != nil {
+			return nil, nil, fmt.Errorf("airplan: resolve latest revision: %w", err)
+		}
+		if seen[latest.pageKey] {
+			return nil, nil, &updateRefusalError{
+				kind: updateRefusalInvalidUpload,
+				err:  errors.New("airplan: revision metadata latest link forms a cycle"),
+			}
+		}
+		seen[latest.pageKey] = true
+		if latest.needsMetadata {
+			latest, err = c.repairMissingRevisionMetadata(ctx, latest, previous.versions)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+		if latest.versions == nil ||
+			latest.versions.ChainID != previous.versions.ChainID ||
+			latest.versions.CurrentRevision != previous.versions.LatestRevision {
+			return nil, nil, &updateRefusalError{
+				kind: updateRefusalInvalidUpload,
+				err: errors.New(
+					"airplan: revision metadata cannot be reconciled with latest member",
+				),
+			}
+		}
+		if latest.needsPageRepair {
+			latest, err = c.repairRevisionPage(ctx, latest)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	if target.needsPromotion {
+		if latest.marker.Revision == nil || target.versions == nil ||
+			latest.marker.Revision.ChainID != target.versions.ChainID ||
+			latest.marker.Revision.PreviousURL != target.pageURL {
+			return nil, nil, errors.New(
+				"airplan: interrupted predecessor promotion cannot be reconciled",
+			)
+		}
+		if err := c.promoteStandaloneRevision(
+			ctx, target, target.versions.ChainID, *target.versions,
+		); err != nil {
+			return nil, nil, err
+		}
+		promoted, loadErr := c.loadRevisionDocumentForUpdate(ctx, target.pageURL)
+		if loadErr != nil {
+			return nil, nil, loadErr
+		}
+		if promoted.needsPromotion || promoted.needsPageRepair ||
+			promoted.marker.Revision == nil ||
+			promoted.marker.Revision.ChainID != target.versions.ChainID ||
+			promoted.marker.Revision.Number != 1 {
+			return nil, nil, errors.New(
+				"airplan: interrupted predecessor promotion verification failed",
+			)
+		}
+		target = promoted
+	}
+	if latest.marker.Render != nil &&
+		latest.marker.Render.Generation < RendererGeneration {
+		plan, planErr := c.PlanUpgradeDocument(
+			ctx, latest.pageURL, UpgradeDocumentOptions{},
+		)
+		if planErr != nil {
+			return nil, nil, planErr
+		}
+		if plan.State != UpgradeStateUpgradeable {
+			return nil, nil, fmt.Errorf(
+				"airplan: latest revision requires an upgrade: %s", plan.Reason,
+			)
+		}
+		if _, upgradeErr := c.UpgradeDocument(ctx, *plan); upgradeErr != nil {
+			return nil, nil, fmt.Errorf(
+				"airplan: update prerequisite upgrade failed: %w", upgradeErr,
+			)
+		}
+		latest, err = c.loadRevisionDocumentForUpdate(ctx, latest.pageURL)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return target, latest, nil
+}
+
 func (c *Client) repairFirstRevisionPromotionFromMember(
 	ctx context.Context, member *revisionDocument,
 ) error {
@@ -890,7 +859,18 @@ func (c *Client) loadRevisionDocument(ctx context.Context, target string) (*revi
 	}
 	pageKey := dirPrefix + marker.Page
 	sourceKey := dirPrefix + marker.Source
-	pageBody, pageETag, _, err := c.st.getBytesWithETag(ctx, pageKey, maxUpgradePageSize)
+	pageLimit := maxUpgradePageSize
+	if marker.Version >= 6 {
+		pageObject, declared := markerObjectNamed(marker, marker.Page)
+		if !declared || pageObject.Role != MarkerRolePage ||
+			pageObject.Bytes > DefaultMaxGeneratedPageSize {
+			return nil, errors.New(
+				"airplan: revision marker entry page size is invalid",
+			)
+		}
+		pageLimit = pageObject.Bytes
+	}
+	pageBody, pageETag, _, err := c.st.getBytesWithETag(ctx, pageKey, pageLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -1174,35 +1154,92 @@ func (c *Client) promoteStandaloneRevision(
 	metadata VersionsMetadata,
 ) error {
 	recipe := cloneRenderRecipe(doc.marker.Render)
-	page, err := RenderMarkdown(doc.sourceBody, RenderOptions{
-		Title: doc.marker.Title, Slug: doc.marker.Slug,
-		SourceName: doc.marker.Source, SourcePath: "./" + doc.marker.Source,
-		Indexable: recipe.Indexable, NoExternalAssets: recipe.NoExternalAssets,
-		MermaidURL: recipe.MermaidURL, RepositoryURL: doc.marker.Repo,
-		Template: c.template, Revision: 1,
-		Themes:        c.cfg.ThemeBundle,
-		RevisionCount: metadata.LatestRevision, VersionsPath: VersionsFilename,
-	})
-	if err != nil {
-		return err
+	if recipe == nil {
+		return errors.New("airplan: standalone revision has no render recipe")
 	}
 	spool, err := newPayloadSpool()
 	if err != nil {
 		return err
 	}
 	defer spool.cleanup()
-	pagePayload, err := spool.put("page", page)
+	inputs := make([]PageInput, len(doc.marker.Pages))
+	opened := make([]io.Closer, 0, len(inputs))
+	defer func() {
+		for _, closer := range opened {
+			_ = closer.Close()
+		}
+	}()
+	for index, descriptor := range doc.marker.Pages {
+		object, ok := markerObjectNamed(doc.marker, descriptor.Source)
+		if !ok || object.Role != MarkerRoleSource {
+			return fmt.Errorf(
+				"airplan: standalone page %q has no declared source", descriptor.Path,
+			)
+		}
+		payload, spoolErr := c.spoolRevisionObject(
+			ctx, spool, doc.dirPrefix+descriptor.Source, "source", object.Bytes,
+		)
+		if spoolErr != nil {
+			return spoolErr
+		}
+		reader, openErr := payload.open()
+		if openErr != nil {
+			return openErr
+		}
+		opened = append(opened, reader)
+		inputs[index] = PageInput{
+			Reader: reader, Path: descriptor.Path, Format: descriptor.Format,
+			Title: descriptor.Title, Lang: descriptor.Lang,
+		}
+	}
+	assets := make([]AssetInput, 0)
+	for _, object := range doc.marker.Objects {
+		if object.Role == MarkerRoleAsset {
+			assets = append(assets, AssetInput{
+				Path: object.Name, Size: object.Bytes,
+				ContentType: object.ContentType,
+			})
+		}
+	}
+	input := DocumentInput{
+		Entry: inputs[0], Pages: inputs[1:], Assets: assets,
+		Slug: doc.marker.Slug, Title: doc.marker.Title,
+		RepositoryURL: doc.marker.Repo,
+	}
+	bundle, err := renderDocumentSpooled(ctx, input, DocumentRenderOptions{
+		RenderInputOptions: RenderInputOptions{
+			Indexable: recipe.Indexable, IncludeSource: true,
+			NoExternalAssets: recipe.NoExternalAssets,
+			MermaidURL:       recipe.MermaidURL,
+			Repository:       doc.marker.Repo,
+			Themes:           c.cfg.ThemeBundle,
+		},
+		Revision: 1, RevisionCount: metadata.LatestRevision,
+		VersionsPath: VersionsFilename,
+	}, c.template, c.templateErr)
 	if err != nil {
 		return err
 	}
+	defer bundle.cleanup()
 	marker := *doc.marker
 	marker.Objects = append([]MarkerObject(nil), doc.marker.Objects...)
 	marker.Revision = &RevisionDescriptor{ChainID: chainID, Number: 1}
 	marker.Producer = Producer{Name: "airplan", Version: producerVersion(c.cfg.ProducerVersion)}
+	pages := make(map[string]RenderedBundlePage, len(bundle.Pages))
+	for _, page := range bundle.Pages {
+		pages[page.PagePath] = page
+	}
 	for index := range marker.Objects {
 		if marker.Objects[index].Role == MarkerRolePage {
-			marker.Objects[index].Bytes = pagePayload.size
-			marker.Objects[index].SHA256 = pagePayload.digest
+			page, ok := pages[marker.Objects[index].Name]
+			if !ok {
+				return fmt.Errorf(
+					"airplan: promoted bundle no longer renders page %q",
+					marker.Objects[index].Name,
+				)
+			}
+			marker.Objects[index].Bytes = page.pageSize()
+			marker.Objects[index].SHA256 = page.pageDigest()
 		}
 	}
 	body, err := EncodeUploadMarker(marker)
@@ -1215,13 +1252,60 @@ func (c *Client) promoteStandaloneRevision(
 	}, doc.markerETag); err != nil {
 		return fmt.Errorf("airplan: revision committed but predecessor promotion failed: %w", err)
 	}
+	for index := 1; index < len(bundle.Pages); index++ {
+		page := bundle.Pages[index]
+		key := doc.dirPrefix + page.PagePath
+		etag, _, metadataErr := c.st.objectMetadata(ctx, key)
+		if metadataErr != nil {
+			return fmt.Errorf(
+				"airplan: inspect predecessor page %q: %w", page.PagePath, metadataErr,
+			)
+		}
+		if err := c.putDocumentPayloadConditional(
+			ctx, key, page.htmlFile, pageContentType,
+			titleMetadata(page.Title), etag,
+		); err != nil {
+			return fmt.Errorf(
+				"airplan: revision committed but predecessor page promotion failed: %w", err,
+			)
+		}
+	}
 	if err := c.putDocumentPayloadConditional(
-		ctx, doc.pageKey, pagePayload, pageContentType,
+		ctx, doc.pageKey, bundle.Pages[0].htmlFile, pageContentType,
 		titleMetadata(marker.Title), doc.pageETag,
 	); err != nil {
-		return fmt.Errorf("airplan: revision committed but predecessor page promotion failed: %w", err)
+		return fmt.Errorf(
+			"airplan: revision committed but predecessor page promotion failed: %w", err,
+		)
 	}
 	return nil
+}
+
+func (c *Client) spoolRevisionObject(
+	ctx context.Context, spool *payloadSpool, key, kind string, limit int64,
+) (spooledPayload, error) {
+	reader, writer := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		err := c.st.getTo(ctx, key, writer)
+		_ = writer.CloseWithError(err)
+		done <- err
+	}()
+	payload, err := spool.putReader(kind, reader, limit)
+	_ = reader.Close()
+	downloadErr := <-done
+	if err != nil {
+		return spooledPayload{}, err
+	}
+	if downloadErr != nil {
+		return spooledPayload{}, downloadErr
+	}
+	if payload.size != limit {
+		return spooledPayload{}, fmt.Errorf(
+			"airplan: revision payload %q size does not match its marker", key,
+		)
+	}
+	return payload, nil
 }
 
 func (c *Client) propagateVersionsMetadata(

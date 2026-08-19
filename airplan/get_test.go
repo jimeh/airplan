@@ -84,6 +84,45 @@ func TestGetUploadSelectsMarkerManagedObjects(t *testing.T) {
 	}
 }
 
+func TestGetUploadSelectsBundlePagesAssetsSourcesAndChildren(t *testing.T) {
+	dir := "abcdefghijklmnopqrstuvwxyz"
+	marker := validBundleMarkerV6()
+	marker.Directory = dir
+	markerBody, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := map[string][]byte{dir + "/" + MarkerFilename: markerBody}
+	for _, object := range marker.Objects {
+		objects[dir+"/"+object.Name] = []byte(object.Name)
+	}
+
+	for _, test := range []struct {
+		name   string
+		target string
+		opts   GetOptions
+		want   string
+	}{
+		{name: "entry from directory", target: dir, want: marker.Entrypoint},
+		{name: "entry source", target: dir, opts: GetOptions{Source: true}, want: marker.Pages[0].Source},
+		{name: "managed page child", target: dir + "/" + marker.Pages[1].Page, want: marker.Pages[1].Page},
+		{name: "managed source child", target: dir + "/" + marker.Pages[1].Source, want: marker.Pages[1].Source},
+		{name: "asset child", target: dir + "/images/flow.svg", want: "images/flow.svg"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := newInspectTestClient(t, newGetServer(t, objects).URL)
+			got, err := client.GetUpload(context.Background(), test.target, test.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantKey := dir + "/" + test.want
+			if got.Key != wantKey || string(got.Body) != test.want {
+				t.Fatalf("result = %+v, want %q with body %q", got, wantKey, test.want)
+			}
+		})
+	}
+}
+
 func TestGetUploadRejectsInvalidSelection(t *testing.T) {
 	dir := "abcdefghijklmnopqrstuvwxyz"
 	markerBody := getTestMarker(t, dir, "plan.md")

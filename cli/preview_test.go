@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -135,6 +136,30 @@ func TestPreviewMaterializesDocumentBundle(t *testing.T) {
 	}
 }
 
+func TestPreviewOutputDirNoSource(t *testing.T) {
+	isolateEnv(t)
+	root := t.TempDir()
+	entry := filepath.Join(root, "plan.md")
+	if err := os.WriteFile(entry, []byte("# Plan\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(root, "preview")
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{
+		"preview", "--repo", "none", "--no-source", "--output-dir", destination,
+		entry,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "plan.html")); err != nil {
+		t.Fatalf("generated page: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "plan.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("source exists under --no-source: %v", err)
+	}
+}
+
 func TestDocumentPreviewRemovesPrivateStagingAfterCopyFailure(t *testing.T) {
 	root := t.TempDir()
 	destination := filepath.Join(root, "preview")
@@ -177,7 +202,6 @@ func TestDocumentPreviewRejectsNamedNonRegularInput(t *testing.T) {
 func TestDocumentPreviewRejectsCollectionOnlyFlags(t *testing.T) {
 	for _, flag := range []string{
 		"--collection-template=collection.tmpl",
-		"--max-total-size=1MiB",
 	} {
 		t.Run(flag, func(t *testing.T) {
 			isolateEnv(t)
@@ -187,6 +211,32 @@ func TestDocumentPreviewRejectsCollectionOnlyFlags(t *testing.T) {
 			err := cmd.Execute()
 			if err == nil || !strings.Contains(
 				err.Error(), "only valid for collection previews",
+			) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestSingleDocumentPreviewRejectsMaxTotalSize(t *testing.T) {
+	for _, outputDir := range []bool{false, true} {
+		t.Run(fmt.Sprintf("output-dir=%t", outputDir), func(t *testing.T) {
+			isolateEnv(t)
+			dir := t.TempDir()
+			input := filepath.Join(dir, "plan.md")
+			if err := os.WriteFile(input, []byte("# Plan\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"preview", "--max-total-size=1MiB"}
+			if outputDir {
+				args = append(args, "--output-dir", filepath.Join(dir, "preview"))
+			}
+			args = append(args, input)
+			cmd := newRootCmd()
+			cmd.SetArgs(args)
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(
+				err.Error(), "only valid for document bundle or collection previews",
 			) {
 				t.Fatalf("error = %v", err)
 			}
@@ -538,7 +588,8 @@ func TestPreviewCustomTemplateReceivesCanonicalData(t *testing.T) {
 		`<title>{{.Title}}</title>`,
 		`<i>{{.Format}}|{{.Language}}|{{.SourceName}}|`,
 		`{{len .Headings}}|{{len .TOC}}|{{.Indexable}}|`,
-		`{{.SourcePath}}</i><pre>{{.SourceText}}</pre>`,
+		`{{.SourcePath}}|{{len .Pages}}|{{.CurrentPage.Path}}|`,
+		`{{.Entrypoint}}</i><pre>{{.SourceText}}</pre>`,
 		`<style>{{.SyntaxCSS}}</style>`,
 		`<main>{{.RenderedHTML}}</main>`,
 		`<aside>{{.HighlightedSourceHTML}}</aside>`,
@@ -560,7 +611,7 @@ func TestPreviewCustomTemplateReceivesCanonicalData(t *testing.T) {
 	got := stdout.String()
 	for _, fragment := range []string{
 		"<title>Plan</title>",
-		"md|md|plan.md|3|2|true|",
+		"md|md|plan.md|3|2|true||1|plan.md|plan.html",
 		"# Plan",
 		`<h2 id="first">First</h2>`,
 		`class="chroma"`,

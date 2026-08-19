@@ -17,6 +17,7 @@ type previewOptions struct {
 	lang               string
 	slug               string
 	title              string
+	noSource           bool
 	indexable          bool
 	noExternalAssets   bool
 	mermaidURL         string
@@ -56,6 +57,8 @@ func newPreviewCmd() *cobra.Command {
 		"page slug (default: from filename)")
 	f.StringVarP(&opts.title, "title", "t", "",
 		"page title (default: from content)")
+	f.BoolVar(&opts.noSource, "no-source", false,
+		"don't include original source files in output-dir previews")
 	f.BoolVar(&opts.indexable, "indexable", false,
 		"omit the noindex robots meta tag")
 	f.BoolVar(&opts.noExternalAssets, "no-external-assets", false,
@@ -98,13 +101,20 @@ func runPreview(
 	args []string,
 	opts *previewOptions,
 ) error {
+	bundled := len(opts.pages) != 0 || len(opts.assets) != 0
+	collection := opts.files || len(args) > 1
+	if cmd.Flags().Changed("max-total-size") && !bundled && !collection {
+		return errors.New(
+			"--max-total-size is only valid for document bundle or collection previews",
+		)
+	}
 	if len(opts.pages) != 0 || len(opts.assets) != 0 || opts.outputDir != "" {
 		return runDocumentBundlePreview(cmd, args, opts)
 	}
-	if opts.files || len(args) > 1 {
+	if collection {
 		return runCollectionPreview(cmd, args, opts)
 	}
-	for _, name := range []string{"collection-template", "max-total-size"} {
+	for _, name := range []string{"collection-template"} {
 		if cmd.Flags().Changed(name) {
 			return fmt.Errorf("--%s is only valid for collection previews", name)
 		}
@@ -125,6 +135,9 @@ func runPreview(
 			opts.mermaidURL,
 			cmd.Flags().Changed("mermaid-url"),
 		),
+	}
+	if cmd.Flags().Changed("no-source") {
+		overrides.NoSource = &opts.noSource
 	}
 	if cmd.Flags().Changed("indexable") {
 		overrides.Indexable = &opts.indexable
@@ -206,7 +219,7 @@ func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOption
 			return errors.New("--files requires one or more named files")
 		}
 	}
-	for _, name := range []string{"format", "lang", "slug", "template", "no-external-assets", "mermaid-url"} {
+	for _, name := range []string{"format", "lang", "slug", "template", "no-source", "no-external-assets", "mermaid-url"} {
 		if cmd.Flags().Changed(name) {
 			return fmt.Errorf("--%s is only valid for document previews", name)
 		}

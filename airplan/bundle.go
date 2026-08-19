@@ -47,16 +47,17 @@ type AssetInput struct {
 
 // DocumentInput describes one complete document, including its entry page.
 type DocumentInput struct {
-	Entry            PageInput
-	Pages            []PageInput
-	Assets           []AssetInput
-	Slug             string
-	Title            string
-	MaxPageSize      int64
-	MaxTotalPageSize int64
-	MaxAssetSize     int64
-	MaxTotalSize     int64
-	RepositoryURL    string
+	Entry                PageInput
+	Pages                []PageInput
+	Assets               []AssetInput
+	Slug                 string
+	Title                string
+	MaxPageSize          int64
+	MaxTotalPageSize     int64
+	MaxAssetSize         int64
+	MaxTotalSize         int64
+	RepositoryURL        string
+	maxGeneratedPageSize int64
 }
 
 // PageResult describes one managed page and its optional source object.
@@ -149,10 +150,31 @@ type preparedAsset struct {
 	digest string
 }
 
+// InvalidDocumentInputError reports a structurally invalid document bundle.
+// Callers may use errors.As to distinguish these client input failures from
+// storage and rendering failures.
+type InvalidDocumentInputError struct{ err error }
+
+func (e *InvalidDocumentInputError) Error() string { return e.err.Error() }
+func (e *InvalidDocumentInputError) Unwrap() error { return e.err }
+
+func invalidDocumentInput(err error) error {
+	if err == nil {
+		return nil
+	}
+	var invalid *InvalidDocumentInputError
+	if errors.As(err, &invalid) {
+		return err
+	}
+	return &InvalidDocumentInputError{err: err}
+}
+
 // ValidateBundlePath validates one portable bundle-relative logical path.
 func ValidateBundlePath(value string) error {
 	if !validMarkerObjectPath(value) {
-		return fmt.Errorf("airplan: invalid bundle path %q", value)
+		return invalidDocumentInput(
+			fmt.Errorf("airplan: invalid bundle path %q", value),
+		)
 	}
 	return nil
 }
@@ -253,6 +275,11 @@ func renderDocumentWithSpool(
 		if logical == "" && index == 0 {
 			logical = "document.md"
 		}
+		if index == 0 && pathpkg.Base(logical) != logical {
+			return nil, invalidDocumentInput(fmt.Errorf(
+				"airplan: document entry path %q must be a basename", logical,
+			))
+		}
 		if err := validateAndRecordBundlePath(seen, logical); err != nil {
 			return nil, err
 		}
@@ -339,6 +366,11 @@ func renderDocumentWithSpool(
 				page.SourcePath = page.Path
 			}
 		}
+		if format != FormatHTML && page.PagePath == page.Path {
+			return nil, invalidDocumentInput(fmt.Errorf(
+				"airplan: generated page %q collides with its source", page.PagePath,
+			))
+		}
 		if err := validateGeneratedBundlePath(seen, page.PagePath, page.Path); err != nil {
 			return nil, err
 		}
@@ -423,7 +455,10 @@ func renderDocumentWithSpool(
 		}
 		generatedTotal += int64(len(page.HTML))
 		if generatedLimit > 0 && generatedTotal > generatedLimit {
-			return nil, fmt.Errorf("airplan: page %q exceeds maximum generated HTML size of %s", page.Path, formatSize(generatedLimit))
+			return nil, fmt.Errorf(
+				"%w of %s: generated page %q", ErrInputTooLarge,
+				formatSize(generatedLimit), page.Path,
+			)
 		}
 		if spool != nil {
 			payload, spoolErr := spool.put("page", page.HTML)
@@ -524,7 +559,18 @@ func validateAndRecordBundlePath(seen map[string]string, value string) error {
 	}
 	fold := strings.ToLower(value)
 	if previous, exists := seen[fold]; exists {
-		return fmt.Errorf("airplan: bundle paths %q and %q collide when case-folded", previous, value)
+		return invalidDocumentInput(fmt.Errorf(
+			"airplan: bundle paths %q and %q collide when case-folded", previous, value,
+		))
+	}
+	for previousFold, previous := range seen {
+		if strings.HasPrefix(fold, previousFold+"/") ||
+			strings.HasPrefix(previousFold, fold+"/") {
+			return invalidDocumentInput(fmt.Errorf(
+				"airplan: bundle paths %q and %q conflict as file and directory",
+				previous, value,
+			))
+		}
 	}
 	seen[fold] = value
 	return nil
@@ -536,7 +582,18 @@ func validateGeneratedBundlePath(seen map[string]string, value, source string) e
 	}
 	fold := strings.ToLower(value)
 	if previous, exists := seen[fold]; exists && !strings.EqualFold(previous, source) {
-		return fmt.Errorf("airplan: generated path %q for %q collides with %q", value, source, previous)
+		return invalidDocumentInput(fmt.Errorf(
+			"airplan: generated path %q for %q collides with %q", value, source, previous,
+		))
+	}
+	for previousFold, previous := range seen {
+		if strings.HasPrefix(fold, previousFold+"/") ||
+			strings.HasPrefix(previousFold, fold+"/") {
+			return invalidDocumentInput(fmt.Errorf(
+				"airplan: generated path %q for %q conflicts with %q as file and directory",
+				value, source, previous,
+			))
+		}
 	}
 	seen[fold] = value
 	return nil
@@ -554,6 +611,10 @@ func relativeObjectURL(from, to string) string {
 	rel, err := urlPathRelative(pathpkg.Dir(from), to)
 	if err != nil {
 		return ""
+	}
+	first := strings.SplitN(rel, "/", 2)[0]
+	if first != "." && first != ".." && strings.Contains(first, ":") {
+		rel = "./" + rel
 	}
 	parts := strings.Split(rel, "/")
 	for index, part := range parts {
@@ -636,7 +697,10 @@ func normalizeAssetContentType(asset AssetInput, start int64) (string, error) {
 	if asset.ContentType != "" {
 		mediaType, params, err := mime.ParseMediaType(asset.ContentType)
 		if err != nil {
-			return "", fmt.Errorf("airplan: invalid content type %q for asset %q", asset.ContentType, asset.Path)
+			return "", invalidDocumentInput(fmt.Errorf(
+				"airplan: invalid content type %q for asset %q",
+				asset.ContentType, asset.Path,
+			))
 		}
 		return mime.FormatMediaType(strings.ToLower(mediaType), params), nil
 	}
@@ -716,7 +780,11 @@ func (c *Client) UploadDocument(ctx context.Context, in DocumentInput) (*Documen
 	if in.RepositoryURL != "" {
 		repository = in.RepositoryURL
 	}
-	bundle, err := renderDocumentSpooled(ctx, in, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Indexable: c.cfg.Indexable, IncludeSource: !c.cfg.NoSource, NoExternalAssets: c.cfg.NoExternalAssets, MermaidURL: c.cfg.MermaidURL, Repository: repository, Themes: c.cfg.ThemeBundle}, MaxGeneratedPageSize: DefaultMaxGeneratedPageSize}, c.template, c.templateErr)
+	generatedLimit := in.maxGeneratedPageSize
+	if generatedLimit == 0 {
+		generatedLimit = DefaultMaxGeneratedPageSize
+	}
+	bundle, err := renderDocumentSpooled(ctx, in, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Indexable: c.cfg.Indexable, IncludeSource: !c.cfg.NoSource, NoExternalAssets: c.cfg.NoExternalAssets, MermaidURL: c.cfg.MermaidURL, Repository: repository, Themes: c.cfg.ThemeBundle}, MaxGeneratedPageSize: generatedLimit}, c.template, c.templateErr)
 	if err != nil {
 		return nil, err
 	}

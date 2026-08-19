@@ -117,14 +117,14 @@ func (t *httpTransport) wireDocumentUpload(
 		Name: in.Entry.Path, Format: httpapi.DocumentMetadataFormat(in.Entry.Format),
 		Title: firstNonEmpty(in.Title, in.Entry.Title), Slug: in.Slug,
 		Lang: in.Entry.Lang, RepositoryURL: repository,
-		MaxTotalPageSize: portableUploadLimit(in.MaxTotalPageSize),
-		MaxAssetSize:     portableUploadLimit(in.MaxAssetSize),
-		MaxTotalSize:     portableUploadLimit(in.MaxTotalSize),
 	}
 	if legacy {
 		metadata.MaxSize = portableUploadLimit(in.MaxPageSize) //nolint:staticcheck // Deprecated server compatibility.
 	} else {
 		metadata.MaxPageSize = portableUploadLimit(in.MaxPageSize)
+		metadata.MaxTotalPageSize = portableUploadLimit(in.MaxTotalPageSize)
+		metadata.MaxAssetSize = portableUploadLimit(in.MaxAssetSize)
+		metadata.MaxTotalSize = portableUploadLimit(in.MaxTotalSize)
 	}
 	for _, page := range pages {
 		metadata.Pages = append(metadata.Pages, page.DocumentPageDescriptor)
@@ -279,7 +279,7 @@ func validateBundleCapabilityValues(
 ) error {
 	if !capability.ManagedPages || !capability.Assets || capability.MaxItems <= 0 ||
 		capability.MaxPageBytes <= 0 || capability.MaxTotalPageBytes <= 0 ||
-		capability.MaxGeneratedPageBytes < DefaultMaxGeneratedPageSize ||
+		capability.MaxGeneratedPageBytes <= 0 ||
 		capability.MaxAssetBytes <= 0 || capability.MaxTotalAssetBytes <= 0 ||
 		capability.MaxMetadataBytes <= 0 || capability.MaxRequestBytes <= 0 {
 		return documentBundleUpgradeError()
@@ -385,7 +385,7 @@ func spoolHTTPDocumentPages(
 	capability httpapi.DocumentBundleCapabilities,
 ) (DocumentInput, func(), error) {
 	if capability.MaxPageBytes <= 0 || capability.MaxTotalPageBytes <= 0 ||
-		capability.MaxGeneratedPageBytes < DefaultMaxGeneratedPageSize {
+		capability.MaxGeneratedPageBytes <= 0 {
 		return DocumentInput{}, func() {}, documentBundleUpgradeError()
 	}
 	pageLimit := effectiveLimit(in.MaxPageSize, DefaultMaxInputSize)

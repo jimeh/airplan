@@ -3,6 +3,7 @@ package airplan
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1368,4 +1371,73 @@ func (r bearerRoundTripper) RoundTrip(
 	clone := request.Clone(request.Context())
 	clone.Header.Set("Authorization", "Bearer "+r.token)
 	return r.base.RoundTrip(clone)
+}
+
+func TestMCPInlineAssetsRejectDecodedLimitBeforeAllocation(t *testing.T) {
+	encoded := strings.Repeat("A", base64.StdEncoding.EncodedLen(
+		int(maxMCPInlineAssetBytes)+1,
+	))
+	_, err := mcpInlineDocument(mcpUploadDocumentInput{
+		Content: "# Plan\n",
+		Assets: []mcpDocumentAssetInput{{
+			Path: "large.bin", ContentBase64: encoded,
+		}},
+	}, "none", false)
+	if err == nil || !strings.Contains(err.Error(), "decoded aggregate limit") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestOpenMCPDocumentFilesUsesDeclaredSymlinkEntryName(t *testing.T) {
+	root := t.TempDir()
+	realEntry := filepath.Join(root, "real.md")
+	declaredEntry := filepath.Join(root, "declared.md")
+	member := filepath.Join(root, "docs", "member.md")
+	if err := os.MkdirAll(filepath.Dir(member), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		realEntry: "# Entry\n", member: "# Member\n",
+	} {
+		if err := os.WriteFile(name, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(realEntry, declaredEntry); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	opened, err := openMCPDocumentFiles(mcpUploadDocumentFilesInput{
+		EntryPath: declaredEntry, PagePaths: []string{member},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.close()
+	if opened.input.Entry.Path != "declared.md" ||
+		len(opened.input.Pages) != 1 || opened.input.Pages[0].Path != "docs/member.md" {
+		t.Fatalf("document paths = %+v", opened.input)
+	}
+}
+
+func TestOpenMCPDocumentFilesRejectsResolvedMemberEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	entry := filepath.Join(root, "plan.md")
+	target := filepath.Join(outside, "member.md")
+	link := filepath.Join(root, "member.md")
+	if err := os.WriteFile(entry, []byte("# Entry\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("# Outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	_, err := openMCPDocumentFiles(mcpUploadDocumentFilesInput{
+		EntryPath: entry, PagePaths: []string{link},
+	})
+	if err == nil || !strings.Contains(err.Error(), "resolves outside") {
+		t.Fatalf("error = %v", err)
+	}
 }

@@ -196,7 +196,7 @@ func (c *Client) InspectUpload(
 		MarkerKey: resolved.Key,
 		Objects:   len(objects),
 		objects:   byObjectKey(objects),
-	}, resolved.Body)
+	}, resolved.Body, true)
 }
 
 func byObjectKey(objects []objectInfo) map[string]objectInfo {
@@ -233,11 +233,12 @@ func (c *Client) inspectListedUpload(
 		}
 		return nil, err
 	}
-	return c.inspectUploadSnapshot(ctx, upload, markerBody)
+	return c.inspectUploadSnapshot(ctx, upload, markerBody, false)
 }
 
 func (c *Client) inspectUploadSnapshot(
 	ctx context.Context, upload RemoteUpload, markerBody []byte,
+	verifyDigests bool,
 ) (*UploadInspection, error) {
 	inspection := &UploadInspection{
 		Dir: upload.Dir, MarkerKey: upload.MarkerKey,
@@ -294,7 +295,8 @@ func (c *Client) inspectUploadSnapshot(
 		inspected.ExpectedBytes = object.Bytes
 		inspected.ExpectedKnown = marker.Version >= 3
 		inspected.ExpectedSHA256 = object.SHA256
-		if inspected.Exists && inspected.Bytes == object.Bytes && object.SHA256 != "" {
+		if verifyDigests && inspected.Exists && inspected.Bytes == object.Bytes &&
+			object.SHA256 != "" {
 			inspected.SHA256, err = c.hashInspectedObject(ctx, inspected.Key, object.Bytes)
 			if err != nil {
 				return nil, err
@@ -352,37 +354,40 @@ func (c *Client) inspectUploadSnapshot(
 		(marker.Version >= 2 && inspection.Page.Bytes != marker.PageBytes) {
 		inspection.State = UploadIncomplete
 	}
-	if inspection.Source != nil && !inspectedObjectMatches(inspection.Source) {
+	if inspection.Source != nil &&
+		!inspectedObjectMatches(inspection.Source, verifyDigests) {
 		inspection.State = UploadIncomplete
 	}
-	if inspection.Diff != nil && !inspectedObjectMatches(inspection.Diff) {
+	if inspection.Diff != nil &&
+		!inspectedObjectMatches(inspection.Diff, verifyDigests) {
 		inspection.State = UploadIncomplete
 	}
 	for _, file := range inspection.Files {
-		if !inspectedObjectMatches(file) {
+		if !inspectedObjectMatches(file, verifyDigests) {
 			inspection.State = UploadIncomplete
 		}
 	}
 	for _, page := range inspection.Pages {
-		if !inspectedObjectMatches(page.Page) ||
-			(page.Source != nil && !inspectedObjectMatches(page.Source)) {
+		if !inspectedObjectMatches(page.Page, verifyDigests) ||
+			(page.Source != nil && !inspectedObjectMatches(page.Source, verifyDigests)) {
 			inspection.State = UploadIncomplete
 		}
 	}
 	for _, asset := range inspection.Assets {
-		if !inspectedObjectMatches(asset) {
+		if !inspectedObjectMatches(asset, verifyDigests) {
 			inspection.State = UploadIncomplete
 		}
 	}
 	return inspection, nil
 }
 
-func inspectedObjectMatches(object *InspectedObject) bool {
+func inspectedObjectMatches(object *InspectedObject, verifyDigest bool) bool {
 	if object == nil || !object.Exists ||
 		(object.ExpectedKnown && object.Bytes != object.ExpectedBytes) {
 		return false
 	}
-	return object.ExpectedSHA256 == "" || object.SHA256 == object.ExpectedSHA256
+	return !verifyDigest || object.ExpectedSHA256 == "" ||
+		object.SHA256 == object.ExpectedSHA256
 }
 
 func (c *Client) hashInspectedObject(ctx context.Context, key string, size int64) (string, error) {

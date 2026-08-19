@@ -198,6 +198,10 @@ func TestRootJSONOutputShape(t *testing.T) {
 		if got.SourceURL == "" {
 			t.Fatal("source_url is empty")
 		}
+		if len(got.Pages) != 1 || got.Pages[0].URL != got.URL ||
+			got.Pages[0].SourceBytes != int64(len("# Launch\n\nBody\n")) {
+			t.Fatalf("pages = %+v", got.Pages)
+		}
 		assertJSONResult(t, fake, got)
 	})
 
@@ -227,8 +231,26 @@ func TestRootJSONOutputShape(t *testing.T) {
 		if got.SourceURL != "" {
 			t.Fatalf("SourceURL = %q, want empty", got.SourceURL)
 		}
+		if len(got.Pages) != 1 || got.Pages[0].SourceURL != "" {
+			t.Fatalf("pages = %+v", got.Pages)
+		}
 		assertJSONResult(t, fake, got)
 	})
+}
+
+func TestSingleDocumentUploadRejectsMaxTotalSize(t *testing.T) {
+	fake := newFakeS3(t)
+	_, _, err := executeRoot(t, fake, "# Plan\n",
+		"--max-total-size=1MiB", "-",
+	)
+	if err == nil || !strings.Contains(
+		err.Error(), "only valid for document bundles or collections",
+	) {
+		t.Fatalf("error = %v", err)
+	}
+	if uploads := fake.uploads(); len(uploads) != 0 {
+		t.Fatalf("uploads = %d, want 0", len(uploads))
+	}
 }
 
 func TestAirplanBackendRejectsServerOwnedFlagsBeforeInput(t *testing.T) {
@@ -541,12 +563,13 @@ func TestRootOpenFlagInvokesLauncher(t *testing.T) {
 }
 
 type rootJSON struct {
-	URL         string `json:"url"`
-	Key         string `json:"key"`
-	SourceURL   string `json:"source_url"`
-	Bucket      string `json:"bucket"`
-	Bytes       int64  `json:"bytes"`
-	ContentType string `json:"content_type"`
+	URL         string               `json:"url"`
+	Key         string               `json:"key"`
+	SourceURL   string               `json:"source_url"`
+	Bucket      string               `json:"bucket"`
+	Bytes       int64                `json:"bytes"`
+	ContentType string               `json:"content_type"`
+	Pages       []airplan.PageResult `json:"pages"`
 }
 
 type fakeS3 struct {

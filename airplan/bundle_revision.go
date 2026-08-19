@@ -29,19 +29,30 @@ func (c *Client) createBundleRevision(
 	if err := c.ensureStorage(ctx); err != nil {
 		return nil, err
 	}
-	latest, err := c.loadRevisionDocumentForUpdate(ctx, input.Target)
+	assets, err := prepareAssets(ctx, input.Document)
 	if err != nil {
 		return nil, err
 	}
-	for latest.versions != nil && latest.versions.LatestRevision != latest.versions.CurrentRevision {
-		entry := liveVersionsRevision(latest.versions, latest.versions.LatestRevision)
-		if entry == nil {
-			return nil, errors.New("airplan: revision metadata has no live latest entry")
-		}
-		latest, err = c.loadRevisionDocumentForUpdate(ctx, entry.URL)
-		if err != nil {
-			return nil, err
-		}
+	for index := range assets {
+		input.Document.Assets[index] = assets[index].AssetInput
+	}
+	preflight, err := renderDocumentSpooled(ctx, input.Document,
+		DocumentRenderOptions{RenderInputOptions: RenderInputOptions{
+			IncludeSource: true, Repository: "none", Themes: c.cfg.ThemeBundle,
+		}, MaxGeneratedPageSize: input.Document.maxGeneratedPageSize}, c.template, c.templateErr)
+	if err != nil {
+		return nil, err
+	}
+	defer preflight.cleanup()
+	if preflight.Format != FormatMarkdown.String() {
+		return nil, errors.New(
+			"airplan: document revision entry must use Markdown format; " +
+				"supports Markdown input only",
+		)
+	}
+	_, latest, err := c.prepareRevisionTarget(ctx, input.Target)
+	if err != nil {
+		return nil, err
 	}
 	if latest.marker.Format != "md" || len(latest.marker.Pages) == 0 {
 		return nil, errors.New("airplan: document revisions require a source-backed Markdown entry")
@@ -55,12 +66,20 @@ func (c *Client) createBundleRevision(
 	}
 	input.Document.Slug = latest.marker.Slug
 	input.Document.RepositoryURL = latest.marker.Repo
-	assets, err := prepareAssets(ctx, input.Document)
+	validatedInput, closeValidated, err := reopenedDocumentInput(
+		preflight, input.Document,
+	)
 	if err != nil {
 		return nil, err
 	}
-	for index := range assets {
-		input.Document.Assets[index] = assets[index].AssetInput
+	defer closeValidated()
+	if input.Document.Entry.Path == "" {
+		validatedInput.Entry.Path = latest.marker.Pages[0].Path
+		if input.Document.Entry.Title == "" && input.Document.Title == "" {
+			// The preflight used its anonymous-input fallback name. Let the
+			// target's preserved logical name participate in title resolution.
+			validatedInput.Entry.Title = ""
+		}
 	}
 	previousRevision, newRevision, chainID := 1, 2, ""
 	if latest.versions != nil {
@@ -81,14 +100,11 @@ func (c *Client) createBundleRevision(
 		return nil, errors.New("airplan: latest revision's themes do not match the configured catalog; run airplan upgrade --force first")
 	}
 	// Render once without revision chrome to compare the complete logical input.
-	comparison, err := renderDocumentSpooled(ctx, input.Document, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Indexable: recipe.Indexable, IncludeSource: true, NoExternalAssets: recipe.NoExternalAssets, MermaidURL: recipe.MermaidURL, Repository: latest.marker.Repo, Themes: c.cfg.ThemeBundle}}, c.template, c.templateErr)
+	comparison, err := renderDocumentSpooled(ctx, validatedInput, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Indexable: recipe.Indexable, IncludeSource: true, NoExternalAssets: recipe.NoExternalAssets, MermaidURL: recipe.MermaidURL, Repository: latest.marker.Repo, Themes: c.cfg.ThemeBundle}, MaxGeneratedPageSize: input.Document.maxGeneratedPageSize}, c.template, c.templateErr)
 	if err != nil {
 		return nil, err
 	}
 	defer comparison.cleanup()
-	if comparison.Format != FormatMarkdown.String() {
-		return nil, errors.New("airplan: document revision entry must use Markdown format")
-	}
 	if bundleLogicalStateMatches(latest.marker, comparison, assets) {
 		result := bundleRevisionResultFromExisting(c.cfg, latest)
 		result.Unchanged = true
@@ -98,12 +114,12 @@ func (c *Client) createBundleRevision(
 	if err != nil {
 		return nil, err
 	}
-	revisionInput, closeSources, err := reopenedDocumentInput(comparison, input.Document)
+	revisionInput, closeSources, err := reopenedDocumentInput(comparison, validatedInput)
 	if err != nil {
 		return nil, err
 	}
 	defer closeSources()
-	bundle, err := renderDocumentSpooled(ctx, revisionInput, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Indexable: recipe.Indexable, IncludeSource: true, NoExternalAssets: recipe.NoExternalAssets, MermaidURL: recipe.MermaidURL, Repository: latest.marker.Repo, Themes: c.cfg.ThemeBundle}, Revision: newRevision, RevisionCount: newRevision, PreviousRevision: previousRevision, VersionsPath: VersionsFilename, DiffPath: DiffFilename, DiffText: inlineRevisionDiff(diffBody)}, c.template, c.templateErr)
+	bundle, err := renderDocumentSpooled(ctx, revisionInput, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Indexable: recipe.Indexable, IncludeSource: true, NoExternalAssets: recipe.NoExternalAssets, MermaidURL: recipe.MermaidURL, Repository: latest.marker.Repo, Themes: c.cfg.ThemeBundle}, MaxGeneratedPageSize: input.Document.maxGeneratedPageSize, Revision: newRevision, RevisionCount: newRevision, PreviousRevision: previousRevision, VersionsPath: VersionsFilename, DiffPath: DiffFilename, DiffText: inlineRevisionDiff(diffBody)}, c.template, c.templateErr)
 	if err != nil {
 		return nil, err
 	}
@@ -145,6 +161,20 @@ func (c *Client) createBundleRevision(
 	if err := c.st.put(ctx, object{Key: markerKey, Body: markerBody, ContentType: markerContentType}); err != nil {
 		return nil, err
 	}
+	candidatePending := true
+	defer func() {
+		if !candidatePending {
+			return
+		}
+		cleanupCtx, cancel := revisionCleanupContext(ctx, c.cfg.Timeout)
+		defer cancel()
+		keys := make([]string, 0, len(marker.Objects))
+		for _, object := range marker.Objects {
+			keys = append(keys, BuildKey(c.cfg.KeyPrefix, dir, object.Name))
+		}
+		_ = c.st.deleteKeys(cleanupCtx, keys)
+		_ = c.st.deleteMarker(cleanupCtx, markerKey)
+	}()
 	pages := make([]PageResult, 0, len(bundle.Pages))
 	for _, page := range bundle.Pages {
 		sourceKey := BuildKey(c.cfg.KeyPrefix, dir, page.SourcePath)
@@ -202,24 +232,83 @@ func (c *Client) createBundleRevision(
 		return nil, err
 	}
 	latestMetadataKey := latest.dirPrefix + VersionsFilename
+	newMetadataKey := BuildKey(c.cfg.KeyPrefix, dir, VersionsFilename)
 	if latest.versions == nil {
 		err = c.st.putIfAbsent(ctx, object{Key: latestMetadataKey, Body: memberBodies[previousRevision], ContentType: markerContentType})
 	} else {
 		err = c.st.putConditional(ctx, object{Key: latestMetadataKey, Body: memberBodies[previousRevision], ContentType: markerContentType}, latest.versionsETag)
 	}
 	if err != nil {
-		return nil, err
-	}
-	if latest.versions == nil {
-		if err := c.promoteStandaloneRevision(ctx, latest, chainID, metadata); err != nil {
+		originalErr := err
+		reconcileCtx, cancel := revisionCleanupContext(ctx, c.cfg.Timeout)
+		observed, committed, reconcileErr := c.reconcileRevisionAppendCommit(
+			reconcileCtx, latestMetadataKey, latest.pageKey,
+			memberBodies[previousRevision], newMetadataKey, pageKey, metadata,
+			newRevision, pageURL, latest.versions == nil, originalErr,
+		)
+		cancel()
+		if reconcileErr != nil {
+			candidatePending = false
+			return nil, fmt.Errorf(
+				"%w; revision candidate state is uncertain: %v",
+				originalErr, reconcileErr,
+			)
+		}
+		if !committed {
+			if errors.Is(originalErr, ErrConflict) {
+				originalErr = &revisionAppendConflictError{err: originalErr}
+			}
+			return nil, originalErr
+		}
+		metadata = *observed
+		memberBodies, err = c.encodeMemberMetadata(metadata)
+		if err != nil {
 			return nil, err
 		}
 	}
-	newMetadataKey := BuildKey(c.cfg.KeyPrefix, dir, VersionsFilename)
-	if err := c.st.putIfAbsent(ctx, object{Key: newMetadataKey, Body: memberBodies[newRevision], ContentType: markerContentType}); err != nil {
-		return nil, err
+	candidatePending = false
+	postCommitCtx, postCommitCancel := revisionCleanupContext(ctx, c.cfg.Timeout)
+	defer postCommitCancel()
+	if latest.versions == nil {
+		if err := c.promoteStandaloneRevision(postCommitCtx, latest, chainID, metadata); err != nil {
+			return nil, err
+		}
+		promoted, loadErr := c.loadRevisionDocumentForUpdate(
+			postCommitCtx, latest.pageURL,
+		)
+		if loadErr != nil || promoted.needsPromotion || promoted.needsPageRepair ||
+			promoted.marker.Revision == nil ||
+			promoted.marker.Revision.ChainID != chainID ||
+			promoted.marker.Revision.Number != 1 {
+			if loadErr != nil {
+				return nil, fmt.Errorf(
+					"airplan: revision committed but predecessor verification failed: %w",
+					loadErr,
+				)
+			}
+			return nil, errors.New(
+				"airplan: revision committed but predecessor verification failed",
+			)
+		}
+		latest = promoted
 	}
-	if err := c.propagateVersionsMetadata(ctx, metadata, memberBodies, latestMetadataKey, newMetadataKey); err != nil {
+	if err := c.st.putIfAbsent(postCommitCtx, object{Key: newMetadataKey, Body: memberBodies[newRevision], ContentType: markerContentType}); err != nil {
+		actual, readErr := c.st.getBytes(
+			postCommitCtx, newMetadataKey, MaxVersionsMetadataSize,
+		)
+		if !errors.Is(err, ErrConflict) || readErr != nil ||
+			!c.revisionMetadataAtLeast(actual, memberBodies[newRevision], pageKey) {
+			return nil, fmt.Errorf(
+				"airplan: revision committed but metadata propagation failed: %w", err,
+			)
+		}
+	}
+	if err := c.propagateVersionsMetadata(postCommitCtx, metadata, memberBodies, latestMetadataKey, newMetadataKey); err != nil {
+		return nil, fmt.Errorf(
+			"airplan: revision committed but metadata propagation failed: %w", err,
+		)
+	}
+	if err := c.verifyRevisionChain(postCommitCtx, metadata, memberBodies); err != nil {
 		return nil, err
 	}
 	result := &DocumentRevisionResult{DocumentResult: DocumentResult{Result: Result{ID: dir, URL: pageURL, Key: pageKey, SourceURL: pages[0].SourceURL, SourceKey: pages[0].SourceKey, Bucket: c.cfg.Bucket, Bytes: bundle.Pages[0].pageSize(), ContentType: pageContentType, Title: bundle.Title, CreatedAt: createdAt, MarkerVersion: MarkerVersion, MarkerKey: markerKey, Format: bundle.Format, Kind: string(UploadKindDocument), Slug: bundle.Slug, RepositoryURL: bundle.RepositoryURL, RevisionChainID: chainID, Revision: newRevision, LatestRevision: metadata.LatestRevision}, Pages: pages, Assets: assetResults}, PreviousURL: latest.pageURL, DiffURL: diffURL}
@@ -227,8 +316,18 @@ func (c *Client) createBundleRevision(
 		result.Warnings = append(result.Warnings, PublicURLFallbackWarning)
 	}
 	compatibility := &UpdateDocumentResult{Result: result.Result, PreviousURL: result.PreviousURL, DiffURL: result.DiffURL}
-	c.recordRevisionAppend(ctx, compatibility, markerBody, chainID, metadata)
+	c.recordRevisionAppend(postCommitCtx, compatibility, markerBody, chainID, metadata)
 	return result, nil
+}
+
+func revisionCleanupContext(
+	ctx context.Context, timeout time.Duration,
+) (context.Context, context.CancelFunc) {
+	cleanupCtx := context.WithoutCancel(ctx)
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+	return context.WithTimeout(cleanupCtx, timeout)
 }
 
 func (c *Client) bundlePageResult(dir string, page RenderedBundlePage) (PageResult, error) {
@@ -318,7 +417,27 @@ func bundleRevisionResultFromExisting(cfg *Config, doc *revisionDocument) *Docum
 	result.SourceURL, _, _ = PublicURL(cfg, doc.sourceKey)
 	result.Bytes = int64(len(doc.pageBody))
 	result.ContentType = pageContentType
-	return &DocumentRevisionResult{DocumentResult: DocumentResult{Result: result, Pages: pageResultsFromMarker(cfg, doc.marker, doc.dirPrefix)}}
+	var previousURL, diffURL string
+	if doc.marker.Revision != nil {
+		previousURL = doc.marker.Revision.PreviousURL
+	}
+	if doc.versions != nil {
+		result.LatestRevision = doc.versions.LatestRevision
+		if current := liveVersionsRevision(
+			doc.versions, doc.versions.CurrentRevision,
+		); current != nil {
+			diffURL = current.DiffURL
+		}
+	}
+	return &DocumentRevisionResult{
+		DocumentResult: DocumentResult{
+			Result: result,
+			Pages:  pageResultsFromMarker(cfg, doc.marker, doc.dirPrefix),
+			Assets: assetResultsFromMarker(cfg, doc.marker, doc.dirPrefix),
+		},
+		PreviousURL: previousURL,
+		DiffURL:     diffURL,
+	}
 }
 
 func cResultFromMarker(cfg *Config, marker *UploadMarker, dirPrefix string) Result {
@@ -350,6 +469,24 @@ func pageResultsFromMarker(cfg *Config, marker *UploadMarker, dirPrefix string) 
 	return results
 }
 
+func assetResultsFromMarker(
+	cfg *Config, marker *UploadMarker, dirPrefix string,
+) []AssetResult {
+	results := make([]AssetResult, 0)
+	for _, object := range marker.Objects {
+		if object.Role != MarkerRoleAsset {
+			continue
+		}
+		result := AssetResult{
+			Path: object.Name, Key: dirPrefix + object.Name,
+			Bytes: object.Bytes, ContentType: object.ContentType,
+		}
+		result.URL, _, _ = PublicURL(cfg, result.Key)
+		results = append(results, result)
+	}
+	return results
+}
+
 func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revisionDocument, next *RenderedDocumentBundle, assets []preparedAsset, previousRevision, newRevision, maxSize int) ([]byte, error) {
 	oldSources := make(map[string]MarkerPage, len(previous.marker.Pages))
 	for _, page := range previous.marker.Pages {
@@ -375,6 +512,7 @@ func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revis
 	}
 	sort.Strings(ordered)
 	var out bytes.Buffer
+	fmt.Fprintf(&out, "# airplan revisions: %d -> %d\n", previousRevision, newRevision)
 	for _, logical := range ordered {
 		oldPage, oldOK := oldSources[logical]
 		newPage, newOK := newSources[logical]
@@ -449,7 +587,9 @@ func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revis
 			fmt.Fprintf(&out, "# %s\nasset changed: %s, %d bytes, sha256 %s -> %s, %d bytes, sha256 %s\n", logical, oldAsset.ContentType, oldAsset.Bytes, oldAsset.SHA256, newAsset.ContentType, newAsset.Size, newAsset.digest)
 		}
 	}
-	if out.Len() == 0 {
+	if out.Len() == len(fmt.Sprintf(
+		"# airplan revisions: %d -> %d\n", previousRevision, newRevision,
+	)) {
 		out.WriteString("No textual changes.\n")
 	}
 	if maxSize > 0 && out.Len() > maxSize {

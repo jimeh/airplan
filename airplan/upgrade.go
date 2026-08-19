@@ -961,9 +961,24 @@ func revisionPrevious(
 }
 
 func revisionDiffRange(diff []byte) (int, int, error) {
-	lines := strings.SplitN(string(diff), "\n", 3)
-	if len(lines) < 2 {
-		return 0, 0, errors.New("diff headers are missing")
+	lines := strings.Split(string(diff), "\n")
+	const bundlePrefix = "# airplan revisions: "
+	for _, line := range lines {
+		line = strings.TrimSuffix(line, "\r")
+		if !strings.HasPrefix(line, bundlePrefix) {
+			continue
+		}
+		parts := strings.Split(strings.TrimPrefix(line, bundlePrefix), " -> ")
+		if len(parts) != 2 {
+			return 0, 0, errors.New("bundle diff revision header is invalid")
+		}
+		previous, previousErr := strconv.Atoi(parts[0])
+		current, currentErr := strconv.Atoi(parts[1])
+		if previousErr != nil || currentErr != nil || previous <= 0 ||
+			current <= previous {
+			return 0, 0, errors.New("bundle diff revision range is invalid")
+		}
+		return previous, current, nil
 	}
 	parse := func(line, prefix string) (int, error) {
 		line = strings.TrimSuffix(line, "\r")
@@ -978,18 +993,25 @@ func revisionDiffRange(diff []byte) (int, int, error) {
 		}
 		return number, nil
 	}
-	previous, err := parse(lines[0], "--- revision-")
-	if err != nil {
-		return 0, 0, err
+	for index := 0; index+1 < len(lines); index++ {
+		if !strings.HasPrefix(lines[index], "--- revision-") ||
+			!strings.HasPrefix(lines[index+1], "+++ revision-") {
+			continue
+		}
+		previous, err := parse(lines[index], "--- revision-")
+		if err != nil {
+			return 0, 0, err
+		}
+		current, err := parse(lines[index+1], "+++ revision-")
+		if err != nil {
+			return 0, 0, err
+		}
+		if current <= previous {
+			return 0, 0, errors.New("diff revision order is invalid")
+		}
+		return previous, current, nil
 	}
-	current, err := parse(lines[1], "+++ revision-")
-	if err != nil {
-		return 0, 0, err
-	}
-	if current <= previous {
-		return 0, 0, errors.New("diff revision order is invalid")
-	}
-	return previous, current, nil
+	return 0, 0, errors.New("diff headers are missing")
 }
 
 func (c *Client) upgradeTemplateMatches(recipe *RenderRecipe) bool {

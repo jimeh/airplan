@@ -407,9 +407,29 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 	data.VersionsPath = opts.VersionsPath
 	data.DiffPath = opts.DiffPath
 	data.DiffText = opts.DiffText
-	data.Pages = opts.Pages
-	data.CurrentPage = opts.CurrentPage
-	data.Entrypoint = opts.Entrypoint
+	if len(opts.Pages) == 0 {
+		logical := opts.CurrentLogicalPath
+		if logical == "" {
+			logical = opts.SourceName
+		}
+		if logical == "" {
+			logical = "document." + data.Format
+		}
+		entrypoint := opts.CurrentRenderedPath
+		if entrypoint == "" {
+			entrypoint = opts.Slug + ".html"
+		}
+		current := DocumentTemplatePage{
+			Path: logical, Title: opts.Title, URL: entrypoint, Current: true,
+		}
+		data.Pages = []DocumentTemplatePage{current}
+		data.CurrentPage = current
+		data.Entrypoint = entrypoint
+	} else {
+		data.Pages = opts.Pages
+		data.CurrentPage = opts.CurrentPage
+		data.Entrypoint = opts.Entrypoint
+	}
 	data.Assets = opts.Assets
 	if data.SourceName == "" {
 		data.SourceName = opts.SourceName

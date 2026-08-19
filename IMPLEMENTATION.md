@@ -291,8 +291,10 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   and returns `RenderedDocumentBundle`. `MaterializeDocument` and the direct
   upload, revision, and upgrade paths use one private mode-0600 payload spool;
   output-directory preview publishes from that spool through a private sibling
-  staging directory. Both temporary layers are removed on success or failure,
-  so the full allowed bundle need not remain in memory.
+  staging directory. Platform-specific no-replace rename primitives publish
+  that mode-0755 root only when the destination is still absent; published files
+  are mode 0644. Both temporary layers are removed on success or failure, so the
+  full allowed bundle need not remain in memory.
   Upgrade planning itself streams remote page and source bodies through bounded
   hashing and retains only size, digest, and ETag metadata. Execution replans,
   streams the exact generation into its private spool, and re-hashes sources
@@ -353,9 +355,12 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   the page.
 - `versions.go`, `diff.go`, and the revision operation implement linked
   Markdown history. `CreateDocumentRevision` is the bundle-aware public entry;
-  `UpdateDocument` and the CLI/MCP update names delegate to it as compatibility
-  paths. A revision input is the complete replacement bundle. Descriptor order,
-  metadata, and v6 digests drive no-op comparison before large unchanged assets
+  the CLI, REST, and MCP update aliases delegate to it, while the deprecated Go
+  `UpdateDocument` method retains its established one-entry engine. A canonical
+  revision input is always the complete replacement bundle. Both engines share
+  one prerequisite state machine for upgrades, interrupted promotion and page
+  repair, latest traversal, and chain validation. Descriptor order, metadata,
+  and v6 digests drive canonical no-op comparison before large unchanged assets
   are rendered or uploaded when possible.
   Markers carry immutable chain descriptors and diff inventory, while the
   separately versioned 64 KiB metadata index is conditionally replicated to
@@ -389,9 +394,11 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   dual-name groups as conflicts without fetching markers or heading payloads.
   Its LIST snapshot retains per-key sizes for batch inspection.
   `InspectUpload` validates the selected marker and exact sizes for every
-  normalized declared object. Targeted get and delete probe both markers and
-  authorize only pages, document sources, collection files, or the existing
-  marker.
+  normalized declared object, downloading and hashing v6 payloads when native
+  provider checksums cannot prove their digest. LIST-backed inspection used by
+  sync and purge stays existence-and-size based and never expands into payload
+  downloads. Targeted get and delete probe both markers and authorize only
+  pages, document sources, collection files, or the existing marker.
 - Manifest sync: `SyncManifest` reduces local history chronologically, compares
   the scoped active view to one remote LIST snapshot, and uses a shared bounded
   worker pool for marker GETs and targeted absence confirmation. Imports and

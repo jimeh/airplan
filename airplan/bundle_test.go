@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,10 +31,58 @@ func TestValidateBundlePath(t *testing.T) {
 			t.Errorf("ValidateBundlePath(%q): %v", value, err)
 		}
 	}
-	for _, value := range []string{"", "/absolute", "../outside", "docs/../x", "docs//x", `docs\x`, "docs/.airplan-secret"} {
+	for _, value := range []string{"", "/absolute", "../outside", "docs/../x", "docs//x", `docs\x`, "docs/.airplan-secret", ".airplan.json", "CON", "aux.txt", "trailing.", "trailing "} {
 		if err := ValidateBundlePath(value); err == nil {
 			t.Errorf("ValidateBundlePath(%q) succeeded", value)
+		} else {
+			var invalid *InvalidDocumentInputError
+			if !errors.As(err, &invalid) {
+				t.Errorf("ValidateBundlePath(%q) error type = %T", value, err)
+			}
 		}
+	}
+}
+
+func TestRenderDocumentRejectsNonPortableMaterializationPaths(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		input DocumentInput
+	}{
+		{
+			name: "nested entry",
+			input: DocumentInput{Entry: PageInput{
+				Reader: strings.NewReader("# Plan\n"), Path: "docs/plan.md",
+			}},
+		},
+		{
+			name: "generated page equals source",
+			input: DocumentInput{Entry: PageInput{
+				Reader: strings.NewReader("# Plan\n"), Path: "guide.html", Format: "md",
+			}},
+		},
+		{
+			name: "file directory prefix",
+			input: DocumentInput{
+				Entry: PageInput{Reader: strings.NewReader("# Plan\n"), Path: "plan.md"},
+				Assets: []AssetInput{
+					{Reader: bytes.NewReader(nil), Path: "images", Size: 0},
+					{Reader: bytes.NewReader(nil), Path: "images/icon.svg", Size: 0},
+				},
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := RenderDocument(context.Background(), test.input,
+				DocumentRenderOptions{RenderInputOptions: RenderInputOptions{
+					Repository: "none",
+				}})
+			var invalid *InvalidDocumentInputError
+			if !errors.As(err, &invalid) {
+				t.Fatalf("error = %v (%T), want InvalidDocumentInputError", err, err)
+			}
+		})
 	}
 }
 
@@ -70,6 +119,31 @@ func TestRenderDocumentNamesLinksAndAssets(t *testing.T) {
 	}
 	if !bytes.Equal(asset, []byte("<svg>asset</svg>")) {
 		t.Fatal("asset bytes changed")
+	}
+}
+
+func TestUploadDocumentHonorsLowerGeneratedPageLimitBeforeMutation(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	_, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{
+			Reader: strings.NewReader("# Generated page\n"), Path: "plan.md",
+		},
+		RepositoryURL:        "none",
+		maxGeneratedPageSize: 1,
+	})
+	if !errors.Is(err, ErrInputTooLarge) {
+		t.Fatalf("error = %v, want ErrInputTooLarge", err)
+	}
+	if store.puts != 0 {
+		t.Fatalf("storage PUTs = %d, want 0", store.puts)
+	}
+}
+
+func TestRelativeObjectURLPrefixesSchemeLikeFirstSegment(t *testing.T) {
+	t.Parallel()
+	if got := relativeObjectURL("entry.html", "notes:2026.html"); got != "./notes:2026.html" && got != "./notes%3A2026.html" {
+		t.Fatalf("relativeObjectURL = %q", got)
 	}
 }
 
@@ -371,6 +445,187 @@ func TestCreateDocumentRevisionRendersCompleteBundleFromSpooledSources(t *testin
 			t.Fatalf("object %q = %d bytes, exists %t; marker = %+v",
 				object.Name, len(body), exists, object)
 		}
+	}
+}
+
+func TestCreateDocumentRevisionCompleteReplacementAndBundlePromotion(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	assetBody := []byte("asset")
+	newBundle := func(title string, includeMembers bool) DocumentInput {
+		input := DocumentInput{
+			Entry: PageInput{
+				Reader: strings.NewReader("# Plan\n\n[Details](docs/details.md)\n"),
+				Path:   "plan.md", Title: title,
+			},
+			Title: title, RepositoryURL: "none",
+		}
+		if includeMembers {
+			input.Pages = []PageInput{{
+				Reader: strings.NewReader("# Details\n"), Path: "docs/details.md",
+			}}
+			input.Assets = []AssetInput{{
+				Reader: bytes.NewReader(assetBody), Path: "asset.bin",
+				Size: int64(len(assetBody)),
+			}}
+		}
+		return input
+	}
+
+	first, err := client.UploadDocument(
+		context.Background(), newBundle("Plan", true),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := client.CreateDocumentRevision(
+		context.Background(), CreateDocumentRevisionInput{
+			Target: first.URL, Document: newBundle("Plan", true),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !unchanged.Unchanged || len(unchanged.Pages) != 2 ||
+		len(unchanged.Assets) != 1 {
+		t.Fatalf("unchanged bundle result = %+v", unchanged)
+	}
+
+	second, err := client.CreateDocumentRevision(
+		context.Background(), CreateDocumentRevisionInput{
+			Target: first.URL, Document: newBundle("Renamed plan", false),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Unchanged || second.Revision != 2 || len(second.Pages) != 1 ||
+		len(second.Assets) != 0 || second.Title != "Renamed plan" {
+		t.Fatalf("replacement result = %+v", second)
+	}
+
+	predecessor, err := client.InspectUpload(context.Background(), first.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if predecessor.State != UploadComplete || predecessor.Revision != 1 ||
+		len(predecessor.Pages) != 2 || len(predecessor.Assets) != 1 {
+		t.Fatalf("promoted predecessor = %+v", predecessor)
+	}
+	details, ok := store.get(first.ID + "/docs/details.html")
+	entry, entryOK := store.get(first.Key)
+	if !ok || !bytes.Contains(details, []byte(`class="pages-nav"`)) ||
+		!entryOK || bytes.Equal(details, entry) {
+		t.Fatalf("promoted detail page = %q", details)
+	}
+
+	noop, err := client.CreateDocumentRevision(
+		context.Background(), CreateDocumentRevisionInput{
+			Target: first.URL, Document: newBundle("Renamed plan", false),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !noop.Unchanged || noop.Revision != 2 || noop.LatestRevision != 2 ||
+		noop.PreviousURL != first.URL || noop.DiffURL == "" ||
+		len(noop.Pages) != 1 || len(noop.Assets) != 0 {
+		t.Fatalf("latest no-op result = %+v", noop)
+	}
+}
+
+func TestCreateDocumentRevisionEmptyEntryPathPreservesLatestLogicalPath(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{
+			Reader: strings.NewReader("# Plan\n"), Path: "README.md",
+		},
+		RepositoryURL: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	putsBefore := store.puts
+
+	unchanged, err := client.CreateDocumentRevision(
+		context.Background(), CreateDocumentRevisionInput{
+			Target: first.URL,
+			Document: DocumentInput{Entry: PageInput{
+				Reader: strings.NewReader("# Plan\n"),
+			}},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !unchanged.Unchanged || unchanged.ID != first.ID ||
+		unchanged.Revision != first.Revision ||
+		unchanged.LatestRevision != first.LatestRevision ||
+		len(unchanged.Pages) != 1 || unchanged.Pages[0].Path != "README.md" {
+		t.Fatalf("unchanged revision = %+v", unchanged)
+	}
+	if store.puts != putsBefore {
+		t.Fatalf("no-op storage PUTs = %d -> %d", putsBefore, store.puts)
+	}
+
+	changed, err := client.CreateDocumentRevision(
+		context.Background(), CreateDocumentRevisionInput{
+			Target: first.URL,
+			Document: DocumentInput{Entry: PageInput{
+				Reader: strings.NewReader("# Plan\n\nChanged.\n"),
+			}},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.Unchanged || changed.Revision != 2 || len(changed.Pages) != 1 ||
+		changed.Pages[0].Path != "README.md" {
+		t.Fatalf("changed revision = %+v", changed)
+	}
+	markerBody, ok := store.get(changed.MarkerKey)
+	if !ok {
+		t.Fatalf("marker %q is missing", changed.MarkerKey)
+	}
+	marker, err := DecodeUploadMarker(markerBody, changed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(marker.Pages) != 1 || marker.Pages[0].Path != "README.md" {
+		t.Fatalf("changed marker pages = %+v", marker.Pages)
+	}
+}
+
+func TestCreateDocumentRevisionRunsLegacyPrerequisiteUpgrade(t *testing.T) {
+	store := newUpgradeStore(t)
+	dir := strings.Repeat("v", 26)
+	seedV3UpgradeDocument(t, store, dir)
+	client := store.client(t, "")
+	result, err := client.CreateDocumentRevision(context.Background(),
+		CreateDocumentRevisionInput{
+			Target: "https://plans.example.com/" + dir + "/plan.html",
+			Document: DocumentInput{Entry: PageInput{
+				Reader: strings.NewReader("# Plan\n\nRevised.\n"), Path: "plan.md",
+			}},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Revision != 2 || result.PreviousURL == "" {
+		t.Fatalf("revision = %+v", result)
+	}
+	markerBody, ok := store.get(dir + "/" + MarkerFilename)
+	if !ok {
+		t.Fatal("upgraded predecessor marker is missing")
+	}
+	marker, err := DecodeUploadMarker(markerBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marker.Version != MarkerVersion || marker.Revision == nil ||
+		marker.Revision.Number != 1 {
+		t.Fatalf("upgraded predecessor marker = %+v", marker)
 	}
 }
 

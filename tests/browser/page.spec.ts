@@ -473,6 +473,13 @@ test("bundle pages use ordinary navigation and update both rails", async ({
     const dialog = page.getByRole("dialog", { name: "Pages" });
     await expect(dialog).toBeVisible();
     await expect(dialog.locator('a[aria-current="page"]')).toContainText("README.md");
+
+    await page.setViewportSize({ width: 1400, height: 844 });
+    await expect(dialog).toBeHidden();
+    await expect(page.locator("#pages-dialog")).not.toHaveAttribute("open", "");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openPages.click();
+    await expect(dialog).toBeVisible();
     await Promise.all([
       page.waitForURL(`${baseURL}/bundle/docs/design.html`),
       dialog.getByRole("link", { name: /Design notes/ }).click(),

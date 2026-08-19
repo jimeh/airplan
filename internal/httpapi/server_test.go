@@ -262,6 +262,75 @@ func TestTypedClientStreamsOrderedDocumentBundleAndCleansTempFiles(t *testing.T)
 	assertDirEmpty(t, tempDir)
 }
 
+func TestDocumentUploadPassesLowerGeneratedPageLimit(t *testing.T) {
+	const generatedLimit = int64(1)
+	operations := &stubOperations{uploadDocument: func(
+		ctx context.Context, _ DocumentUpload,
+	) (UploadResult, error) {
+		if got := GeneratedPageLimit(ctx); got != generatedLimit {
+			t.Fatalf("generated page limit = %d, want %d", got, generatedLimit)
+		}
+		return UploadResult{ID: "document", Kind: "document", URL: "https://example/document"}, nil
+	}}
+	handler := newTestHandler(t, operations, Options{MaxGeneratedPageBytes: generatedLimit})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	if _, err := newTestClient(t, server.URL).UploadDocument(
+		context.Background(), DocumentMetadata{Name: "plan.md"},
+		strings.NewReader("# Plan\n"),
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDocumentMultipartPreflightsDeclaredAssetsBeforeSpooling(t *testing.T) {
+	tempDir := t.TempDir()
+	called := false
+	operations := &stubOperations{uploadDocument: func(
+		context.Context, DocumentUpload,
+	) (UploadResult, error) {
+		called = true
+		return UploadResult{}, nil
+	}}
+	handler := newTestHandler(t, operations, Options{
+		TempDir: tempDir, MaxAssetBytes: 3,
+	})
+	body := new(bytes.Buffer)
+	writer := multipart.NewWriter(body)
+	if err := writeMetadataPart(writer, DocumentMetadata{
+		Name:   "plan.md",
+		Assets: []DocumentAssetDescriptor{{Path: "asset.bin", Size: 4}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	document, err := writer.CreateFormFile("document", "plan.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.WriteString(document, "# Plan\n")
+	asset, err := writer.CreateFormFile("assets", "asset.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.WriteString(asset, "four")
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := authorizedRequest(http.MethodPost, "/api/v1/uploads/documents", body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413: %s", recorder.Code, recorder.Body.String())
+	}
+	if called {
+		t.Fatal("operation called for oversized declared asset")
+	}
+	assertDirEmpty(t, tempDir)
+}
+
 func TestDocumentMultipartRejectsConflictingPageLimitAliases(t *testing.T) {
 	called := false
 	operations := &stubOperations{uploadDocument: func(

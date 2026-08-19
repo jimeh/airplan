@@ -660,3 +660,19 @@ func TestAirplanBackendRejectsTruncatedCollectionFile(t *testing.T) {
 		t.Fatalf("error = %v, want truncated input", err)
 	}
 }
+
+func TestValidateBundleCapabilityAcceptsLowerGeneratedPageLimit(t *testing.T) {
+	capability := httpapi.DocumentBundleCapabilities{
+		ManagedPages: true, Assets: true, MaxItems: MaxDocumentItems,
+		MaxPageBytes: 1 << 20, MaxTotalPageBytes: 2 << 20,
+		MaxGeneratedPageBytes: 1,
+		MaxAssetBytes:         1 << 20, MaxTotalAssetBytes: 2 << 20,
+		MaxMetadataBytes: 1 << 20, MaxRequestBytes: 4 << 20,
+	}
+	upload := httpapi.DocumentUpload{
+		Metadata: httpapi.DocumentMetadata{Name: "plan.md"}, DocumentSize: 1,
+	}
+	if err := validateBundleCapability(capability, upload); err != nil {
+		t.Fatalf("lower generated-page capability was rejected: %v", err)
+	}
+}

@@ -249,6 +249,7 @@ func (s *Server) UploadDocument(
 		return nil, err
 	}
 	defer cleanup()
+	ctx = withGeneratedPageLimit(ctx, s.options.MaxGeneratedPageBytes)
 	result, err := s.operations.UploadDocument(ctx, upload)
 	if err != nil {
 		return nil, err
@@ -280,6 +281,7 @@ func (s *Server) UpdateDocument(
 		return nil, err
 	}
 	defer cleanup()
+	ctx = withGeneratedPageLimit(ctx, s.options.MaxGeneratedPageBytes)
 	result, err := s.operations.CreateDocumentRevision(ctx, upload)
 	if err != nil {
 		return nil, err
@@ -296,6 +298,7 @@ func (s *Server) CreateDocumentRevision(
 		return nil, err
 	}
 	defer cleanup()
+	ctx = withGeneratedPageLimit(ctx, s.options.MaxGeneratedPageBytes)
 	result, err := s.operations.CreateDocumentRevision(ctx, upload)
 	if err != nil {
 		return nil, err
@@ -646,8 +649,8 @@ func validateOptions(options Options) error {
 		options.MaxDocumentItems > defaultDocumentItems {
 		return errors.New("airplan HTTP document limits exceed core limits")
 	}
-	if options.MaxGeneratedPageBytes != defaultGeneratedPageBytes {
-		return errors.New("airplan HTTP generated page limit must match the core limit")
+	if options.MaxGeneratedPageBytes > defaultGeneratedPageBytes {
+		return errors.New("airplan HTTP generated page limit exceeds the core limit")
 	}
 	if options.MaxMetadataBytes != defaultMaxMetadataBytes {
 		return errors.New("airplan HTTP metadata limit must match the protocol limit")

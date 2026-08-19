@@ -34,9 +34,15 @@ func openDocumentBundle(entry string, pages, assets []string) (*openedDocument, 
 	if err != nil {
 		return nil, fmt.Errorf("airplan: resolve bundle entry %q: %w", entry, err)
 	}
-	rootReal, err := filepath.EvalSymlinks(filepath.Dir(entryReal))
+	rootDeclared := filepath.Dir(entryAbs)
+	rootReal, err := filepath.EvalSymlinks(rootDeclared)
 	if err != nil {
 		return nil, fmt.Errorf("airplan: resolve bundle root: %w", err)
+	}
+	if !pathWithinRoot(rootReal, entryReal) {
+		return nil, fmt.Errorf(
+			"airplan: bundle entry %q resolves outside its declared directory", entry,
+		)
 	}
 	opened := &openedDocument{rootDir: rootReal}
 	fail := func(err error) (*openedDocument, error) {
@@ -49,9 +55,9 @@ func openDocumentBundle(entry string, pages, assets []string) (*openedDocument, 
 	}
 	_ = entryInfo
 	opened.files = append(opened.files, entryFile)
-	opened.input.Entry = airplan.PageInput{Reader: entryFile, Path: filepath.Base(entryReal)}
+	opened.input.Entry = airplan.PageInput{Reader: entryFile, Path: filepath.Base(entryAbs)}
 	for _, value := range pages {
-		file, info, logical, openErr := openBundleMember(rootReal, value, "page")
+		file, info, logical, openErr := openBundleMember(rootDeclared, rootReal, value, "page")
 		if openErr != nil {
 			return fail(openErr)
 		}
@@ -60,7 +66,7 @@ func openDocumentBundle(entry string, pages, assets []string) (*openedDocument, 
 		opened.input.Pages = append(opened.input.Pages, airplan.PageInput{Reader: file, Path: logical})
 	}
 	for _, value := range assets {
-		file, info, logical, openErr := openBundleMember(rootReal, value, "asset")
+		file, info, logical, openErr := openBundleMember(rootDeclared, rootReal, value, "asset")
 		if openErr != nil {
 			return fail(openErr)
 		}
@@ -70,7 +76,7 @@ func openDocumentBundle(entry string, pages, assets []string) (*openedDocument, 
 	return opened, nil
 }
 
-func openBundleMember(rootReal, value, role string) (*os.File, os.FileInfo, string, error) {
+func openBundleMember(rootDeclared, rootReal, value, role string) (*os.File, os.FileInfo, string, error) {
 	if value == "" || value == "-" {
 		return nil, nil, "", fmt.Errorf("airplan: bundle %s requires a named file", role)
 	}
@@ -78,24 +84,34 @@ func openBundleMember(rootReal, value, role string) (*os.File, os.FileInfo, stri
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("airplan: resolve bundle %s %q: %w", role, value, err)
 	}
-	real, err := filepath.EvalSymlinks(abs)
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("airplan: resolve bundle %s %q: %w", role, value, err)
-	}
-	relative, err := filepath.Rel(rootReal, real)
+	relative, err := filepath.Rel(rootDeclared, abs)
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("airplan: resolve bundle %s %q beneath entry directory: %w", role, value, err)
 	}
 	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
-		return nil, nil, "", fmt.Errorf("airplan: bundle %s %q resolves outside the entry directory", role, value)
+		return nil, nil, "", fmt.Errorf("airplan: bundle %s %q is declared outside the entry directory", role, value)
 	}
 	logical := filepath.ToSlash(relative)
 	if err := airplan.ValidateBundlePath(logical); err != nil {
 		return nil, nil, "", err
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return nil, nil, "", fmt.Errorf("airplan: resolve bundle %s %q: %w", role, value, err)
+	}
+	if !pathWithinRoot(rootReal, real) {
+		return nil, nil, "", fmt.Errorf("airplan: bundle %s %q resolves outside the entry directory", role, value)
 	}
 	file, info, err := openRegularInput(real, "bundle "+role)
 	if err != nil {
 		return nil, nil, "", err
 	}
 	return file, info, logical, nil
+}
+
+func pathWithinRoot(root, target string) bool {
+	relative, err := filepath.Rel(root, target)
+	return err == nil && relative != ".." &&
+		!strings.HasPrefix(relative, ".."+string(filepath.Separator)) &&
+		!filepath.IsAbs(relative)
 }

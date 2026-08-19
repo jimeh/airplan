@@ -80,6 +80,17 @@ type rootOptions struct {
 	keyPrefix     string
 }
 
+type countingReader struct {
+	reader io.Reader
+	bytes  int64
+}
+
+func (r *countingReader) Read(buffer []byte) (int, error) {
+	n, err := r.reader.Read(buffer)
+	r.bytes += int64(n)
+	return n, err
+}
+
 func newRootCmd() *cobra.Command {
 	opts := &rootOptions{}
 
@@ -239,6 +250,12 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	if err := validateModeFlags(cmd, collection); err != nil {
 		return err
 	}
+	if !collection && len(opts.pages) == 0 && len(opts.assets) == 0 &&
+		cmd.Flags().Changed("max-total-size") {
+		return errors.New(
+			"airplan: --max-total-size is only valid for document bundles or collections",
+		)
+	}
 	if collection && !cmd.Flags().Changed("max-size") {
 		opts.maxSize = "1GiB"
 	}
@@ -350,6 +367,8 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 		in.Name = args[0]
 	}
 
+	measured := &countingReader{reader: in.Reader}
+	in.Reader = measured
 	res, err := client.Upload(ctx, in)
 	if err != nil {
 		if errors.Is(err, airplan.ErrInputTooLarge) {
@@ -363,7 +382,9 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	for _, w := range res.Warnings {
 		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
 	}
-	if err := printResult(cmd.OutOrStdout(), res, opts.json); err != nil {
+	if err := printResult(
+		cmd.OutOrStdout(), res, in.Name, measured.bytes, opts.json,
+	); err != nil {
 		return err
 	}
 	if opts.open {
@@ -384,19 +405,38 @@ type jsonResult struct {
 	ContentType string `json:"content_type"`
 }
 
-func printResult(w io.Writer, res *airplan.Result, jsonOutput bool) error {
+func printResult(
+	w io.Writer, res *airplan.Result, logicalPath string, sourceBytes int64,
+	jsonOutput bool,
+) error {
 	if !jsonOutput {
 		_, err := fmt.Fprintln(w, res.URL)
 		return err
 	}
 
-	out := jsonResult{
+	out := struct {
+		jsonResult
+		Pages []airplan.PageResult `json:"pages"`
+	}{jsonResult: jsonResult{
 		URL:         res.URL,
 		Key:         res.Key,
 		SourceURL:   res.SourceURL,
 		Bucket:      res.Bucket,
 		Bytes:       res.Bytes,
 		ContentType: res.ContentType,
+	}}
+	if logicalPath == "" {
+		logicalPath = "document." + res.Format
+	} else {
+		logicalPath = filepath.Base(logicalPath)
+	}
+	out.Pages = []airplan.PageResult{{
+		Path: logicalPath, Format: res.Format, Title: res.Title,
+		URL: res.URL, Key: res.Key, SourceURL: res.SourceURL,
+		SourceKey: res.SourceKey, Bytes: res.Bytes,
+	}}
+	if res.SourceKey != "" {
+		out.Pages[0].SourceBytes = sourceBytes
 	}
 	return json.NewEncoder(w).Encode(out)
 }

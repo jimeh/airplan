@@ -105,18 +105,20 @@ func (o *HTTPOperations) CreateDocumentRevision(
 			return httpapi.DocumentRevisionResult{}, apiOperationError(err)
 		}
 	}
+	document := coreDocumentInput(
+		upload.Metadata.Name, string(upload.Metadata.Format),
+		upload.Metadata.Title, upload.Metadata.Slug, upload.Metadata.Lang,
+		repositoryURL,
+		upload.Metadata.MaxSize, //nolint:staticcheck // Protocol compatibility alias.
+		upload.Metadata.MaxPageSize,
+		upload.Metadata.MaxTotalPageSize, upload.Metadata.MaxAssetSize,
+		upload.Metadata.MaxTotalSize, upload.Document, upload.Pages,
+		upload.Assets,
+	)
+	document.maxGeneratedPageSize = httpapi.GeneratedPageLimit(ctx)
 	result, err := client.CreateDocumentRevision(ctx, CreateDocumentRevisionInput{
-		Target: upload.Metadata.Target,
-		Document: coreDocumentInput(
-			upload.Metadata.Name, string(upload.Metadata.Format),
-			upload.Metadata.Title, upload.Metadata.Slug, upload.Metadata.Lang,
-			repositoryURL,
-			upload.Metadata.MaxSize, //nolint:staticcheck // Protocol compatibility alias.
-			upload.Metadata.MaxPageSize,
-			upload.Metadata.MaxTotalPageSize, upload.Metadata.MaxAssetSize,
-			upload.Metadata.MaxTotalSize, upload.Document, upload.Pages,
-			upload.Assets,
-		),
+		Target:   upload.Metadata.Target,
+		Document: document,
 	})
 	if err != nil {
 		return httpapi.DocumentRevisionResult{}, apiOperationError(err)
@@ -136,7 +138,7 @@ func (o *HTTPOperations) UploadDocument(
 	if err != nil {
 		return httpapi.UploadResult{}, apiOperationError(err)
 	}
-	result, err := client.UploadDocument(ctx, coreDocumentInput(
+	document := coreDocumentInput(
 		upload.Metadata.Name, string(upload.Metadata.Format),
 		upload.Metadata.Title, upload.Metadata.Slug, upload.Metadata.Lang,
 		repositoryURL,
@@ -145,7 +147,9 @@ func (o *HTTPOperations) UploadDocument(
 		upload.Metadata.MaxTotalPageSize, upload.Metadata.MaxAssetSize,
 		upload.Metadata.MaxTotalSize, upload.Document, upload.Pages,
 		upload.Assets,
-	))
+	)
+	document.maxGeneratedPageSize = httpapi.GeneratedPageLimit(ctx)
+	result, err := client.UploadDocument(ctx, document)
 	if err != nil {
 		return httpapi.UploadResult{}, apiOperationError(err)
 	}
@@ -953,6 +957,13 @@ func apiOperationError(err error) error {
 	if errors.Is(err, ErrBinaryInput) || errors.Is(err, ErrInvalidUTF8) ||
 		errors.Is(err, ErrEmptyInput) ||
 		errors.Is(err, errInvalidHostedRepository) {
+		return httpapi.NewProblemError(
+			http.StatusUnprocessableEntity, "invalid_upload",
+			"Invalid upload", "The request does not describe a valid Airplan upload.",
+		)
+	}
+	var invalidDocument *InvalidDocumentInputError
+	if errors.As(err, &invalidDocument) {
 		return httpapi.NewProblemError(
 			http.StatusUnprocessableEntity, "invalid_upload",
 			"Invalid upload", "The request does not describe a valid Airplan upload.",

@@ -354,6 +354,10 @@ interface VersionsMetadata {
           if (pagesDialog && pagesDialog.open) pagesDialog.close();
         }
 
+        function syncPagesDialog() {
+          if (!pagesMedia.matches) closePagesDialog();
+        }
+
         pagesTrigger.addEventListener("click", function () {
           pagesDialog!.showModal();
           pagesTrigger!.setAttribute("aria-expanded", "true");
@@ -383,6 +387,7 @@ interface VersionsMetadata {
         pagesDialogNav.querySelectorAll<HTMLAnchorElement>("a").forEach(function (link) {
           link.addEventListener("click", closePagesDialog);
         });
+        pagesMedia.addEventListener("change", syncPagesDialog);
 
         pagesTrigger.hidden = false;
         pagesTrigger.setAttribute("aria-expanded", "false");

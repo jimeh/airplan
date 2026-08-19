@@ -491,45 +491,45 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
   function $E(E) {
     return E === "system" || E === "light" || E === "dark";
   }
-  function EE(E, M) {
+  function EE(E, A) {
     try {
-      return E?.getItem(M) ?? null;
+      return E?.getItem(A) ?? null;
     } catch {
       return null;
     }
   }
-  function N(E, M, I) {
+  function N(E, A, I) {
     try {
       if (I === null)
-        E?.removeItem(M);
+        E?.removeItem(A);
       else
-        E?.setItem(M, I);
+        E?.setItem(A, I);
     } catch {}
   }
-  function OE(E, M, I) {
+  function jE(E, A, I) {
     let K = EE(I, "airplan-color-mode");
     if (K === null) {
       let j = EE(I, "airplan-theme");
       if (K = j === "light" || j === "dark" ? j : "system", K !== "system")
         N(I, "airplan-color-mode", K);
     }
-    let w = $E(K) ? K : "system", $ = new Set(E.themes.map((j) => j.id)), A = EE(I, "airplan-light-theme"), Q = EE(I, "airplan-dark-theme"), O = A !== null && $.has(A) ? A : E.defaultLight, Y = Q !== null && $.has(Q) ? Q : E.defaultDark;
-    return fE(E, w, O, Y, M);
+    let w = $E(K) ? K : "system", $ = new Set(E.themes.map((j) => j.id)), f = EE(I, "airplan-light-theme"), Q = EE(I, "airplan-dark-theme"), O = f !== null && $.has(f) ? f : E.defaultLight, Y = Q !== null && $.has(Q) ? Q : E.defaultDark;
+    return AE(E, w, O, Y, A);
   }
-  function fE(E, M, I, K, w) {
-    let $ = new Map(E.themes.map((R) => [R.id, R])), A = $.has(I) ? I : E.defaultLight, Q = $.has(K) ? K : E.defaultDark, O = M === "system" ? w ? "dark" : "light" : M, Y = O === "light" ? A : Q, j = $.get(Y)?.variant ?? O;
-    return { mode: M, resolvedMode: O, lightTheme: A, darkTheme: Q, theme: Y, variant: j };
+  function AE(E, A, I, K, w) {
+    let $ = new Map(E.themes.map((R) => [R.id, R])), f = $.has(I) ? I : E.defaultLight, Q = $.has(K) ? K : E.defaultDark, O = A === "system" ? w ? "dark" : "light" : A, Y = O === "light" ? f : Q, j = $.get(Y)?.variant ?? O;
+    return { mode: A, resolvedMode: O, lightTheme: f, darkTheme: Q, theme: Y, variant: j };
   }
-  function jE(E, M) {
-    if (M === "system")
+  function zE(E, A) {
+    if (A === "system")
       N(E, "airplan-color-mode", null), N(E, "airplan-theme", null);
     else
-      N(E, "airplan-color-mode", M), N(E, "airplan-theme", M);
+      N(E, "airplan-color-mode", A), N(E, "airplan-theme", A);
   }
-  function zE(E, M, I) {
-    N(E, M === "light" ? "airplan-light-theme" : "airplan-dark-theme", I);
+  function JE(E, A, I) {
+    N(E, A === "light" ? "airplan-light-theme" : "airplan-dark-theme", I);
   }
-  function JE(E) {
+  function KE(E) {
     return {
       mode: E.mode,
       resolvedMode: E.resolvedMode,
@@ -539,9 +539,9 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
   }
 
   (function() {
-    let E = document, M = E.documentElement;
-    E.querySelectorAll(".js-only").forEach((u) => {
-      u.hidden = !1;
+    let E = document, A = E.documentElement;
+    E.querySelectorAll(".js-only").forEach((h) => {
+      h.hidden = !1;
     });
     let I = window.__AIRPLAN_THEME_CATALOG__;
     if (!I)
@@ -550,87 +550,87 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
     try {
       $ = window.localStorage;
     } catch {}
-    let A = window.__airplanThemeState ?? OE(K, w.matches, $), Q = E.querySelector("[data-airplan-appearance-trigger]"), O = E.querySelector("[data-airplan-appearance-panel]"), Y = E.querySelector('select[data-airplan-theme-slot="light"]'), j = E.querySelector('select[data-airplan-theme-slot="dark"]'), R = Array.from(E.querySelectorAll("[data-airplan-color-mode]"));
-    function c(u) {
-      if (!u || u.options.length > 0)
+    let f = window.__airplanThemeState ?? jE(K, w.matches, $), Q = E.querySelector("[data-airplan-appearance-trigger]"), O = E.querySelector("[data-airplan-appearance-panel]"), Y = E.querySelector('select[data-airplan-theme-slot="light"]'), j = E.querySelector('select[data-airplan-theme-slot="dark"]'), R = Array.from(E.querySelectorAll("[data-airplan-color-mode]"));
+    function c(h) {
+      if (!h || h.options.length > 0)
         return;
-      for (let [q, F] of [
+      for (let [M, F] of [
         ["light", "Light themes"],
         ["dark", "Dark themes"]
       ]) {
         let W = E.createElement("optgroup");
         W.label = F;
         for (let X of K.themes) {
-          if (X.variant !== q)
+          if (X.variant !== M)
             continue;
           let z = E.createElement("option");
           z.value = X.id, z.textContent = X.name, W.append(z);
         }
         if (W.children.length > 0)
-          u.append(W);
+          h.append(W);
       }
     }
     c(Y), c(j);
-    function m(u, q = !0) {
-      if (A = u, window.__airplanThemeState = A, M.dataset.airplanMode = A.mode, M.dataset.airplanResolvedMode = A.resolvedMode, M.dataset.airplanTheme = A.theme, M.dataset.airplanThemeVariant = A.variant, R.forEach((F) => {
-        let W = F.dataset.airplanColorMode === A.mode;
+    function m(h, M = !0) {
+      if (f = h, window.__airplanThemeState = f, A.dataset.airplanMode = f.mode, A.dataset.airplanResolvedMode = f.resolvedMode, A.dataset.airplanTheme = f.theme, A.dataset.airplanThemeVariant = f.variant, R.forEach((F) => {
+        let W = F.dataset.airplanColorMode === f.mode;
         F.classList.toggle("active", W), F.setAttribute("aria-pressed", String(W));
       }), Y)
-        Y.value = A.lightTheme;
+        Y.value = f.lightTheme;
       if (j)
-        j.value = A.darkTheme;
-      if (q)
-        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: JE(A) }));
+        j.value = f.darkTheme;
+      if (M)
+        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: KE(f) }));
     }
-    function y(u = {}) {
-      m(fE(K, u.mode ?? A.mode, u.lightTheme ?? A.lightTheme, u.darkTheme ?? A.darkTheme, w.matches));
+    function L(h = {}) {
+      m(AE(K, h.mode ?? f.mode, h.lightTheme ?? f.lightTheme, h.darkTheme ?? f.darkTheme, w.matches));
     }
-    function P(u, q = !1) {
+    function P(h, M = !1) {
       if (!O || !Q)
         return;
-      if (O.hidden = !u, Q.setAttribute("aria-expanded", String(u)), u)
+      if (O.hidden = !h, Q.setAttribute("aria-expanded", String(h)), h)
         O.querySelector("button,select")?.focus();
-      else if (q)
+      else if (M)
         Q.focus();
     }
-    Q?.addEventListener("click", () => P(Boolean(O?.hidden ?? !0))), R.forEach((u) => u.addEventListener("click", () => {
-      let q = u.dataset.airplanColorMode;
-      if (!q)
+    Q?.addEventListener("click", () => P(Boolean(O?.hidden ?? !0))), R.forEach((h) => h.addEventListener("click", () => {
+      let M = h.dataset.airplanColorMode;
+      if (!M)
         return;
-      jE($, q), y({ mode: q });
+      zE($, M), L({ mode: M });
     }));
-    function l(u, q) {
-      zE($, u, q.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: q.value } })), y(u === "light" ? { lightTheme: q.value } : { darkTheme: q.value });
+    function l(h, M) {
+      JE($, h, M.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: M.value } })), L(h === "light" ? { lightTheme: M.value } : { darkTheme: M.value });
     }
     Y?.addEventListener("change", () => l("light", Y)), j?.addEventListener("change", () => l("dark", j)), w.addEventListener("change", () => {
-      if (A.mode === "system")
-        y();
-    }), E.addEventListener("keydown", (u) => {
-      if (u.key === "Escape" && O && !O.hidden)
-        u.preventDefault(), P(!1, !0);
-    }), E.addEventListener("pointerdown", (u) => {
+      if (f.mode === "system")
+        L();
+    }), E.addEventListener("keydown", (h) => {
+      if (h.key === "Escape" && O && !O.hidden)
+        h.preventDefault(), P(!1, !0);
+    }), E.addEventListener("pointerdown", (h) => {
       if (!O || O.hidden || !Q)
         return;
-      let q = u.target;
-      if (!(q instanceof Node) || O.contains(q) || Q.contains(q))
+      let M = h.target;
+      if (!(M instanceof Node) || O.contains(M) || Q.contains(M))
         return;
-      let W = (q instanceof Element ? q : q.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), X = O.contains(E.activeElement) && !W;
+      let W = (M instanceof Element ? M : M.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), X = O.contains(E.activeElement) && !W;
       if (P(!1), X)
         setTimeout(() => {
           if (E.activeElement === E.body || O.contains(E.activeElement))
             Q.focus();
         });
-    }), m(A, !1);
+    }), m(f, !1);
   })();
 
   (function() {
     var E = document;
-    let M = E.getElementById("rendered");
-    if (!M)
+    let A = E.getElementById("rendered");
+    if (!A)
       return;
-    let I = M;
+    let I = A;
     var K = E.querySelector('meta[name="airplan-versions"]'), w = window.location.pathname.split("/").filter(Boolean), $ = w.slice(0, -2);
-    function A(S, h) {
+    function f(S, q) {
       if (typeof S !== "string")
         return null;
       try {
@@ -643,7 +643,7 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
         }) || !/^[a-z2-7]{26}$/.test(G[G.length - 2]))
           return null;
         var Z = G[G.length - 1];
-        if (h ? Z !== ".airplan-changes.diff" : !Z.endsWith(".html"))
+        if (q ? Z !== ".airplan-changes.diff" : !Z.endsWith(".html"))
           return null;
         return _.href;
       } catch {
@@ -651,57 +651,57 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
       }
     }
     function Q(S) {
-      var h = E.querySelector('meta[name="airplan-revision"]'), _ = h ? Number(h.content) : Number(S.current_revision);
+      var q = E.querySelector('meta[name="airplan-revision"]'), _ = q ? Number(q.content) : Number(S.current_revision);
       if (!Number.isInteger(_) || _ <= 0 || S.current_revision !== _ || !Number.isInteger(S.latest_revision) || !Number.isInteger(S.last_assigned_revision) || !Array.isArray(S.revisions) || S.revisions.length === 0 || S.last_assigned_revision !== S.revisions.length || !/^[a-z2-7]{26}$/.test(S.chain_id))
         throw Error("revision identity is invalid");
-      var G = !1, Z = 0, V = S.revisions.filter(function(f) {
-        if (!f || !Number.isInteger(f.number) || f.number !== Z + 1)
+      var G = !1, Z = 0, V = S.revisions.filter(function(u) {
+        if (!u || !Number.isInteger(u.number) || u.number !== Z + 1)
           return G = !0, !1;
-        if (Z = f.number, f.deleted)
+        if (Z = u.number, u.deleted)
           return !1;
-        if (f.safeURL = A(f.url, !1), !f.safeURL)
+        if (u.safeURL = f(u.url, !1), !u.safeURL)
           return G = !0, !1;
-        if (f.number > 1) {
-          var H = A(f.diff_url, !0);
-          if (!H || new URL(H).pathname.replace(/[^/]+$/, "") !== new URL(f.safeURL).pathname.replace(/[^/]+$/, ""))
+        if (u.number > 1) {
+          var H = f(u.diff_url, !0);
+          if (!H || new URL(H).pathname.replace(/[^/]+$/, "") !== new URL(u.safeURL).pathname.replace(/[^/]+$/, ""))
             return G = !0, !1;
         }
         return !0;
       });
-      if (G || S.revisions[0].number !== 1 || !V.some(function(f) {
-        return f.number === _;
+      if (G || S.revisions[0].number !== 1 || !V.some(function(u) {
+        return u.number === _;
       }))
         throw Error("revision entries are invalid");
-      var a = V.find(function(f) {
-        return f.number === _;
+      var a = V.find(function(u) {
+        return u.number === _;
       }), YE = window.location.origin + window.location.pathname;
       if (!a || a.safeURL !== YE)
         throw Error("current revision URL is invalid");
-      var v = Math.max.apply(null, V.map(function(f) {
-        return f.number;
+      var v = Math.max.apply(null, V.map(function(u) {
+        return u.number;
       }));
       if (v !== S.latest_revision)
         throw Error("latest is invalid");
       var x = E.querySelector("[data-revision-heading]");
       if (!x) {
         x = E.createElement("p"), x.className = "revision-heading", x.setAttribute("data-revision-heading", "");
-        var IE = E.getElementById("rendered");
-        if (!IE)
+        var OE = E.getElementById("rendered");
+        if (!OE)
           throw Error("rendered view is unavailable");
-        IE.prepend(x);
+        OE.prepend(x);
       }
-      var uE = _ < v, ZE = uE ? "Revision " + _ + " of " + v : "Revision " + _ + " (Latest)", e = E.createElement("span");
+      var fE = _ < v, ZE = fE ? "Revision " + _ + " of " + v : "Revision " + _ + " (Latest)", e = E.createElement("span");
       e.className = "revision-picker-label", e.textContent = ZE, e.setAttribute("aria-hidden", "true");
       var p = E.createElement("select");
-      p.setAttribute("aria-label", "Document revision"), V.forEach(function(f) {
+      p.setAttribute("aria-label", "Document revision"), V.forEach(function(u) {
         var H = E.createElement("option");
-        H.value = f.safeURL || "", H.textContent = f.number === v ? "Revision " + f.number + " (Latest)" : "Revision " + f.number + " of " + v, H.selected = f.number === _, p.appendChild(H);
+        H.value = u.safeURL || "", H.textContent = u.number === v ? "Revision " + u.number + " (Latest)" : "Revision " + u.number + " of " + v, H.selected = u.number === _, p.appendChild(H);
       }), p.addEventListener("change", function() {
-        var f = p.selectedIndex;
-        if (f < 0 || f >= V.length)
+        var u = p.selectedIndex;
+        if (u < 0 || u >= V.length)
           return;
-        window.location.assign(V[f].safeURL || "");
-      }), x.replaceChildren(e, p), x.classList.add("is-picker"), x.classList.toggle("is-stale", uE), E.body.classList.toggle("airplan-stale-revision", uE);
+        window.location.assign(V[u].safeURL || "");
+      }), x.replaceChildren(e, p), x.classList.add("is-picker"), x.classList.toggle("is-stale", fE), E.body.classList.toggle("airplan-stale-revision", fE);
     }
     if (K) {
       var O = new URL(K.content, window.location.href);
@@ -741,8 +741,8 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
       }), j = null;
     }
     window.addEventListener("beforeprint", R), window.addEventListener("afterprint", c);
-    function m(S, h, _) {
-      Y.textContent = h;
+    function m(S, q, _) {
+      Y.textContent = q;
       var G = S.querySelector(".action-label"), Z = G ? G.textContent : "";
       if (G)
         G.textContent = _ ? "Copied" : "Failed";
@@ -751,26 +751,29 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
           G.textContent = Z;
       }, 1200);
     }
-    function y(S, h) {
+    function L(S, q) {
       if (!navigator.clipboard) {
-        m(h, "Copy failed", !1);
+        m(q, "Copy failed", !1);
         return;
       }
       navigator.clipboard.writeText(S).then(function() {
-        m(h, "Copied!", !0);
+        m(q, "Copied!", !0);
       }, function() {
-        m(h, "Copy failed", !1);
+        m(q, "Copy failed", !1);
       });
     }
-    var P = '<svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>', l = '<svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>', u = '<svg class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', q = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 4h9M5 8h9M5 12h9"/><circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="12" r=".75" fill="currentColor" stroke="none"/></svg>', F = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', W = E.getElementById("pages"), X = E.querySelector(".pages-trigger"), z = null, KE = window.matchMedia("(max-width: 78rem)");
+    var P = '<svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>', l = '<svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>', h = '<svg class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', M = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 4h9M5 8h9M5 12h9"/><circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="12" r=".75" fill="currentColor" stroke="none"/></svg>', F = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', W = E.getElementById("pages"), X = E.querySelector(".pages-trigger"), z = null, SE = window.matchMedia("(max-width: 78rem)");
     if (W && X) {
-      var AE = W.querySelector(".pages-list");
-      if (AE) {
+      var qE = W.querySelector(".pages-list");
+      if (qE) {
         var ME = E.createElement("dialog");
         if (typeof ME.showModal === "function") {
           let S = function() {
             if (z && z.open)
               z.close();
+          }, q = function() {
+            if (!SE.matches)
+              S();
           };
           z = ME, z.className = "pages-dialog", z.id = "pages-dialog", z.setAttribute("aria-labelledby", "pages-dialog-title");
           var d = E.createElement("div");
@@ -779,32 +782,32 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
           r.className = "pages-dialog-header";
           var t = E.createElement("h2");
           t.className = "pages-dialog-title", t.id = "pages-dialog-title", t.textContent = "Pages";
-          var L = E.createElement("button");
-          L.className = "pages-dialog-close", L.type = "button", L.setAttribute("aria-label", "Close pages"), L.innerHTML = F, r.appendChild(t), r.appendChild(L);
+          var y = E.createElement("button");
+          y.className = "pages-dialog-close", y.type = "button", y.setAttribute("aria-label", "Close pages"), y.innerHTML = F, r.appendChild(t), r.appendChild(y);
           var T = E.createElement("nav");
-          T.className = "pages-dialog-nav", T.setAttribute("aria-label", "Pages"), T.appendChild(AE.cloneNode(!0)), d.appendChild(r), d.appendChild(T), z.appendChild(d), X.addEventListener("click", function() {
+          T.className = "pages-dialog-nav", T.setAttribute("aria-label", "Pages"), T.appendChild(qE.cloneNode(!0)), d.appendChild(r), d.appendChild(T), z.appendChild(d), X.addEventListener("click", function() {
             z.showModal(), X.setAttribute("aria-expanded", "true"), E.body.classList.add("pages-dialog-open");
-            var h = z.querySelector('[aria-current="page"]');
-            if (h)
-              h.scrollIntoView({ block: "nearest" });
-          }), L.addEventListener("click", S), z.addEventListener("click", function(h) {
-            if (h.target === z)
+            var _ = z.querySelector('[aria-current="page"]');
+            if (_)
+              _.scrollIntoView({ block: "nearest" });
+          }), y.addEventListener("click", S), z.addEventListener("click", function(_) {
+            if (_.target === z)
               S();
-          }), z.addEventListener("keydown", function(h) {
-            if (h.key === "Escape")
-              h.preventDefault(), S();
+          }), z.addEventListener("keydown", function(_) {
+            if (_.key === "Escape")
+              _.preventDefault(), S();
           }), z.addEventListener("close", function() {
-            if (X.setAttribute("aria-expanded", "false"), E.body.classList.remove("pages-dialog-open"), KE.matches)
+            if (X.setAttribute("aria-expanded", "false"), E.body.classList.remove("pages-dialog-open"), SE.matches)
               setTimeout(function() {
                 X.focus();
               }, 50);
-          }), T.querySelectorAll("a").forEach(function(h) {
-            h.addEventListener("click", S);
-          }), X.hidden = !1, X.setAttribute("aria-expanded", "false"), E.body.appendChild(z), E.body.classList.add("pages-dialog-ready");
+          }), T.querySelectorAll("a").forEach(function(_) {
+            _.addEventListener("click", S);
+          }), SE.addEventListener("change", q), X.hidden = !1, X.setAttribute("aria-expanded", "false"), E.body.appendChild(z), E.body.classList.add("pages-dialog-ready");
         }
       }
     }
-    var g = E.getElementById("source"), qE = E.getElementById("changes"), U = E.getElementById("toc"), J = null, B = null, BE = window.matchMedia("(max-width: 78rem)");
+    var i = E.getElementById("source"), BE = E.getElementById("changes"), U = E.getElementById("toc"), J = null, B = null, GE = window.matchMedia("(max-width: 78rem)");
     function k() {
       if (B && B.open)
         B.close();
@@ -812,19 +815,19 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
     function b() {
       if (!U || !J || !B)
         return;
-      var S = BE.matches && !I.hidden && U.getBoundingClientRect().bottom < 0 && !B.open;
-      if (J.classList.toggle("is-visible", S), J.tabIndex = S ? 0 : -1, J.setAttribute("aria-hidden", S ? "false" : "true"), B.open && (!BE.matches || I.hidden))
+      var S = GE.matches && !I.hidden && U.getBoundingClientRect().bottom < 0 && !B.open;
+      if (J.classList.toggle("is-visible", S), J.tabIndex = S ? 0 : -1, J.setAttribute("aria-hidden", S ? "false" : "true"), B.open && (!GE.matches || I.hidden))
         k();
     }
     if (E.querySelectorAll(".viewtoggle button").forEach(function(S) {
       S.addEventListener("click", function() {
-        var h = S.dataset.view;
-        if (I.hidden = h !== "rendered", g)
-          g.hidden = h !== "source";
-        if (qE)
-          qE.hidden = h !== "changes";
+        var q = S.dataset.view;
+        if (I.hidden = q !== "rendered", i)
+          i.hidden = q !== "source";
+        if (BE)
+          BE.hidden = q !== "changes";
         if (U)
-          U.hidden = h !== "rendered";
+          U.hidden = q !== "rendered";
         E.querySelectorAll(".viewtoggle button").forEach(function(_) {
           _.classList.toggle("active", _ === S), _.setAttribute("aria-pressed", _ === S ? "true" : "false");
         }), b();
@@ -842,26 +845,26 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
         }), window.innerHeight + window.scrollY >= E.documentElement.scrollHeight - 2)
           _ = D.length - 1;
         var G = D[_].getAttribute("href");
-        SE.forEach(function(Z) {
+        _E.forEach(function(Z) {
           var V = Z.getAttribute("href") === G;
           if (Z.classList.toggle("active", V), V)
             Z.setAttribute("aria-current", "location");
           else
             Z.removeAttribute("aria-current");
         }), b();
-      }, h = function() {
-        if (_E)
+      }, q = function() {
+        if (hE)
           return;
-        _E = !0, window.requestAnimationFrame(function() {
-          _E = !1, S();
+        hE = !0, window.requestAnimationFrame(function() {
+          hE = !1, S();
         });
       };
-      var D = Array.from(U.querySelectorAll('a[href^="#"]')), GE = U.querySelector(".toc-list");
-      if (GE)
+      var D = Array.from(U.querySelectorAll('a[href^="#"]')), IE = U.querySelector(".toc-list");
+      if (IE)
         if (B = E.createElement("dialog"), typeof B.showModal === "function") {
           B.className = "toc-dialog", B.id = "toc-dialog", B.setAttribute("aria-labelledby", "toc-dialog-title");
-          var i = E.createElement("div");
-          i.className = "toc-dialog-panel";
+          var g = E.createElement("div");
+          g.className = "toc-dialog-panel";
           var o = E.createElement("div");
           o.className = "toc-dialog-header";
           var s = E.createElement("h2");
@@ -869,7 +872,7 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
           var C = E.createElement("button");
           C.className = "toc-dialog-close", C.type = "button", C.setAttribute("aria-label", "Close table of contents"), C.innerHTML = F, o.appendChild(s), o.appendChild(C);
           var n = E.createElement("nav");
-          n.className = "toc-dialog-nav", n.setAttribute("aria-label", "Table of contents"), n.appendChild(GE.cloneNode(!0)), i.appendChild(o), i.appendChild(n), B.appendChild(i), J = E.createElement("button"), J.className = "toc-trigger", J.type = "button", J.tabIndex = -1, J.setAttribute("aria-label", "Open table of contents"), J.setAttribute("aria-controls", "toc-dialog"), J.setAttribute("aria-haspopup", "dialog"), J.setAttribute("aria-hidden", "true"), J.innerHTML = q, E.body.appendChild(J), E.body.appendChild(B), J.addEventListener("click", function() {
+          n.className = "toc-dialog-nav", n.setAttribute("aria-label", "Table of contents"), n.appendChild(IE.cloneNode(!0)), g.appendChild(o), g.appendChild(n), B.appendChild(g), J = E.createElement("button"), J.className = "toc-trigger", J.type = "button", J.tabIndex = -1, J.setAttribute("aria-label", "Open table of contents"), J.setAttribute("aria-controls", "toc-dialog"), J.setAttribute("aria-haspopup", "dialog"), J.setAttribute("aria-hidden", "true"), J.innerHTML = M, E.body.appendChild(J), E.body.appendChild(B), J.addEventListener("click", function() {
             B.showModal(), E.body.classList.add("toc-dialog-open"), b();
             var _ = B.querySelector("a.active");
             if (_)
@@ -890,30 +893,30 @@ and upload client.&#160;<a href="#fnref:1" class="footnote-backref" role="doc-ba
           });
         } else
           B = null;
-      var SE = D.slice();
+      var _E = D.slice();
       if (B)
-        SE = SE.concat(Array.from(B.querySelectorAll('a[href^="#"]')));
+        _E = _E.concat(Array.from(B.querySelectorAll('a[href^="#"]')));
       var QE = D.map(function(_) {
         return E.getElementById((_.getAttribute("href") || "").slice(1));
-      }), _E = !1;
-      E.addEventListener("scroll", h, { passive: !0 }), window.addEventListener("resize", S), S();
+      }), hE = !1;
+      E.addEventListener("scroll", q, { passive: !0 }), window.addEventListener("resize", S), S();
     }
-    let hE = E.querySelector(".copy-source");
-    if (hE && g)
-      hE.addEventListener("click", function() {
-        var S = g.querySelector("pre");
-        y(S ? S.textContent : "", hE);
+    let uE = E.querySelector(".copy-source");
+    if (uE && i)
+      uE.addEventListener("click", function() {
+        var S = i.querySelector("pre");
+        L(S ? S.textContent : "", uE);
       });
     I.querySelectorAll("pre").forEach(function(S) {
       if (S.classList.contains("mermaid"))
         return;
-      var h = E.createElement("div");
-      h.className = "codewrap", S.parentNode?.insertBefore(h, S), h.appendChild(S);
+      var q = E.createElement("div");
+      q.className = "codewrap", S.parentNode?.insertBefore(q, S), q.appendChild(S);
       var _ = E.createElement("button");
-      _.className = "codecopy", _.type = "button", _.setAttribute("aria-label", "Copy code"), _.title = "Copy code", _.innerHTML = P + l + u, _.addEventListener("click", function() {
+      _.className = "codecopy", _.type = "button", _.setAttribute("aria-label", "Copy code"), _.title = "Copy code", _.innerHTML = P + l + h, _.addEventListener("click", function() {
         var G = S.querySelector("code");
-        y((G || S).textContent, _);
-      }), h.appendChild(_);
+        L((G || S).textContent, _);
+      }), q.appendChild(_);
     });
   })();
 })();

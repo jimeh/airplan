@@ -394,6 +394,9 @@
           let closePagesDialog = function() {
             if (pagesDialog && pagesDialog.open)
               pagesDialog.close();
+          }, syncPagesDialog = function() {
+            if (!pagesMedia.matches)
+              closePagesDialog();
           };
           pagesDialog = candidate;
           pagesDialog.className = "pages-dialog";
@@ -452,6 +455,7 @@
           pagesDialogNav.querySelectorAll("a").forEach(function(link) {
             link.addEventListener("click", closePagesDialog);
           });
+          pagesMedia.addEventListener("change", syncPagesDialog);
           pagesTrigger.hidden = false;
           pagesTrigger.setAttribute("aria-expanded", "false");
           d.body.appendChild(pagesDialog);

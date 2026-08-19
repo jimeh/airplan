@@ -36,6 +36,9 @@ func runDocumentBundlePreview(cmd *cobra.Command, args []string, opts *previewOp
 		return err
 	}
 	overrides := airplan.Settings{Template: opts.template, Repository: opts.repository, MermaidURL: airplan.ResolveMermaidURLOverride(opts.mermaidURL, cmd.Flags().Changed("mermaid-url"))}
+	if cmd.Flags().Changed("no-source") {
+		overrides.NoSource = &opts.noSource
+	}
 	if cmd.Flags().Changed("indexable") {
 		overrides.Indexable = &opts.indexable
 	}

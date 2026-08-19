@@ -134,6 +134,12 @@ func (s *Server) parseDocumentMultipart(
 			cleanupSpooled(file)
 		}
 	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			cleanup()
+			panic(recovered)
+		}
+	}()
 	fail := func(err error) (parsedDocumentParts, func(), error) {
 		cleanup()
 		return parsedDocumentParts{}, func() {}, err
@@ -164,6 +170,23 @@ func (s *Server) parseDocumentMultipart(
 	totalPageLimit := lowerLimit(s.options.MaxTotalPageBytes, spec.totalPageLimit)
 	assetLimit := lowerLimit(s.options.MaxAssetBytes, spec.assetLimit)
 	totalAssetLimit := lowerLimit(s.options.MaxDocumentAssetTotalBytes, spec.totalAssetLimit)
+	var declaredAssetTotal int64
+	for _, descriptor := range spec.assets {
+		if descriptor.Size > assetLimit {
+			return fail(requestTooLarge(fmt.Sprintf(
+				"asset %q exceeds the effective size limit", descriptor.Path,
+			)))
+		}
+		if descriptor.Size > int64(^uint64(0)>>1)-declaredAssetTotal {
+			return fail(invalidRequest("document asset total size is out of range"))
+		}
+		declaredAssetTotal += descriptor.Size
+	}
+	if declaredAssetTotal > totalAssetLimit {
+		return fail(requestTooLarge(
+			"document assets exceed the effective total size limit",
+		))
+	}
 
 	part, err = nextRequiredPart(reader, "document")
 	if err != nil {
@@ -289,6 +312,12 @@ func (s *Server) parseCollectionUpload(
 			cleanupSpooled(file)
 		}
 	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			cleanup()
+			panic(recovered)
+		}
+	}()
 	seen := make(map[string]struct{})
 	var total int64
 	for parts := 0; ; parts++ {

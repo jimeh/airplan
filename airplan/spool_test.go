@@ -87,3 +87,78 @@ func TestMaterializeRenderedDocumentRemovesStagingAfterDigestFailure(t *testing.
 		t.Fatalf("preview staging remains after failure: %v", matches)
 	}
 }
+
+func TestMaterializeRenderedDocumentDoesNotReplaceExistingEmptyDirectory(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "preview")
+	if err := os.Mkdir(destination, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err := materializeRenderedDocument(context.Background(), destination,
+		&RenderedDocumentBundle{Pages: []RenderedBundlePage{{
+			PagePath: "plan.html", HTML: []byte("page"),
+		}}}, nil)
+	if err == nil {
+		t.Fatal("materialization replaced an existing empty directory")
+	}
+	entries, readErr := os.ReadDir(destination)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("existing destination contents = %v", entries)
+	}
+	matches, globErr := filepath.Glob(filepath.Join(root, ".airplan-preview-*"))
+	if globErr != nil {
+		t.Fatal(globErr)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("preview staging remains after publish conflict: %v", matches)
+	}
+}
+
+func TestPublishDirectoryNoReplacePreservesConcurrentDestination(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "staging")
+	destination := filepath.Join(root, "preview")
+	if err := os.Mkdir(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(destination, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := publishDirectoryNoReplace(source, destination); err == nil {
+		t.Fatal("exclusive publish replaced a concurrently created destination")
+	}
+	for _, directory := range []string{source, destination} {
+		if info, err := os.Stat(directory); err != nil || !info.IsDir() {
+			t.Fatalf("directory %q was not preserved: info=%v error=%v", directory, info, err)
+		}
+	}
+}
+
+func TestMaterializeRenderedDocumentPublishesReadableModes(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not expose POSIX permission bits")
+	}
+	destination := filepath.Join(t.TempDir(), "preview")
+	if err := materializeRenderedDocument(context.Background(), destination,
+		&RenderedDocumentBundle{Pages: []RenderedBundlePage{{
+			PagePath: "docs/plan.html", HTML: []byte("page"),
+		}}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for name, want := range map[string]os.FileMode{
+		destination:                                     0o755,
+		filepath.Join(destination, "docs"):              0o755,
+		filepath.Join(destination, "docs", "plan.html"): 0o644,
+	} {
+		info, err := os.Stat(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != want {
+			t.Fatalf("mode for %q = %#o, want %#o", name, got, want)
+		}
+	}
+}

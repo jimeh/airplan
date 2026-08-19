@@ -755,6 +755,18 @@ func mcpInlineDocument(input mcpUploadDocumentInput, repository string, hosted b
 	}
 	var decodedTotal int64
 	for _, asset := range input.Assets {
+		decodedLen := int64(base64.StdEncoding.DecodedLen(len(asset.ContentBase64)))
+		if strings.HasSuffix(asset.ContentBase64, "==") {
+			decodedLen -= 2
+		} else if strings.HasSuffix(asset.ContentBase64, "=") {
+			decodedLen--
+		}
+		if decodedLen < 0 || decodedLen > maxMCPInlineAssetBytes-decodedTotal {
+			return DocumentInput{}, fmt.Errorf(
+				"airplan: inline assets exceed the decoded aggregate limit of %s",
+				formatSize(maxMCPInlineAssetBytes),
+			)
+		}
 		decoded, err := base64.StdEncoding.Strict().DecodeString(asset.ContentBase64)
 		if err != nil {
 			return DocumentInput{}, fmt.Errorf("airplan: asset %q content_base64 is invalid: %w", asset.Path, err)
@@ -800,9 +812,15 @@ func openMCPDocumentFiles(input mcpUploadDocumentFilesInput) (*mcpOpenedDocument
 	if err != nil {
 		return nil, fmt.Errorf("airplan: resolve entry_path: %w", err)
 	}
-	root, err := filepath.EvalSymlinks(filepath.Dir(entryReal))
+	rootDeclared := filepath.Dir(entryAbs)
+	root, err := filepath.EvalSymlinks(rootDeclared)
 	if err != nil {
 		return nil, err
+	}
+	if !mcpPathWithinRoot(root, entryReal) {
+		return nil, fmt.Errorf(
+			"airplan: entry_path resolves outside its declared directory",
+		)
 	}
 	opened := &mcpOpenedDocument{input: DocumentInput{Slug: input.Slug, Title: input.Title, MaxPageSize: input.MaxSize, MaxTotalPageSize: input.MaxTotalPageSize, MaxAssetSize: input.MaxAssetSize, MaxTotalSize: input.MaxTotalSize}}
 	fail := func(err error) (*mcpOpenedDocument, error) {
@@ -815,9 +833,9 @@ func openMCPDocumentFiles(input mcpUploadDocumentFilesInput) (*mcpOpenedDocument
 	}
 	_ = info
 	opened.files = append(opened.files, entry)
-	opened.input.Entry = PageInput{Reader: entry, Path: filepath.Base(entryReal), Title: input.Title}
+	opened.input.Entry = PageInput{Reader: entry, Path: filepath.Base(entryAbs), Title: input.Title}
 	for _, value := range input.PagePaths {
-		file, _, logical, err := openMCPBundleMember(root, value)
+		file, _, logical, err := openMCPBundleMember(rootDeclared, root, value)
 		if err != nil {
 			return fail(err)
 		}
@@ -825,7 +843,7 @@ func openMCPDocumentFiles(input mcpUploadDocumentFilesInput) (*mcpOpenedDocument
 		opened.input.Pages = append(opened.input.Pages, PageInput{Reader: file, Path: logical})
 	}
 	for _, value := range input.AssetPaths {
-		file, info, logical, err := openMCPBundleMember(root, value)
+		file, info, logical, err := openMCPBundleMember(rootDeclared, root, value)
 		if err != nil {
 			return fail(err)
 		}
@@ -835,40 +853,52 @@ func openMCPDocumentFiles(input mcpUploadDocumentFilesInput) (*mcpOpenedDocument
 	return opened, nil
 }
 
-func openMCPBundleMember(root, value string) (*os.File, os.FileInfo, string, error) {
+func openMCPBundleMember(rootDeclared, root, value string) (*os.File, os.FileInfo, string, error) {
 	abs, err := filepath.Abs(value)
 	if err != nil {
+		return nil, nil, "", err
+	}
+	relative, err := filepath.Rel(rootDeclared, abs)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return nil, nil, "", fmt.Errorf("airplan: local document path %q is declared outside the entry directory", value)
+	}
+	logical := filepath.ToSlash(relative)
+	if err := ValidateBundlePath(logical); err != nil {
 		return nil, nil, "", err
 	}
 	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return nil, nil, "", err
 	}
-	relative, err := filepath.Rel(root, real)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+	if !mcpPathWithinRoot(root, real) {
 		return nil, nil, "", fmt.Errorf("airplan: local document path %q resolves outside the entry directory", value)
-	}
-	logical := filepath.ToSlash(relative)
-	if err := ValidateBundlePath(logical); err != nil {
-		return nil, nil, "", err
 	}
 	file, info, err := openMCPRegularFile(real)
 	return file, info, logical, err
 }
 
 func openMCPRegularFile(value string) (*os.File, os.FileInfo, error) {
-	info, err := os.Stat(value)
-	if err != nil {
-		return nil, nil, err
-	}
-	if !info.Mode().IsRegular() {
-		return nil, nil, fmt.Errorf("airplan: local document path is not a regular file")
-	}
 	file, err := os.Open(value)
 	if err != nil {
 		return nil, nil, err
 	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, nil, fmt.Errorf("airplan: local document path is not a regular file")
+	}
 	return file, info, nil
+}
+
+func mcpPathWithinRoot(root, target string) bool {
+	relative, err := filepath.Rel(root, target)
+	return err == nil && relative != ".." &&
+		!strings.HasPrefix(relative, ".."+string(filepath.Separator)) &&
+		!filepath.IsAbs(relative)
 }
 
 func uploadToolContent(result *Result) *mcp.CallToolResult {
