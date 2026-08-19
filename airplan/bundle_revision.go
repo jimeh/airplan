@@ -13,7 +13,7 @@ import (
 
 func (c *Client) createBundleRevision(
 	ctx context.Context, input CreateDocumentRevisionInput, maxDiffSize int,
-) (*DocumentRevisionResult, error) {
+) (revisionResult *DocumentRevisionResult, returnErr error) {
 	if err := c.validate(ctx); err != nil {
 		return nil, err
 	}
@@ -81,6 +81,11 @@ func (c *Client) createBundleRevision(
 			validatedInput.Entry.Title = ""
 		}
 	}
+	if len(input.Document.Pages) == 0 && len(latest.marker.Pages) == 1 &&
+		input.Document.Title == "" && input.Document.Entry.Title == "" {
+		validatedInput.Title = latest.marker.Title
+		validatedInput.Entry.Title = latest.marker.Title
+	}
 	previousRevision, newRevision, chainID := 1, 2, ""
 	if latest.versions != nil {
 		previousRevision = latest.versions.CurrentRevision
@@ -106,6 +111,9 @@ func (c *Client) createBundleRevision(
 	}
 	defer comparison.cleanup()
 	if bundleLogicalStateMatches(latest.marker, comparison, assets) {
+		if err := c.reconcileRevisionMetadata(ctx, latest); err != nil {
+			return nil, err
+		}
 		result := bundleRevisionResultFromExisting(c.cfg, latest)
 		result.Unchanged = true
 		return result, nil
@@ -161,19 +169,36 @@ func (c *Client) createBundleRevision(
 	if err := c.st.put(ctx, object{Key: markerKey, Body: markerBody, ContentType: markerContentType}); err != nil {
 		return nil, err
 	}
+	candidateKeys := make([]string, 0, len(marker.Objects))
+	for _, object := range marker.Objects {
+		candidateKeys = append(
+			candidateKeys, BuildKey(c.cfg.KeyPrefix, dir, object.Name),
+		)
+	}
+	rollback := func() error {
+		cleanupCtx, cancel := revisionCleanupContext(ctx, c.cfg.Timeout)
+		defer cancel()
+		if err := c.st.deleteKeys(cleanupCtx, candidateKeys); err != nil {
+			return err
+		}
+		return c.st.deleteMarker(cleanupCtx, markerKey)
+	}
 	candidatePending := true
 	defer func() {
 		if !candidatePending {
 			return
 		}
-		cleanupCtx, cancel := revisionCleanupContext(ctx, c.cfg.Timeout)
-		defer cancel()
-		keys := make([]string, 0, len(marker.Objects))
-		for _, object := range marker.Objects {
-			keys = append(keys, BuildKey(c.cfg.KeyPrefix, dir, object.Name))
+		if cleanupErr := rollback(); cleanupErr != nil {
+			if returnErr == nil {
+				returnErr = fmt.Errorf(
+					"airplan: candidate rollback failed: %w", cleanupErr,
+				)
+				return
+			}
+			returnErr = fmt.Errorf(
+				"%w; candidate rollback failed: %v", returnErr, cleanupErr,
+			)
 		}
-		_ = c.st.deleteKeys(cleanupCtx, keys)
-		_ = c.st.deleteMarker(cleanupCtx, markerKey)
 	}()
 	pages := make([]PageResult, 0, len(bundle.Pages))
 	for _, page := range bundle.Pages {

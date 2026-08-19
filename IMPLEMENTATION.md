@@ -293,7 +293,9 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   output-directory preview publishes from that spool through a private sibling
   staging directory. Platform-specific no-replace rename primitives publish
   that mode-0755 root only when the destination is still absent; published files
-  are mode 0644. Both temporary layers are removed on success or failure, so the
+  are mode 0644. Filesystems that do not support the required no-replace rename
+  operation reject publication rather than using a check-then-rename fallback.
+  Both temporary layers are removed on success or failure, so the
   full allowed bundle need not remain in memory.
   Upgrade planning itself streams remote page and source bodies through bounded
   hashing and retains only size, digest, and ETag metadata. Execution replans,
@@ -394,11 +396,12 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   dual-name groups as conflicts without fetching markers or heading payloads.
   Its LIST snapshot retains per-key sizes for batch inspection.
   `InspectUpload` validates the selected marker and exact sizes for every
-  normalized declared object, downloading and hashing v6 payloads when native
-  provider checksums cannot prove their digest. LIST-backed inspection used by
-  sync and purge stays existence-and-size based and never expands into payload
-  downloads. Targeted get and delete probe both markers and authorize only
-  pages, document sources, collection files, or the existing marker.
+  normalized declared object, then downloads and hashes v6 payloads against
+  their marker digests. LIST-backed inspection used by sync and purge, plus
+  purge execution's revision guard, stays existence-and-size based and never
+  expands into payload downloads. Targeted get and delete probe both markers
+  and authorize only pages, document sources, collection files, or the existing
+  marker.
 - Manifest sync: `SyncManifest` reduces local history chronologically, compares
   the scoped active view to one remote LIST snapshot, and uses a shared bounded
   worker pool for marker GETs and targeted absence confirmation. Imports and

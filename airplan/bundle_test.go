@@ -162,6 +162,10 @@ func TestRenderDocumentTextEntryRules(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "managed pages require a Markdown entry") {
 			t.Fatalf("error = %v", err)
 		}
+		var invalid *InvalidDocumentInputError
+		if !errors.As(err, &invalid) {
+			t.Fatalf("error type = %T, want InvalidDocumentInputError", err)
+		}
 		if child.reads != 0 {
 			t.Fatalf("child reads = %d, want 0", child.reads)
 		}
@@ -186,6 +190,31 @@ func TestRenderDocumentTextEntryRules(t *testing.T) {
 			t.Fatalf("bundle = %+v", bundle)
 		}
 	})
+}
+
+func TestRenderDocumentHTMLPageCombinationIsInvalidInput(t *testing.T) {
+	t.Parallel()
+	_, err := RenderDocument(context.Background(), DocumentInput{
+		Entry: PageInput{
+			Reader: strings.NewReader("<!doctype html><title>Entry</title>"),
+			Path:   "entry.html",
+		},
+		Pages: []PageInput{{
+			Reader: strings.NewReader("# Child\n"), Path: "child.md",
+		}},
+		RepositoryURL: "none",
+	}, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{
+		Repository: "none",
+	}})
+	if err == nil || !strings.Contains(
+		err.Error(), "authored HTML entries cannot declare managed pages",
+	) {
+		t.Fatalf("error = %v", err)
+	}
+	var invalid *InvalidDocumentInputError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("error type = %T, want InvalidDocumentInputError", err)
+	}
 }
 
 func TestRenderDocumentRejectsGeneratedCollision(t *testing.T) {
@@ -594,6 +623,184 @@ func TestCreateDocumentRevisionEmptyEntryPathPreservesLatestLogicalPath(t *testi
 	}
 	if len(marker.Pages) != 1 || marker.Pages[0].Path != "README.md" {
 		t.Fatalf("changed marker pages = %+v", marker.Pages)
+	}
+}
+
+func TestCreateDocumentRevisionOmittedTitlePreservesLatestTitle(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{
+			Reader: strings.NewReader("# Inferred heading\n"), Path: "plan.md",
+			Title: "Custom title",
+		},
+		RepositoryURL: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	putsBefore := store.puts
+
+	unchanged, err := client.CreateDocumentRevision(
+		context.Background(), CreateDocumentRevisionInput{
+			Target: first.URL,
+			Document: DocumentInput{Entry: PageInput{
+				Reader: strings.NewReader("# Inferred heading\n"), Path: "plan.md",
+			}},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !unchanged.Unchanged || unchanged.Title != "Custom title" ||
+		unchanged.Revision != first.Revision {
+		t.Fatalf("unchanged revision = %+v", unchanged)
+	}
+	if store.puts != putsBefore {
+		t.Fatalf("no-op storage PUTs = %d -> %d", putsBefore, store.puts)
+	}
+
+	changed, err := client.CreateDocumentRevision(
+		context.Background(), CreateDocumentRevisionInput{
+			Target: first.URL,
+			Document: DocumentInput{Entry: PageInput{
+				Reader: strings.NewReader("# Changed heading\n"), Path: "plan.md",
+			}},
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.Unchanged || changed.Revision != 2 ||
+		changed.Title != "Custom title" {
+		t.Fatalf("changed revision = %+v", changed)
+	}
+	markerBody, ok := store.get(changed.MarkerKey)
+	if !ok {
+		t.Fatalf("marker %q is missing", changed.MarkerKey)
+	}
+	marker, err := DecodeUploadMarker(markerBody, changed.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if marker.Title != "Custom title" || len(marker.Pages) != 1 ||
+		marker.Pages[0].Title != "Custom title" {
+		t.Fatalf("changed marker = %+v", marker)
+	}
+}
+
+func TestCreateDocumentRevisionRollbackFailureLeavesDiscoverableManagedCandidate(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{
+			Reader: strings.NewReader("# One\n"), Path: "plan.md",
+		},
+		RepositoryURL: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.failPutSuffix = ".html"
+	store.failDeleteKeys = true
+	store.mu.Unlock()
+	_, err = client.CreateDocumentRevision(context.Background(),
+		CreateDocumentRevisionInput{
+			Target: first.URL,
+			Document: DocumentInput{Entry: PageInput{
+				Reader: strings.NewReader("# Two\n"), Path: "plan.md",
+			}},
+		})
+	if err == nil || !strings.Contains(err.Error(), "candidate rollback failed") {
+		t.Fatalf("revision error = %v", err)
+	}
+	store.mu.Lock()
+	candidateMarkerKey := ""
+	for key := range store.objects {
+		if strings.HasSuffix(key, "/"+MarkerFilename) && key != first.MarkerKey {
+			candidateMarkerKey = key
+			break
+		}
+	}
+	store.mu.Unlock()
+	if candidateMarkerKey == "" {
+		t.Fatal("rollback failure did not leave a discoverable ownership marker")
+	}
+	candidateDir := strings.TrimSuffix(candidateMarkerKey, "/"+MarkerFilename)
+	if _, err := client.DeleteUpload(
+		context.Background(), candidateDir+"/plan.md",
+	); !errors.Is(err, errObjectNotFound) {
+		t.Fatalf("live-predecessor candidate delete error = %v, want fail closed", err)
+	}
+	if _, err := client.DeleteUpload(context.Background(), first.URL); err != nil {
+		t.Fatalf("delete predecessor: %v", err)
+	}
+	deleted, err := client.DeleteUpload(
+		context.Background(), candidateDir+"/plan.md",
+	)
+	if err != nil {
+		t.Fatalf("recover candidate after predecessor deletion: %v", err)
+	}
+	if deleted.MarkerKey != candidateMarkerKey || !strings.Contains(
+		strings.Join(deleted.Warnings, "\n"), "unannounced revision candidate",
+	) {
+		t.Fatalf("recovery result = %+v", deleted)
+	}
+}
+
+func TestCreateDocumentRevisionRetryRecreatesMissingSiblingMetadata(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	input := func(body string) DocumentInput {
+		return DocumentInput{Entry: PageInput{
+			Reader: strings.NewReader(body), Path: "plan.md",
+		}}
+	}
+	first, err := client.UploadDocument(
+		context.Background(), input("# One\n"),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.CreateDocumentRevision(context.Background(),
+		CreateDocumentRevisionInput{
+			Target: first.URL, Document: input("# Two\n"),
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, err := client.CreateDocumentRevision(context.Background(),
+		CreateDocumentRevisionInput{
+			Target: second.URL, Document: input("# Three\n"),
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstMetadataKey := first.ID + "/" + VersionsFilename
+	store.mu.Lock()
+	delete(store.objects, firstMetadataKey)
+	delete(store.etags, firstMetadataKey)
+	store.mu.Unlock()
+
+	retried, err := client.CreateDocumentRevision(context.Background(),
+		CreateDocumentRevisionInput{
+			Target: third.URL, Document: input("# Three\n"),
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !retried.Unchanged {
+		t.Fatalf("retry result = %+v", retried)
+	}
+	body, ok := store.get(firstMetadataKey)
+	if !ok {
+		t.Fatal("retry did not recreate missing sibling metadata")
+	}
+	metadata, err := DecodeVersionsMetadata(body, client.cfg, first.Key)
+	if err != nil || metadata.CurrentRevision != 1 ||
+		metadata.LatestRevision != 3 {
+		t.Fatalf("recreated metadata = %+v, err = %v", metadata, err)
 	}
 }
 

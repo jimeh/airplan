@@ -739,6 +739,53 @@ func TestAPIOperationErrorClassifiesInvalidDocumentInput(t *testing.T) {
 	}
 }
 
+func TestAPIOperationErrorClassifiesInvalidDocumentPageCombinations(t *testing.T) {
+	tests := []DocumentInput{
+		{
+			Entry: PageInput{
+				Reader: strings.NewReader("<!doctype html><title>Entry</title>"),
+				Path:   "entry.html",
+			},
+			Pages: []PageInput{{
+				Reader: strings.NewReader("# Child\n"), Path: "child.md",
+			}},
+			RepositoryURL: "none",
+		},
+		{
+			Entry: PageInput{
+				Reader: strings.NewReader("plain text\n"), Path: "entry.txt",
+			},
+			Pages: []PageInput{{
+				Reader: strings.NewReader("# Child\n"), Path: "child.md",
+			}},
+			RepositoryURL: "none",
+		},
+		{
+			Entry: PageInput{
+				Reader: strings.NewReader("# Entry\n"), Path: "entry.md",
+			},
+			Pages: []PageInput{{
+				Reader: strings.NewReader("<!doctype html><title>Child</title>"),
+				Path:   "child.html",
+			}},
+			RepositoryURL: "none",
+		},
+	}
+	for _, input := range tests {
+		_, err := RenderDocument(context.Background(), input,
+			DocumentRenderOptions{RenderInputOptions: RenderInputOptions{
+				Repository: "none",
+			}})
+		got := apiOperationError(err)
+		var problem *httpapi.ProblemError
+		if !errors.As(got, &problem) ||
+			problem.Problem.Status != http.StatusUnprocessableEntity ||
+			problem.Problem.Code != "invalid_upload" {
+			t.Fatalf("problem = %+v, error = %v", problem, got)
+		}
+	}
+}
+
 func TestAPIOperationErrorClassifiesUpdateRefusals(t *testing.T) {
 	tests := []struct {
 		kind   updateRefusalKind

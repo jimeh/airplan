@@ -309,12 +309,18 @@ func renderDocumentWithSpool(
 		}
 		if index == 0 && len(in.Pages) != 0 && format != FormatMarkdown {
 			if format == FormatHTML {
-				return nil, errors.New("airplan: authored HTML entries cannot declare managed pages")
+				return nil, invalidDocumentInput(errors.New(
+					"airplan: authored HTML entries cannot declare managed pages",
+				))
 			}
-			return nil, errors.New("airplan: managed pages require a Markdown entry")
+			return nil, invalidDocumentInput(errors.New(
+				"airplan: managed pages require a Markdown entry",
+			))
 		}
 		if index > 0 && format == FormatHTML {
-			return nil, fmt.Errorf("airplan: managed page %q cannot use HTML format", logical)
+			return nil, invalidDocumentInput(fmt.Errorf(
+				"airplan: managed page %q cannot use HTML format", logical,
+			))
 		}
 		title := input.Title
 		if title == "" {

@@ -1162,14 +1162,18 @@ func (c *Client) promoteStandaloneRevision(
 		return err
 	}
 	defer spool.cleanup()
-	inputs := make([]PageInput, len(doc.marker.Pages))
+	descriptors := upgradeMarkerPages(doc.marker)
+	if len(descriptors) == 0 {
+		return errors.New("airplan: standalone revision has no managed entry page")
+	}
+	inputs := make([]PageInput, len(descriptors))
 	opened := make([]io.Closer, 0, len(inputs))
 	defer func() {
 		for _, closer := range opened {
 			_ = closer.Close()
 		}
 	}()
-	for index, descriptor := range doc.marker.Pages {
+	for index, descriptor := range descriptors {
 		object, ok := markerObjectNamed(doc.marker, descriptor.Source)
 		if !ok || object.Role != MarkerRoleSource {
 			return fmt.Errorf(

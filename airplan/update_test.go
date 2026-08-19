@@ -173,6 +173,88 @@ func TestUpdateDocumentRejectsChangedThemeRecipeBeforePromotionRepair(t *testing
 	}
 }
 
+func TestPromoteStandaloneRevisionRepairsPreV6Document(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	if err := client.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.Repeat("v", 26)
+	chainID := strings.Repeat("c", 26)
+	page := []byte("<html>old</html>")
+	source := []byte("# Plan\n")
+	markerBody, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: 5, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+		Kind:      UploadKindDocument, Slug: "plan", Format: "md", Title: "Plan",
+		Producer: Producer{Name: "airplan", Version: "0.10.0"},
+		Render:   documentRenderRecipe(client.cfg, client.templateDigest),
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerKey := dir + "/" + MarkerFilename
+	pageKey := dir + "/plan.html"
+	store.set(markerKey, markerBody)
+	store.set(pageKey, page)
+	store.set(dir+"/plan.md", source)
+	markerBody, markerETag, _, err := client.st.getBytesWithETag(
+		context.Background(), markerKey, MaxMarkerSize,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageBody, pageETag, _, err := client.st.getBytesWithETag(
+		context.Background(), pageKey, maxUpgradePageSize,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, err := DecodeUploadMarker(markerBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageURL, _, err := PublicURL(client.cfg, pageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := &revisionDocument{
+		marker: marker, markerBody: markerBody, markerETag: markerETag,
+		pageBody: pageBody, pageETag: pageETag, dirPrefix: dir + "/",
+		pageKey: pageKey, sourceKey: dir + "/plan.md", pageURL: pageURL,
+		needsPromotion: true,
+	}
+	metadata := VersionsMetadata{LatestRevision: 2}
+	if err := client.promoteStandaloneRevision(
+		context.Background(), doc, chainID, metadata,
+	); err != nil {
+		t.Fatal(err)
+	}
+	promotedBody, ok := store.get(markerKey)
+	if !ok {
+		t.Fatal("promoted marker is missing")
+	}
+	promoted, err := DecodeUploadMarker(promotedBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if promoted.Version != 5 || promoted.Revision == nil ||
+		promoted.Revision.ChainID != chainID || promoted.Revision.Number != 1 {
+		t.Fatalf("promoted marker = %+v", promoted)
+	}
+	gotPage, ok := store.get(pageKey)
+	if !ok || bytes.Equal(gotPage, page) ||
+		!bytes.Contains(gotPage, []byte(
+			`<meta name="airplan-revision" content="1">`,
+		)) {
+		t.Fatalf("promoted page missing revision identity")
+	}
+}
+
 func TestUpdateDocumentCreatesLinkedRevisionsOnlyOnFirstUpdate(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")

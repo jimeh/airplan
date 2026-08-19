@@ -423,8 +423,8 @@ func (c *Client) Purge(
 			continue
 		}
 		if !req.IncludeVersioned {
-			inspection, inspectErr := c.InspectUpload(ctx,
-				BuildKey(c.cfg.KeyPrefix, id, ""))
+			inspection, inspectErr := c.inspectUploadLocal(ctx,
+				BuildKey(c.cfg.KeyPrefix, id, ""), false)
 			if inspectErr != nil && !errors.Is(inspectErr, errOwnershipMarkerMissing) {
 				item.Error = inspectErr.Error()
 				failed++

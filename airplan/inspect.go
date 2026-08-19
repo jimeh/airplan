@@ -128,6 +128,15 @@ func (c *Client) InspectUpload(
 	if c.remote != nil {
 		return c.remote.InspectUpload(ctx, urlOrKey)
 	}
+	return c.inspectUploadLocal(ctx, urlOrKey, true)
+}
+
+// inspectUploadLocal performs a targeted marker inspection. Lifecycle callers
+// that only need marker identity pass verifyDigests=false so they do not
+// download otherwise healthy payload bodies.
+func (c *Client) inspectUploadLocal(
+	ctx context.Context, urlOrKey string, verifyDigests bool,
+) (*UploadInspection, error) {
 	if err := c.ensureStorage(ctx); err != nil {
 		return nil, err
 	}
@@ -196,7 +205,7 @@ func (c *Client) InspectUpload(
 		MarkerKey: resolved.Key,
 		Objects:   len(objects),
 		objects:   byObjectKey(objects),
-	}, resolved.Body, true)
+	}, resolved.Body, verifyDigests)
 }
 
 func byObjectKey(objects []objectInfo) map[string]objectInfo {
