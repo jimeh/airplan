@@ -5,6 +5,8 @@ import (
 	_ "embed"
 	"fmt"
 	"html/template"
+	"net/url"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 
@@ -174,6 +176,14 @@ type RenderOptions struct {
 	VersionsPath     string
 	DiffPath         string
 	DiffText         string
+
+	Pages               []DocumentTemplatePage
+	CurrentPage         DocumentTemplatePage
+	Entrypoint          string
+	Assets              []DocumentTemplateAsset
+	ManagedPagePaths    map[string]string
+	CurrentLogicalPath  string
+	CurrentRenderedPath string
 }
 
 // newMarkdown builds the goldmark instance implementing the dialect of
@@ -290,6 +300,9 @@ func renderMarkdown(
 	bodySource := frontMatter.body
 	md := newMarkdownWithRepository(opts.RepositoryURL, bodySource)
 	doc := md.Parser().Parse(text.NewReader(bodySource))
+	if err := rewriteManagedPageLinks(doc, opts); err != nil {
+		return nil, err
+	}
 	headings := extractHeadings(doc, bodySource)
 
 	var body bytes.Buffer
@@ -394,6 +407,10 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 	data.VersionsPath = opts.VersionsPath
 	data.DiffPath = opts.DiffPath
 	data.DiffText = opts.DiffText
+	data.Pages = opts.Pages
+	data.CurrentPage = opts.CurrentPage
+	data.Entrypoint = opts.Entrypoint
+	data.Assets = opts.Assets
 	if data.SourceName == "" {
 		data.SourceName = opts.SourceName
 	}
@@ -418,6 +435,44 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 		return nil, fmt.Errorf("execute %s: %w", label, err)
 	}
 	return out.Bytes(), nil
+}
+
+func rewriteManagedPageLinks(doc ast.Node, opts RenderOptions) error {
+	if len(opts.ManagedPagePaths) == 0 || opts.CurrentLogicalPath == "" ||
+		opts.CurrentRenderedPath == "" {
+		return nil
+	}
+	return ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		link, ok := node.(*ast.Link)
+		if !ok || len(link.Destination) == 0 {
+			return ast.WalkContinue, nil
+		}
+		parsed, err := url.Parse(string(link.Destination))
+		if err != nil || parsed.IsAbs() || parsed.Host != "" ||
+			strings.HasPrefix(string(link.Destination), "//") || parsed.Path == "" {
+			return ast.WalkContinue, nil
+		}
+		logical := pathpkg.Clean(pathpkg.Join(pathpkg.Dir(opts.CurrentLogicalPath), parsed.Path))
+		if logical == "." || logical == ".." || strings.HasPrefix(logical, "../") ||
+			!validMarkerObjectPath(logical) {
+			return ast.WalkContinue, nil
+		}
+		target, exists := opts.ManagedPagePaths[logical]
+		if !exists {
+			return ast.WalkContinue, nil
+		}
+		relative, err := urlPathRelative(pathpkg.Dir(opts.CurrentRenderedPath), target)
+		if err != nil {
+			return ast.WalkStop, err
+		}
+		parsed.Path = relative
+		parsed.RawPath = ""
+		link.Destination = []byte(parsed.String())
+		return ast.WalkContinue, nil
+	})
 }
 
 // highlightSource renders source bytes as one chroma-highlighted,

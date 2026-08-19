@@ -310,6 +310,88 @@ interface VersionsMetadata {
     ".22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1" +
     '.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>';
 
+  // On narrow screens, replace the inline Pages list with a modal copy only
+  // after native dialog support and the complete controller are available.
+  var pages = d.getElementById("pages");
+  var pagesTrigger = d.querySelector<HTMLButtonElement>(".pages-trigger");
+  var pagesDialog: HTMLDialogElement | null = null;
+  var pagesMedia = window.matchMedia("(max-width: 78rem)");
+  if (pages && pagesTrigger) {
+    var pagesList = pages.querySelector<HTMLOListElement>(".pages-list");
+    if (pagesList) {
+      var candidate = d.createElement("dialog");
+      if (typeof candidate.showModal === "function") {
+        pagesDialog = candidate;
+        pagesDialog.className = "pages-dialog";
+        pagesDialog.id = "pages-dialog";
+        pagesDialog.setAttribute("aria-labelledby", "pages-dialog-title");
+
+        var pagesPanel = d.createElement("div");
+        pagesPanel.className = "pages-dialog-panel";
+        var pagesHeader = d.createElement("div");
+        pagesHeader.className = "pages-dialog-header";
+        var pagesTitle = d.createElement("h2");
+        pagesTitle.className = "pages-dialog-title";
+        pagesTitle.id = "pages-dialog-title";
+        pagesTitle.textContent = "Pages";
+        var pagesClose = d.createElement("button");
+        pagesClose.className = "pages-dialog-close";
+        pagesClose.type = "button";
+        pagesClose.setAttribute("aria-label", "Close pages");
+        pagesClose.innerHTML = iconClose;
+        pagesHeader.appendChild(pagesTitle);
+        pagesHeader.appendChild(pagesClose);
+
+        var pagesDialogNav = d.createElement("nav");
+        pagesDialogNav.className = "pages-dialog-nav";
+        pagesDialogNav.setAttribute("aria-label", "Pages");
+        pagesDialogNav.appendChild(pagesList.cloneNode(true));
+        pagesPanel.appendChild(pagesHeader);
+        pagesPanel.appendChild(pagesDialogNav);
+        pagesDialog.appendChild(pagesPanel);
+
+        function closePagesDialog() {
+          if (pagesDialog && pagesDialog.open) pagesDialog.close();
+        }
+
+        pagesTrigger.addEventListener("click", function () {
+          pagesDialog!.showModal();
+          pagesTrigger!.setAttribute("aria-expanded", "true");
+          d.body.classList.add("pages-dialog-open");
+          var current = pagesDialog!.querySelector('[aria-current="page"]');
+          if (current) current.scrollIntoView({ block: "nearest" });
+        });
+        pagesClose.addEventListener("click", closePagesDialog);
+        pagesDialog.addEventListener("click", function (event) {
+          if (event.target === pagesDialog) closePagesDialog();
+        });
+        pagesDialog.addEventListener("keydown", function (event) {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            closePagesDialog();
+          }
+        });
+        pagesDialog.addEventListener("close", function () {
+          pagesTrigger!.setAttribute("aria-expanded", "false");
+          d.body.classList.remove("pages-dialog-open");
+          if (pagesMedia.matches) {
+            setTimeout(function () {
+              pagesTrigger!.focus();
+            }, 50);
+          }
+        });
+        pagesDialogNav.querySelectorAll<HTMLAnchorElement>("a").forEach(function (link) {
+          link.addEventListener("click", closePagesDialog);
+        });
+
+        pagesTrigger.hidden = false;
+        pagesTrigger.setAttribute("aria-expanded", "false");
+        d.body.appendChild(pagesDialog);
+        d.body.classList.add("pages-dialog-ready");
+      }
+    }
+  }
+
   // Rendered/source toggle.
   var source = d.getElementById("source");
   var changes = d.getElementById("changes");

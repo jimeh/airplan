@@ -13,14 +13,33 @@ import (
 
 // UpdateDocumentInput links a complete new Markdown upload to an existing
 // source-backed Markdown document or chain member.
+//
+// Deprecated: use CreateDocumentRevisionInput.
 type UpdateDocumentInput struct {
 	Target string `json:"target"`
 	Input  Input  `json:"-"`
 }
 
 // UpdateDocumentResult describes a new revision or an identical-source no-op.
+//
+// Deprecated: use DocumentRevisionResult.
 type UpdateDocumentResult struct {
 	Result
+	PreviousURL string `json:"previous_url,omitempty"`
+	DiffURL     string `json:"diff_url,omitempty"`
+	Unchanged   bool   `json:"unchanged"`
+}
+
+// CreateDocumentRevisionInput supplies a complete replacement document bundle.
+type CreateDocumentRevisionInput struct {
+	Target   string        `json:"target"`
+	Document DocumentInput `json:"-"`
+}
+
+// DocumentRevisionResult describes a new complete revision or an unchanged
+// logical-bundle no-op.
+type DocumentRevisionResult struct {
+	DocumentResult
 	PreviousURL string `json:"previous_url,omitempty"`
 	DiffURL     string `json:"diff_url,omitempty"`
 	Unchanged   bool   `json:"unchanged"`
@@ -72,10 +91,104 @@ type revisionDocument struct {
 
 // UpdateDocument resolves target to the latest live member, then performs a
 // conditional linear append. The existing page is never repointed.
+//
+// Deprecated: use CreateDocumentRevision.
 func (c *Client) UpdateDocument(
 	ctx context.Context, input UpdateDocumentInput,
 ) (*UpdateDocumentResult, error) {
-	return c.updateDocument(ctx, input, MaxDiffSize)
+	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
+	if err := validateUpdateDocumentInput(input); err != nil {
+		return nil, err
+	}
+	if c.remote != nil {
+		return c.remote.UpdateDocument(ctx, input)
+	}
+	result, err := c.CreateDocumentRevision(ctx, CreateDocumentRevisionInput{
+		Target: input.Target,
+		Document: DocumentInput{
+			Entry: PageInput{
+				Reader: input.Input.Reader, Path: input.Input.Name,
+				Format: input.Input.Format, Title: input.Input.Title,
+				Lang: input.Input.Lang,
+			},
+			Slug: input.Input.Slug, Title: input.Input.Title,
+			MaxPageSize:   input.Input.MaxSize,
+			RepositoryURL: input.Input.RepositoryURL,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &UpdateDocumentResult{
+		Result: result.Result, PreviousURL: result.PreviousURL,
+		DiffURL: result.DiffURL, Unchanged: result.Unchanged,
+	}, nil
+}
+
+// CreateDocumentRevision is the canonical complete-document revision API.
+func (c *Client) CreateDocumentRevision(
+	ctx context.Context, input CreateDocumentRevisionInput,
+) (*DocumentRevisionResult, error) {
+	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
+	if input.Document.Entry.Reader == nil {
+		return nil, errors.New("airplan: document revision entry reader is nil")
+	}
+	if c != nil && c.remote != nil {
+		return c.remote.CreateDocumentRevision(ctx, input)
+	}
+	if len(input.Document.Pages) != 0 || len(input.Document.Assets) != 0 {
+		return c.createBundleRevision(ctx, input, MaxDiffSize)
+	}
+	if err := validateUpdateDocumentInput(UpdateDocumentInput{
+		Target: input.Target,
+		Input: Input{
+			Reader: input.Document.Entry.Reader,
+			Name:   input.Document.Entry.Path, Format: input.Document.Entry.Format,
+			Slug:    input.Document.Slug,
+			Title:   firstNonEmpty(input.Document.Title, input.Document.Entry.Title),
+			MaxSize: input.Document.MaxPageSize, Lang: input.Document.Entry.Lang,
+			RepositoryURL: input.Document.RepositoryURL,
+		},
+	}); err != nil {
+		return nil, err
+	}
+	pageLimit := effectiveLimit(input.Document.MaxPageSize, DefaultMaxInputSize)
+	source, err := readInput(ctx, input.Document.Entry.Reader, pageLimit)
+	if err != nil {
+		return nil, err
+	}
+	spool, err := newPayloadSpool()
+	if err != nil {
+		return nil, err
+	}
+	defer spool.cleanup()
+	payload, err := spool.put("source", source)
+	if err != nil {
+		return nil, err
+	}
+	reader, err := payload.open()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = reader.Close() }()
+	legacy := Input{
+		Reader: reader, Name: input.Document.Entry.Path,
+		Format: input.Document.Entry.Format, Slug: input.Document.Slug,
+		Title:   firstNonEmpty(input.Document.Title, input.Document.Entry.Title),
+		MaxSize: input.Document.MaxPageSize, Lang: input.Document.Entry.Lang,
+		RepositoryURL: input.Document.RepositoryURL,
+	}
+	result, err := c.updateDocument(ctx, UpdateDocumentInput{Target: input.Target, Input: legacy}, MaxDiffSize)
+	if err != nil {
+		return nil, err
+	}
+	document := DocumentResult{Result: result.Result}
+	document.Pages = []PageResult{{Path: input.Document.Entry.Path, Format: result.Format, Title: result.Title, URL: result.URL, Key: result.Key, SourceURL: result.SourceURL, SourceKey: result.SourceKey, Bytes: result.Bytes}}
+	return &DocumentRevisionResult{DocumentResult: document, PreviousURL: result.PreviousURL, DiffURL: result.DiffURL, Unchanged: result.Unchanged}, nil
 }
 
 func (c *Client) updateDocument(
@@ -112,6 +225,13 @@ func (c *Client) updateDocument(
 	}
 	if IsBinary(proposed) {
 		return nil, ErrBinaryInput
+	}
+	format, err := documentPageFormat(input.Input.Format, input.Input.Name, proposed)
+	if err != nil {
+		return nil, err
+	}
+	if format != FormatMarkdown {
+		return nil, errors.New("airplan: update supports Markdown input only")
 	}
 
 	target, err := c.loadRevisionDocumentForUpdate(ctx, input.Target)
@@ -336,29 +456,52 @@ func (c *Client) updateDocument(
 	if err != nil {
 		return nil, err
 	}
+	spool, err := newPayloadSpool()
+	if err != nil {
+		return nil, err
+	}
+	defer spool.cleanup()
+	sourcePayload, err := spool.put("source", proposed)
+	if err != nil {
+		return nil, err
+	}
+	diffPayload, err := spool.put("diff", diffBody)
+	if err != nil {
+		return nil, err
+	}
+	pagePayload, err := spool.put("page", pageBody)
+	if err != nil {
+		return nil, err
+	}
 	marker := UploadMarker{
 		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
 		CreatedAt: createdAt, Kind: UploadKindDocument,
 		Slug: latest.marker.Slug, Format: "md", Title: title,
-		Repo:     latest.marker.Repo,
-		Producer: Producer{Name: "airplan", Version: producerVersion(c.cfg.ProducerVersion)},
-		Render:   recipe,
+		Repo:       latest.marker.Repo,
+		Producer:   Producer{Name: "airplan", Version: producerVersion(c.cfg.ProducerVersion)},
+		Render:     recipe,
+		Entrypoint: pageName,
+		Pages: []MarkerPage{{
+			Path: docInputLogicalPath(input.Input.Name, FormatMarkdown),
+			Page: pageName, Source: sourceName, Format: "md", Title: title,
+			Lang: "",
+		}},
 		Revision: &RevisionDescriptor{
 			ChainID: chainID, Number: newRevision,
 			PreviousURL: latest.pageURL,
 		},
 		Objects: []MarkerObject{
 			{
-				Name: pageName, Role: MarkerRolePage, Bytes: int64(len(pageBody)),
-				ContentType: pageContentType, SHA256: contentSHA256(pageBody),
+				Name: pageName, Role: MarkerRolePage, Bytes: pagePayload.size,
+				ContentType: pageContentType, SHA256: pagePayload.digest,
 			},
 			{
-				Name: sourceName, Role: MarkerRoleSource, Bytes: int64(len(proposed)),
-				ContentType: sourceContentType,
+				Name: sourceName, Role: MarkerRoleSource, Bytes: sourcePayload.size,
+				ContentType: sourceContentType, SHA256: sourcePayload.digest,
 			},
 			{
-				Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diffBody)),
-				ContentType: diffContentType,
+				Name: DiffFilename, Role: MarkerRoleDiff, Bytes: diffPayload.size,
+				ContentType: diffContentType, SHA256: diffPayload.digest,
 			},
 		},
 	}
@@ -392,19 +535,23 @@ func (c *Client) updateDocument(
 		}
 		return c.st.deleteMarker(rollbackCtx, markerKey)
 	}
-	for _, object := range []object{
-		{Key: markerKey, Body: markerBody, ContentType: markerContentType},
-		{
-			Key: sourceKey, Body: proposed, ContentType: sourceContentType,
-			Metadata: titleMetadata(title),
-		},
-		{Key: diffKey, Body: diffBody, ContentType: diffContentType},
-		{
-			Key: pageKey, Body: pageBody, ContentType: pageContentType,
-			Metadata: titleMetadata(title),
-		},
+	if err := c.st.put(ctx, object{
+		Key: markerKey, Body: markerBody, ContentType: markerContentType,
+	}); err != nil {
+		return nil, err
+	}
+	for _, payload := range []struct {
+		key, contentType string
+		body             spooledPayload
+		metadata         map[string]string
+	}{
+		{sourceKey, sourceContentType, sourcePayload, titleMetadata(title)},
+		{diffKey, diffContentType, diffPayload, nil},
+		{pageKey, pageContentType, pagePayload, titleMetadata(title)},
 	} {
-		if err := c.st.put(ctx, object); err != nil {
+		if err := c.putDocumentPayload(
+			ctx, payload.key, payload.body, payload.contentType, payload.metadata,
+		); err != nil {
 			if cleanupErr := rollback(); cleanupErr != nil {
 				return nil, fmt.Errorf("%w; candidate rollback failed: %v", err, cleanupErr)
 			}
@@ -500,7 +647,7 @@ func (c *Client) updateDocument(
 		Result: Result{
 			ID: dir, URL: pageURL, Key: pageKey,
 			SourceURL: sourceURL, SourceKey: sourceKey, Bucket: c.cfg.Bucket,
-			Bytes: int64(len(pageBody)), ContentType: pageContentType,
+			Bytes: pagePayload.size, ContentType: pageContentType,
 			Title: title, CreatedAt: createdAt, MarkerVersion: MarkerVersion,
 			MarkerKey: markerKey, Format: "md", Kind: string(UploadKindDocument),
 			Slug: marker.Slug, RepositoryURL: marker.Repo,
@@ -1039,14 +1186,23 @@ func (c *Client) promoteStandaloneRevision(
 	if err != nil {
 		return err
 	}
+	spool, err := newPayloadSpool()
+	if err != nil {
+		return err
+	}
+	defer spool.cleanup()
+	pagePayload, err := spool.put("page", page)
+	if err != nil {
+		return err
+	}
 	marker := *doc.marker
 	marker.Objects = append([]MarkerObject(nil), doc.marker.Objects...)
 	marker.Revision = &RevisionDescriptor{ChainID: chainID, Number: 1}
 	marker.Producer = Producer{Name: "airplan", Version: producerVersion(c.cfg.ProducerVersion)}
 	for index := range marker.Objects {
 		if marker.Objects[index].Role == MarkerRolePage {
-			marker.Objects[index].Bytes = int64(len(page))
-			marker.Objects[index].SHA256 = contentSHA256(page)
+			marker.Objects[index].Bytes = pagePayload.size
+			marker.Objects[index].SHA256 = pagePayload.digest
 		}
 	}
 	body, err := EncodeUploadMarker(marker)
@@ -1059,11 +1215,10 @@ func (c *Client) promoteStandaloneRevision(
 	}, doc.markerETag); err != nil {
 		return fmt.Errorf("airplan: revision committed but predecessor promotion failed: %w", err)
 	}
-	if err := c.st.putConditional(ctx, object{
-		Key: doc.pageKey, Body: page,
-		ContentType: pageContentType, Metadata: titleMetadata(marker.Title),
-	},
-		doc.pageETag); err != nil {
+	if err := c.putDocumentPayloadConditional(
+		ctx, doc.pageKey, pagePayload, pageContentType,
+		titleMetadata(marker.Title), doc.pageETag,
+	); err != nil {
 		return fmt.Errorf("airplan: revision committed but predecessor page promotion failed: %w", err)
 	}
 	return nil

@@ -376,7 +376,7 @@ func TestTransportPreservesStableCapacityErrors(t *testing.T) {
 	}
 }
 
-func TestAirplanBackendPreservesServerMultipartSizeRefusal(t *testing.T) {
+func TestAirplanBackendPreflightsAdvertisedPageLimit(t *testing.T) {
 	const token = "01234567890123456789012345678901"
 	handler, err := httpapi.NewHandler(&HTTPOperations{Client: &Client{}},
 		httpapi.Options{Token: token, MaxDocumentBytes: 3})
@@ -397,9 +397,7 @@ func TestAirplanBackendPreservesServerMultipartSizeRefusal(t *testing.T) {
 		Input:  Input{Reader: strings.NewReader("four"), Name: "plan.md"},
 	})
 	var problem *httpapi.ProblemError
-	if !errors.Is(err, ErrInputTooLarge) || !errors.As(err, &problem) ||
-		problem.Problem.Code != "request_too_large" ||
-		problem.Problem.Status != http.StatusRequestEntityTooLarge {
+	if !errors.Is(err, ErrInputTooLarge) || errors.As(err, &problem) {
 		t.Fatalf("error = %v, problem = %+v", err, problem)
 	}
 }
@@ -478,6 +476,114 @@ func TestPortableUploadLimit(t *testing.T) {
 				test.input, got, test.want)
 		}
 	}
+}
+
+func TestAirplanBackendNegotiatesCanonicalRevisionBeforeReading(t *testing.T) {
+	const token = "01234567890123456789012345678901"
+	capabilitySeen := false
+	reader := &capabilityGuardReader{
+		check:  func() bool { return capabilitySeen },
+		Reader: strings.NewReader("# Revised\n"),
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/capabilities":
+			capabilitySeen = true
+			writeBundleCapabilities(t, w, true)
+		case "/api/v1/uploads/documents/revisions":
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, `{"id":"revision","kind":"document","url":"https://example/revision/plan.html","key":"revision/plan.html","bucket":"plans","bytes":1,"content_type":"text/html","created_at":"2026-08-19T00:00:00Z","marker_version":6,"marker_key":"revision/.airplan.json","warnings":[],"unchanged":false}`)
+		default:
+			t.Fatalf("unexpected path %q", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL, APIToken: token,
+		Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.CreateDocumentRevision(context.Background(),
+		CreateDocumentRevisionInput{
+			Target: "old/plan.html",
+			Document: DocumentInput{Entry: PageInput{
+				Reader: reader, Path: "plan.md", Format: "md",
+			}},
+		})
+	if err != nil || result.ID != "revision" || !reader.read {
+		t.Fatalf("result = %+v, read = %t, error = %v", result, reader.read, err)
+	}
+}
+
+func TestAirplanBackendRejectsBundleBeforeReadingWhenCapabilityAbsent(t *testing.T) {
+	const token = "01234567890123456789012345678901"
+	reader := &capabilityGuardReader{
+		check: func() bool { return true }, Reader: strings.NewReader("# Entry\n"),
+	}
+	posts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/capabilities" {
+			_, _ = io.WriteString(w, `{"api_version":"v1","server_version":"old","operations":["upload_document"],"upload_formats":["md"],"limits":{"document_bytes":10485760,"collection_file_bytes":1073741824,"collection_total_bytes":2147483648},"marker_versions":[5]}`)
+			return
+		}
+		posts++
+	}))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL, APIToken: token,
+		Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{Reader: reader, Path: "README.md", Format: "md"},
+		Pages: []PageInput{{Reader: strings.NewReader("page"), Path: "page.md"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "upgrade the server") ||
+		reader.read || posts != 0 {
+		t.Fatalf("error = %v, read = %t, posts = %d", err, reader.read, posts)
+	}
+}
+
+type capabilityGuardReader struct {
+	Reader io.Reader
+	check  func() bool
+	read   bool
+}
+
+func (r *capabilityGuardReader) Read(buffer []byte) (int, error) {
+	if !r.check() {
+		return 0, errors.New("reader opened before capability negotiation")
+	}
+	r.read = true
+	return r.Reader.Read(buffer)
+}
+
+func writeBundleCapabilities(t *testing.T, w http.ResponseWriter, canonical bool) {
+	t.Helper()
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"api_version": "v1", "server_version": "new",
+		"operations":     []string{"upload_document", "create_document_revision"},
+		"upload_formats": []string{"md", "html", "txt"},
+		"limits": map[string]any{
+			"document_bytes": 10 << 20, "collection_file_bytes": 1 << 30,
+			"collection_total_bytes": 2 << 30,
+		},
+		"marker_versions": []int{6},
+		"document_bundle": map[string]any{
+			"managed_pages": true, "assets": true,
+			"canonical_revision_route": canonical, "max_items": 100,
+			"max_page_bytes": 10 << 20, "max_total_page_bytes": 100 << 20,
+			"max_generated_page_bytes": 100 << 20, "max_asset_bytes": 1 << 30,
+			"max_total_asset_bytes": int64(2) << 30,
+			"max_metadata_bytes":    256 << 10,
+			"max_request_bytes":     int64(2)<<30 + 116<<20,
+		},
+	})
 }
 
 func TestAirplanBackendPreflightsCollectionFiles(t *testing.T) {

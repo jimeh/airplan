@@ -6,26 +6,38 @@ import "github.com/jimeh/airplan/internal/httpapi/generated"
 // public adapter names here avoids leaking the generated package throughout
 // the domain layer while making schema drift a compile-time failure.
 type (
-	Health                    = generated.Health
-	UploadLimits              = generated.UploadLimits
-	Capabilities              = generated.Capabilities
-	DocumentMetadata          = generated.DocumentMetadata
-	CollectionMetadata        = generated.CollectionMetadata
-	TargetRequest             = generated.TargetRequest
-	GetUploadRequest          = generated.GetUploadRequest
-	DeleteRequest             = generated.DeleteRequest
-	ProtectRequest            = generated.ProtectRequest
-	ProtectionResult          = generated.ProtectionResult
-	FileResult                = generated.FileResult
-	UploadResult              = generated.UploadResult
-	UpdateDocumentMetadata    = generated.UpdateDocumentMetadata
-	UpdateDocumentResult      = generated.UpdateDocumentResult
-	UpdateDocumentResultKind  = generated.UpdateDocumentResultKind
+	Health                               = generated.Health
+	UploadLimits                         = generated.UploadLimits
+	DocumentBundleCapabilities           = generated.DocumentBundleCapabilities
+	Capabilities                         = generated.Capabilities
+	DocumentMetadata                     = generated.DocumentMetadata
+	DocumentPageDescriptor               = generated.DocumentPageDescriptor
+	DocumentPageDescriptorFormat         = generated.DocumentPageDescriptorFormat
+	DocumentAssetDescriptor              = generated.DocumentAssetDescriptor
+	CollectionMetadata                   = generated.CollectionMetadata
+	TargetRequest                        = generated.TargetRequest
+	GetUploadRequest                     = generated.GetUploadRequest
+	DeleteRequest                        = generated.DeleteRequest
+	ProtectRequest                       = generated.ProtectRequest
+	ProtectionResult                     = generated.ProtectionResult
+	FileResult                           = generated.FileResult
+	PageResult                           = generated.PageResult
+	AssetResult                          = generated.AssetResult
+	UploadResult                         = generated.UploadResult
+	CreateDocumentRevisionMetadata       = generated.CreateDocumentRevisionMetadata
+	CreateDocumentRevisionMetadataFormat = generated.CreateDocumentRevisionMetadataFormat
+	DocumentRevisionResult               = generated.DocumentRevisionResult
+	DocumentRevisionResultKind           = generated.DocumentRevisionResultKind
+	// Compatibility aliases for the deprecated update route.
+	UpdateDocumentMetadata    = generated.CreateDocumentRevisionMetadata
+	UpdateDocumentResult      = generated.DocumentRevisionResult
+	UpdateDocumentResultKind  = generated.DocumentRevisionResultKind
 	VersionsMetadata          = generated.VersionsMetadata
 	VersionsRevision          = generated.VersionsRevision
 	VersionsMetadataSchema    = generated.VersionsMetadataSchema
 	VersionsMetadataVersion   = generated.VersionsMetadataVersion
 	InspectedObject           = generated.InspectedObject
+	InspectedPage             = generated.InspectedPage
 	UploadInspection          = generated.UploadInspection
 	DeleteResult              = generated.DeleteResult
 	ManifestRecord            = generated.ManifestRecord

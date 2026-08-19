@@ -2187,10 +2187,15 @@ func TestRevisionMetadataCapacityPreflightDoesNotMutateStorage(t *testing.T) {
 			ChainID: metadata.ChainID, Number: metadata.CurrentRevision,
 			PreviousURL: "https://plans.example.com/" + strings.Repeat("p", 26) + "/plan.html",
 		},
+		Entrypoint: "plan.html",
+		Pages: []MarkerPage{{
+			Path: "plan.md", Page: "plan.html", Source: "plan.md",
+			Format: "md", Title: "Plan", Lang: "",
+		}},
 		Objects: []MarkerObject{
 			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
-			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
-			{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType, SHA256: contentSHA256(source)},
+			{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType, SHA256: contentSHA256(diff)},
 		},
 	})
 	if err != nil {
@@ -2236,9 +2241,14 @@ func TestLoadRevisionDocumentUsesDeclaredSourceSizeAndRejectsTruncation(t *testi
 			Template:   RenderTemplate{Kind: "builtin"},
 			Themes:     themeRecipePtr(defaultThemeBundle()),
 		},
+		Entrypoint: "plan.html",
+		Pages: []MarkerPage{{
+			Path: "plan.md", Page: "plan.html", Source: "plan.md",
+			Format: "md", Lang: "",
+		}},
 		Objects: []MarkerObject{
 			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
-			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType, SHA256: contentSHA256(source)},
 		},
 	}
 	markerBody, err := EncodeUploadMarker(marker)

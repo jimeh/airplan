@@ -25,8 +25,8 @@ func TestWireVersionsMetadataPreservesSchemaAndVersion(t *testing.T) {
 	}
 }
 
-func TestSupportedMarkerVersionsAdvertiseV1ThroughV5(t *testing.T) {
-	if got, want := supportedMarkerVersions(), []int{1, 2, 3, 4, 5}; !reflect.DeepEqual(got, want) {
+func TestSupportedMarkerVersionsAdvertiseV1ThroughV6(t *testing.T) {
+	if got, want := supportedMarkerVersions(), []int{1, 2, 3, 4, 5, 6}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("supported marker versions = %v, want %v", got, want)
 	}
 }
@@ -50,6 +50,34 @@ func TestHTTPAPIUpdatesDocumentThroughOperationFacade(t *testing.T) {
 	}
 	if result.Revision != 2 || result.LatestRevision != 2 || result.Unchanged || result.DiffURL == "" {
 		t.Fatalf("result = %#v", result)
+	}
+}
+
+func TestHTTPAPIUploadsDocumentBundleThroughOperationFacade(t *testing.T) {
+	store := newUpgradeStore(t)
+	operations := &HTTPOperations{Client: store.client(t, ""), ServerVersion: "test"}
+	result, err := operations.UploadDocument(context.Background(), httpapi.DocumentUpload{
+		Metadata: httpapi.DocumentMetadata{
+			Name: "README.md", Format: "md",
+			Pages:  []httpapi.DocumentPageDescriptor{{Path: "src/main.go", Format: "txt"}},
+			Assets: []httpapi.DocumentAssetDescriptor{{Path: "images/flow.svg", Size: 5, ContentType: "image/svg+xml"}},
+		},
+		Document: strings.NewReader("# Entry\n"),
+		Pages: []httpapi.DocumentPage{{
+			DocumentPageDescriptor: httpapi.DocumentPageDescriptor{Path: "src/main.go", Format: "txt"},
+			Reader:                 strings.NewReader("package main\n"), Size: 13,
+		}},
+		Assets: []httpapi.DocumentAsset{{
+			DocumentAssetDescriptor: httpapi.DocumentAssetDescriptor{Path: "images/flow.svg", Size: 5, ContentType: "image/svg+xml"},
+			Reader:                  bytes.NewReader([]byte("asset")),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Pages) != 2 || result.Pages[1].Path != "src/main.go" ||
+		len(result.Assets) != 1 || result.Assets[0].Path != "images/flow.svg" {
+		t.Fatalf("bundle result = %+v", result)
 	}
 }
 
@@ -143,7 +171,7 @@ func TestHTTPAPIExecuteUpgradeReplansFabricatedCurrentState(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := `{"target":"` + strings.Repeat("m", 26) +
-		`","state":"current","target_marker_version":5,` +
+		`","state":"current","target_marker_version":6,` +
 		`"target_producer_version":"0.8.0","target_renderer_generation":1}`
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/upgrades/execute",
 		bytes.NewBufferString(body))
@@ -634,6 +662,13 @@ func TestHostedEndpointsRejectSemanticInvalidTargets(t *testing.T) {
 	}
 	storageServer := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("list-type") == "2" {
+				writeListXML(t, w, []objectInfo{
+					{Key: dir + "/" + MarkerFilename, Size: int64(len(marker))},
+					{Key: dir + "/plan.html", Size: 7},
+				})
+				return
+			}
 			switch r.URL.Path {
 			case "/plans/" + dir + "/" + MarkerFilename:
 				w.Header().Set("Content-Type", markerContentType)

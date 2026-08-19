@@ -268,19 +268,29 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		sourceName = doc.sourceObjectName
 	}
 	marker := UploadMarker{
-		Schema:    MarkerSchema,
-		Version:   MarkerVersion,
-		Directory: dir,
-		CreatedAt: createdAt,
-		Kind:      UploadKindDocument,
-		Slug:      doc.Slug,
-		Format:    doc.Format.String(),
-		Title:     doc.Title,
-		Repo:      doc.RepositoryURL,
-		Producer:  Producer{Name: "airplan", Version: producerVersion(c.cfg.ProducerVersion)},
+		Schema:     MarkerSchema,
+		Version:    MarkerVersion,
+		Directory:  dir,
+		CreatedAt:  createdAt,
+		Kind:       UploadKindDocument,
+		Slug:       doc.Slug,
+		Format:     doc.Format.String(),
+		Title:      doc.Title,
+		Repo:       doc.RepositoryURL,
+		Producer:   Producer{Name: "airplan", Version: producerVersion(c.cfg.ProducerVersion)},
+		Entrypoint: pageName,
 	}
 	if doc.Format != FormatHTML {
+		language := ""
+		if doc.Format == FormatText {
+			_, language, _ = highlightSource(doc.source, in.Name, in.Lang)
+		}
 		marker.Render = documentRenderRecipe(c.cfg, c.templateDigest)
+		marker.Pages = []MarkerPage{{
+			Path: docInputLogicalPath(in.Name, doc.Format), Page: pageName,
+			Source: sourceName, Format: doc.Format.String(), Title: doc.Title,
+			Lang: language,
+		}}
 	}
 	marker.Objects = append(marker.Objects, MarkerObject{
 		Name: pageName, Role: MarkerRolePage, Bytes: int64(len(doc.HTML)),
@@ -290,6 +300,7 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 		marker.Objects = append(marker.Objects, MarkerObject{
 			Name: sourceName, Role: MarkerRoleSource,
 			Bytes: int64(len(doc.source)), ContentType: doc.sourceContentType(),
+			SHA256: contentSHA256(doc.source),
 		})
 	}
 	markerBody, err := EncodeUploadMarker(marker)
@@ -370,6 +381,20 @@ func (c *Client) Upload(ctx context.Context, in Input) (*Result, error) {
 	c.recordUpload(ctx, res, markerDeclaredTotals(marker, markerBody))
 
 	return res, nil
+}
+
+func docInputLogicalPath(name string, format Format) string {
+	if name != "" {
+		return filepath.Base(name)
+	}
+	switch format {
+	case FormatHTML:
+		return "document.html"
+	case FormatText:
+		return "document.txt"
+	default:
+		return "document.md"
+	}
 }
 
 func (c *Client) validate(ctx context.Context) error {

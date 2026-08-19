@@ -106,7 +106,7 @@ func TestAppendManifestRecordCreatesManifestAndRoundTrips(t *testing.T) {
 		`"url":"https://plans.example.com/vq3n/plan.html",` +
 		`"bucket":"plans","profile":"work","kind":"document","slug":"plan",` +
 		`"title":"Refactor auth",` +
-		`"bytes":18432,"marker_version":5}`
+		`"bytes":18432,"marker_version":6}`
 	if lines[0] != wantLine {
 		t.Fatalf("first line = %s, want %s", lines[0], wantLine)
 	}
@@ -220,20 +220,20 @@ func TestReadManifestRecognizesLegacyAndSkipsUnsupportedMarkerVersion(
 	t *testing.T,
 ) {
 	path := filepath.Join(t.TempDir(), "manifest.jsonl")
-	data := strings.Join([]string{
+	lines := []string{
 		`{"type":"upload","time":"2026-07-08T13:03:11Z",` +
 			`"key":"legacy.html","url":"https://plans.example.com/legacy.html",` +
 			`"bucket":"plans","bytes":1}`,
-		`{"type":"upload","time":"2026-07-08T13:30:11Z",` +
-			`"key":"future.html","url":"https://plans.example.com/future.html",` +
-			`"bucket":"plans","bytes":1,"marker_version":6}`,
-		`{"type":"upload","time":"2026-07-08T14:03:11Z",` +
-			`"key":"v1.html","url":"https://plans.example.com/v1.html",` +
-			`"bucket":"plans","bytes":1,"marker_version":1}`,
-		`{"type":"upload","time":"2026-07-08T15:03:11Z",` +
-			`"key":"v2.html","url":"https://plans.example.com/v2.html",` +
-			`"bucket":"plans","bytes":1,"marker_version":2}`,
-	}, "\n") + "\n"
+	}
+	for version := 1; version <= MarkerVersion+1; version++ {
+		lines = append(lines, fmt.Sprintf(
+			`{"type":"upload","time":"2026-07-08T14:03:11Z",`+
+				`"key":"v%d.html","url":"https://plans.example.com/v%d.html",`+
+				`"bucket":"plans","bytes":1,"marker_version":%d}`,
+			version, version, version,
+		))
+	}
+	data := strings.Join(lines, "\n") + "\n"
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -242,17 +242,21 @@ func TestReadManifestRecognizesLegacyAndSkipsUnsupportedMarkerVersion(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 3 || records[0].Key != "legacy.html" ||
-		records[1].Key != "v1.html" || records[2].Key != "v2.html" ||
-		len(warnings) != 1 {
+	if len(records) != MarkerVersion+1 || records[0].Key != "legacy.html" ||
+		records[len(records)-1].Key != "v6.html" || len(warnings) != 1 {
 		t.Fatalf("records = %+v, warnings = %v", records, warnings)
 	}
-	if uploads := ManifestUploads(records); len(uploads) != 3 {
-		t.Fatalf("ManifestUploads = %+v, want legacy, v1, and v2", uploads)
+	for version := 1; version <= MarkerVersion; version++ {
+		if got := records[version].MarkerVersion; got != version {
+			t.Fatalf("record %d marker version = %d", version, got)
+		}
 	}
-	if uploads := ActiveUploads(records); len(uploads) != 2 ||
-		uploads[0].Key != "v1.html" || uploads[1].Key != "v2.html" {
-		t.Fatalf("ActiveUploads = %+v, want v1 and v2", uploads)
+	if uploads := ManifestUploads(records); len(uploads) != MarkerVersion+1 {
+		t.Fatalf("ManifestUploads = %+v, want legacy plus v1-v6", uploads)
+	}
+	if uploads := ActiveUploads(records); len(uploads) != MarkerVersion ||
+		uploads[0].Key != "v1.html" || uploads[len(uploads)-1].Key != "v6.html" {
+		t.Fatalf("ActiveUploads = %+v, want v1-v6", uploads)
 	}
 }
 
@@ -343,6 +347,30 @@ func TestMatchingManifestUploadsMatchesCollectionDirectChildren(t *testing.T) {
 	if matches := MatchingManifestUploads([]ManifestRecord{record},
 		"https://other.example.com/base/"+dir+"/demo.webm"); len(matches) != 0 {
 		t.Fatalf("cross-host target matched: %+v", matches)
+	}
+}
+
+func TestMatchingManifestUploadsMatchesV6NestedDocumentChildren(t *testing.T) {
+	dir := strings.Repeat("d", 26)
+	record := ManifestRecord{
+		Type: "upload", Kind: string(UploadKindDocument),
+		Key: dir + "/readme.html", MarkerKey: dir + "/" + MarkerFilename,
+		URL:           "https://plans.example.com/base/" + dir + "/readme.html",
+		MarkerVersion: MarkerVersion,
+	}
+	for _, target := range []string{
+		dir + "/docs/design.html",
+		dir + "/docs/design.md",
+		"https://plans.example.com/base/" + dir + "/images/flow.svg",
+	} {
+		matches := MatchingManifestUploads([]ManifestRecord{record}, target)
+		if len(matches) != 1 || matches[0].MarkerVersion != MarkerVersion {
+			t.Fatalf("target %q matches = %+v, want v6 document", target, matches)
+		}
+	}
+	if matches := MatchingManifestUploads([]ManifestRecord{record},
+		"https://other.example.com/base/"+dir+"/docs/design.html"); len(matches) != 0 {
+		t.Fatalf("cross-host nested target matched: %+v", matches)
 	}
 }
 

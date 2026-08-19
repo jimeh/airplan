@@ -25,8 +25,15 @@
 </style>
 </head>
 <body>
-<div class="page-shell">
+<div class="page-shell{{if gt (len .Pages) 1}} bundle-page{{end}}">
 <nav class="toolbar" aria-label="Document controls">
+{{- if gt (len .Pages) 1}}
+  <button type="button" class="pages-trigger js-only" hidden
+    aria-label="Open pages" aria-controls="pages-dialog"
+    aria-haspopup="dialog"><svg class="icon" aria-hidden="true"
+    viewBox="0 0 16 16" fill="none" stroke="currentColor"
+    stroke-width="1.5" stroke-linecap="round"><path d="M3 3.25h10M3 8h10M3 12.75h10"/><circle cx="1" cy="3.25" r=".6" fill="currentColor" stroke="none"/><circle cx="1" cy="8" r=".6" fill="currentColor" stroke="none"/><circle cx="1" cy="12.75" r=".6" fill="currentColor" stroke="none"/></svg><span>Pages</span></button>
+{{- end}}
 {{- if and (eq .Format "md") .HighlightedSourceHTML}}
   <div class="viewtoggle mode-toggle js-only" hidden>
     <button type="button" class="active" data-view="rendered"
@@ -74,9 +81,24 @@
 <!-- airplan:theme-toggle -->
 {{- end}}
 </nav>
+{{- if gt (len .Pages) 1}}
+<nav class="pages-nav" id="pages" aria-label="Pages">
+  <p class="rail-title">Pages</p>
+  <ol class="pages-list">
+  {{- range .Pages}}
+    <li{{if .Current}} class="is-current"{{end}}>
+      <a href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>
+        <span class="page-title">{{.Title}}</span>
+        <code class="page-path">{{.Path}}</code>
+      </a>
+    </li>
+  {{- end}}
+  </ol>
+</nav>
+{{- end}}
 {{- if .TOC}}
 <nav class="toc" id="toc" aria-label="Table of contents">
-  <p class="toc-title">Contents</p>
+  <p class="rail-title toc-title">{{if gt (len .Pages) 1}}On this page{{else}}Contents{{end}}</p>
   <ol class="toc-list">
   {{- range .TOC}}
     <li class="toc-level-{{.Level}}"><a href="#{{.ID}}">{{.Text}}</a></li>
@@ -98,6 +120,37 @@
 </details>
 {{- end}}
 {{.RenderedHTML}}
+{{- if gt (len .Pages) 1}}
+{{- $current := .CurrentPage}}
+{{- $previous := .CurrentPage}}
+{{- $next := .CurrentPage}}
+{{- $foundCurrent := false}}
+{{- $foundNext := false}}
+{{- range .Pages}}
+  {{- if .Current}}
+    {{- $foundCurrent = true}}
+  {{- else if not $foundCurrent}}
+    {{- $previous = .}}
+  {{- else if not $foundNext}}
+    {{- $next = .}}
+    {{- $foundNext = true}}
+  {{- end}}
+{{- end}}
+<nav class="page-sequence" aria-label="Page sequence">
+  {{- if ne $previous.Path $current.Path}}
+  <a class="page-sequence-link page-sequence-previous" href="{{$previous.URL}}">
+    <span class="page-sequence-direction">Previous</span>
+    <span class="page-sequence-title">{{$previous.Title}}</span>
+  </a>
+  {{- end}}
+  {{- if ne $next.Path $current.Path}}
+  <a class="page-sequence-link page-sequence-next" href="{{$next.URL}}">
+    <span class="page-sequence-direction">Next</span>
+    <span class="page-sequence-title">{{$next.Title}}</span>
+  </a>
+  {{- end}}
+</nav>
+{{- end}}
 </main>
 {{- if .DiffPath}}
 <main class="content changes-view" id="changes" hidden>

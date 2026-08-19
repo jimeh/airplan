@@ -210,21 +210,58 @@ func TestInspectUploadCollectionChecksEveryDeclaredFile(t *testing.T) {
 	}
 }
 
-func TestInspectUploadRejectsNestedTargetBeforeRequests(t *testing.T) {
+func TestInspectUploadAcceptsDeclaredNestedTarget(t *testing.T) {
 	dir := "abcdefghijklmnopqrstuvwxyz"
-	requests := 0
+	marker := validBundleMarkerV6()
+	marker.Directory = dir
+	bodies := make(map[string][]byte, len(marker.Objects))
+	for index := range marker.Objects {
+		body := []byte("body for " + marker.Objects[index].Name)
+		bodies[marker.Objects[index].Name] = body
+		marker.Objects[index].Bytes = int64(len(body))
+		marker.Objects[index].SHA256 = contentSHA256(body)
+	}
+	markerBody, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := []objectInfo{
+		{Key: dir + "/" + MarkerFilename, Size: int64(len(markerBody))},
+	}
+	for _, object := range marker.Objects {
+		objects = append(objects, objectInfo{
+			Key: dir + "/" + object.Name, Size: object.Bytes,
+		})
+	}
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			requests++
-			w.WriteHeader(http.StatusOK)
+			if r.URL.Query().Get("list-type") == "2" {
+				writeListXML(t, w, objects)
+				return
+			}
+			key := strings.TrimPrefix(r.URL.Path, "/plans/"+dir+"/")
+			if key == MarkerFilename {
+				_, _ = w.Write(markerBody)
+				return
+			}
+			if body, ok := bodies[key]; ok {
+				_, _ = w.Write(body)
+				return
+			}
+			w.WriteHeader(http.StatusNotFound)
 		},
 	))
 	t.Cleanup(server.Close)
 
 	client := newInspectTestClient(t, server.URL)
-	_, err := client.InspectUpload(context.Background(), dir+"/deep/object")
-	if err == nil || requests != 0 {
-		t.Fatalf("error = %v, requests = %d", err, requests)
+	inspection, err := client.InspectUpload(
+		context.Background(), dir+"/examples/server.go.html",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inspection.State != UploadComplete || inspection.Dir != dir {
+		t.Fatalf("inspection = %+v", inspection)
 	}
 }
 

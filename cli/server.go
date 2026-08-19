@@ -305,6 +305,7 @@ func safeRESTLogPath(request *http.Request) string {
 		"/api/v1/uploads",
 		"/api/v1/storage/uploads",
 		"/api/v1/uploads/documents",
+		"/api/v1/uploads/documents/revisions",
 		"/api/v1/uploads/documents/update",
 		"/api/v1/uploads/collections",
 		"/api/v1/uploads/get",

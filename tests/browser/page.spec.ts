@@ -15,6 +15,7 @@ import { binaryPath, cleanEnv, fixtureBinaryPath, repoRoot } from "./airplan-bin
 const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturePath = join(here, "testdata", "smoke.md");
+const bundleFixtureRoot = join(here, "testdata", "bundle");
 const sourceFixturePath = join(
   repoRoot,
   "airplan",
@@ -94,6 +95,7 @@ const legacyThemePage = `<!doctype html><html><body>
 });</script></body></html>`;
 
 let baseURL = "";
+let bundleURL = "";
 let collectionURL = "";
 let customURL = "";
 let fixedURL = "";
@@ -111,6 +113,7 @@ let fixedHTML = Buffer.alloc(0);
 let fixedCollectionHTML = Buffer.alloc(0);
 let subsetHTML = Buffer.alloc(0);
 let revisionHTML = Buffer.alloc(0);
+let bundleMembers = new Map<string, Buffer>();
 const versionRequests: Array<{
   headers: import("node:http").IncomingHttpHeaders;
   url: string;
@@ -175,6 +178,7 @@ test.beforeAll(async () => {
   const fixedCollectionOutputPath = join(tempRoot, "fixed-collection.html");
   const subsetOutputPath = join(tempRoot, "subset.html");
   const revisionOutputPath = join(tempRoot, "revision.html");
+  const bundleOutputPath = join(tempRoot, "bundle");
   const configRoot = join(tempRoot, "config");
   const env = cleanEnv();
   env.XDG_CONFIG_HOME = configRoot;
@@ -185,6 +189,24 @@ test.beforeAll(async () => {
     binaryPath,
     ["preview", "--repo", "none", "--output", outputPath, fixturePath],
     { cwd: repoRoot, env },
+  );
+  await execFileAsync(
+    binaryPath,
+    [
+      "preview",
+      "--repo",
+      "none",
+      "--slug",
+      "index",
+      "--page",
+      "docs/design.md",
+      "--page",
+      "examples/server.go",
+      "--output-dir",
+      bundleOutputPath,
+      "README.md",
+    ],
+    { cwd: bundleFixtureRoot, env },
   );
   const subsetConfigPath = join(tempRoot, "subset-config", "airplan.toml");
   await mkdir(dirname(subsetConfigPath), { recursive: true });
@@ -318,6 +340,14 @@ syntax = "derived"
   fixedCollectionHTML = await readFile(fixedCollectionOutputPath);
   subsetHTML = await readFile(subsetOutputPath);
   revisionHTML = await readFile(revisionOutputPath);
+  bundleMembers = new Map([
+    ["/bundle/index.html", await readFile(join(bundleOutputPath, "index.html"))],
+    ["/bundle/docs/design.html", await readFile(join(bundleOutputPath, "docs", "design.html"))],
+    [
+      "/bundle/examples/server.go.html",
+      await readFile(join(bundleOutputPath, "examples", "server.go.html")),
+    ],
+  ]);
   collectionMembers = new Map([
     ["/demo.webm", await readFile(join(tempRoot, "demo.webm"))],
     ["/sound.ogg", await readFile(join(tempRoot, "sound.ogg"))],
@@ -342,6 +372,14 @@ syntax = "derived"
       return;
     } else if (request.url && /^\/[a-z2-7]{26}\/plan\.html$/.test(request.url)) {
       body = html;
+    } else if (request.url && bundleMembers.has(request.url)) {
+      body = bundleMembers.get(request.url);
+      response.writeHead(200, {
+        "Cache-Control": "no-store",
+        "Content-Type": "text/html; charset=utf-8",
+      });
+      response.end(body);
+      return;
     } else if (request.url === "/collection") {
       body = collectionHTML;
     } else if (request.url === "/custom") {
@@ -381,12 +419,160 @@ syntax = "derived"
   });
   const address = server.address() as AddressInfo;
   baseURL = `http://127.0.0.1:${address.port}`;
+  bundleURL = `${baseURL}/bundle/index.html`;
   collectionURL = `${baseURL}/collection`;
   customURL = `${baseURL}/custom`;
   subsetURL = `${baseURL}/subset`;
   fixedURL = `${baseURL}/fixed`;
   fixedCollectionURL = `${baseURL}/fixed-collection`;
   sourceURL = `${baseURL}/source`;
+});
+
+test("bundle pages use ordinary navigation and update both rails", async ({
+  context,
+  page,
+}, testInfo) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseURL });
+  await page.goto(bundleURL);
+  await expect(page).toHaveTitle("Bundle overview");
+  await expect(page.locator("pre.mermaid")).toHaveCount(0);
+
+  const inlinePages = page.locator(".page-shell > .pages-nav");
+  const openPages = page.getByRole("button", { name: "Open pages" });
+  if (testInfo.project.name.startsWith("narrow-")) {
+    await expect(inlinePages).toBeHidden();
+    await expect(openPages).toBeVisible();
+  } else {
+    await expect(inlinePages).toBeVisible();
+    await expect(openPages).toBeHidden();
+    const columns = await page.evaluate(() => {
+      const pages = document.querySelector(".pages-nav")!.getBoundingClientRect();
+      const content = document.querySelector(".content")!.getBoundingClientRect();
+      const toc = document.querySelector(".toc")!.getBoundingClientRect();
+      return {
+        contentLeft: content.left,
+        contentRight: content.right,
+        pagesRight: pages.right,
+        tocLeft: toc.left,
+      };
+    });
+    expect(columns.pagesRight).toBeLessThanOrEqual(columns.contentLeft);
+    expect(columns.tocLeft).toBeGreaterThanOrEqual(columns.contentRight);
+  }
+
+  await expect(inlinePages.locator('a[aria-current="page"]')).toContainText("README.md");
+  await expect(page.locator("#toc .rail-title")).toHaveText("On this page");
+  await expect(page.locator(".page-sequence-next")).toContainText("Design notes");
+  const entryLifetime = await page.evaluate(
+    () => (window as typeof window & { __airplanBundleLifetime?: string }).__airplanBundleLifetime,
+  );
+  expect(entryLifetime).toBeTruthy();
+
+  if (testInfo.project.name.startsWith("narrow-")) {
+    await openPages.click();
+    const dialog = page.getByRole("dialog", { name: "Pages" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.locator('a[aria-current="page"]')).toContainText("README.md");
+    await Promise.all([
+      page.waitForURL(`${baseURL}/bundle/docs/design.html`),
+      dialog.getByRole("link", { name: /Design notes/ }).click(),
+    ]);
+  } else {
+    await Promise.all([
+      page.waitForURL(`${baseURL}/bundle/docs/design.html`),
+      inlinePages.getByRole("link", { name: /Design notes/ }).click(),
+    ]);
+  }
+
+  await expect(page).toHaveTitle("Design notes");
+  const designLifetime = await page.evaluate(
+    () => (window as typeof window & { __airplanBundleLifetime?: string }).__airplanBundleLifetime,
+  );
+  expect(designLifetime).toBeTruthy();
+  expect(designLifetime).not.toBe(entryLifetime);
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem("airplan-bundle-authored-runs")))
+    .toBe("2");
+  await expect(page.locator(".page-shell > .pages-nav a[aria-current=page]")).toContainText(
+    "docs/design.md",
+  );
+  await expect(page.locator("pre.mermaid > svg")).toHaveCount(1);
+  await expect(page.locator(".page-sequence-previous")).toContainText("Bundle overview");
+  await expect(page.locator(".page-sequence-next")).toContainText("server.go");
+
+  const sourceButton = page.getByRole("button", { name: "Source view" });
+  await sourceButton.click();
+  await expect(page.locator("#source")).toBeVisible();
+  await page.getByRole("button", { name: "Copy markdown" }).click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toContain("# Design notes");
+  await page.getByRole("button", { name: "Rendered view" }).click();
+
+  await page.getByRole("link", { name: "Deep dive" }).click();
+  await expect(page).toHaveURL(`${baseURL}/bundle/docs/design.html#deep-dive`);
+  await page.goBack();
+  await expect(page).toHaveURL(`${baseURL}/bundle/docs/design.html`);
+  await page.goBack();
+  await expect(page).toHaveURL(bundleURL);
+  await page.goForward();
+  await expect(page).toHaveURL(`${baseURL}/bundle/docs/design.html`);
+});
+
+test("bundle navigation keeps its narrow no-JavaScript fallback", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers the no-JS fallback");
+  const context = await browser.newContext({
+    colorScheme: "light",
+    javaScriptEnabled: false,
+    viewport: { width: 390, height: 844 },
+  });
+  try {
+    const page = await context.newPage();
+    await page.goto(bundleURL);
+    const pages = page.locator(".page-shell > .pages-nav");
+    await expect(pages).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open pages" })).toBeHidden();
+    await expect(pages.locator('a[aria-current="page"]')).toContainText("README.md");
+    await pages.getByRole("link", { name: /Design notes/ }).click();
+    await expect(page).toHaveURL(`${baseURL}/bundle/docs/design.html`);
+    await expect(page.locator(".page-shell > .pages-nav a[aria-current=page]")).toContainText(
+      "docs/design.md",
+    );
+  } finally {
+    await context.close();
+  }
+});
+
+test("built-in page transitions honor reduced motion", async ({ page }) => {
+  await page.goto(bundleURL);
+  const compactCSS = await page.locator("style").evaluateAll((styles) =>
+    styles
+      .map((style) => style.textContent || "")
+      .join("\n")
+      .replaceAll(/\s/g, ""),
+  );
+  expect(compactCSS).toContain(
+    "@media(prefers-reduced-motion:no-preference){@view-transition{navigation:auto;}}",
+  );
+  expect(
+    await page.evaluate(() => matchMedia("(prefers-reduced-motion:no-preference)").matches),
+  ).toBe(true);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(
+    await page.evaluate(() => matchMedia("(prefers-reduced-motion:no-preference)").matches),
+  ).toBe(false);
+});
+
+test("bundle print output contains only the loaded page", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers bundle printing");
+  await page.goto(`${baseURL}/bundle/docs/design.html`);
+  const detail = page.locator("#bundle-print-detail");
+  await expect(detail).not.toHaveAttribute("open", "");
+  await page.emulateMedia({ media: "print" });
+  await expect(detail.getByText("Printed bundle content")).toBeVisible();
+  await expect(page.locator(".pages-nav")).toBeHidden();
+  await expect(page.locator(".page-sequence")).toBeHidden();
+  await expect(page.locator(".pages-trigger")).toBeHidden();
 });
 
 test("collection overview presents and links every media kind", async ({ context, page }) => {

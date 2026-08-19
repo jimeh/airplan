@@ -1,0 +1,468 @@
+package airplan
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"sort"
+	"strings"
+	"time"
+)
+
+func (c *Client) createBundleRevision(
+	ctx context.Context, input CreateDocumentRevisionInput, maxDiffSize int,
+) (*DocumentRevisionResult, error) {
+	if err := c.validate(ctx); err != nil {
+		return nil, err
+	}
+	if input.Target == "" {
+		return nil, errors.New("airplan: document revision target is required")
+	}
+	if input.Document.Entry.Reader == nil {
+		return nil, errors.New("airplan: document revision entry reader is nil")
+	}
+	if c.remote != nil {
+		return c.remote.CreateDocumentRevision(ctx, input)
+	}
+	if err := c.ensureStorage(ctx); err != nil {
+		return nil, err
+	}
+	latest, err := c.loadRevisionDocumentForUpdate(ctx, input.Target)
+	if err != nil {
+		return nil, err
+	}
+	for latest.versions != nil && latest.versions.LatestRevision != latest.versions.CurrentRevision {
+		entry := liveVersionsRevision(latest.versions, latest.versions.LatestRevision)
+		if entry == nil {
+			return nil, errors.New("airplan: revision metadata has no live latest entry")
+		}
+		latest, err = c.loadRevisionDocumentForUpdate(ctx, entry.URL)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if latest.marker.Format != "md" || len(latest.marker.Pages) == 0 {
+		return nil, errors.New("airplan: document revisions require a source-backed Markdown entry")
+	}
+	if input.Document.Slug != "" && SanitizeSlug(input.Document.Slug) != latest.marker.Slug {
+		return nil, errors.New("airplan: document revision cannot change the slug")
+	}
+	if input.Document.Entry.Path != "" &&
+		SanitizeSlug(filenameStem(input.Document.Entry.Path)) != latest.marker.Slug {
+		return nil, errors.New("airplan: document revision entry name must match the existing document slug")
+	}
+	input.Document.Slug = latest.marker.Slug
+	input.Document.RepositoryURL = latest.marker.Repo
+	assets, err := prepareAssets(ctx, input.Document)
+	if err != nil {
+		return nil, err
+	}
+	for index := range assets {
+		input.Document.Assets[index] = assets[index].AssetInput
+	}
+	previousRevision, newRevision, chainID := 1, 2, ""
+	if latest.versions != nil {
+		previousRevision = latest.versions.CurrentRevision
+		newRevision = latest.versions.LastAssignedRevision + 1
+		chainID = latest.versions.ChainID
+	} else {
+		chainID, err = RandomDirName()
+		if err != nil {
+			return nil, fmt.Errorf("airplan: generate revision chain ID: %w", err)
+		}
+	}
+	recipe := cloneRenderRecipe(latest.marker.Render)
+	if recipe == nil || !c.upgradeTemplateMatches(recipe) {
+		return nil, errors.New("airplan: latest revision's rendering template cannot be reproduced")
+	}
+	if !themeRecipeMatches(recipe.Themes, c.cfg.ThemeBundle) {
+		return nil, errors.New("airplan: latest revision's themes do not match the configured catalog; run airplan upgrade --force first")
+	}
+	// Render once without revision chrome to compare the complete logical input.
+	comparison, err := renderDocumentSpooled(ctx, input.Document, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Indexable: recipe.Indexable, IncludeSource: true, NoExternalAssets: recipe.NoExternalAssets, MermaidURL: recipe.MermaidURL, Repository: latest.marker.Repo, Themes: c.cfg.ThemeBundle}}, c.template, c.templateErr)
+	if err != nil {
+		return nil, err
+	}
+	defer comparison.cleanup()
+	if comparison.Format != FormatMarkdown.String() {
+		return nil, errors.New("airplan: document revision entry must use Markdown format")
+	}
+	if bundleLogicalStateMatches(latest.marker, comparison, assets) {
+		result := bundleRevisionResultFromExisting(c.cfg, latest)
+		result.Unchanged = true
+		return result, nil
+	}
+	diffBody, err := c.generateBundleRevisionDiff(ctx, latest, comparison, assets, previousRevision, newRevision, maxDiffSize)
+	if err != nil {
+		return nil, err
+	}
+	revisionInput, closeSources, err := reopenedDocumentInput(comparison, input.Document)
+	if err != nil {
+		return nil, err
+	}
+	defer closeSources()
+	bundle, err := renderDocumentSpooled(ctx, revisionInput, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Indexable: recipe.Indexable, IncludeSource: true, NoExternalAssets: recipe.NoExternalAssets, MermaidURL: recipe.MermaidURL, Repository: latest.marker.Repo, Themes: c.cfg.ThemeBundle}, Revision: newRevision, RevisionCount: newRevision, PreviousRevision: previousRevision, VersionsPath: VersionsFilename, DiffPath: DiffFilename, DiffText: inlineRevisionDiff(diffBody)}, c.template, c.templateErr)
+	if err != nil {
+		return nil, err
+	}
+	defer bundle.cleanup()
+	dir, err := RandomDirName()
+	if err != nil {
+		return nil, fmt.Errorf("airplan: generate revision upload key: %w", err)
+	}
+	createdAt := time.Now().UTC().Truncate(time.Second)
+	pageKey := BuildKey(c.cfg.KeyPrefix, dir, bundle.Entrypoint)
+	pageURL, fallback, err := PublicURL(c.cfg, pageKey)
+	if err != nil {
+		return nil, err
+	}
+	diffKey := BuildKey(c.cfg.KeyPrefix, dir, DiffFilename)
+	diffURL, _, err := PublicURL(c.cfg, diffKey)
+	if err != nil {
+		return nil, err
+	}
+	marker := UploadMarker{Schema: MarkerSchema, Version: MarkerVersion, Directory: dir, CreatedAt: createdAt, Kind: UploadKindDocument, Slug: bundle.Slug, Format: bundle.Format, Title: bundle.Title, Repo: bundle.RepositoryURL, Producer: Producer{Name: "airplan", Version: producerVersion(c.cfg.ProducerVersion)}, Render: recipe, Revision: &RevisionDescriptor{ChainID: chainID, Number: newRevision, PreviousURL: latest.pageURL}, Entrypoint: bundle.Entrypoint}
+	for _, page := range bundle.Pages {
+		marker.Objects = append(marker.Objects, MarkerObject{Name: page.PagePath, Role: MarkerRolePage, Bytes: page.pageSize(), ContentType: pageContentType, SHA256: page.pageDigest()})
+		contentType := textContentType
+		if page.Format == "md" {
+			contentType = sourceContentType
+		}
+		marker.Objects = append(marker.Objects, MarkerObject{Name: page.SourcePath, Role: MarkerRoleSource, Bytes: page.sourceSize(), ContentType: contentType, SHA256: page.sourceDigest()})
+		marker.Pages = append(marker.Pages, MarkerPage{Path: page.Path, Page: page.PagePath, Source: page.SourcePath, Format: page.Format, Title: page.Title, Lang: page.Lang})
+	}
+	for _, asset := range assets {
+		marker.Objects = append(marker.Objects, MarkerObject{Name: asset.Path, Role: MarkerRoleAsset, Bytes: asset.Size, ContentType: asset.ContentType, SHA256: asset.digest})
+	}
+	marker.Objects = append(marker.Objects, MarkerObject{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diffBody)), ContentType: diffContentType, SHA256: contentSHA256(diffBody)})
+	markerBody, err := EncodeUploadMarker(marker)
+	if err != nil {
+		return nil, err
+	}
+	markerKey := BuildKey(c.cfg.KeyPrefix, dir, MarkerFilename)
+	if err := c.st.put(ctx, object{Key: markerKey, Body: markerBody, ContentType: markerContentType}); err != nil {
+		return nil, err
+	}
+	pages := make([]PageResult, 0, len(bundle.Pages))
+	for _, page := range bundle.Pages {
+		sourceKey := BuildKey(c.cfg.KeyPrefix, dir, page.SourcePath)
+		contentType := textContentType
+		if page.Format == "md" {
+			contentType = sourceContentType
+		}
+		if err := c.putDocumentPayload(ctx, sourceKey, page.sourceFile,
+			contentType, titleMetadata(page.Title)); err != nil {
+			return nil, err
+		}
+		result, resultErr := c.bundlePageResult(dir, page)
+		if resultErr != nil {
+			return nil, resultErr
+		}
+		pages = append(pages, result)
+	}
+	assetResults := make([]AssetResult, 0, len(assets))
+	for _, asset := range assets {
+		digest, hashErr := hashExactReader(asset.Reader, asset.start, asset.Size)
+		if hashErr != nil || digest != asset.digest {
+			return nil, fmt.Errorf("airplan: asset %q changed after preflight", asset.Path)
+		}
+		if _, err := asset.Reader.Seek(asset.start, io.SeekStart); err != nil {
+			return nil, err
+		}
+		key := BuildKey(c.cfg.KeyPrefix, dir, asset.Path)
+		if err := c.st.putStream(ctx, streamObject{Key: key, Body: asset.Reader, Size: asset.Size, ContentType: asset.ContentType, Metadata: titleMetadata(bundle.Title)}); err != nil {
+			return nil, err
+		}
+		assetURL, _, urlErr := PublicURL(c.cfg, key)
+		if urlErr != nil {
+			return nil, urlErr
+		}
+		assetResults = append(assetResults, AssetResult{Path: asset.Path, URL: assetURL, Key: key, Bytes: asset.Size, ContentType: asset.ContentType})
+	}
+	if err := c.st.put(ctx, object{Key: diffKey, Body: diffBody, ContentType: diffContentType}); err != nil {
+		return nil, err
+	}
+	for index := 1; index < len(bundle.Pages); index++ {
+		page := bundle.Pages[index]
+		if err := c.putDocumentPayload(ctx,
+			BuildKey(c.cfg.KeyPrefix, dir, page.PagePath), page.htmlFile,
+			pageContentType, titleMetadata(page.Title)); err != nil {
+			return nil, err
+		}
+	}
+	if err := c.putDocumentPayload(ctx, pageKey, bundle.Pages[0].htmlFile,
+		pageContentType, titleMetadata(bundle.Title)); err != nil {
+		return nil, err
+	}
+	metadata := c.nextVersionsMetadata(latest, chainID, newRevision, pageURL, diffURL, createdAt)
+	memberBodies, err := c.encodeMemberMetadata(metadata)
+	if err != nil {
+		return nil, err
+	}
+	latestMetadataKey := latest.dirPrefix + VersionsFilename
+	if latest.versions == nil {
+		err = c.st.putIfAbsent(ctx, object{Key: latestMetadataKey, Body: memberBodies[previousRevision], ContentType: markerContentType})
+	} else {
+		err = c.st.putConditional(ctx, object{Key: latestMetadataKey, Body: memberBodies[previousRevision], ContentType: markerContentType}, latest.versionsETag)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if latest.versions == nil {
+		if err := c.promoteStandaloneRevision(ctx, latest, chainID, metadata); err != nil {
+			return nil, err
+		}
+	}
+	newMetadataKey := BuildKey(c.cfg.KeyPrefix, dir, VersionsFilename)
+	if err := c.st.putIfAbsent(ctx, object{Key: newMetadataKey, Body: memberBodies[newRevision], ContentType: markerContentType}); err != nil {
+		return nil, err
+	}
+	if err := c.propagateVersionsMetadata(ctx, metadata, memberBodies, latestMetadataKey, newMetadataKey); err != nil {
+		return nil, err
+	}
+	result := &DocumentRevisionResult{DocumentResult: DocumentResult{Result: Result{ID: dir, URL: pageURL, Key: pageKey, SourceURL: pages[0].SourceURL, SourceKey: pages[0].SourceKey, Bucket: c.cfg.Bucket, Bytes: bundle.Pages[0].pageSize(), ContentType: pageContentType, Title: bundle.Title, CreatedAt: createdAt, MarkerVersion: MarkerVersion, MarkerKey: markerKey, Format: bundle.Format, Kind: string(UploadKindDocument), Slug: bundle.Slug, RepositoryURL: bundle.RepositoryURL, RevisionChainID: chainID, Revision: newRevision, LatestRevision: metadata.LatestRevision}, Pages: pages, Assets: assetResults}, PreviousURL: latest.pageURL, DiffURL: diffURL}
+	if fallback {
+		result.Warnings = append(result.Warnings, PublicURLFallbackWarning)
+	}
+	compatibility := &UpdateDocumentResult{Result: result.Result, PreviousURL: result.PreviousURL, DiffURL: result.DiffURL}
+	c.recordRevisionAppend(ctx, compatibility, markerBody, chainID, metadata)
+	return result, nil
+}
+
+func (c *Client) bundlePageResult(dir string, page RenderedBundlePage) (PageResult, error) {
+	key := BuildKey(c.cfg.KeyPrefix, dir, page.PagePath)
+	u, _, err := PublicURL(c.cfg, key)
+	if err != nil {
+		return PageResult{}, err
+	}
+	sourceKey := BuildKey(c.cfg.KeyPrefix, dir, page.SourcePath)
+	sourceURL, _, err := PublicURL(c.cfg, sourceKey)
+	if err != nil {
+		return PageResult{}, err
+	}
+	return PageResult{Path: page.Path, Format: page.Format, Title: page.Title, URL: u, Key: key, SourceURL: sourceURL, SourceKey: sourceKey, Bytes: page.pageSize(), SourceBytes: page.sourceSize()}, nil
+}
+
+func reopenedDocumentInput(
+	bundle *RenderedDocumentBundle, original DocumentInput,
+) (DocumentInput, func(), error) {
+	opened := make([]io.Closer, 0, len(bundle.Pages))
+	closeOpened := func() {
+		for _, closer := range opened {
+			_ = closer.Close()
+		}
+	}
+	pages := make([]PageInput, len(bundle.Pages))
+	for index := range bundle.Pages {
+		page := &bundle.Pages[index]
+		file, err := page.sourceFile.open()
+		if err != nil {
+			closeOpened()
+			return DocumentInput{}, func() {}, err
+		}
+		opened = append(opened, file)
+		pages[index] = PageInput{
+			Reader: file, Path: page.Path, Format: page.Format,
+			Title: page.Title, Lang: page.Lang,
+		}
+	}
+	input := original
+	input.Entry = pages[0]
+	input.Pages = pages[1:]
+	return input, closeOpened, nil
+}
+
+func bundleLogicalStateMatches(marker *UploadMarker, bundle *RenderedDocumentBundle, assets []preparedAsset) bool {
+	if marker == nil || marker.Title != bundle.Title || marker.Slug != bundle.Slug || marker.Format != bundle.Format || len(marker.Pages) != len(bundle.Pages) {
+		return false
+	}
+	objects := make(map[string]MarkerObject, len(marker.Objects))
+	for _, object := range marker.Objects {
+		objects[object.Name] = object
+	}
+	for index, page := range bundle.Pages {
+		descriptor := marker.Pages[index]
+		if descriptor.Path != page.Path || descriptor.Page != page.PagePath || descriptor.Source != page.SourcePath || descriptor.Format != page.Format || descriptor.Title != page.Title || descriptor.Lang != page.Lang {
+			return false
+		}
+		source, ok := objects[page.SourcePath]
+		if !ok || source.Role != MarkerRoleSource || source.SHA256 != page.sourceDigest() {
+			return false
+		}
+	}
+	markerAssets := make([]MarkerObject, 0, len(assets))
+	for _, object := range marker.Objects {
+		if object.Role == MarkerRoleAsset {
+			markerAssets = append(markerAssets, object)
+		}
+	}
+	if len(markerAssets) != len(assets) {
+		return false
+	}
+	for index, asset := range assets {
+		object := markerAssets[index]
+		if object.Name != asset.Path || object.Bytes != asset.Size || object.ContentType != asset.ContentType || object.SHA256 != asset.digest {
+			return false
+		}
+	}
+	return true
+}
+
+func bundleRevisionResultFromExisting(cfg *Config, doc *revisionDocument) *DocumentRevisionResult {
+	result := cResultFromMarker(cfg, doc.marker, doc.dirPrefix)
+	result.URL = doc.pageURL
+	result.Key = doc.pageKey
+	result.SourceKey = doc.sourceKey
+	result.SourceURL, _, _ = PublicURL(cfg, doc.sourceKey)
+	result.Bytes = int64(len(doc.pageBody))
+	result.ContentType = pageContentType
+	return &DocumentRevisionResult{DocumentResult: DocumentResult{Result: result, Pages: pageResultsFromMarker(cfg, doc.marker, doc.dirPrefix)}}
+}
+
+func cResultFromMarker(cfg *Config, marker *UploadMarker, dirPrefix string) Result {
+	result := Result{ID: marker.Directory, Bucket: cfg.Bucket, Title: marker.Title, CreatedAt: marker.CreatedAt, MarkerVersion: marker.Version, MarkerKey: dirPrefix + MarkerFilename, Format: marker.Format, Kind: string(marker.Kind), Slug: marker.Slug, RepositoryURL: marker.Repo}
+	if marker.Revision != nil {
+		result.RevisionChainID = marker.Revision.ChainID
+		result.Revision = marker.Revision.Number
+	}
+	return result
+}
+
+func pageResultsFromMarker(cfg *Config, marker *UploadMarker, dirPrefix string) []PageResult {
+	objects := make(map[string]MarkerObject, len(marker.Objects))
+	for _, object := range marker.Objects {
+		objects[object.Name] = object
+	}
+	results := make([]PageResult, 0, len(marker.Pages))
+	for _, page := range marker.Pages {
+		pageObject := objects[page.Page]
+		result := PageResult{Path: page.Path, Format: page.Format, Title: page.Title, Key: dirPrefix + page.Page, Bytes: pageObject.Bytes}
+		result.URL, _, _ = PublicURL(cfg, result.Key)
+		if page.Source != "" {
+			result.SourceKey = dirPrefix + page.Source
+			result.SourceURL, _, _ = PublicURL(cfg, result.SourceKey)
+			result.SourceBytes = objects[page.Source].Bytes
+		}
+		results = append(results, result)
+	}
+	return results
+}
+
+func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revisionDocument, next *RenderedDocumentBundle, assets []preparedAsset, previousRevision, newRevision, maxSize int) ([]byte, error) {
+	oldSources := make(map[string]MarkerPage, len(previous.marker.Pages))
+	for _, page := range previous.marker.Pages {
+		if page.Source == "" {
+			continue
+		}
+		oldSources[page.Path] = page
+	}
+	newSources := make(map[string]*RenderedBundlePage, len(next.Pages))
+	for index := range next.Pages {
+		newSources[next.Pages[index].Path] = &next.Pages[index]
+	}
+	paths := make(map[string]struct{}, len(oldSources)+len(newSources))
+	for value := range oldSources {
+		paths[value] = struct{}{}
+	}
+	for value := range newSources {
+		paths[value] = struct{}{}
+	}
+	ordered := make([]string, 0, len(paths))
+	for value := range paths {
+		ordered = append(ordered, value)
+	}
+	sort.Strings(ordered)
+	var out bytes.Buffer
+	for _, logical := range ordered {
+		oldPage, oldOK := oldSources[logical]
+		newPage, newOK := newSources[logical]
+		var oldBody, newBody []byte
+		if oldOK {
+			object, ok := markerObjectNamed(previous.marker, oldPage.Source)
+			if !ok {
+				return nil, fmt.Errorf("airplan: previous page %q source is missing", oldPage.Path)
+			}
+			var err error
+			oldBody, err = c.st.getBytes(
+				ctx, previous.dirPrefix+oldPage.Source, object.Bytes,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if newOK {
+			var err error
+			newBody, err = newPage.sourceBody(ctx)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if oldOK && newOK && bytes.Equal(oldBody, newBody) {
+			continue
+		}
+		fmt.Fprintf(&out, "# %s\n", logical)
+		section, err := generateRevisionDiff(oldBody, newBody, previousRevision, newRevision, maxSize)
+		if err != nil {
+			return nil, err
+		}
+		out.Write(section)
+		if !strings.HasSuffix(out.String(), "\n") {
+			out.WriteByte('\n')
+		}
+	}
+	oldAssets := make(map[string]MarkerObject)
+	for _, object := range previous.marker.Objects {
+		if object.Role == MarkerRoleAsset {
+			oldAssets[object.Name] = object
+		}
+	}
+	newAssets := make(map[string]preparedAsset, len(assets))
+	for _, asset := range assets {
+		newAssets[asset.Path] = asset
+	}
+	assetPaths := make(map[string]struct{}, len(oldAssets)+len(newAssets))
+	for value := range oldAssets {
+		assetPaths[value] = struct{}{}
+	}
+	for value := range newAssets {
+		assetPaths[value] = struct{}{}
+	}
+	ordered = ordered[:0]
+	for value := range assetPaths {
+		ordered = append(ordered, value)
+	}
+	sort.Strings(ordered)
+	for _, logical := range ordered {
+		oldAsset, oldOK := oldAssets[logical]
+		newAsset, newOK := newAssets[logical]
+		if oldOK && newOK && oldAsset.Bytes == newAsset.Size && oldAsset.ContentType == newAsset.ContentType && oldAsset.SHA256 == newAsset.digest {
+			continue
+		}
+		switch {
+		case !oldOK:
+			fmt.Fprintf(&out, "# %s\nasset added: %s, %d bytes, sha256 %s\n", logical, newAsset.ContentType, newAsset.Size, newAsset.digest)
+		case !newOK:
+			fmt.Fprintf(&out, "# %s\nasset removed: %s, %d bytes, sha256 %s\n", logical, oldAsset.ContentType, oldAsset.Bytes, oldAsset.SHA256)
+		default:
+			fmt.Fprintf(&out, "# %s\nasset changed: %s, %d bytes, sha256 %s -> %s, %d bytes, sha256 %s\n", logical, oldAsset.ContentType, oldAsset.Bytes, oldAsset.SHA256, newAsset.ContentType, newAsset.Size, newAsset.digest)
+		}
+	}
+	if out.Len() == 0 {
+		out.WriteString("No textual changes.\n")
+	}
+	if maxSize > 0 && out.Len() > maxSize {
+		return nil, fmt.Errorf("airplan: revision diff exceeds maximum size of %s", formatSize(int64(maxSize)))
+	}
+	return out.Bytes(), nil
+}
+
+func markerObjectNamed(marker *UploadMarker, name string) (MarkerObject, bool) {
+	for _, object := range marker.Objects {
+		if object.Name == name {
+			return object, true
+		}
+	}
+	return MarkerObject{}, false
+}

@@ -88,7 +88,8 @@ func TestSyncCommandReportsEnrichedSeparately(t *testing.T) {
 		Schema: airplan.MarkerSchema, Version: airplan.MarkerVersion,
 		Directory: deleteDirA, CreatedAt: when,
 		Kind: airplan.UploadKindDocument, Slug: "plan", Format: "html",
-		Producer: airplan.Producer{Name: "airplan", Version: "test"},
+		Producer:   airplan.Producer{Name: "airplan", Version: "test"},
+		Entrypoint: "plan.html",
 		Objects: []airplan.MarkerObject{{
 			Name: "plan.html", Role: airplan.MarkerRolePage,
 			Bytes: int64(len(page)), ContentType: "text/html; charset=utf-8",
@@ -107,6 +108,7 @@ func TestSyncCommandReportsEnrichedSeparately(t *testing.T) {
 		},
 	}, nil, nil)
 	fake.setMarker(markerKey, marker)
+	fake.setMarker(deleteDirA+"/plan.html", page)
 	config := writeCLIConfig(t, fake.server.URL)
 
 	_, stderr, err := executeCommand(t, "", "", "sync", "--config", config)

@@ -77,6 +77,12 @@ func TestUploadFilesStreamsOneCollection(t *testing.T) {
 		t.Fatalf("marker page digest = %q, want digest of uploaded overview",
 			marker.PageSHA256)
 	}
+	for index, body := range [][]byte{image, video, nil} {
+		object := marker.Objects[index+1]
+		if object.SHA256 != contentSHA256(body) {
+			t.Errorf("member %q digest = %q", object.Name, object.SHA256)
+		}
+	}
 	wantThemes := themeRecipe(c.cfg.ThemeBundle)
 	if marker.Render == nil || marker.Render.Themes == nil ||
 		*marker.Render.Themes != wantThemes {
@@ -87,6 +93,38 @@ func TestUploadFilesStreamsOneCollection(t *testing.T) {
 	}
 	if len(puts[3].body) != 0 {
 		t.Fatalf("zero-byte member body = %q", puts[3].body)
+	}
+}
+
+func TestUploadFilesRejectsMemberMutationAfterMarker(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	body := []byte("before")
+	puts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		puts++
+		_, _ = io.Copy(io.Discard, r.Body)
+		if strings.HasSuffix(r.URL.Path, "/"+CollectionMarkerFilename) {
+			copy(body, "after!")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Endpoint: server.URL, Bucket: "plans", AccessKeyID: "test",
+		SecretAccessKey: "test", PublicBaseURL: "https://plans.example.com",
+		DisableManifest: true, Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.UploadFiles(context.Background(), FilesInput{Files: []FileInput{{
+		Name: "evidence.bin", Reader: bytes.NewReader(body), Size: int64(len(body)),
+	}}})
+	if err == nil || !strings.Contains(err.Error(), "changed after preflight") {
+		t.Fatalf("error = %v", err)
+	}
+	if puts != 1 {
+		t.Fatalf("PUTs = %d, want marker only", puts)
 	}
 }
 

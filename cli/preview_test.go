@@ -81,6 +81,87 @@ func TestPreviewRendersCollectionWithCustomTemplate(t *testing.T) {
 	}
 }
 
+func TestPreviewMaterializesDocumentBundle(t *testing.T) {
+	isolateEnv(t)
+	root := t.TempDir()
+	entry := filepath.Join(root, "plan.md")
+	page := filepath.Join(root, "docs", "design.md")
+	asset := filepath.Join(root, "images", "flow.svg")
+	for name, body := range map[string]string{
+		entry: "# Plan\n\n[Design](docs/design.md)\n",
+		page:  "# Design\n",
+		asset: "<svg>flow</svg>",
+	} {
+		if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	destination := filepath.Join(root, "preview")
+	cmd := newRootCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{
+		"preview", "--repo", "none", "--page", page, "--asset", asset,
+		"--output-dir", destination, entry,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	for name, fragment := range map[string]string{
+		"plan.html":        `href="docs/design.html"`,
+		"plan.md":          "# Plan",
+		"docs/design.html": `<meta name="airplan-versions" content="../.airplan-versions.json">`,
+		"docs/design.md":   "# Design",
+		"images/flow.svg":  "<svg>flow</svg>",
+	} {
+		body, err := os.ReadFile(filepath.Join(destination, filepath.FromSlash(name)))
+		if err != nil || !bytes.Contains(body, []byte(fragment)) {
+			t.Fatalf("%s = %q, error = %v; want %q", name, body, err, fragment)
+		}
+	}
+	second := newRootCmd()
+	second.SetArgs([]string{
+		"preview", "--repo", "none", "--page", page, "--asset", asset,
+		"--output-dir", destination, entry,
+	})
+	if err := second.Execute(); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("second preview error = %v", err)
+	}
+}
+
+func TestDocumentPreviewRemovesPrivateStagingAfterCopyFailure(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "preview")
+	_, err := airplan.MaterializeDocument(context.Background(),
+		airplan.DocumentInput{
+			Entry: airplan.PageInput{
+				Reader: strings.NewReader("# Plan\n"), Path: "plan.md",
+			},
+			Assets: []airplan.AssetInput{{
+				Path: "asset.bin", Reader: bytes.NewReader(nil), Size: 1,
+			}},
+		}, airplan.DocumentRenderOptions{}, destination)
+	if err == nil {
+		t.Fatalf("error = %v", err)
+	}
+	if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed preview destination exists: %v", err)
+	}
+	matches, err := filepath.Glob(filepath.Join(root, ".airplan-preview-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("preview staging remains after failure: %v", matches)
+	}
+}
+
 func TestDocumentPreviewRejectsNamedNonRegularInput(t *testing.T) {
 	isolateEnv(t)
 	cmd := newRootCmd()

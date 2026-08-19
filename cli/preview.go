@@ -22,6 +22,8 @@ type previewOptions struct {
 	mermaidURL         string
 	repository         string
 	maxSize            string
+	maxTotalPageSize   string
+	maxAssetSize       string
 	template           string
 	collectionTemplate string
 	files              bool
@@ -29,6 +31,9 @@ type previewOptions struct {
 	profile            string
 	config             string
 	output             string
+	outputDir          string
+	pages              []string
+	assets             []string
 }
 
 func newPreviewCmd() *cobra.Command {
@@ -61,6 +66,12 @@ func newPreviewCmd() *cobra.Command {
 		"repository context: auto, none, or URL (default: auto)")
 	f.StringVar(&opts.maxSize, "max-size", "10MiB",
 		"per-input limit (10MiB documents, 1GiB collections); 0 = no limit")
+	f.StringVar(&opts.maxTotalPageSize, "max-total-page-size", "100MiB",
+		"document managed-source total limit; 0 = no limit")
+	f.StringVar(&opts.maxAssetSize, "max-asset-size", "1GiB",
+		"document per-asset limit; 0 = no limit")
+	f.StringArrayVar(&opts.pages, "page", nil, "managed page file (repeatable)")
+	f.StringArrayVar(&opts.assets, "asset", nil, "supporting asset file (repeatable)")
 	f.StringVar(&opts.template, "template", "",
 		"custom page template file (md and text input)")
 	f.StringVar(&opts.collectionTemplate, "collection-template", "",
@@ -76,6 +87,9 @@ func newPreviewCmd() *cobra.Command {
 	// SPEC.md §6 defines -o as the preview --output shorthand.
 	f.StringVarP(&opts.output, "output", "o", "",
 		"write HTML to this path instead of stdout; - means stdout")
+	f.StringVar(&opts.outputDir, "output-dir", "",
+		"write a complete document bundle to a new directory")
+	cmd.MarkFlagsMutuallyExclusive("output", "output-dir")
 	return cmd
 }
 
@@ -84,6 +98,9 @@ func runPreview(
 	args []string,
 	opts *previewOptions,
 ) error {
+	if len(opts.pages) != 0 || len(opts.assets) != 0 || opts.outputDir != "" {
+		return runDocumentBundlePreview(cmd, args, opts)
+	}
 	if opts.files || len(args) > 1 {
 		return runCollectionPreview(cmd, args, opts)
 	}

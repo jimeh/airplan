@@ -14,7 +14,7 @@ const markerTestDir = "abcdefghijklmnopqrstuvwxyz"
 
 var markerTestTime = time.Date(2026, 7, 21, 9, 0, 0, 0, time.UTC)
 
-func TestUploadMarkerV5DocumentRoundTrip(t *testing.T) {
+func TestUploadMarkerV6DocumentRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	marker := validDocumentMarker()
@@ -22,10 +22,14 @@ func TestUploadMarkerV5DocumentRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(body), `"page":`) ||
-		strings.Contains(string(body), `"page_bytes":`) ||
-		strings.Contains(string(body), `"source":`) {
-		t.Fatalf("marker contains legacy fields: %s", body)
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		t.Fatal(err)
+	}
+	for _, legacy := range []string{"page", "page_bytes", "source"} {
+		if _, exists := fields[legacy]; exists {
+			t.Fatalf("marker contains legacy top-level field %q: %s", legacy, body)
+		}
 	}
 
 	got, err := DecodeUploadMarker(body, markerTestDir)
@@ -42,7 +46,29 @@ func TestUploadMarkerV5DocumentRoundTrip(t *testing.T) {
 	}
 }
 
-func TestUploadMarkerV5CollectionRoundTrip(t *testing.T) {
+func TestUploadMarkerV5DocumentRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	marker := validDocumentMarkerV5()
+	body, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeUploadMarker(body, markerTestDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := marker
+	want.Page = "launch-plan.html"
+	want.PageBytes = 1234
+	want.PageSHA256 = strings.Repeat("a", 64)
+	want.Source = "launch-plan.md"
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("marker = %+v, want %+v", *got, want)
+	}
+}
+
+func TestUploadMarkerV6CollectionRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	marker := validCollectionMarker()
@@ -65,12 +91,32 @@ func TestUploadMarkerV5CollectionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestUploadMarkerV5CollectionRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	marker := validCollectionMarkerV5()
+	body, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeUploadMarkerForName(
+		body, markerTestDir, CollectionMarkerFilename,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := marker
+	want.Page = "index.html"
+	want.PageBytes = 900
+	want.PageSHA256 = strings.Repeat("b", 64)
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("marker = %+v, want %+v", *got, want)
+	}
+}
+
 func TestUploadMarkerV3RemainsReadableWithoutProvenance(t *testing.T) {
 	t.Parallel()
-	marker := validDocumentMarker()
-	marker.Version = 3
-	marker.Producer = Producer{}
-	marker.Render = nil
+	marker := validDocumentMarkerV3()
 	body, err := EncodeUploadMarker(marker)
 	if err != nil {
 		t.Fatal(err)
@@ -86,8 +132,7 @@ func TestUploadMarkerV3RemainsReadableWithoutProvenance(t *testing.T) {
 
 func TestUploadMarkerV3IgnoresV4ProvenanceFields(t *testing.T) {
 	t.Parallel()
-	marker := validDocumentMarker()
-	marker.Version = 3
+	marker := validDocumentMarkerV3()
 	body, err := EncodeUploadMarker(marker)
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +160,7 @@ func TestUploadMarkerV3IgnoresV4ProvenanceFields(t *testing.T) {
 
 func TestUploadMarkerV5RequiresStringLowercasePageSHA(t *testing.T) {
 	t.Parallel()
-	body, err := EncodeUploadMarker(validDocumentMarker())
+	body, err := EncodeUploadMarker(validDocumentMarkerV5())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,32 +183,32 @@ func TestUploadMarkerV5RequiresStringLowercasePageSHA(t *testing.T) {
 
 func TestUploadMarkerV5RequiresApplicableProvenance(t *testing.T) {
 	t.Parallel()
-	missingProducer := validDocumentMarker()
+	missingProducer := validDocumentMarkerV5()
 	missingProducer.Producer = Producer{}
 	if _, err := EncodeUploadMarker(missingProducer); err == nil {
 		t.Fatal("v5 marker without producer was accepted")
 	}
-	missingRender := validDocumentMarker()
+	missingRender := validDocumentMarkerV5()
 	missingRender.Render = nil
 	if _, err := EncodeUploadMarker(missingRender); err == nil {
 		t.Fatal("generated v5 document without render recipe was accepted")
 	}
-	missingThemes := validDocumentMarker()
+	missingThemes := validDocumentMarkerV5()
 	missingThemes.Render.Themes = nil
 	if _, err := EncodeUploadMarker(missingThemes); err == nil {
 		t.Fatal("v5 marker without theme provenance was accepted")
 	}
-	missingPageSHA := validDocumentMarker()
+	missingPageSHA := validDocumentMarkerV5()
 	missingPageSHA.Objects[0].SHA256 = ""
 	if _, err := EncodeUploadMarker(missingPageSHA); err == nil {
 		t.Fatal("v5 marker without generated-page checksum was accepted")
 	}
-	sourceSHA := validDocumentMarker()
+	sourceSHA := validDocumentMarkerV5()
 	sourceSHA.Objects[1].SHA256 = strings.Repeat("b", 64)
 	if _, err := EncodeUploadMarker(sourceSHA); err == nil {
 		t.Fatal("v5 marker with a source checksum was accepted")
 	}
-	authoredHTML := validDocumentMarker()
+	authoredHTML := validDocumentMarkerV5()
 	authoredHTML.Format = "html"
 	authoredHTML.Slug = "page"
 	authoredHTML.Objects = []MarkerObject{{
@@ -188,7 +233,7 @@ func TestUploadMarkerV5ValidatesThemeDefaultIDs(t *testing.T) {
 			"Tokyo-Night", "bad\x01theme", strings.Repeat("a", maxThemeIDLength+1),
 		} {
 			t.Run(field+"/"+fmt.Sprintf("%q", value), func(t *testing.T) {
-				marker := validDocumentMarker()
+				marker := validDocumentMarkerV5()
 				if field == "default_light" {
 					marker.Render.Themes.DefaultLight = value
 				} else {
@@ -202,7 +247,7 @@ func TestUploadMarkerV5ValidatesThemeDefaultIDs(t *testing.T) {
 		}
 	}
 
-	marker := validDocumentMarker()
+	marker := validDocumentMarkerV5()
 	marker.Render.Themes.DefaultLight = "historical-custom-light"
 	marker.Render.Themes.DefaultDark = "historical-custom-dark"
 	if _, err := EncodeUploadMarker(marker); err != nil {
@@ -211,7 +256,7 @@ func TestUploadMarkerV5ValidatesThemeDefaultIDs(t *testing.T) {
 }
 
 func TestUploadMarkerV4RevisionRoundTripPreservesProvenance(t *testing.T) {
-	marker := validDocumentMarker()
+	marker := validDocumentMarkerV5()
 	marker.Version = 4
 	marker.Render.Generation = 2
 	originalThemes := marker.Render.Themes
@@ -240,7 +285,7 @@ func TestUploadMarkerV4RevisionRoundTripPreservesProvenance(t *testing.T) {
 	}
 }
 
-func TestV4CompatibleDecoderRejectsV5BeforeRewrite(t *testing.T) {
+func TestV5CompatibleDecoderRejectsV6BeforeRewrite(t *testing.T) {
 	body, err := EncodeUploadMarker(validDocumentMarker())
 	if err != nil {
 		t.Fatal(err)
@@ -251,17 +296,17 @@ func TestV4CompatibleDecoderRejectsV5BeforeRewrite(t *testing.T) {
 	if err := json.Unmarshal(body, &header); err != nil {
 		t.Fatal(err)
 	}
-	if header.Version <= 4 {
-		t.Fatalf("fixture version = %d, want newer than v4", header.Version)
+	if header.Version <= 5 {
+		t.Fatalf("fixture version = %d, want newer than v5", header.Version)
 	}
-	decodeV4 := func(version int) error {
-		if version < 1 || version > 4 {
+	decodeV5 := func(version int) error {
+		if version < 1 || version > 5 {
 			return errors.New("unsupported marker version")
 		}
 		return nil
 	}
-	if err := decodeV4(header.Version); err == nil {
-		t.Fatal("v4-compatible decoder accepted v5")
+	if err := decodeV5(header.Version); err == nil {
+		t.Fatal("v5-compatible decoder accepted v6")
 	}
 }
 
@@ -288,11 +333,11 @@ func TestMarkerFilenameForKind(t *testing.T) {
 func TestDecodeUploadMarkerV3FilenameMustMatchKind(t *testing.T) {
 	t.Parallel()
 
-	document, err := EncodeUploadMarker(validDocumentMarker())
+	document, err := EncodeUploadMarker(validDocumentMarkerV3())
 	if err != nil {
 		t.Fatal(err)
 	}
-	collection, err := EncodeUploadMarker(validCollectionMarker())
+	collection, err := EncodeUploadMarker(validCollectionMarkerV3())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +389,7 @@ func TestDecodeUploadMarkerValidation(t *testing.T) {
 		},
 		{
 			name: "unsupported version",
-			body: strings.Replace(valid, `"version":1`, `"version":6`, 1),
+			body: strings.Replace(valid, `"version":1`, `"version":7`, 1),
 			dir:  markerTestDir, code: MarkerErrorUnsupportedVersion,
 		},
 		{
@@ -452,7 +497,7 @@ func TestUploadMarkerV3DocumentValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			marker := validDocumentMarker()
+			marker := validDocumentMarkerV3()
 			tt.mutate(&marker)
 			_, err := EncodeUploadMarker(marker)
 			assertMarkerCode(t, err, MarkerErrorInvalidFields)
@@ -481,20 +526,20 @@ func TestUploadMarkerV3CollectionValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			marker := validCollectionMarker()
+			marker := validCollectionMarkerV3()
 			tt.mutate(&marker)
 			_, err := EncodeUploadMarker(marker)
 			assertMarkerCode(t, err, MarkerErrorInvalidFields)
 		})
 	}
 
-	zeroByte := validCollectionMarker()
+	zeroByte := validCollectionMarkerV3()
 	zeroByte.Objects[1].Bytes = 0
 	if _, err := EncodeUploadMarker(zeroByte); err != nil {
 		t.Fatalf("zero-byte collection file: %v", err)
 	}
 
-	tooMany := validCollectionMarker()
+	tooMany := validCollectionMarkerV3()
 	tooMany.Objects = tooMany.Objects[:1]
 	for i := 0; i < MaxCollectionFiles+1; i++ {
 		tooMany.Objects = append(tooMany.Objects, MarkerObject{
@@ -528,9 +573,6 @@ func TestUploadMarkerV3ObjectValidation(t *testing.T) {
 		{"protection sentinel collision", func(o *MarkerObject) {
 			o.Name = ProtectedFilename
 		}},
-		{"reserved control prefix", func(o *MarkerObject) {
-			o.Name = ".airplan-user-document.txt"
-		}},
 		{"unknown role", func(o *MarkerObject) { o.Role = "thumbnail" }},
 		{"missing content type", func(o *MarkerObject) { o.ContentType = "" }},
 		{"unnormalized content type", func(o *MarkerObject) {
@@ -540,33 +582,43 @@ func TestUploadMarkerV3ObjectValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			marker := validCollectionMarker()
+			marker := validCollectionMarkerV3()
 			tt.mutate(&marker.Objects[1])
 			_, err := EncodeUploadMarker(marker)
 			assertMarkerCode(t, err, MarkerErrorInvalidFields)
 		})
 	}
 
-	duplicate := validCollectionMarker()
+	duplicate := validCollectionMarkerV3()
 	duplicate.Objects = append(duplicate.Objects, duplicate.Objects[1])
 	_, err := EncodeUploadMarker(duplicate)
 	assertMarkerCode(t, err, MarkerErrorInvalidFields)
 
-	zeroPage := validCollectionMarker()
+	zeroPage := validCollectionMarkerV3()
 	zeroPage.Objects[0].Bytes = 0
 	_, err = EncodeUploadMarker(zeroPage)
 	assertMarkerCode(t, err, MarkerErrorInvalidFields)
 
-	wrongPageType := validCollectionMarker()
+	wrongPageType := validCollectionMarkerV3()
 	wrongPageType.Objects[0].ContentType = "text/plain; charset=utf-8"
 	_, err = EncodeUploadMarker(wrongPageType)
+	assertMarkerCode(t, err, MarkerErrorInvalidFields)
+}
+
+func TestUploadMarkerV4ReservesControlPrefix(t *testing.T) {
+	t.Parallel()
+
+	marker := validDocumentMarkerV5()
+	marker.Version = 4
+	marker.Objects[1].Name = ".airplan-user-document.txt"
+	_, err := EncodeUploadMarker(marker)
 	assertMarkerCode(t, err, MarkerErrorInvalidFields)
 }
 
 func TestDecodeUploadMarkerV3StrictFields(t *testing.T) {
 	t.Parallel()
 
-	body, err := EncodeUploadMarker(validDocumentMarker())
+	body, err := EncodeUploadMarker(validDocumentMarkerV3())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -699,6 +751,183 @@ func TestDecodeLegacyMarkerRequiresDocumentFilename(t *testing.T) {
 	assertMarkerCode(t, err, MarkerErrorInvalidFields)
 }
 
+func TestUploadMarkerV6NestedBundleRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	marker := validBundleMarkerV6()
+	body, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := DecodeUploadMarker(body, markerTestDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := marker
+	want.Page = marker.Entrypoint
+	want.PageBytes = marker.Objects[0].Bytes
+	want.PageSHA256 = marker.Objects[0].SHA256
+	want.Source = marker.Pages[0].Source
+	if !reflect.DeepEqual(*got, want) {
+		t.Fatalf("marker = %+v, want %+v", *got, want)
+	}
+	if got.Pages[1].Lang != "python" {
+		t.Fatalf("text-page language = %q, want explicit python", got.Pages[1].Lang)
+	}
+}
+
+func TestUploadMarkerV6TextDocumentPageRules(t *testing.T) {
+	t.Parallel()
+
+	marker := validDocumentMarker()
+	marker.Slug = "notes"
+	marker.Format = "txt"
+	marker.Entrypoint = "notes.html"
+	marker.Pages = []MarkerPage{{
+		Path: "notes.txt", Page: "notes.html", Source: "notes.txt",
+		Format: "txt", Title: "Notes", Lang: "text",
+	}}
+	marker.Objects = []MarkerObject{
+		{Name: "notes.html", Role: MarkerRolePage, Bytes: 20, ContentType: pageContentType, SHA256: strings.Repeat("a", 64)},
+		{Name: "notes.txt", Role: MarkerRoleSource, Bytes: 5, ContentType: textContentType, SHA256: strings.Repeat("b", 64)},
+		{Name: "evidence.bin", Role: MarkerRoleAsset, Bytes: 3, ContentType: "application/octet-stream", SHA256: strings.Repeat("c", 64)},
+	}
+	if _, err := EncodeUploadMarker(marker); err != nil {
+		t.Fatalf("single-entry text marker with asset rejected: %v", err)
+	}
+
+	marker.Pages = append(marker.Pages, MarkerPage{
+		Path: "details.md", Page: "details.html", Source: "details.md",
+		Format: "md", Title: "Details", Lang: "",
+	})
+	marker.Objects = append(marker.Objects,
+		MarkerObject{Name: "details.html", Role: MarkerRolePage, Bytes: 20, ContentType: pageContentType, SHA256: strings.Repeat("d", 64)},
+		MarkerObject{Name: "details.md", Role: MarkerRoleSource, Bytes: 5, ContentType: sourceContentType, SHA256: strings.Repeat("e", 64)},
+	)
+	_, err := EncodeUploadMarker(marker)
+	if err == nil || !strings.Contains(err.Error(), "text documents must contain exactly one managed page") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestUploadMarkerV6ValidatesNestedPaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		mutate func(*UploadMarker)
+	}{
+		{"traversal", func(m *UploadMarker) { m.Objects[4].Name = "images/../flow.svg" }},
+		{"empty segment", func(m *UploadMarker) { m.Objects[4].Name = "images//flow.svg" }},
+		{"backslash", func(m *UploadMarker) { m.Objects[4].Name = `images\flow.svg` }},
+		{"reserved nested segment", func(m *UploadMarker) {
+			m.Objects[4].Name = "images/.airplan-private/flow.svg"
+		}},
+		{"case-folded object collision", func(m *UploadMarker) {
+			m.Objects = append(m.Objects, MarkerObject{
+				Name: "IMAGES/FLOW.SVG", Role: MarkerRoleAsset, Bytes: 1,
+				ContentType: "image/svg+xml", SHA256: strings.Repeat("f", 64),
+			})
+		}},
+		{"case-folded page path collision", func(m *UploadMarker) {
+			m.Pages[0].Path = "EXAMPLES/SERVER.GO"
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			marker := validBundleMarkerV6()
+			test.mutate(&marker)
+			_, err := EncodeUploadMarker(marker)
+			assertMarkerCode(t, err, MarkerErrorInvalidFields)
+		})
+	}
+}
+
+func TestUploadMarkerV6RequiresEveryPayloadDigest(t *testing.T) {
+	t.Parallel()
+
+	fixtures := []struct {
+		name   string
+		marker UploadMarker
+	}{
+		{"document bundle", validBundleMarkerV6()},
+		{"collection", validCollectionMarker()},
+		{"revision", validRevisionMarkerV6()},
+	}
+	for _, fixture := range fixtures {
+		fixture := fixture
+		t.Run(fixture.name, func(t *testing.T) {
+			for index, object := range fixture.marker.Objects {
+				index, object := index, object
+				t.Run(object.Name, func(t *testing.T) {
+					marker := fixture.marker
+					marker.Objects = append([]MarkerObject(nil), marker.Objects...)
+					marker.Objects[index].SHA256 = ""
+					_, err := EncodeUploadMarker(marker)
+					assertMarkerCode(t, err, MarkerErrorInvalidFields)
+					if !strings.Contains(err.Error(), object.Name) {
+						t.Fatalf("error = %v, want object name %q", err, object.Name)
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestUploadMarkerVersionsBeforeV6RejectBundleFields(t *testing.T) {
+	t.Parallel()
+
+	for _, version := range []int{3, 4, 5} {
+		t.Run(fmt.Sprintf("v%d", version), func(t *testing.T) {
+			marker := validDocumentMarkerV5()
+			marker.Version = version
+			marker.Entrypoint = "launch-plan.html"
+			marker.Pages = []MarkerPage{{
+				Path: "README.md", Page: "launch-plan.html",
+				Source: "launch-plan.md", Format: "md", Lang: "",
+			}}
+			_, err := EncodeUploadMarker(marker)
+			assertMarkerCode(t, err, MarkerErrorInvalidFields)
+		})
+	}
+}
+
+func TestUploadMarkerV6MaximumEncodedSize(t *testing.T) {
+	t.Parallel()
+
+	marker := validDocumentMarker()
+	marker.Title = ""
+	for index := 0; index < MaxDocumentItems-1; index++ {
+		marker.Objects = append(marker.Objects, MarkerObject{
+			Name: fmt.Sprintf("artifacts/group-%02d/evidence-%02d.bin", index, index),
+			Role: MarkerRoleAsset, Bytes: int64(index),
+			ContentType: "application/octet-stream", SHA256: strings.Repeat("d", 64),
+		})
+	}
+	base, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const titleFieldOverhead = len(`,"title":""`)
+	marker.Title = strings.Repeat("x", MaxMarkerSize-len(base)-titleFieldOverhead)
+	exact, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(exact) != MaxMarkerSize {
+		t.Fatalf("encoded marker size = %d, want %d", len(exact), MaxMarkerSize)
+	}
+	if _, err := DecodeUploadMarker(exact, markerTestDir); err != nil {
+		t.Fatalf("decode marker at size limit: %v", err)
+	}
+
+	marker.Title += "x"
+	_, err = EncodeUploadMarker(marker)
+	assertMarkerCode(t, err, MarkerErrorOversized)
+	_, err = DecodeUploadMarker(append(exact, ' '), markerTestDir)
+	assertMarkerCode(t, err, MarkerErrorOversized)
+}
+
 func TestUploadMarkerRepositoryValidation(t *testing.T) {
 	t.Parallel()
 
@@ -723,8 +952,20 @@ func TestEncodeUploadMarkerOversized(t *testing.T) {
 }
 
 func validDocumentMarker() UploadMarker {
+	marker := validDocumentMarkerV5()
+	marker.Version = MarkerVersion
+	marker.Entrypoint = "launch-plan.html"
+	marker.Pages = []MarkerPage{{
+		Path: "README.md", Page: "launch-plan.html", Source: "launch-plan.md",
+		Format: "md", Title: "Launch plan", Lang: "",
+	}}
+	marker.Objects[1].SHA256 = strings.Repeat("b", 64)
+	return marker
+}
+
+func validDocumentMarkerV5() UploadMarker {
 	return UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion,
+		Schema: MarkerSchema, Version: 5,
 		Directory: markerTestDir, CreatedAt: markerTestTime,
 		Kind: UploadKindDocument, Slug: "launch-plan", Format: "md",
 		Objects: []MarkerObject{
@@ -743,9 +984,63 @@ func validDocumentMarker() UploadMarker {
 	}
 }
 
+func validDocumentMarkerV3() UploadMarker {
+	marker := validDocumentMarkerV5()
+	marker.Version = 3
+	marker.Producer = Producer{}
+	marker.Render = nil
+	marker.Objects[0].SHA256 = ""
+	return marker
+}
+
+func validBundleMarkerV6() UploadMarker {
+	marker := validDocumentMarker()
+	marker.Pages = append(marker.Pages, MarkerPage{
+		Path: "examples/server.go", Page: "examples/server.go.html",
+		Source: "examples/server.go", Format: "txt", Title: "server.go",
+		Lang: "python",
+	})
+	marker.Objects = append(marker.Objects,
+		MarkerObject{
+			Name: "examples/server.go.html", Role: MarkerRolePage, Bytes: 850,
+			ContentType: pageContentType, SHA256: strings.Repeat("c", 64),
+		},
+		MarkerObject{
+			Name: "examples/server.go", Role: MarkerRoleSource, Bytes: 120,
+			ContentType: "text/plain; charset=utf-8", SHA256: strings.Repeat("d", 64),
+		},
+		MarkerObject{
+			Name: "images/flow.svg", Role: MarkerRoleAsset, Bytes: 456,
+			ContentType: "image/svg+xml", SHA256: strings.Repeat("e", 64),
+		},
+	)
+	return marker
+}
+
+func validRevisionMarkerV6() UploadMarker {
+	marker := validBundleMarkerV6()
+	marker.Revision = &RevisionDescriptor{
+		ChainID: strings.Repeat("r", 26), Number: 2,
+		PreviousURL: "https://plans.example.test/" +
+			strings.Repeat("p", 26) + "/launch-plan.html",
+	}
+	marker.Objects = append(marker.Objects, MarkerObject{
+		Name: DiffFilename, Role: MarkerRoleDiff, Bytes: 80,
+		ContentType: diffContentType, SHA256: strings.Repeat("f", 64),
+	})
+	return marker
+}
+
 func validCollectionMarker() UploadMarker {
+	marker := validCollectionMarkerV5()
+	marker.Version = MarkerVersion
+	marker.Objects[1].SHA256 = strings.Repeat("c", 64)
+	return marker
+}
+
+func validCollectionMarkerV5() UploadMarker {
 	return UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion,
+		Schema: MarkerSchema, Version: 5,
 		Directory: markerTestDir, CreatedAt: markerTestTime,
 		Kind: UploadKindCollection,
 		Objects: []MarkerObject{
@@ -762,6 +1057,15 @@ func validCollectionMarker() UploadMarker {
 		Producer: Producer{Name: "airplan", Version: "dev"},
 		Render:   collectionRenderRecipe(&Config{}, ""),
 	}
+}
+
+func validCollectionMarkerV3() UploadMarker {
+	marker := validCollectionMarkerV5()
+	marker.Version = 3
+	marker.Producer = Producer{}
+	marker.Render = nil
+	marker.Objects[0].SHA256 = ""
+	return marker
 }
 
 func assertMarkerCode(t *testing.T, err error, want MarkerErrorCode) {

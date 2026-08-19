@@ -18,6 +18,12 @@ html {
   scroll-behavior: smooth;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition {
+    navigation: auto;
+  }
+}
+
 .page-shell {
   display: grid;
   grid-template-columns: minmax(12rem, 1fr) minmax(0, var(--page-width)) minmax(12rem, 1fr);
@@ -44,7 +50,14 @@ html {
   font-size: 0.85rem;
 }
 
-.toc-title {
+.bundle-page .toc {
+  grid-column: 3;
+  justify-self: start;
+  margin-right: 0;
+  margin-left: 1.25rem;
+}
+
+.rail-title {
   margin: 0 0 0.75rem;
   color: var(--muted);
   font-family:
@@ -53,6 +66,77 @@ html {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.pages-nav {
+  grid-column: 1;
+  grid-row: 2;
+  position: sticky;
+  top: 1.5rem;
+  align-self: start;
+  justify-self: end;
+  width: min(var(--toc-width), calc(100% - 2rem));
+  max-height: calc(100vh - 3rem);
+  margin: 1.5rem 1.25rem 0 0;
+  overflow-y: auto;
+  font-size: 0.85rem;
+}
+
+.pages-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pages-list li + li {
+  margin-top: 0.2rem;
+}
+
+.pages-list a {
+  position: relative;
+  display: grid;
+  gap: 0.1rem;
+  padding: 0.45rem 0.5rem 0.45rem 0.75rem;
+  color: var(--muted);
+  border-left: 3px solid transparent;
+  border-radius: 0 6px 6px 0;
+  line-height: 1.35;
+  text-decoration: none;
+}
+
+.pages-list a:hover,
+.pages-list a:focus-visible {
+  color: var(--fg);
+  background: var(--control-hover);
+}
+
+.pages-list a:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 2px;
+}
+
+.pages-list a[aria-current="page"] {
+  color: var(--fg);
+  background: var(--surface-subtle);
+  border-left-color: var(--link);
+}
+
+.page-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.page-path {
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.toolbar .pages-trigger {
+  display: none;
 }
 
 .toc-list {
@@ -226,6 +310,91 @@ body.toc-dialog-open {
   overflow: hidden;
 }
 
+.pages-dialog {
+  position: fixed;
+  inset: auto 0 0;
+  width: min(100%, 42rem);
+  max-width: none;
+  max-height: 70vh;
+  max-height: 70svh;
+  margin: 0 auto;
+  padding: 0;
+  color: var(--fg);
+  background: var(--bg);
+  border: 0;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.pages-dialog::backdrop {
+  background: var(--dialog-backdrop);
+}
+
+.pages-dialog-panel {
+  display: flex;
+  flex-direction: column;
+  max-height: inherit;
+}
+
+.pages-dialog-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.25rem 0.75rem;
+}
+
+.pages-dialog-title {
+  margin: 0;
+  color: var(--muted);
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pages-dialog-close {
+  display: inline-flex;
+  width: 2.25rem;
+  height: 2.25rem;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.pages-dialog-close:hover {
+  color: var(--fg);
+  background: var(--control-hover);
+}
+
+.pages-dialog-close:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 3px;
+}
+
+.pages-dialog-nav {
+  min-height: 0;
+  padding: 0.25rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.pages-dialog .pages-list a {
+  padding-block: 0.65rem;
+}
+
+body.pages-dialog-open {
+  overflow: hidden;
+}
+
 .icon-check,
 .icon-x {
   display: none;
@@ -385,6 +554,63 @@ body.toc-dialog-open {
 .content > blockquote,
 .content > .footnotes {
   max-width: var(--prose-width);
+}
+
+.page-sequence {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 3rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.page-sequence-link {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  max-width: 48%;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.page-sequence-link:hover .page-sequence-title,
+.page-sequence-link:focus-visible .page-sequence-title {
+  color: var(--link);
+  text-decoration: underline;
+}
+
+.page-sequence-link:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 4px;
+}
+
+.page-sequence-next {
+  margin-left: auto;
+  text-align: right;
+}
+
+.page-sequence-direction {
+  color: var(--muted);
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.page-sequence-previous .page-sequence-direction::before {
+  content: "\2190\00a0";
+}
+
+.page-sequence-next .page-sequence-direction::after {
+  content: "\00a0\2192";
+}
+
+.page-sequence-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 h1,
@@ -945,6 +1171,7 @@ mark {
   }
 
   .toolbar,
+  .pages-nav,
   .toc,
   .content {
     width: 100%;
@@ -957,6 +1184,21 @@ mark {
     max-height: none;
     padding: 1.25rem 1.5rem 0;
     overflow: visible;
+  }
+
+  .pages-nav {
+    position: static;
+    max-height: none;
+    padding: 1.25rem 1.5rem 0;
+    overflow: visible;
+  }
+
+  body.pages-dialog-ready .bundle-page .pages-nav {
+    display: none;
+  }
+
+  .bundle-page .toolbar .pages-trigger {
+    display: inline-flex;
   }
 
   .toc-trigger {
@@ -1004,6 +1246,27 @@ mark {
     grid-row: 1;
   }
 
+  .bundle-page .toolbar .pages-trigger {
+    grid-column: 1;
+    grid-row: 1;
+    justify-self: start;
+  }
+
+  .bundle-page .toolbar .viewtoggle {
+    grid-column: 1 / 3;
+    grid-row: 2;
+  }
+
+  .bundle-page .toolbar .file-actions {
+    grid-row: 3;
+  }
+
+  .bundle-page .toolbar:not(:has(.viewtoggle)) .file-actions {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+
+  .pages-nav,
   .toc,
   .content {
     padding-inline: 1.25rem;
@@ -1041,6 +1304,10 @@ mark {
 }
 
 @media print {
+  .pages-nav,
+  .pages-trigger,
+  .pages-dialog,
+  .page-sequence,
   .toc,
   .toc-trigger,
   .toc-dialog,

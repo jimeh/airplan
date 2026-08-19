@@ -8,14 +8,37 @@ import (
 // DocumentUpload carries the streaming document request to the operation
 // adapter. The Reader is valid only for the duration of UploadDocument.
 type DocumentUpload struct {
-	Metadata DocumentMetadata
-	Document io.Reader
+	Metadata     DocumentMetadata
+	Document     io.Reader
+	DocumentSize int64
+	Pages        []DocumentPage
+	Assets       []DocumentAsset
 }
 
-type UpdateDocumentUpload struct {
-	Metadata UpdateDocumentMetadata
-	Document io.Reader
+// DocumentPage is one managed page bound to its ordered metadata descriptor.
+type DocumentPage struct {
+	DocumentPageDescriptor
+	Reader io.Reader
+	Size   int64
 }
+
+// DocumentAsset is one exact-size, seekable asset bound to its descriptor.
+type DocumentAsset struct {
+	DocumentAssetDescriptor
+	Reader io.ReadSeeker
+	Start  int64
+}
+
+type CreateDocumentRevisionUpload struct {
+	Metadata     CreateDocumentRevisionMetadata
+	Document     io.Reader
+	DocumentSize int64
+	Pages        []DocumentPage
+	Assets       []DocumentAsset
+}
+
+// UpdateDocumentUpload is the compatibility name for revision multipart data.
+type UpdateDocumentUpload = CreateDocumentRevisionUpload
 
 // CollectionFile is one mode-0600 spooled collection member.
 type CollectionFile struct {
@@ -46,7 +69,7 @@ type Download struct {
 type Operations interface {
 	Capabilities(context.Context) (Capabilities, error)
 	UploadDocument(context.Context, DocumentUpload) (UploadResult, error)
-	UpdateDocument(context.Context, UpdateDocumentUpload) (UpdateDocumentResult, error)
+	CreateDocumentRevision(context.Context, CreateDocumentRevisionUpload) (DocumentRevisionResult, error)
 	UploadCollection(context.Context, CollectionUpload) (UploadResult, error)
 	PlanDocumentUpgrade(context.Context, UpgradePlanRequest) (UpgradeDocumentPlan, error)
 	ExecuteDocumentUpgrade(context.Context, UpgradeDocumentPlan) (UpgradeDocumentResult, error)

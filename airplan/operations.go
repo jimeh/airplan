@@ -15,8 +15,10 @@ import (
 // supplies this transport and never constructs storage locally.
 type operationTransport interface {
 	Upload(context.Context, Input) (*Result, error)
+	UploadDocument(context.Context, DocumentInput) (*DocumentResult, error)
 	UploadFiles(context.Context, FilesInput) (*FilesResult, error)
 	UpdateDocument(context.Context, UpdateDocumentInput) (*UpdateDocumentResult, error)
+	CreateDocumentRevision(context.Context, CreateDocumentRevisionInput) (*DocumentRevisionResult, error)
 	PlanUpgradeDocument(context.Context, string, UpgradeDocumentOptions) (*UpgradeDocumentPlan, error)
 	UpgradeDocument(context.Context, UpgradeDocumentPlan) (*UpgradeDocumentResult, error)
 	PlanBulkUpgrade(context.Context, BulkUpgradeOptions) (*BulkUpgradePlan, error)

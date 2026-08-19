@@ -121,6 +121,13 @@ type TemplateData struct {
 	DiffPath            string
 	DiffText            string
 	HighlightedDiffHTML template.HTML
+
+	// Pages, CurrentPage, Entrypoint, and Assets describe a complete document
+	// bundle. They are empty for legacy single-page rendering.
+	Pages       []DocumentTemplatePage
+	CurrentPage DocumentTemplatePage
+	Entrypoint  string
+	Assets      []DocumentTemplateAsset
 }
 
 // LoadTemplate parses a custom page template from path. The template

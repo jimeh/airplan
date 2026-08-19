@@ -319,7 +319,7 @@ func TestVersionsMetadataMonotonicProgression(t *testing.T) {
 func TestMarkerV4RevisionDiffRole(t *testing.T) {
 	dir := strings.Repeat("a", 26)
 	marker := UploadMarker{
-		Schema: MarkerSchema, Version: MarkerVersion,
+		Schema: MarkerSchema, Version: 4,
 		Directory: dir, CreatedAt: time.Now().UTC().Truncate(time.Second),
 		Kind: UploadKindDocument, Slug: "plan", Format: "md",
 		Producer: Producer{Name: "airplan", Version: "dev"},
@@ -363,7 +363,7 @@ func TestMarkerV4RevisionPreviousURLMustBeAbsoluteHTTPHTML(t *testing.T) {
 		"https://plans.example.com/plan.html#changes",
 		"https://user:pass@plans.example.com/plan.html",
 	} {
-		marker := validDocumentMarker()
+		marker := validDocumentMarkerV5()
 		marker.Revision = &RevisionDescriptor{
 			ChainID: strings.Repeat("b", 26), Number: 2, PreviousURL: previous,
 		}
@@ -375,7 +375,7 @@ func TestMarkerV4RevisionPreviousURLMustBeAbsoluteHTTPHTML(t *testing.T) {
 			t.Fatalf("invalid previous URL %q was accepted", previous)
 		}
 	}
-	marker := validDocumentMarker()
+	marker := validDocumentMarkerV5()
 	marker.Revision = &RevisionDescriptor{
 		ChainID: strings.Repeat("b", 26), Number: 2,
 		PreviousURL: "http://plans.example.com/plan.html",

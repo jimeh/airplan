@@ -1,46 +1,46 @@
 (() => {
-  function BE(E) {
+  function $E(E) {
     return E === "system" || E === "light" || E === "dark";
   }
-  function i(E, A) {
+  function EE(E, M) {
     try {
-      return E?.getItem(A) ?? null;
+      return E?.getItem(M) ?? null;
     } catch {
       return null;
     }
   }
-  function L(E, A, I) {
+  function N(E, M, I) {
     try {
       if (I === null)
-        E?.removeItem(A);
+        E?.removeItem(M);
       else
-        E?.setItem(A, I);
+        E?.setItem(M, I);
     } catch {}
   }
-  function _E(E, A, I) {
-    let H = i(I, "airplan-color-mode");
-    if (H === null) {
-      let j = i(I, "airplan-theme");
-      if (H = j === "light" || j === "dark" ? j : "system", H !== "system")
-        L(I, "airplan-color-mode", H);
+  function OE(E, M, I) {
+    let K = EE(I, "airplan-color-mode");
+    if (K === null) {
+      let j = EE(I, "airplan-theme");
+      if (K = j === "light" || j === "dark" ? j : "system", K !== "system")
+        N(I, "airplan-color-mode", K);
     }
-    let V = BE(H) ? H : "system", Y = new Set(E.themes.map((j) => j.id)), f = i(I, "airplan-light-theme"), J = i(I, "airplan-dark-theme"), O = f !== null && Y.has(f) ? f : E.defaultLight, K = J !== null && Y.has(J) ? J : E.defaultDark;
-    return a(E, V, O, K, A);
+    let w = $E(K) ? K : "system", $ = new Set(E.themes.map((j) => j.id)), A = EE(I, "airplan-light-theme"), Q = EE(I, "airplan-dark-theme"), O = A !== null && $.has(A) ? A : E.defaultLight, Y = Q !== null && $.has(Q) ? Q : E.defaultDark;
+    return fE(E, w, O, Y, M);
   }
-  function a(E, A, I, H, V) {
-    let Y = new Map(E.themes.map((x) => [x.id, x])), f = Y.has(I) ? I : E.defaultLight, J = Y.has(H) ? H : E.defaultDark, O = A === "system" ? V ? "dark" : "light" : A, K = O === "light" ? f : J, j = Y.get(K)?.variant ?? O;
-    return { mode: A, resolvedMode: O, lightTheme: f, darkTheme: J, theme: K, variant: j };
+  function fE(E, M, I, K, w) {
+    let $ = new Map(E.themes.map((R) => [R.id, R])), A = $.has(I) ? I : E.defaultLight, Q = $.has(K) ? K : E.defaultDark, O = M === "system" ? w ? "dark" : "light" : M, Y = O === "light" ? A : Q, j = $.get(Y)?.variant ?? O;
+    return { mode: M, resolvedMode: O, lightTheme: A, darkTheme: Q, theme: Y, variant: j };
   }
-  function hE(E, A) {
-    if (A === "system")
-      L(E, "airplan-color-mode", null), L(E, "airplan-theme", null);
+  function jE(E, M) {
+    if (M === "system")
+      N(E, "airplan-color-mode", null), N(E, "airplan-theme", null);
     else
-      L(E, "airplan-color-mode", A), L(E, "airplan-theme", A);
+      N(E, "airplan-color-mode", M), N(E, "airplan-theme", M);
   }
-  function uE(E, A, I) {
-    L(E, A === "light" ? "airplan-light-theme" : "airplan-dark-theme", I);
+  function zE(E, M, I) {
+    N(E, M === "light" ? "airplan-light-theme" : "airplan-dark-theme", I);
   }
-  function fE(E) {
+  function JE(E) {
     return {
       mode: E.mode,
       resolvedMode: E.resolvedMode,
@@ -50,98 +50,98 @@
   }
 
   (function() {
-    let E = document, A = E.documentElement;
-    E.querySelectorAll(".js-only").forEach((h) => {
-      h.hidden = !1;
+    let E = document, M = E.documentElement;
+    E.querySelectorAll(".js-only").forEach((u) => {
+      u.hidden = !1;
     });
     let I = window.__AIRPLAN_THEME_CATALOG__;
     if (!I)
       return;
-    let H = I, V = window.matchMedia("(prefers-color-scheme: dark)"), Y;
+    let K = I, w = window.matchMedia("(prefers-color-scheme: dark)"), $;
     try {
-      Y = window.localStorage;
+      $ = window.localStorage;
     } catch {}
-    let f = window.__airplanThemeState ?? _E(H, V.matches, Y), J = E.querySelector("[data-airplan-appearance-trigger]"), O = E.querySelector("[data-airplan-appearance-panel]"), K = E.querySelector('select[data-airplan-theme-slot="light"]'), j = E.querySelector('select[data-airplan-theme-slot="dark"]'), x = Array.from(E.querySelectorAll("[data-airplan-color-mode]"));
-    function n(h) {
-      if (!h || h.options.length > 0)
+    let A = window.__airplanThemeState ?? OE(K, w.matches, $), Q = E.querySelector("[data-airplan-appearance-trigger]"), O = E.querySelector("[data-airplan-appearance-panel]"), Y = E.querySelector('select[data-airplan-theme-slot="light"]'), j = E.querySelector('select[data-airplan-theme-slot="dark"]'), R = Array.from(E.querySelectorAll("[data-airplan-color-mode]"));
+    function c(u) {
+      if (!u || u.options.length > 0)
         return;
-      for (let [M, W] of [
+      for (let [q, F] of [
         ["light", "Light themes"],
         ["dark", "Dark themes"]
       ]) {
-        let Z = E.createElement("optgroup");
-        Z.label = W;
-        for (let w of H.themes) {
-          if (w.variant !== M)
+        let W = E.createElement("optgroup");
+        W.label = F;
+        for (let X of K.themes) {
+          if (X.variant !== q)
             continue;
-          let X = E.createElement("option");
-          X.value = w.id, X.textContent = w.name, Z.append(X);
+          let z = E.createElement("option");
+          z.value = X.id, z.textContent = X.name, W.append(z);
         }
-        if (Z.children.length > 0)
-          h.append(Z);
+        if (W.children.length > 0)
+          u.append(W);
       }
     }
-    n(K), n(j);
-    function R(h, M = !0) {
-      if (f = h, window.__airplanThemeState = f, A.dataset.airplanMode = f.mode, A.dataset.airplanResolvedMode = f.resolvedMode, A.dataset.airplanTheme = f.theme, A.dataset.airplanThemeVariant = f.variant, x.forEach((W) => {
-        let Z = W.dataset.airplanColorMode === f.mode;
-        W.classList.toggle("active", Z), W.setAttribute("aria-pressed", String(Z));
-      }), K)
-        K.value = f.lightTheme;
+    c(Y), c(j);
+    function m(u, q = !0) {
+      if (A = u, window.__airplanThemeState = A, M.dataset.airplanMode = A.mode, M.dataset.airplanResolvedMode = A.resolvedMode, M.dataset.airplanTheme = A.theme, M.dataset.airplanThemeVariant = A.variant, R.forEach((F) => {
+        let W = F.dataset.airplanColorMode === A.mode;
+        F.classList.toggle("active", W), F.setAttribute("aria-pressed", String(W));
+      }), Y)
+        Y.value = A.lightTheme;
       if (j)
-        j.value = f.darkTheme;
-      if (M)
-        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: fE(f) }));
+        j.value = A.darkTheme;
+      if (q)
+        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: JE(A) }));
     }
-    function U(h = {}) {
-      R(a(H, h.mode ?? f.mode, h.lightTheme ?? f.lightTheme, h.darkTheme ?? f.darkTheme, V.matches));
+    function y(u = {}) {
+      m(fE(K, u.mode ?? A.mode, u.lightTheme ?? A.lightTheme, u.darkTheme ?? A.darkTheme, w.matches));
     }
-    function m(h, M = !1) {
-      if (!O || !J)
+    function P(u, q = !1) {
+      if (!O || !Q)
         return;
-      if (O.hidden = !h, J.setAttribute("aria-expanded", String(h)), h)
+      if (O.hidden = !u, Q.setAttribute("aria-expanded", String(u)), u)
         O.querySelector("button,select")?.focus();
-      else if (M)
-        J.focus();
+      else if (q)
+        Q.focus();
     }
-    J?.addEventListener("click", () => m(Boolean(O?.hidden ?? !0))), x.forEach((h) => h.addEventListener("click", () => {
-      let M = h.dataset.airplanColorMode;
-      if (!M)
+    Q?.addEventListener("click", () => P(Boolean(O?.hidden ?? !0))), R.forEach((u) => u.addEventListener("click", () => {
+      let q = u.dataset.airplanColorMode;
+      if (!q)
         return;
-      hE(Y, M), U({ mode: M });
+      jE($, q), y({ mode: q });
     }));
-    function b(h, M) {
-      uE(Y, h, M.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: M.value } })), U(h === "light" ? { lightTheme: M.value } : { darkTheme: M.value });
+    function l(u, q) {
+      zE($, u, q.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: q.value } })), y(u === "light" ? { lightTheme: q.value } : { darkTheme: q.value });
     }
-    K?.addEventListener("change", () => b("light", K)), j?.addEventListener("change", () => b("dark", j)), V.addEventListener("change", () => {
-      if (f.mode === "system")
-        U();
-    }), E.addEventListener("keydown", (h) => {
-      if (h.key === "Escape" && O && !O.hidden)
-        h.preventDefault(), m(!1, !0);
-    }), E.addEventListener("pointerdown", (h) => {
-      if (!O || O.hidden || !J)
+    Y?.addEventListener("change", () => l("light", Y)), j?.addEventListener("change", () => l("dark", j)), w.addEventListener("change", () => {
+      if (A.mode === "system")
+        y();
+    }), E.addEventListener("keydown", (u) => {
+      if (u.key === "Escape" && O && !O.hidden)
+        u.preventDefault(), P(!1, !0);
+    }), E.addEventListener("pointerdown", (u) => {
+      if (!O || O.hidden || !Q)
         return;
-      let M = h.target;
-      if (!(M instanceof Node) || O.contains(M) || J.contains(M))
+      let q = u.target;
+      if (!(q instanceof Node) || O.contains(q) || Q.contains(q))
         return;
-      let Z = (M instanceof Element ? M : M.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), w = O.contains(E.activeElement) && !Z;
-      if (m(!1), w)
+      let W = (q instanceof Element ? q : q.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), X = O.contains(E.activeElement) && !W;
+      if (P(!1), X)
         setTimeout(() => {
           if (E.activeElement === E.body || O.contains(E.activeElement))
-            J.focus();
+            Q.focus();
         });
-    }), R(f, !1);
+    }), m(A, !1);
   })();
 
   (function() {
     var E = document;
-    let A = E.getElementById("rendered");
-    if (!A)
+    let M = E.getElementById("rendered");
+    if (!M)
       return;
-    let I = A;
-    var H = E.querySelector('meta[name="airplan-versions"]'), V = window.location.pathname.split("/").filter(Boolean), Y = V.slice(0, -2);
-    function f(S, B) {
+    let I = M;
+    var K = E.querySelector('meta[name="airplan-versions"]'), w = window.location.pathname.split("/").filter(Boolean), $ = w.slice(0, -2);
+    function A(S, h) {
       if (typeof S !== "string")
         return null;
       try {
@@ -149,73 +149,73 @@
         if (_.origin !== window.location.origin || _.username || _.password || _.search || _.hash)
           return null;
         var G = _.pathname.split("/").filter(Boolean);
-        if (G.length !== Y.length + 2 || !Y.every(function($, c) {
-          return G[c] === $;
+        if (G.length !== $.length + 2 || !$.every(function(V, a) {
+          return G[a] === V;
         }) || !/^[a-z2-7]{26}$/.test(G[G.length - 2]))
           return null;
-        var Q = G[G.length - 1];
-        if (B ? Q !== ".airplan-changes.diff" : !Q.endsWith(".html"))
+        var Z = G[G.length - 1];
+        if (h ? Z !== ".airplan-changes.diff" : !Z.endsWith(".html"))
           return null;
         return _.href;
       } catch {
         return null;
       }
     }
-    function J(S) {
-      var B = E.querySelector('meta[name="airplan-revision"]'), _ = B ? Number(B.content) : Number(S.current_revision);
+    function Q(S) {
+      var h = E.querySelector('meta[name="airplan-revision"]'), _ = h ? Number(h.content) : Number(S.current_revision);
       if (!Number.isInteger(_) || _ <= 0 || S.current_revision !== _ || !Number.isInteger(S.latest_revision) || !Number.isInteger(S.last_assigned_revision) || !Array.isArray(S.revisions) || S.revisions.length === 0 || S.last_assigned_revision !== S.revisions.length || !/^[a-z2-7]{26}$/.test(S.chain_id))
         throw Error("revision identity is invalid");
-      var G = !1, Q = 0, $ = S.revisions.filter(function(u) {
-        if (!u || !Number.isInteger(u.number) || u.number !== Q + 1)
+      var G = !1, Z = 0, V = S.revisions.filter(function(f) {
+        if (!f || !Number.isInteger(f.number) || f.number !== Z + 1)
           return G = !0, !1;
-        if (Q = u.number, u.deleted)
+        if (Z = f.number, f.deleted)
           return !1;
-        if (u.safeURL = f(u.url, !1), !u.safeURL)
+        if (f.safeURL = A(f.url, !1), !f.safeURL)
           return G = !0, !1;
-        if (u.number > 1) {
-          var C = f(u.diff_url, !0);
-          if (!C || new URL(C).pathname.replace(/[^/]+$/, "") !== new URL(u.safeURL).pathname.replace(/[^/]+$/, ""))
+        if (f.number > 1) {
+          var H = A(f.diff_url, !0);
+          if (!H || new URL(H).pathname.replace(/[^/]+$/, "") !== new URL(f.safeURL).pathname.replace(/[^/]+$/, ""))
             return G = !0, !1;
         }
         return !0;
       });
-      if (G || S.revisions[0].number !== 1 || !$.some(function(u) {
-        return u.number === _;
+      if (G || S.revisions[0].number !== 1 || !V.some(function(f) {
+        return f.number === _;
       }))
         throw Error("revision entries are invalid");
-      var c = $.find(function(u) {
-        return u.number === _;
-      }), ME = window.location.origin + window.location.pathname;
-      if (!c || c.safeURL !== ME)
+      var a = V.find(function(f) {
+        return f.number === _;
+      }), YE = window.location.origin + window.location.pathname;
+      if (!a || a.safeURL !== YE)
         throw Error("current revision URL is invalid");
-      var k = Math.max.apply(null, $.map(function(u) {
-        return u.number;
+      var v = Math.max.apply(null, V.map(function(f) {
+        return f.number;
       }));
-      if (k !== S.latest_revision)
+      if (v !== S.latest_revision)
         throw Error("latest is invalid");
-      var F = E.querySelector("[data-revision-heading]");
-      if (!F) {
-        F = E.createElement("p"), F.className = "revision-heading", F.setAttribute("data-revision-heading", "");
-        var SE = E.getElementById("rendered");
-        if (!SE)
+      var x = E.querySelector("[data-revision-heading]");
+      if (!x) {
+        x = E.createElement("p"), x.className = "revision-heading", x.setAttribute("data-revision-heading", "");
+        var IE = E.getElementById("rendered");
+        if (!IE)
           throw Error("rendered view is unavailable");
-        SE.prepend(F);
+        IE.prepend(x);
       }
-      var o = _ < k, qE = o ? "Revision " + _ + " of " + k : "Revision " + _ + " (Latest)", d = E.createElement("span");
-      d.className = "revision-picker-label", d.textContent = qE, d.setAttribute("aria-hidden", "true");
-      var D = E.createElement("select");
-      D.setAttribute("aria-label", "Document revision"), $.forEach(function(u) {
-        var C = E.createElement("option");
-        C.value = u.safeURL || "", C.textContent = u.number === k ? "Revision " + u.number + " (Latest)" : "Revision " + u.number + " of " + k, C.selected = u.number === _, D.appendChild(C);
-      }), D.addEventListener("change", function() {
-        var u = D.selectedIndex;
-        if (u < 0 || u >= $.length)
+      var uE = _ < v, ZE = uE ? "Revision " + _ + " of " + v : "Revision " + _ + " (Latest)", e = E.createElement("span");
+      e.className = "revision-picker-label", e.textContent = ZE, e.setAttribute("aria-hidden", "true");
+      var p = E.createElement("select");
+      p.setAttribute("aria-label", "Document revision"), V.forEach(function(f) {
+        var H = E.createElement("option");
+        H.value = f.safeURL || "", H.textContent = f.number === v ? "Revision " + f.number + " (Latest)" : "Revision " + f.number + " of " + v, H.selected = f.number === _, p.appendChild(H);
+      }), p.addEventListener("change", function() {
+        var f = p.selectedIndex;
+        if (f < 0 || f >= V.length)
           return;
-        window.location.assign($[u].safeURL || "");
-      }), F.replaceChildren(d, D), F.classList.add("is-picker"), F.classList.toggle("is-stale", o), E.body.classList.toggle("airplan-stale-revision", o);
+        window.location.assign(V[f].safeURL || "");
+      }), x.replaceChildren(e, p), x.classList.add("is-picker"), x.classList.toggle("is-stale", uE), E.body.classList.toggle("airplan-stale-revision", uE);
     }
-    if (H) {
-      var O = new URL(H.content, window.location.href);
+    if (K) {
+      var O = new URL(K.content, window.location.href);
       O.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2)), fetch(O, { cache: "no-store", credentials: "same-origin" }).then(function(S) {
         if (S.status === 404)
           return null;
@@ -227,162 +227,204 @@
           return;
         if (!S || S.schema !== "airplan-versions" || S.version !== 1 || !Array.isArray(S.revisions) || S.revisions.length < 2)
           throw Error("metadata is invalid");
-        J(S), window.dispatchEvent(new CustomEvent("airplan:versions", {
+        Q(S), window.dispatchEvent(new CustomEvent("airplan:versions", {
           detail: S
         }));
       }).catch(function() {
         console.warn("airplan: revision metadata is unavailable or invalid");
       });
     }
-    var K = E.createElement("div");
-    K.className = "sr-status", K.setAttribute("aria-live", "polite"), E.body.appendChild(K);
+    var Y = E.createElement("div");
+    Y.className = "sr-status", Y.setAttribute("aria-live", "polite"), E.body.appendChild(Y);
     var j = null;
-    function x() {
+    function R() {
       if (j !== null)
         return;
       j = Array.from(E.querySelectorAll("details:not([open])")), j.forEach(function(S) {
         S.open = !0;
       });
     }
-    function n() {
+    function c() {
       if (j === null)
         return;
       j.forEach(function(S) {
         S.open = !1;
       }), j = null;
     }
-    window.addEventListener("beforeprint", x), window.addEventListener("afterprint", n);
-    function R(S, B, _) {
-      K.textContent = B;
-      var G = S.querySelector(".action-label"), Q = G ? G.textContent : "";
+    window.addEventListener("beforeprint", R), window.addEventListener("afterprint", c);
+    function m(S, h, _) {
+      Y.textContent = h;
+      var G = S.querySelector(".action-label"), Z = G ? G.textContent : "";
       if (G)
         G.textContent = _ ? "Copied" : "Failed";
       S.classList.add(_ ? "is-copied" : "is-failed"), S.disabled = !0, setTimeout(function() {
         if (S.classList.remove("is-copied", "is-failed"), S.disabled = !1, G)
-          G.textContent = Q;
+          G.textContent = Z;
       }, 1200);
     }
-    function U(S, B) {
+    function y(S, h) {
       if (!navigator.clipboard) {
-        R(B, "Copy failed", !1);
+        m(h, "Copy failed", !1);
         return;
       }
       navigator.clipboard.writeText(S).then(function() {
-        R(B, "Copied!", !0);
+        m(h, "Copied!", !0);
       }, function() {
-        R(B, "Copy failed", !1);
+        m(h, "Copy failed", !1);
       });
     }
-    var m = '<svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>', b = '<svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>', h = '<svg class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', M = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 4h9M5 8h9M5 12h9"/><circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="12" r=".75" fill="currentColor" stroke="none"/></svg>', W = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', Z = E.getElementById("source"), w = E.getElementById("changes"), X = E.getElementById("toc"), z = null, q = null, e = window.matchMedia("(max-width: 78rem)");
-    function p() {
-      if (q && q.open)
-        q.close();
+    var P = '<svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>', l = '<svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>', u = '<svg class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', q = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 4h9M5 8h9M5 12h9"/><circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="12" r=".75" fill="currentColor" stroke="none"/></svg>', F = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', W = E.getElementById("pages"), X = E.querySelector(".pages-trigger"), z = null, KE = window.matchMedia("(max-width: 78rem)");
+    if (W && X) {
+      var AE = W.querySelector(".pages-list");
+      if (AE) {
+        var ME = E.createElement("dialog");
+        if (typeof ME.showModal === "function") {
+          let S = function() {
+            if (z && z.open)
+              z.close();
+          };
+          z = ME, z.className = "pages-dialog", z.id = "pages-dialog", z.setAttribute("aria-labelledby", "pages-dialog-title");
+          var d = E.createElement("div");
+          d.className = "pages-dialog-panel";
+          var r = E.createElement("div");
+          r.className = "pages-dialog-header";
+          var t = E.createElement("h2");
+          t.className = "pages-dialog-title", t.id = "pages-dialog-title", t.textContent = "Pages";
+          var L = E.createElement("button");
+          L.className = "pages-dialog-close", L.type = "button", L.setAttribute("aria-label", "Close pages"), L.innerHTML = F, r.appendChild(t), r.appendChild(L);
+          var T = E.createElement("nav");
+          T.className = "pages-dialog-nav", T.setAttribute("aria-label", "Pages"), T.appendChild(AE.cloneNode(!0)), d.appendChild(r), d.appendChild(T), z.appendChild(d), X.addEventListener("click", function() {
+            z.showModal(), X.setAttribute("aria-expanded", "true"), E.body.classList.add("pages-dialog-open");
+            var h = z.querySelector('[aria-current="page"]');
+            if (h)
+              h.scrollIntoView({ block: "nearest" });
+          }), L.addEventListener("click", S), z.addEventListener("click", function(h) {
+            if (h.target === z)
+              S();
+          }), z.addEventListener("keydown", function(h) {
+            if (h.key === "Escape")
+              h.preventDefault(), S();
+          }), z.addEventListener("close", function() {
+            if (X.setAttribute("aria-expanded", "false"), E.body.classList.remove("pages-dialog-open"), KE.matches)
+              setTimeout(function() {
+                X.focus();
+              }, 50);
+          }), T.querySelectorAll("a").forEach(function(h) {
+            h.addEventListener("click", S);
+          }), X.hidden = !1, X.setAttribute("aria-expanded", "false"), E.body.appendChild(z), E.body.classList.add("pages-dialog-ready");
+        }
+      }
     }
-    function y() {
-      if (!X || !z || !q)
+    var g = E.getElementById("source"), qE = E.getElementById("changes"), U = E.getElementById("toc"), J = null, B = null, BE = window.matchMedia("(max-width: 78rem)");
+    function k() {
+      if (B && B.open)
+        B.close();
+    }
+    function b() {
+      if (!U || !J || !B)
         return;
-      var S = e.matches && !I.hidden && X.getBoundingClientRect().bottom < 0 && !q.open;
-      if (z.classList.toggle("is-visible", S), z.tabIndex = S ? 0 : -1, z.setAttribute("aria-hidden", S ? "false" : "true"), q.open && (!e.matches || I.hidden))
-        p();
+      var S = BE.matches && !I.hidden && U.getBoundingClientRect().bottom < 0 && !B.open;
+      if (J.classList.toggle("is-visible", S), J.tabIndex = S ? 0 : -1, J.setAttribute("aria-hidden", S ? "false" : "true"), B.open && (!BE.matches || I.hidden))
+        k();
     }
     if (E.querySelectorAll(".viewtoggle button").forEach(function(S) {
       S.addEventListener("click", function() {
-        var B = S.dataset.view;
-        if (I.hidden = B !== "rendered", Z)
-          Z.hidden = B !== "source";
-        if (w)
-          w.hidden = B !== "changes";
-        if (X)
-          X.hidden = B !== "rendered";
+        var h = S.dataset.view;
+        if (I.hidden = h !== "rendered", g)
+          g.hidden = h !== "source";
+        if (qE)
+          qE.hidden = h !== "changes";
+        if (U)
+          U.hidden = h !== "rendered";
         E.querySelectorAll(".viewtoggle button").forEach(function(_) {
           _.classList.toggle("active", _ === S), _.setAttribute("aria-pressed", _ === S ? "true" : "false");
-        }), y();
+        }), b();
       });
-    }), X) {
+    }), U) {
       let S = function() {
-        if (P.length === 0) {
-          y();
+        if (D.length === 0) {
+          b();
           return;
         }
         var _ = 0;
-        if (AE.forEach(function(Q, $) {
-          if (Q && Q.getBoundingClientRect().top <= 128)
-            _ = $;
+        if (QE.forEach(function(Z, V) {
+          if (Z && Z.getBoundingClientRect().top <= 128)
+            _ = V;
         }), window.innerHeight + window.scrollY >= E.documentElement.scrollHeight - 2)
-          _ = P.length - 1;
-        var G = P[_].getAttribute("href");
-        r.forEach(function(Q) {
-          var $ = Q.getAttribute("href") === G;
-          if (Q.classList.toggle("active", $), $)
-            Q.setAttribute("aria-current", "location");
+          _ = D.length - 1;
+        var G = D[_].getAttribute("href");
+        SE.forEach(function(Z) {
+          var V = Z.getAttribute("href") === G;
+          if (Z.classList.toggle("active", V), V)
+            Z.setAttribute("aria-current", "location");
           else
-            Q.removeAttribute("aria-current");
-        }), y();
-      }, B = function() {
-        if (s)
+            Z.removeAttribute("aria-current");
+        }), b();
+      }, h = function() {
+        if (_E)
           return;
-        s = !0, window.requestAnimationFrame(function() {
-          s = !1, S();
+        _E = !0, window.requestAnimationFrame(function() {
+          _E = !1, S();
         });
       };
-      var P = Array.from(X.querySelectorAll('a[href^="#"]')), EE = X.querySelector(".toc-list");
-      if (EE)
-        if (q = E.createElement("dialog"), typeof q.showModal === "function") {
-          q.className = "toc-dialog", q.id = "toc-dialog", q.setAttribute("aria-labelledby", "toc-dialog-title");
-          var v = E.createElement("div");
-          v.className = "toc-dialog-panel";
-          var l = E.createElement("div");
-          l.className = "toc-dialog-header";
-          var g = E.createElement("h2");
-          g.className = "toc-dialog-title", g.id = "toc-dialog-title", g.textContent = "Contents";
-          var N = E.createElement("button");
-          N.className = "toc-dialog-close", N.type = "button", N.setAttribute("aria-label", "Close table of contents"), N.innerHTML = W, l.appendChild(g), l.appendChild(N);
-          var T = E.createElement("nav");
-          T.className = "toc-dialog-nav", T.setAttribute("aria-label", "Table of contents"), T.appendChild(EE.cloneNode(!0)), v.appendChild(l), v.appendChild(T), q.appendChild(v), z = E.createElement("button"), z.className = "toc-trigger", z.type = "button", z.tabIndex = -1, z.setAttribute("aria-label", "Open table of contents"), z.setAttribute("aria-controls", "toc-dialog"), z.setAttribute("aria-haspopup", "dialog"), z.setAttribute("aria-hidden", "true"), z.innerHTML = M, E.body.appendChild(z), E.body.appendChild(q), z.addEventListener("click", function() {
-            q.showModal(), E.body.classList.add("toc-dialog-open"), y();
-            var _ = q.querySelector("a.active");
+      var D = Array.from(U.querySelectorAll('a[href^="#"]')), GE = U.querySelector(".toc-list");
+      if (GE)
+        if (B = E.createElement("dialog"), typeof B.showModal === "function") {
+          B.className = "toc-dialog", B.id = "toc-dialog", B.setAttribute("aria-labelledby", "toc-dialog-title");
+          var i = E.createElement("div");
+          i.className = "toc-dialog-panel";
+          var o = E.createElement("div");
+          o.className = "toc-dialog-header";
+          var s = E.createElement("h2");
+          s.className = "toc-dialog-title", s.id = "toc-dialog-title", s.textContent = "Contents";
+          var C = E.createElement("button");
+          C.className = "toc-dialog-close", C.type = "button", C.setAttribute("aria-label", "Close table of contents"), C.innerHTML = F, o.appendChild(s), o.appendChild(C);
+          var n = E.createElement("nav");
+          n.className = "toc-dialog-nav", n.setAttribute("aria-label", "Table of contents"), n.appendChild(GE.cloneNode(!0)), i.appendChild(o), i.appendChild(n), B.appendChild(i), J = E.createElement("button"), J.className = "toc-trigger", J.type = "button", J.tabIndex = -1, J.setAttribute("aria-label", "Open table of contents"), J.setAttribute("aria-controls", "toc-dialog"), J.setAttribute("aria-haspopup", "dialog"), J.setAttribute("aria-hidden", "true"), J.innerHTML = q, E.body.appendChild(J), E.body.appendChild(B), J.addEventListener("click", function() {
+            B.showModal(), E.body.classList.add("toc-dialog-open"), b();
+            var _ = B.querySelector("a.active");
             if (_)
               _.scrollIntoView({ block: "nearest" });
-          }), N.addEventListener("click", p), q.addEventListener("click", function(_) {
-            if (_.target === q)
-              p();
-          }), q.addEventListener("keydown", function(_) {
+          }), C.addEventListener("click", k), B.addEventListener("click", function(_) {
+            if (_.target === B)
+              k();
+          }), B.addEventListener("keydown", function(_) {
             if (_.key === "Escape")
-              _.preventDefault(), p();
-          }), q.addEventListener("close", function() {
-            if (E.body.classList.remove("toc-dialog-open"), y(), z.classList.contains("is-visible"))
+              _.preventDefault(), k();
+          }), B.addEventListener("close", function() {
+            if (E.body.classList.remove("toc-dialog-open"), b(), J.classList.contains("is-visible"))
               setTimeout(function() {
-                z.focus();
+                J.focus();
               }, 50);
-          }), T.querySelectorAll("a").forEach(function(_) {
-            _.addEventListener("click", p);
+          }), n.querySelectorAll("a").forEach(function(_) {
+            _.addEventListener("click", k);
           });
         } else
-          q = null;
-      var r = P.slice();
-      if (q)
-        r = r.concat(Array.from(q.querySelectorAll('a[href^="#"]')));
-      var AE = P.map(function(_) {
+          B = null;
+      var SE = D.slice();
+      if (B)
+        SE = SE.concat(Array.from(B.querySelectorAll('a[href^="#"]')));
+      var QE = D.map(function(_) {
         return E.getElementById((_.getAttribute("href") || "").slice(1));
-      }), s = !1;
-      E.addEventListener("scroll", B, { passive: !0 }), window.addEventListener("resize", S), S();
+      }), _E = !1;
+      E.addEventListener("scroll", h, { passive: !0 }), window.addEventListener("resize", S), S();
     }
-    let t = E.querySelector(".copy-source");
-    if (t && Z)
-      t.addEventListener("click", function() {
-        var S = Z.querySelector("pre");
-        U(S ? S.textContent : "", t);
+    let hE = E.querySelector(".copy-source");
+    if (hE && g)
+      hE.addEventListener("click", function() {
+        var S = g.querySelector("pre");
+        y(S ? S.textContent : "", hE);
       });
     I.querySelectorAll("pre").forEach(function(S) {
       if (S.classList.contains("mermaid"))
         return;
-      var B = E.createElement("div");
-      B.className = "codewrap", S.parentNode?.insertBefore(B, S), B.appendChild(S);
+      var h = E.createElement("div");
+      h.className = "codewrap", S.parentNode?.insertBefore(h, S), h.appendChild(S);
       var _ = E.createElement("button");
-      _.className = "codecopy", _.type = "button", _.setAttribute("aria-label", "Copy code"), _.title = "Copy code", _.innerHTML = m + b + h, _.addEventListener("click", function() {
+      _.className = "codecopy", _.type = "button", _.setAttribute("aria-label", "Copy code"), _.title = "Copy code", _.innerHTML = P + l + u, _.addEventListener("click", function() {
         var G = S.querySelector("code");
-        U((G || S).textContent, _);
-      }), B.appendChild(_);
+        y((G || S).textContent, _);
+      }), h.appendChild(_);
     });
   })();
 })();

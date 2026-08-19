@@ -38,6 +38,7 @@ func assertDeclaredTotalsRoundTrip(
 	}
 	if imported == nil {
 		t.Fatalf("sync did not import %q: %+v", res.MarkerKey, synced.Added)
+		return
 	}
 	inspection, err := syncClient.InspectUpload(ctx, res.MarkerKey)
 	if err != nil {
@@ -241,6 +242,8 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	legacyMarker.Version = 3
 	legacyMarker.Producer = Producer{}
 	legacyMarker.Render = nil
+	legacyMarker.Entrypoint = ""
+	legacyMarker.Pages = nil
 	legacyBody, err := EncodeUploadMarker(legacyMarker)
 	if err != nil {
 		t.Fatal(err)

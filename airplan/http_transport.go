@@ -3,10 +3,12 @@ package airplan
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"sync"
 
 	"github.com/jimeh/airplan/internal/httpapi"
@@ -54,6 +56,436 @@ func (t *httpTransport) Upload(
 	return &core.Result, nil
 }
 
+func (t *httpTransport) UploadDocument(
+	ctx context.Context, in DocumentInput,
+) (*DocumentResult, error) {
+	bundled := len(in.Pages) != 0 || len(in.Assets) != 0
+	var capability *httpapi.DocumentBundleCapabilities
+	var err error
+	if bundled {
+		capability, err = t.documentBundleCapabilities(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	prepared := in
+	if capability != nil {
+		var cleanup func()
+		prepared, cleanup, err = spoolHTTPDocumentPages(ctx, in, *capability)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+	}
+	upload, err := t.wireDocumentUpload(ctx, prepared, !bundled)
+	if err != nil {
+		return nil, err
+	}
+	if capability != nil {
+		if err = validateBundleCapability(*capability, upload); err != nil {
+			return nil, err
+		}
+	}
+	result, err := t.client.UploadDocumentBundle(ctx, upload)
+	if err != nil {
+		return nil, transportError(err)
+	}
+	document := coreDocumentResult(result)
+	if len(document.Pages) == 0 {
+		document.Pages = []PageResult{entryPageResult(in.Entry.Path, document.Result)}
+	}
+	return &document, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func (t *httpTransport) wireDocumentUpload(
+	ctx context.Context, in DocumentInput, legacy bool,
+) (httpapi.DocumentUpload, error) {
+	pages, assets, repository, err := t.wireDocumentParts(ctx, in)
+	if err != nil {
+		return httpapi.DocumentUpload{}, err
+	}
+	metadata := httpapi.DocumentMetadata{
+		Name: in.Entry.Path, Format: httpapi.DocumentMetadataFormat(in.Entry.Format),
+		Title: firstNonEmpty(in.Title, in.Entry.Title), Slug: in.Slug,
+		Lang: in.Entry.Lang, RepositoryURL: repository,
+		MaxTotalPageSize: portableUploadLimit(in.MaxTotalPageSize),
+		MaxAssetSize:     portableUploadLimit(in.MaxAssetSize),
+		MaxTotalSize:     portableUploadLimit(in.MaxTotalSize),
+	}
+	if legacy {
+		metadata.MaxSize = portableUploadLimit(in.MaxPageSize) //nolint:staticcheck // Deprecated server compatibility.
+	} else {
+		metadata.MaxPageSize = portableUploadLimit(in.MaxPageSize)
+	}
+	for _, page := range pages {
+		metadata.Pages = append(metadata.Pages, page.DocumentPageDescriptor)
+	}
+	for _, asset := range assets {
+		metadata.Assets = append(metadata.Assets, asset.DocumentAssetDescriptor)
+	}
+	return httpapi.DocumentUpload{
+		Metadata: metadata, Document: in.Entry.Reader,
+		DocumentSize: measuredHTTPPageSize(in.Entry.Reader),
+		Pages:        pages, Assets: assets,
+	}, nil
+}
+
+func (t *httpTransport) wireDocumentRevisionUpload(
+	ctx context.Context, in CreateDocumentRevisionInput, legacy bool,
+) (httpapi.CreateDocumentRevisionUpload, error) {
+	pages, assets, repository, err := t.wireDocumentParts(ctx, in.Document)
+	if err != nil {
+		return httpapi.CreateDocumentRevisionUpload{}, err
+	}
+	metadata := httpapi.CreateDocumentRevisionMetadata{
+		Target: in.Target, Name: in.Document.Entry.Path,
+		Title: firstNonEmpty(in.Document.Title, in.Document.Entry.Title),
+	}
+	if legacy {
+		metadata.MaxSize = portableUploadLimit(in.Document.MaxPageSize) //nolint:staticcheck // Deprecated server compatibility.
+	} else {
+		metadata.Format = httpapi.CreateDocumentRevisionMetadataFormat(
+			in.Document.Entry.Format,
+		)
+		metadata.Slug = in.Document.Slug
+		metadata.Lang = in.Document.Entry.Lang
+		metadata.RepositoryURL = repository
+		metadata.MaxPageSize = portableUploadLimit(in.Document.MaxPageSize)
+		metadata.MaxTotalPageSize = portableUploadLimit(
+			in.Document.MaxTotalPageSize,
+		)
+		metadata.MaxAssetSize = portableUploadLimit(in.Document.MaxAssetSize)
+		metadata.MaxTotalSize = portableUploadLimit(in.Document.MaxTotalSize)
+		for _, page := range pages {
+			metadata.Pages = append(metadata.Pages, page.DocumentPageDescriptor)
+		}
+		for _, asset := range assets {
+			metadata.Assets = append(metadata.Assets, asset.DocumentAssetDescriptor)
+		}
+	}
+	return httpapi.CreateDocumentRevisionUpload{
+		Metadata: metadata, Document: in.Document.Entry.Reader,
+		DocumentSize: measuredHTTPPageSize(in.Document.Entry.Reader),
+		Pages:        pages, Assets: assets,
+	}, nil
+}
+
+func (t *httpTransport) wireDocumentParts(
+	ctx context.Context, in DocumentInput,
+) ([]httpapi.DocumentPage, []httpapi.DocumentAsset, string, error) {
+	repository := in.RepositoryURL
+	if repository == "" {
+		var err error
+		repository, err = resolveRepository(ctx, t.repository, in.Entry.Path, "")
+		if err != nil {
+			return nil, nil, "", err
+		}
+	}
+	pages := make([]httpapi.DocumentPage, 0, len(in.Pages))
+	for _, page := range in.Pages {
+		pages = append(pages, httpapi.DocumentPage{
+			DocumentPageDescriptor: httpapi.DocumentPageDescriptor{
+				Path:   page.Path,
+				Format: httpapi.DocumentPageDescriptorFormat(page.Format),
+				Title:  page.Title, Lang: page.Lang,
+			},
+			Reader: page.Reader, Size: measuredHTTPPageSize(page.Reader),
+		})
+	}
+	assets := make([]httpapi.DocumentAsset, 0, len(in.Assets))
+	for _, asset := range in.Assets {
+		if asset.Reader == nil {
+			return nil, nil, "", fmt.Errorf(
+				"airplan: asset %q reader is nil", asset.Path,
+			)
+		}
+		start, err := asset.Reader.Seek(0, io.SeekCurrent)
+		if err != nil {
+			return nil, nil, "", fmt.Errorf(
+				"airplan: inspect asset %q reader: %w", asset.Path, err,
+			)
+		}
+		assets = append(assets, httpapi.DocumentAsset{
+			DocumentAssetDescriptor: httpapi.DocumentAssetDescriptor{
+				Path: asset.Path, Size: asset.Size, ContentType: asset.ContentType,
+			},
+			Reader: asset.Reader, Start: start,
+		})
+	}
+	return pages, assets, repository, nil
+}
+
+func (t *httpTransport) documentBundleCapabilities(
+	ctx context.Context,
+) (*httpapi.DocumentBundleCapabilities, error) {
+	capability, err := t.revisionCapabilities(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if capability == nil || !capability.ManagedPages || !capability.Assets {
+		return nil, documentBundleUpgradeError()
+	}
+	return capability, nil
+}
+
+func (t *httpTransport) revisionCapabilities(
+	ctx context.Context,
+) (*httpapi.DocumentBundleCapabilities, error) {
+	capabilities, err := t.client.Capabilities(ctx)
+	if err != nil {
+		return nil, transportError(err)
+	}
+	return capabilities.DocumentBundle, nil
+}
+
+func documentBundleUpgradeError() error {
+	return errors.New(
+		"airplan: configured server does not support document bundles; upgrade the server",
+	)
+}
+
+func validateBundleCapability(
+	capability httpapi.DocumentBundleCapabilities, upload httpapi.DocumentUpload,
+) error {
+	return validateBundleCapabilityValues(
+		capability, upload.Metadata, upload.DocumentSize, upload.Pages,
+		upload.Assets,
+	)
+}
+
+func validateRevisionBundleCapability(
+	capability httpapi.DocumentBundleCapabilities,
+	upload httpapi.CreateDocumentRevisionUpload,
+) error {
+	return validateBundleCapabilityValues(
+		capability, upload.Metadata, upload.DocumentSize, upload.Pages,
+		upload.Assets,
+	)
+}
+
+func validateBundleCapabilityValues(
+	capability httpapi.DocumentBundleCapabilities, metadata any,
+	documentSize int64, pages []httpapi.DocumentPage,
+	assets []httpapi.DocumentAsset,
+) error {
+	if !capability.ManagedPages || !capability.Assets || capability.MaxItems <= 0 ||
+		capability.MaxPageBytes <= 0 || capability.MaxTotalPageBytes <= 0 ||
+		capability.MaxGeneratedPageBytes < DefaultMaxGeneratedPageSize ||
+		capability.MaxAssetBytes <= 0 || capability.MaxTotalAssetBytes <= 0 ||
+		capability.MaxMetadataBytes <= 0 || capability.MaxRequestBytes <= 0 {
+		return documentBundleUpgradeError()
+	}
+	if len(pages)+len(assets)+1 > capability.MaxItems {
+		return fmt.Errorf(
+			"airplan: document has %d items; server maximum is %d",
+			len(pages)+len(assets)+1, capability.MaxItems,
+		)
+	}
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("airplan: encode document metadata: %w", err)
+	}
+	if int64(len(encoded)+1) > capability.MaxMetadataBytes {
+		return fmt.Errorf(
+			"airplan: document metadata exceeds server limit of %d bytes",
+			capability.MaxMetadataBytes,
+		)
+	}
+	if documentSize < 0 || documentSize > capability.MaxPageBytes {
+		return fmt.Errorf(
+			"airplan: document entry exceeds server page limit of %d bytes",
+			capability.MaxPageBytes,
+		)
+	}
+	pageTotal := documentSize
+	for _, page := range pages {
+		if page.Size < 0 || page.Size > capability.MaxPageBytes {
+			return fmt.Errorf(
+				"airplan: page %q exceeds server limit of %d bytes",
+				page.Path, capability.MaxPageBytes,
+			)
+		}
+		if page.Size > mathMaxInt64-pageTotal {
+			return errors.New("airplan: managed page total size is out of range")
+		}
+		pageTotal += page.Size
+	}
+	if pageTotal > capability.MaxTotalPageBytes {
+		return fmt.Errorf(
+			"airplan: managed pages exceed server limit of %d bytes",
+			capability.MaxTotalPageBytes,
+		)
+	}
+	var assetTotal int64
+	for _, asset := range assets {
+		if asset.Size > capability.MaxAssetBytes {
+			return fmt.Errorf(
+				"airplan: asset %q exceeds server limit of %d bytes",
+				asset.Path, capability.MaxAssetBytes,
+			)
+		}
+		if asset.Size > mathMaxInt64-assetTotal {
+			return errors.New("airplan: document asset total size is out of range")
+		}
+		assetTotal += asset.Size
+	}
+	if assetTotal > capability.MaxTotalAssetBytes {
+		return fmt.Errorf(
+			"airplan: document assets exceed server limit of %d bytes",
+			capability.MaxTotalAssetBytes,
+		)
+	}
+	metadataBytes := int64(len(encoded) + 1)
+	if pageTotal > mathMaxInt64-assetTotal ||
+		pageTotal+assetTotal > mathMaxInt64-metadataBytes {
+		return errors.New("airplan: document request size is out of range")
+	}
+	payloadBytes := pageTotal + assetTotal + metadataBytes
+	// MIME headers repeat descriptor paths and add one boundary per part. Twice
+	// the bounded metadata plus 1 MiB is a conservative envelope for 100 parts.
+	overhead := int64(1<<20) + 2*metadataBytes
+	if payloadBytes > mathMaxInt64-overhead ||
+		payloadBytes+overhead > capability.MaxRequestBytes {
+		return fmt.Errorf(
+			"airplan: document multipart exceeds server request limit of %d bytes",
+			capability.MaxRequestBytes,
+		)
+	}
+	return nil
+}
+
+func entryPageResult(path string, result Result) PageResult {
+	return PageResult{
+		Path: path, Format: result.Format, Title: result.Title,
+		URL: result.URL, Key: result.Key, SourceURL: result.SourceURL,
+		SourceKey: result.SourceKey, Bytes: result.Bytes,
+	}
+}
+
+type measuredHTTPPage struct {
+	file *os.File
+	size int64
+}
+
+func (p *measuredHTTPPage) Read(buffer []byte) (int, error) {
+	return p.file.Read(buffer)
+}
+
+func spoolHTTPDocumentPages(
+	ctx context.Context, in DocumentInput,
+	capability httpapi.DocumentBundleCapabilities,
+) (DocumentInput, func(), error) {
+	if capability.MaxPageBytes <= 0 || capability.MaxTotalPageBytes <= 0 ||
+		capability.MaxGeneratedPageBytes < DefaultMaxGeneratedPageSize {
+		return DocumentInput{}, func() {}, documentBundleUpgradeError()
+	}
+	pageLimit := effectiveLimit(in.MaxPageSize, DefaultMaxInputSize)
+	if pageLimit == 0 || capability.MaxPageBytes < pageLimit {
+		pageLimit = capability.MaxPageBytes
+	}
+	totalLimit := effectiveLimit(in.MaxTotalPageSize, DefaultMaxTotalPageSize)
+	if totalLimit == 0 || capability.MaxTotalPageBytes < totalLimit {
+		totalLimit = capability.MaxTotalPageBytes
+	}
+	var files []*os.File
+	cleanup := func() {
+		for _, file := range files {
+			name := file.Name()
+			_ = file.Close()
+			_ = os.Remove(name)
+		}
+	}
+	spool := func(page PageInput) (PageInput, int64, error) {
+		if page.Reader == nil {
+			return PageInput{}, 0, errors.New("airplan: document page reader is nil")
+		}
+		if err := ctx.Err(); err != nil {
+			return PageInput{}, 0, err
+		}
+		file, err := os.CreateTemp("", "airplan-http-page-*")
+		if err != nil {
+			return PageInput{}, 0, fmt.Errorf("airplan: create page temporary file: %w", err)
+		}
+		files = append(files, file)
+		if err = file.Chmod(0o600); err != nil {
+			return PageInput{}, 0, fmt.Errorf("airplan: secure page temporary file: %w", err)
+		}
+		size, err := io.Copy(file, io.LimitReader(page.Reader, pageLimit+1))
+		if err != nil {
+			return PageInput{}, 0, fmt.Errorf("airplan: spool page %q: %w", page.Path, err)
+		}
+		if size > pageLimit {
+			return PageInput{}, 0, fmt.Errorf(
+				"airplan: page %q exceeds server limit of %d bytes: %w",
+				page.Path, pageLimit, ErrInputTooLarge,
+			)
+		}
+		if err = ctx.Err(); err != nil {
+			return PageInput{}, 0, err
+		}
+		if _, err = file.Seek(0, io.SeekStart); err != nil {
+			return PageInput{}, 0, fmt.Errorf("airplan: rewind page %q: %w", page.Path, err)
+		}
+		page.Reader = &measuredHTTPPage{file: file, size: size}
+		return page, size, nil
+	}
+
+	prepared := in
+	entry, total, err := spool(in.Entry)
+	if err != nil {
+		cleanup()
+		return DocumentInput{}, func() {}, err
+	}
+	prepared.Entry = entry
+	if total > totalLimit {
+		cleanup()
+		return DocumentInput{}, func() {}, fmt.Errorf(
+			"airplan: document entry exceeds server total managed source limit of %d bytes: %w",
+			totalLimit, ErrInputTooLarge,
+		)
+	}
+	prepared.Pages = make([]PageInput, len(in.Pages))
+	for index, page := range in.Pages {
+		preparedPage, pageSize, pageErr := spool(page)
+		if pageErr != nil {
+			cleanup()
+			return DocumentInput{}, func() {}, pageErr
+		}
+		prepared.Pages[index] = preparedPage
+		if pageSize > mathMaxInt64-total {
+			cleanup()
+			return DocumentInput{}, func() {}, errors.New(
+				"airplan: managed page total size is out of range",
+			)
+		}
+		total += pageSize
+		if total > totalLimit {
+			cleanup()
+			return DocumentInput{}, func() {}, fmt.Errorf(
+				"airplan: page %q exceeds server total managed source limit of %d bytes: %w",
+				page.Path, totalLimit, ErrInputTooLarge,
+			)
+		}
+	}
+	return prepared, cleanup, nil
+}
+
+func measuredHTTPPageSize(reader io.Reader) int64 {
+	if page, ok := reader.(*measuredHTTPPage); ok {
+		return page.size
+	}
+	return -1
+}
+
 func (t *httpTransport) UploadFiles(
 	ctx context.Context, in FilesInput,
 ) (*FilesResult, error) {
@@ -89,27 +521,69 @@ func (t *httpTransport) UploadFiles(
 func (t *httpTransport) UpdateDocument(
 	ctx context.Context, input UpdateDocumentInput,
 ) (*UpdateDocumentResult, error) {
-	result, err := t.client.UpdateDocument(ctx, httpapi.UpdateDocumentMetadata{
-		Target: input.Target, Name: input.Input.Name, Title: input.Input.Title,
-		MaxSize: portableUploadLimit(input.Input.MaxSize),
-	}, input.Input.Reader)
+	revision, err := t.CreateDocumentRevision(ctx, CreateDocumentRevisionInput{
+		Target: input.Target,
+		Document: DocumentInput{
+			Entry: PageInput{
+				Reader: input.Input.Reader, Path: input.Input.Name,
+				Format: input.Input.Format, Title: input.Input.Title,
+				Lang: input.Input.Lang,
+			},
+			Slug: input.Input.Slug, Title: input.Input.Title,
+			MaxPageSize:   input.Input.MaxSize,
+			RepositoryURL: input.Input.RepositoryURL,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &UpdateDocumentResult{
+		Result: revision.Result, PreviousURL: revision.PreviousURL,
+		DiffURL: revision.DiffURL, Unchanged: revision.Unchanged,
+	}, nil
+}
+
+func (t *httpTransport) CreateDocumentRevision(
+	ctx context.Context, in CreateDocumentRevisionInput,
+) (*DocumentRevisionResult, error) {
+	capability, err := t.revisionCapabilities(ctx)
+	if err != nil {
+		return nil, err
+	}
+	bundled := len(in.Document.Pages) != 0 || len(in.Document.Assets) != 0
+	if bundled && capability == nil {
+		return nil, documentBundleUpgradeError()
+	}
+	prepared := in
+	if capability != nil {
+		var cleanup func()
+		prepared.Document, cleanup, err = spoolHTTPDocumentPages(
+			ctx, in.Document, *capability,
+		)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+	}
+	upload, err := t.wireDocumentRevisionUpload(ctx, prepared, capability == nil)
+	if err != nil {
+		return nil, err
+	}
+	if capability != nil {
+		if err = validateRevisionBundleCapability(*capability, upload); err != nil {
+			return nil, err
+		}
+	}
+	var result httpapi.DocumentRevisionResult
+	if capability != nil && capability.CanonicalRevisionRoute {
+		result, err = t.client.CreateDocumentRevision(ctx, upload)
+	} else {
+		result, err = t.client.UpdateDocumentBundle(ctx, upload)
+	}
 	if err != nil {
 		return nil, transportError(err)
 	}
-	return &UpdateDocumentResult{
-		Result: Result{
-			ID: result.ID, Kind: string(result.Kind), URL: result.URL, Key: result.Key,
-			SourceURL: result.SourceURL, SourceKey: result.SourceKey,
-			Bucket: result.Bucket, Bytes: result.Bytes, ContentType: result.ContentType,
-			Title: result.Title, CreatedAt: result.CreatedAt,
-			MarkerVersion: result.MarkerVersion, MarkerKey: result.MarkerKey,
-			Format: result.Format, Slug: result.Slug, RepositoryURL: result.RepositoryURL,
-			RevisionChainID: result.RevisionChainID, Revision: result.Revision,
-			LatestRevision: result.LatestRevision,
-			Warnings:       append([]string(nil), result.Warnings...),
-		}, PreviousURL: result.PreviousURL, DiffURL: result.DiffURL,
-		Unchanged: result.Unchanged,
-	}, nil
+	return coreDocumentRevisionResult(result, in.Document.Entry.Path), nil
 }
 
 func (t *httpTransport) PlanUpgradeDocument(
@@ -206,6 +680,51 @@ func coreUploadResult(result httpapi.UploadResult) FilesResult {
 	return core
 }
 
+func coreDocumentResult(result httpapi.UploadResult) DocumentResult {
+	base := coreUploadResult(result)
+	document := DocumentResult{Result: base.Result}
+	for _, page := range result.Pages {
+		document.Pages = append(document.Pages, PageResult{
+			Path: page.Path, Format: page.Format, Title: page.Title,
+			URL: page.URL, Key: page.Key, SourceURL: page.SourceURL,
+			SourceKey: page.SourceKey, Bytes: page.Bytes,
+			SourceBytes: page.SourceBytes,
+		})
+	}
+	for _, asset := range result.Assets {
+		document.Assets = append(document.Assets, AssetResult{
+			Path: asset.Path, URL: asset.URL, Key: asset.Key,
+			Bytes: asset.Bytes, ContentType: asset.ContentType,
+		})
+	}
+	return document
+}
+
+func coreDocumentRevisionResult(
+	result httpapi.DocumentRevisionResult, entryPath string,
+) *DocumentRevisionResult {
+	upload := httpapi.UploadResult{
+		ID: result.ID, Kind: httpapi.UploadResultKind(result.Kind),
+		URL: result.URL, Key: result.Key, SourceURL: result.SourceURL,
+		SourceKey: result.SourceKey, Bucket: result.Bucket, Bytes: result.Bytes,
+		ContentType: result.ContentType, Title: result.Title,
+		CreatedAt: result.CreatedAt, MarkerVersion: result.MarkerVersion,
+		MarkerKey: result.MarkerKey, Format: result.Format, Slug: result.Slug,
+		RepositoryURL:   result.RepositoryURL,
+		RevisionChainID: result.RevisionChainID, Revision: result.Revision,
+		LatestRevision: result.LatestRevision, Warnings: result.Warnings,
+		Pages: result.Pages, Assets: result.Assets,
+	}
+	document := coreDocumentResult(upload)
+	if len(document.Pages) == 0 {
+		document.Pages = []PageResult{entryPageResult(entryPath, document.Result)}
+	}
+	return &DocumentRevisionResult{
+		DocumentResult: document, PreviousURL: result.PreviousURL,
+		DiffURL: result.DiffURL, Unchanged: result.Unchanged,
+	}
+}
+
 func (t *httpTransport) ListManifest(
 	ctx context.Context, _ ListManifestOptions,
 ) (*ManifestList, error) {
@@ -289,6 +808,18 @@ func coreInspection(result httpapi.UploadInspection) *UploadInspection {
 	for _, file := range result.Files {
 		file := file
 		core.Files = append(core.Files, coreInspectedObject(&file))
+	}
+	for _, page := range result.Pages {
+		pageObject := page.Page
+		core.Pages = append(core.Pages, InspectedPage{
+			Path: page.Path, Format: page.Format, Title: page.Title,
+			Lang: page.Lang, Page: coreInspectedObject(&pageObject),
+			Source: coreInspectedObject(page.Source),
+		})
+	}
+	for _, asset := range result.Assets {
+		asset := asset
+		core.Assets = append(core.Assets, coreInspectedObject(&asset))
 	}
 	return core
 }

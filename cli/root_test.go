@@ -92,6 +92,17 @@ func TestSelectCollectionModeHandlesUTF8SniffBoundary(t *testing.T) {
 
 func TestCommandAliasesAndQoLShorthands(t *testing.T) {
 	root := newRootCmd()
+	revision, _, err := root.Find([]string{"new-revision"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision.Name() != "new-revision" || len(revision.Aliases) != 1 || revision.Aliases[0] != "update" {
+		t.Fatalf("revision command = %q aliases %v", revision.Name(), revision.Aliases)
+	}
+	compatibility, _, err := root.Find([]string{"update"})
+	if err != nil || compatibility != revision {
+		t.Fatalf("update alias resolved to %v, error = %v", compatibility, err)
+	}
 	list, _, err := root.Find([]string{"list"})
 	if err != nil {
 		t.Fatal(err)
