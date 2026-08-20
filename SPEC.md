@@ -786,7 +786,7 @@ already is the original file.
     "repo": "https://github.com/acme/service",
     "producer": { "name": "airplan", "version": "0.8.0" },
     "render": {
-      "generation": 4,
+      "generation": 5,
       "template": { "kind": "builtin" },
       "indexable": false,
       "no_external_assets": false,
@@ -830,7 +830,7 @@ already is the original file.
     "repo": "https://github.com/acme/service",
     "producer": { "name": "airplan", "version": "0.8.0" },
     "render": {
-      "generation": 4,
+      "generation": 5,
       "template": { "kind": "builtin_collection" },
       "indexable": false,
       "no_external_assets": false,
@@ -2105,7 +2105,7 @@ conforming implementations can share a manifest:
  "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
  "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":6,
- "producer_version":"0.8.0","renderer_version":4}
+ "producer_version":"0.8.0","renderer_version":5}
 {"type":"upload","time":"2026-07-21T12:03:00Z",
  "created_at":"2026-07-21T12:03:00Z",
  "key":"gaj4.../index.html",
@@ -2114,7 +2114,7 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"collection",
  "title":"login.png and 1 more","bytes":9216,"objects":4,
  "total_bytes":203512,"marker_version":6,
- "producer_version":"0.8.0","renderer_version":4}
+ "producer_version":"0.8.0","renderer_version":5}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
@@ -2132,7 +2132,7 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
  "bytes":19200,"marker_version":6,"producer_version":"0.8.0",
- "renderer_version":4}
+ "renderer_version":5}
 {"type":"link","time":"2026-08-15T10:05:00Z",
  "created_at":"2026-07-21T12:00:00Z",
  "key":"vq3n.../plan.html","source_key":"vq3n.../plan.md",
@@ -2141,7 +2141,7 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
  "bytes":19200,"objects":4,"total_bytes":20120,"marker_version":6,
- "producer_version":"0.8.0","renderer_version":4,
+ "producer_version":"0.8.0","renderer_version":5,
  "revision_chain_id":"d2x4...","revision":1,"latest_revision":2}
 ```
 

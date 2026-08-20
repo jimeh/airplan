@@ -1387,6 +1387,51 @@ test("child revision selection preserves logical page and falls back to entry", 
   ]);
   await expect(page).toHaveURL(targetChild + "#deep-dive");
 
+  const conflictPageObjects = ["a!b", "a/b"].flatMap((logical, index) => [
+    {
+      name: `${logical}.html`,
+      role: "page",
+      bytes: 100,
+      content_type: "text/html; charset=utf-8",
+      sha256: String(index + 1).repeat(64),
+    },
+    {
+      name: logical,
+      role: "source",
+      bytes: 10,
+      content_type: "text/markdown; charset=utf-8",
+      sha256: String(index + 3).repeat(64),
+    },
+  ]);
+  const conflictPages = ["a!b", "a/b"].map((logical) => ({
+    path: logical,
+    page: `${logical}.html`,
+    source: logical,
+    format: "md",
+    lang: "Markdown",
+  }));
+  const pageAncestorConflictMarker = {
+    ...validRevisionThreeMarker,
+    objects: [...validRevisionThreeMarker.objects, ...conflictPageObjects],
+    pages: [
+      { ...validRevisionThreeMarker.pages[0], path: "a" },
+      ...validRevisionThreeMarker.pages.slice(1),
+      ...conflictPages,
+    ],
+  };
+  const objectAncestorConflictMarker = {
+    ...validRevisionThreeMarker,
+    objects: [
+      ...validRevisionThreeMarker.objects,
+      ...["a", "a!b", "a/b"].map((name, index) => ({
+        name,
+        role: "asset",
+        bytes: 1,
+        content_type: "application/octet-stream",
+        sha256: String(index + 6).repeat(64),
+      })),
+    ],
+  };
   const invalidTargets = [
     { name: "missing marker", status: 404, body: "" },
     { name: "malformed marker", status: 200, body: "{" },
@@ -1412,6 +1457,16 @@ test("child revision selection preserves logical page and falls back to entry", 
       name: "wrong directory",
       status: 200,
       body: JSON.stringify({ ...validRevisionThreeMarker, directory: "x".repeat(26) }),
+    },
+    {
+      name: "non-adjacent object ancestor conflict",
+      status: 200,
+      body: JSON.stringify(objectAncestorConflictMarker),
+    },
+    {
+      name: "non-adjacent page ancestor conflict",
+      status: 200,
+      body: JSON.stringify(pageAncestorConflictMarker),
     },
     {
       name: "noncanonical repository",

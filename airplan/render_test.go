@@ -681,3 +681,23 @@ func TestRenderCustomTemplateReceivesPageAwareRevisionData(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderCustomTemplateReceivesHighlightedLegacyDiff(t *testing.T) {
+	tmpl := template.Must(template.New("legacy-diff").Parse(
+		`{{.DiffText}}|{{if .HighlightedDiffHTML}}legacy-html{{end}}|` +
+			`{{if .HighlightedPageDiffHTML}}page-html{{end}}|` +
+			`{{if .HighlightedCompleteDiffHTML}}all-html{{end}}`,
+	))
+	diff := "--- revision-1/plan.md\n+++ revision-2/plan.md\n@@ -1 +1 @@\n-old\n+new\n"
+	out, err := RenderMarkdown([]byte("# X\n"), RenderOptions{
+		Title: "X", Slug: "x", Template: tmpl, DiffText: diff,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"revision-1/plan.md", "legacy-html|page-html|all-html"} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("custom legacy diff output lacks %q: %s", want, out)
+		}
+	}
+}

@@ -420,11 +420,8 @@
         renderedObjects.add(rendered2);
         pages2.set(page.path, rendered2);
       });
-      var orderedPaths = Array.from(foldedPaths).sort();
-      for (var index = 1;index < orderedPaths.length; index += 1) {
-        if (orderedPaths[index].startsWith(orderedPaths[index - 1] + "/"))
-          throw new Error("marker page paths conflict");
-      }
+      if (hasMarkerAncestorConflict(foldedPaths))
+        throw new Error("marker page paths conflict");
       if (!paths.has(marker.pages[0].path) || pages2.get(marker.pages[0].path) !== entry)
         throw new Error("marker entry page is invalid");
       if (renderedObjects.size !== marker.pages.length || Array.from(objectRoles.values()).filter(function(role) {
@@ -449,6 +446,17 @@
     }
     function validMarkerThemeID(value) {
       return typeof value === "string" && new TextEncoder().encode(value).byteLength <= 48 && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value);
+    }
+    function hasMarkerAncestorConflict(paths) {
+      for (var candidate2 of paths) {
+        var separator = candidate2.indexOf("/");
+        while (separator >= 0) {
+          if (paths.has(candidate2.slice(0, separator)))
+            return true;
+          separator = candidate2.indexOf("/", separator + 1);
+        }
+      }
+      return false;
     }
     function validDigest(value) {
       return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
@@ -544,11 +552,8 @@
         roles.set(object.name, object.role);
         folded.add(object.name.toLowerCase());
       });
-      var names = Array.from(folded).sort();
-      for (var index = 1;index < names.length; index += 1) {
-        if (names[index].startsWith(names[index - 1] + "/"))
-          throw new Error("marker object paths conflict");
-      }
+      if (hasMarkerAncestorConflict(folded))
+        throw new Error("marker object paths conflict");
       if (pages2 !== marker.pages.length || sources !== marker.pages.length || pages2 + assets > 100 || (marker.revision.number === 1 ? diffCount !== 0 : diffCount !== 1))
         throw new Error("marker object counts are invalid");
       return roles;

@@ -468,6 +468,15 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 	}
 	data.AllChangesPath = opts.AllChangesPath
 	data.HasCompleteDiff = opts.HasCompleteDiff || data.HasCompleteDiff
+	if data.DiffText != "" && data.HighlightedDiffHTML == "" {
+		highlighted, _, highlightErr := highlightSource(
+			[]byte(data.DiffText), DiffFilename, "diff",
+		)
+		if highlightErr != nil {
+			return nil, highlightErr
+		}
+		data.HighlightedDiffHTML = highlighted
+	}
 	if data.PageDiffText != "" && data.HighlightedPageDiffHTML == "" {
 		highlighted, _, highlightErr := highlightSource(
 			[]byte(data.PageDiffText), DiffFilename, "diff",

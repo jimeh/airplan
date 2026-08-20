@@ -361,11 +361,7 @@ interface DocumentMarker {
       renderedObjects.add(rendered);
       pages.set(page.path, rendered);
     });
-    var orderedPaths = Array.from(foldedPaths).sort();
-    for (var index = 1; index < orderedPaths.length; index += 1) {
-      if (orderedPaths[index].startsWith(orderedPaths[index - 1] + "/"))
-        throw new Error("marker page paths conflict");
-    }
+    if (hasMarkerAncestorConflict(foldedPaths)) throw new Error("marker page paths conflict");
     if (!paths.has(marker.pages[0].path) || pages.get(marker.pages[0].path) !== entry)
       throw new Error("marker entry page is invalid");
     if (
@@ -418,6 +414,17 @@ interface DocumentMarker {
       new TextEncoder().encode(value).byteLength <= 48 &&
       /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value)
     );
+  }
+
+  function hasMarkerAncestorConflict(paths: Set<string>) {
+    for (var candidate of paths) {
+      var separator = candidate.indexOf("/");
+      while (separator >= 0) {
+        if (paths.has(candidate.slice(0, separator))) return true;
+        separator = candidate.indexOf("/", separator + 1);
+      }
+    }
+    return false;
   }
 
   function validDigest(value: unknown) {
@@ -571,11 +578,7 @@ interface DocumentMarker {
       roles.set(object.name, object.role);
       folded.add(object.name.toLowerCase());
     });
-    var names = Array.from(folded).sort();
-    for (var index = 1; index < names.length; index += 1) {
-      if (names[index].startsWith(names[index - 1] + "/"))
-        throw new Error("marker object paths conflict");
-    }
+    if (hasMarkerAncestorConflict(folded)) throw new Error("marker object paths conflict");
     if (
       pages !== marker.pages.length ||
       sources !== marker.pages.length ||

@@ -269,8 +269,8 @@ func TestPromoteStandaloneRevisionRepairsPreV6Document(t *testing.T) {
 	if err := client.ensureStorage(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	dir := strings.Repeat("v", 26)
-	chainID := strings.Repeat("c", 26)
+	dir := strings.Repeat("u", 26)
+	chainID := strings.Repeat("b", 26)
 	page := []byte("<html>old</html>")
 	source := []byte("# Plan\n")
 	markerBody, err := EncodeUploadMarker(UploadMarker{
@@ -338,6 +338,101 @@ func TestPromoteStandaloneRevisionRepairsPreV6Document(t *testing.T) {
 	}
 	gotPage, ok := store.get(pageKey)
 	if !ok || bytes.Equal(gotPage, page) ||
+		!bytes.Contains(gotPage, []byte(
+			`<meta name="airplan-revision" content="1">`,
+		)) {
+		t.Fatalf("promoted page missing revision identity")
+	}
+}
+
+func TestPromoteStandaloneRevisionReconstructsOversizedBundle(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	if err := client.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.Repeat("v", 26)
+	chainID := strings.Repeat("c", 26)
+	page := []byte("<html>old</html>")
+	childPage := []byte("<html>old child</html>")
+	source := []byte("# Plan\n")
+	childSource := bytes.Repeat([]byte("a"), DefaultMaxInputSize+1)
+	markerBody, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+		Kind:      UploadKindDocument, Slug: "plan", Format: "md", Title: "Plan",
+		Producer:   Producer{Name: "airplan", Version: "0.10.0"},
+		Render:     documentRenderRecipe(client.cfg, client.templateDigest),
+		Entrypoint: "plan.html",
+		Pages: []MarkerPage{
+			{Path: "plan.md", Page: "plan.html", Source: "plan.md", Format: "md", Title: "Plan", Lang: "Markdown"},
+			{Path: "large.txt", Page: "large.txt.html", Source: "large.txt", Format: "txt", Title: "large.txt", Lang: "text"},
+		},
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType, SHA256: contentSHA256(source)},
+			{Name: "large.txt.html", Role: MarkerRolePage, Bytes: int64(len(childPage)), ContentType: pageContentType, SHA256: contentSHA256(childPage)},
+			{Name: "large.txt", Role: MarkerRoleSource, Bytes: int64(len(childSource)), ContentType: textContentType, SHA256: contentSHA256(childSource)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerKey := dir + "/" + MarkerFilename
+	pageKey := dir + "/plan.html"
+	store.set(markerKey, markerBody)
+	store.set(pageKey, page)
+	store.set(dir+"/plan.md", source)
+	store.set(dir+"/large.txt.html", childPage)
+	store.set(dir+"/large.txt", childSource)
+	markerBody, markerETag, _, err := client.st.getBytesWithETag(
+		context.Background(), markerKey, MaxMarkerSize,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageBody, pageETag, _, err := client.st.getBytesWithETag(
+		context.Background(), pageKey, maxUpgradePageSize,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, err := DecodeUploadMarker(markerBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageURL, _, err := PublicURL(client.cfg, pageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := &revisionDocument{
+		marker: marker, markerBody: markerBody, markerETag: markerETag,
+		pageBody: pageBody, pageETag: pageETag, dirPrefix: dir + "/",
+		pageKey: pageKey, sourceKey: dir + "/plan.md", pageURL: pageURL,
+		needsPromotion: true,
+	}
+	metadata := VersionsMetadata{LatestRevision: 2}
+	if err := client.promoteStandaloneRevision(
+		context.Background(), doc, chainID, metadata,
+	); err != nil {
+		t.Fatal(err)
+	}
+	promotedBody, ok := store.get(markerKey)
+	if !ok {
+		t.Fatal("promoted marker is missing")
+	}
+	promoted, err := DecodeUploadMarker(promotedBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if promoted.Version != MarkerVersion || promoted.Revision == nil ||
+		promoted.Revision.ChainID != chainID || promoted.Revision.Number != 1 {
+		t.Fatalf("promoted marker = %+v", promoted)
+	}
+	gotPage, ok := store.get(pageKey)
+	gotChildPage, childOK := store.get(dir + "/large.txt.html")
+	if !ok || !childOK || bytes.Equal(gotPage, page) ||
+		len(gotChildPage) <= DefaultMaxInputSize ||
 		!bytes.Contains(gotPage, []byte(
 			`<meta name="airplan-revision" content="1">`,
 		)) {

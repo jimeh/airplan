@@ -1215,6 +1215,7 @@ func (c *Client) promoteStandaloneRevision(
 	input := DocumentInput{
 		Entry: inputs[0], Pages: inputs[1:], Assets: assets,
 		Slug: doc.marker.Slug, Title: doc.marker.Title,
+		MaxPageSize: -1, MaxTotalPageSize: -1,
 		RepositoryURL: doc.marker.Repo,
 	}
 	bundle, err := renderDocumentSpooled(ctx, input, DocumentRenderOptions{
@@ -1225,8 +1226,10 @@ func (c *Client) promoteStandaloneRevision(
 			Repository:       doc.marker.Repo,
 			Themes:           c.cfg.ThemeBundle,
 		},
-		Revision: 1, RevisionCount: metadata.LatestRevision,
-		RevisionChainID: chainID, VersionsPath: VersionsFilename,
+		MaxGeneratedPageSize: -1,
+		Revision:             1,
+		RevisionCount:        metadata.LatestRevision,
+		RevisionChainID:      chainID, VersionsPath: VersionsFilename,
 	}, c.template, c.templateErr)
 	if err != nil {
 		return err
