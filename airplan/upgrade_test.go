@@ -149,6 +149,121 @@ func TestUpgradeDocumentRepairsBundlePagesEntryLastWithoutIdentityMarkerPut(t *t
 	}
 }
 
+func TestUpgradeDocumentReprojectsStructuredBundleDiff(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{Reader: strings.NewReader("# Entry\n\nOriginal.\n"), Path: "README.md"},
+		Pages: []PageInput{
+			{Reader: strings.NewReader("# Stable\n"), Path: "stable.md"},
+			{Reader: strings.NewReader("package main\n"), Path: "server.go", Lang: "Go"},
+		},
+		RepositoryURL: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.CreateDocumentRevision(context.Background(), CreateDocumentRevisionInput{
+		Target: first.URL,
+		Document: DocumentInput{
+			Entry: PageInput{Reader: strings.NewReader("# Entry\n\nRevised.\n"), Path: "README.md"},
+			Pages: []PageInput{
+				{Reader: strings.NewReader("# Stable\n"), Path: "stable.md"},
+				{Reader: strings.NewReader("package main\n\nfunc main() {}\n"), Path: "server.go", Lang: "Go"},
+			},
+			RepositoryURL: "none",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, page := range second.Pages {
+		store.set(page.Key, []byte("stale page"))
+	}
+	store.mu.Lock()
+	store.puts = 0
+	store.putKeys = nil
+	store.putAttempts = 0
+	store.mu.Unlock()
+
+	plan, err := client.PlanUpgradeDocument(context.Background(), second.URL, UpgradeDocumentOptions{})
+	if err != nil || plan.State != UpgradeStateUpgradeable {
+		t.Fatalf("upgrade plan = %+v, error = %v", plan, err)
+	}
+	result, err := client.UpgradeDocument(context.Background(), *plan)
+	if err != nil || !result.Upgraded {
+		t.Fatalf("upgrade = %+v, error = %v", result, err)
+	}
+	entry, _ := store.get(second.Pages[0].Key)
+	stable, _ := store.get(second.Pages[1].Key)
+	server, _ := store.get(second.Pages[2].Key)
+	if !bytes.Contains(entry, []byte(`Changes to README.md`)) ||
+		!bytes.Contains(entry, []byte(`class="content all-changes-view"`)) {
+		t.Fatal("upgraded entry lost its local or complete diff projection")
+	}
+	if bytes.Contains(stable, []byte(`data-view="changes"`)) {
+		t.Fatal("upgraded unchanged page exposes a Changes mode")
+	}
+	if !bytes.Contains(server, []byte(`Changes to server.go`)) ||
+		bytes.Contains(server, []byte(`class="content all-changes-view"`)) {
+		t.Fatal("upgraded source page has the wrong diff projection")
+	}
+	store.mu.Lock()
+	putKeys := append([]string(nil), store.putKeys...)
+	store.mu.Unlock()
+	if len(putKeys) == 0 || putKeys[len(putKeys)-1] != second.Key {
+		t.Fatalf("upgrade put order = %q, want entry last", putKeys)
+	}
+
+	malformedDiff := []byte("# airplan revisions: 1 -> 2\n" + revisionDiffFormatHeader +
+		"# airplan page: \"README.md\"\n" +
+		"--- revision-1/other.md\n+++ revision-2/README.md\n" +
+		"@@ -1 +1 @@\n-old\n+new\n")
+	markerBody, ok := store.get(second.MarkerKey)
+	if !ok {
+		t.Fatal("revision marker is missing")
+	}
+	marker, err := DecodeUploadMarker(markerBody, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range marker.Objects {
+		if marker.Objects[index].Role == MarkerRoleDiff {
+			marker.Objects[index].Bytes = int64(len(malformedDiff))
+			marker.Objects[index].SHA256 = contentSHA256(malformedDiff)
+		}
+	}
+	malformedMarker, err := EncodeUploadMarker(*marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(second.MarkerKey, malformedMarker)
+	store.set(second.ID+"/"+DiffFilename, malformedDiff)
+	store.set(second.Key, []byte("stale entry"))
+	store.mu.Lock()
+	store.puts = 0
+	store.putKeys = nil
+	store.putAttempts = 0
+	store.mu.Unlock()
+
+	malformedPlan, err := client.PlanUpgradeDocument(
+		context.Background(), second.URL, UpgradeDocumentOptions{},
+	)
+	if err != nil || malformedPlan.State != UpgradeStateUpgradeable {
+		t.Fatalf("malformed upgrade plan = %+v, error = %v", malformedPlan, err)
+	}
+	if _, err := client.UpgradeDocument(context.Background(), *malformedPlan); err == nil ||
+		!strings.Contains(err.Error(), "mismatched unified headers") {
+		t.Fatalf("malformed upgrade error = %v", err)
+	}
+	store.mu.Lock()
+	puts := store.puts
+	store.mu.Unlock()
+	if puts != 0 {
+		t.Fatalf("malformed upgrade performed %d PUTs, want 0", puts)
+	}
+}
+
 func TestUpgradeManifestEventPreservesRevisionAndCompleteProjection(t *testing.T) {
 	store := newUpgradeStore(t)
 	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")

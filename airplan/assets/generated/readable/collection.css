@@ -234,6 +234,13 @@ body {
   display: none !important;
 }
 
+@media (max-width: 48rem) {
+  .toolbar button, .toolbar a {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
 @media (max-width: 36rem) {
   .toolbar {
     padding-inline-start: 1rem;

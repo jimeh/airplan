@@ -936,9 +936,12 @@ Do not embed binary data. Preserve the current total and inline diff limits.
 The built-in Changes view presents sections by logical path.
 
 The replicated revision index continues to store each revision's entry URL, not
-a page URL map. Switching revision from any child page performs an ordinary full
-navigation to the selected revision's entry. This keeps metadata bounded and
-avoids inventing semantics for pages added or removed between revisions.
+a page URL map. The settled follow-up in
+[Revision-aware page navigation and diff UX](revision-aware-navigation-and-diffs.md)
+uses exact logical source paths as cross-revision identity and validates the
+selected revision's v6 marker on demand. A matching child performs an ordinary
+navigation to the same logical page; an absent page or invalid/unavailable
+marker falls back to the selected entry. This keeps versions metadata bounded.
 
 ## 13. In-place upgrades and concurrency
 

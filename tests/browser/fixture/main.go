@@ -17,9 +17,10 @@ func main() {
 		Title: "Browser revision", Slug: "plan", SourceName: "plan.md",
 		SourcePath: "./plan.md", NoExternalAssets: true,
 		Revision: 2, RevisionCount: 2, PreviousRevision: 1,
-		VersionsPath: airplan.VersionsFilename,
-		DiffPath:     "./" + airplan.DiffFilename,
-		DiffText:     diff,
+		RevisionChainID: "ssssssssssssssssssssssssss",
+		VersionsPath:    airplan.VersionsFilename,
+		DiffPath:        "./" + airplan.DiffFilename,
+		DiffText:        diff,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)

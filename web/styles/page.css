@@ -12,10 +12,12 @@
   --alert-caution-bg: var(--alert-danger-bg);
   --prose-width: 78ch;
   --toc-width: 14rem;
+  --airplan-sticky-height: 0px;
 }
 
 html {
   scroll-behavior: smooth;
+  scroll-padding-top: var(--airplan-sticky-height);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -27,7 +29,7 @@ html {
 .page-shell {
   display: grid;
   grid-template-columns: minmax(12rem, 1fr) minmax(0, var(--page-width)) minmax(12rem, 1fr);
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto 1fr;
   min-height: 100vh;
 }
 
@@ -38,7 +40,7 @@ html {
 
 .toc {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 3;
   position: sticky;
   top: 1.5rem;
   align-self: start;
@@ -70,7 +72,7 @@ html {
 
 .pages-nav {
   grid-column: 1;
-  grid-row: 2;
+  grid-row: 3;
   position: sticky;
   top: 1.5rem;
   align-self: start;
@@ -310,89 +312,44 @@ body.toc-dialog-open {
   overflow: hidden;
 }
 
-.pages-dialog {
+.pages-popover {
   position: fixed;
-  inset: auto 0 0;
-  width: min(100%, 42rem);
-  max-width: none;
-  max-height: 70vh;
-  max-height: 70svh;
-  margin: 0 auto;
-  padding: 0;
+  inset: var(--pages-top) auto auto var(--pages-left);
+  width: var(--pages-width);
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100svh - var(--pages-top) - 1rem);
+  margin: 0;
+  padding: 0.5rem;
   color: var(--fg);
   background: var(--bg);
-  border: 0;
-  border-radius: 16px 16px 0 0;
-  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-top: 0;
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
   overflow: hidden;
 }
 
-.pages-dialog::backdrop {
-  background: var(--dialog-backdrop);
-}
-
-.pages-dialog-panel {
-  display: flex;
-  flex-direction: column;
-  max-height: inherit;
-}
-
-.pages-dialog-header {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1.25rem 1.25rem 0.75rem;
-}
-
-.pages-dialog-title {
-  margin: 0;
-  color: var(--muted);
-  font-family:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.pages-dialog-close {
-  display: inline-flex;
-  width: 2.25rem;
-  height: 2.25rem;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  color: var(--muted);
-  background: transparent;
-  border: 0;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.pages-dialog-close:hover {
-  color: var(--fg);
-  background: var(--control-hover);
-}
-
-.pages-dialog-close:focus-visible {
-  outline: 2px solid var(--link);
-  outline-offset: 3px;
-}
-
-.pages-dialog-nav {
+.pages-popover-nav {
   min-height: 0;
-  padding: 0.25rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom));
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
-.pages-dialog .pages-list a {
+.pages-popover .pages-list a {
   padding-block: 0.65rem;
 }
 
-body.pages-dialog-open {
-  overflow: hidden;
+@media (prefers-reduced-motion: no-preference) {
+  .pages-popover:popover-open {
+    animation: pages-reveal 0.14s ease-out;
+  }
+}
+
+@keyframes pages-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-0.35rem);
+  }
 }
 
 .icon-check,
@@ -471,8 +428,43 @@ body.pages-dialog-open {
   width: calc(100% + 3px);
 }
 
-.changes-view pre {
+.reader-controls {
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  padding: 1rem 1.5rem 0;
+}
+
+.revision-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+.revision-controls .revision-heading {
+  margin: 0;
+}
+
+.all-changes-link {
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.reader-controls .mode-toggle {
+  width: fit-content;
+  margin-top: 0.85rem;
+}
+
+.changes-view pre,
+.all-changes-view pre {
   overflow-x: auto;
+}
+
+body.all-changes-active .pages-nav,
+body.all-changes-active .toc,
+body.all-changes-active .reader-controls .mode-toggle {
+  display: none !important;
 }
 
 .file-actions {
@@ -541,7 +533,7 @@ body.pages-dialog-open {
 
 .content {
   grid-column: 2;
-  grid-row: 2;
+  grid-row: 3;
   width: 100%;
   min-width: 0;
   padding: 1.5rem 1.5rem 4rem;
@@ -624,7 +616,7 @@ h6 {
   letter-spacing: -0.015em;
   line-height: 1.25;
   margin: 2em 0 0.75em;
-  scroll-margin-top: 0.75em;
+  scroll-margin-top: calc(var(--airplan-sticky-height) + 0.75em);
 }
 
 h1 {
@@ -1173,6 +1165,7 @@ mark {
   .toolbar,
   .pages-nav,
   .toc,
+  .reader-controls,
   .content {
     width: 100%;
     max-width: var(--page-width);
@@ -1193,7 +1186,8 @@ mark {
     overflow: visible;
   }
 
-  body.pages-dialog-ready .bundle-page .pages-nav {
+  body.pages-popover-ready .bundle-page .pages-nav,
+  body.toc-dialog-ready .toc {
     display: none;
   }
 
@@ -1212,22 +1206,17 @@ mark {
 
 @media (max-width: 48rem) {
   .toolbar {
-    display: grid;
-    grid-template-columns: max-content 1fr max-content;
-    justify-content: stretch;
-  }
-
-  .toolbar .viewtoggle {
-    grid-column: 1 / 3;
-    grid-row: 1;
-    justify-self: start;
-    margin-right: 0;
+    position: sticky;
+    top: 0;
+    z-index: 15;
+    display: flex;
+    min-height: calc(44px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
   }
 
   .toolbar .appearance {
-    grid-column: 3;
-    grid-row: 1;
-    justify-self: end;
     margin-left: 0;
   }
 
@@ -1236,38 +1225,27 @@ mark {
   }
 
   .toolbar .file-actions {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    justify-self: start;
+    flex-wrap: nowrap;
+    margin-left: auto;
   }
 
-  .toolbar:not(:has(.viewtoggle)) .file-actions {
-    grid-column: 1 / 3;
-    grid-row: 1;
+  .toolbar .file-actions span,
+  .toolbar .appearance > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .bundle-page .toolbar .pages-trigger {
-    grid-column: 1;
-    grid-row: 1;
-    justify-self: start;
-  }
-
-  .bundle-page .toolbar .viewtoggle {
-    grid-column: 1 / 3;
-    grid-row: 2;
-  }
-
-  .bundle-page .toolbar .file-actions {
-    grid-row: 3;
-  }
-
-  .bundle-page .toolbar:not(:has(.viewtoggle)) .file-actions {
-    grid-column: 1 / -1;
-    grid-row: 2;
+    min-width: auto;
   }
 
   .pages-nav,
   .toc,
+  .reader-controls,
   .content {
     padding-inline: 1.25rem;
   }
@@ -1306,7 +1284,7 @@ mark {
 @media print {
   .pages-nav,
   .pages-trigger,
-  .pages-dialog,
+  .pages-popover,
   .page-sequence,
   .toc,
   .toc-trigger,
@@ -1316,6 +1294,10 @@ mark {
   .mermaid-dialog,
   .source-view,
   .changes-view {
+    display: none !important;
+  }
+
+  .all-changes-view {
     display: none !important;
   }
 

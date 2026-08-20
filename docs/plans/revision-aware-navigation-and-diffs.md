@@ -388,17 +388,19 @@ page renderer. The entry renderer also receives the complete report.
 
 ### 6.2 Deterministic sections
 
-Retain the existing leading range header:
+Retain the existing leading range header and follow it with an explicit report
+format:
 
 ```text
 # airplan revisions: 2 -> 3
+# airplan diff format: 2
 ```
 
-Each changed logical page keeps one `# <logical-path>` section. Unified headers
-must carry the logical path, as required by SPEC.md:
+Each changed logical page gets one explicitly typed section whose exact path is
+JSON encoded. Unified headers must carry the same logical path:
 
 ```text
-# docs/guide.md
+# airplan page: "docs/guide.md"
 --- revision-2/docs/guide.md
 +++ revision-3/docs/guide.md
 ```
@@ -418,8 +420,9 @@ Source changes follow the metadata line in the same section.
 
 Page and asset order changes use reserved `# airplan page order` and
 `# airplan asset order` sections. Each contains `before:` and `after:` JSON
-arrays of logical paths. Asset changes retain their existing path section and
-content-type, size, and SHA-256 summary. The generator writes bundle-level
+arrays of logical paths. Asset changes carry their content-type, size, and
+SHA-256 summary under an explicit
+`# airplan asset: <json-string>` heading. The generator writes bundle-level
 sections first, sorts path-keyed sections, and uses a fixed field order so
 equivalent inputs produce identical bytes.
 
@@ -434,11 +437,13 @@ An upgrade does not have the original in-memory change model. It reads the
 stored canonical diff, validates its adjacent revision range, and parses the
 deterministic section envelope into page-local sections.
 
-The parser is strict about Airplan-owned range and section headers, but treats
-unified diff bodies as opaque bytes. Source lines beginning with `#` remain
-safe because unified diff content prefixes them with a context or change
-marker. Existing single-page revision diffs without the bundle range envelope
-remain supported and map wholly to the entry page.
+The parser is strict about Airplan-owned range and typed section headers. When
+a page section contains unified headers, their logical paths and revision
+numbers must match the section identity and envelope. Source lines beginning
+with `#` remain safe because unified diff content prefixes them with a context
+or change marker. Existing generation-4 untyped structured reports and
+single-page revision diffs without the bundle range envelope remain supported;
+the latter map wholly to the entry page.
 
 If a revision marker declares a diff whose structure cannot be parsed safely,
 upgrade fails closed before replacing any rendered page. Ordinary serving and

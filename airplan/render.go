@@ -176,6 +176,13 @@ type RenderOptions struct {
 	VersionsPath     string
 	DiffPath         string
 	DiffText         string
+	RevisionChainID  string
+	PageChanged      bool
+	PageDiffText     string
+	CompleteDiffText string
+	HasCompleteDiff  bool
+	AllChangesPath   string
+	structuredDiff   bool
 
 	Pages               []DocumentTemplatePage
 	CurrentPage         DocumentTemplatePage
@@ -325,35 +332,60 @@ func renderMarkdown(
 			return nil, err
 		}
 	}
-	var highlightedDiff template.HTML
-	if opts.DiffText != "" {
-		highlightedDiff, _, err = highlightSource([]byte(opts.DiffText), DiffFilename, "diff")
+	pageDiffText := opts.PageDiffText
+	completeDiffText := opts.CompleteDiffText
+	pageChanged := opts.PageChanged
+	if !opts.structuredDiff && opts.Revision > 1 && opts.DiffPath != "" {
+		pageChanged = true
+	}
+	if pageDiffText == "" && opts.DiffText != "" {
+		pageDiffText = opts.DiffText
+		completeDiffText = opts.DiffText
+		pageChanged = true
+	}
+	var highlightedPageDiff template.HTML
+	if pageDiffText != "" {
+		highlightedPageDiff, _, err = highlightSource([]byte(pageDiffText), DiffFilename, "diff")
+		if err != nil {
+			return nil, err
+		}
+	}
+	var highlightedCompleteDiff template.HTML
+	if completeDiffText != "" {
+		highlightedCompleteDiff, _, err = highlightSource([]byte(completeDiffText), DiffFilename, "diff")
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	return renderPage(TemplateData{
-		RenderedHTML:               template.HTML(body.String()),
-		SourceText:                 string(src),
-		HighlightedSourceHTML:      sourceHTML,
-		Headings:                   headings,
-		TOC:                        tocHeadings(headings),
-		Format:                     FormatMarkdown.String(),
-		Language:                   language,
-		HasMermaid:                 hasMermaid(doc, bodySource),
-		FrontMatterText:            string(frontMatter.text),
-		FrontMatterFormat:          frontMatter.format,
-		FrontMatterTitle:           frontMatter.title,
-		HighlightedFrontMatterHTML: highlightedFrontMatter,
-		RepositoryURL:              opts.RepositoryURL,
-		Revision:                   opts.Revision,
-		RevisionCount:              opts.RevisionCount,
-		PreviousRevision:           opts.PreviousRevision,
-		VersionsPath:               opts.VersionsPath,
-		DiffPath:                   opts.DiffPath,
-		DiffText:                   opts.DiffText,
-		HighlightedDiffHTML:        highlightedDiff,
+		RenderedHTML:                template.HTML(body.String()),
+		SourceText:                  string(src),
+		HighlightedSourceHTML:       sourceHTML,
+		Headings:                    headings,
+		TOC:                         tocHeadings(headings),
+		Format:                      FormatMarkdown.String(),
+		Language:                    language,
+		HasMermaid:                  hasMermaid(doc, bodySource),
+		FrontMatterText:             string(frontMatter.text),
+		FrontMatterFormat:           frontMatter.format,
+		FrontMatterTitle:            frontMatter.title,
+		HighlightedFrontMatterHTML:  highlightedFrontMatter,
+		RepositoryURL:               opts.RepositoryURL,
+		Revision:                    opts.Revision,
+		RevisionCount:               opts.RevisionCount,
+		PreviousRevision:            opts.PreviousRevision,
+		VersionsPath:                opts.VersionsPath,
+		DiffPath:                    opts.DiffPath,
+		DiffText:                    opts.DiffText,
+		RevisionChainID:             opts.RevisionChainID,
+		PageChanged:                 pageChanged,
+		PageDiffText:                pageDiffText,
+		HighlightedPageDiffHTML:     highlightedPageDiff,
+		CompleteDiffText:            completeDiffText,
+		HasCompleteDiff:             opts.HasCompleteDiff,
+		HighlightedCompleteDiffHTML: highlightedCompleteDiff,
+		AllChangesPath:              opts.AllChangesPath,
 	}, opts)
 }
 
@@ -379,6 +411,17 @@ func RenderText(src []byte, name string, opts RenderOptions) ([]byte, error) {
 		Format:                FormatText.String(),
 		Language:              language,
 		SourceName:            fileName,
+		Revision:              opts.Revision,
+		RevisionCount:         opts.RevisionCount,
+		PreviousRevision:      opts.PreviousRevision,
+		VersionsPath:          opts.VersionsPath,
+		DiffPath:              opts.DiffPath,
+		RevisionChainID:       opts.RevisionChainID,
+		PageChanged:           opts.PageChanged,
+		PageDiffText:          opts.PageDiffText,
+		CompleteDiffText:      opts.CompleteDiffText,
+		HasCompleteDiff:       opts.HasCompleteDiff,
+		AllChangesPath:        opts.AllChangesPath,
 	}, opts)
 }
 
@@ -407,6 +450,42 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 	data.VersionsPath = opts.VersionsPath
 	data.DiffPath = opts.DiffPath
 	data.DiffText = opts.DiffText
+	data.RevisionChainID = opts.RevisionChainID
+	data.PageChanged = opts.PageChanged || data.PageChanged
+	if data.PageDiffText == "" && opts.DiffText != "" {
+		data.PageDiffText = opts.DiffText
+		data.CompleteDiffText = opts.DiffText
+		data.PageChanged = true
+	}
+	if !opts.structuredDiff && opts.Revision > 1 && opts.DiffPath != "" {
+		data.PageChanged = true
+	}
+	if data.PageDiffText == "" {
+		data.PageDiffText = opts.PageDiffText
+	}
+	if data.CompleteDiffText == "" {
+		data.CompleteDiffText = opts.CompleteDiffText
+	}
+	data.AllChangesPath = opts.AllChangesPath
+	data.HasCompleteDiff = opts.HasCompleteDiff || data.HasCompleteDiff
+	if data.PageDiffText != "" && data.HighlightedPageDiffHTML == "" {
+		highlighted, _, highlightErr := highlightSource(
+			[]byte(data.PageDiffText), DiffFilename, "diff",
+		)
+		if highlightErr != nil {
+			return nil, highlightErr
+		}
+		data.HighlightedPageDiffHTML = highlighted
+	}
+	if data.CompleteDiffText != "" && data.HighlightedCompleteDiffHTML == "" {
+		highlighted, _, highlightErr := highlightSource(
+			[]byte(data.CompleteDiffText), DiffFilename, "diff",
+		)
+		if highlightErr != nil {
+			return nil, highlightErr
+		}
+		data.HighlightedCompleteDiffHTML = highlighted
+	}
 	if len(opts.Pages) == 0 {
 		logical := opts.CurrentLogicalPath
 		if logical == "" {
@@ -429,6 +508,12 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 		data.Pages = opts.Pages
 		data.CurrentPage = opts.CurrentPage
 		data.Entrypoint = opts.Entrypoint
+	}
+	if data.AllChangesPath == "" && data.Revision > 1 && data.DiffPath != "" {
+		data.AllChangesPath = data.Entrypoint + "#airplan-all-changes"
+	}
+	if !opts.structuredDiff && data.Revision > 1 && data.DiffPath != "" {
+		data.HasCompleteDiff = true
 	}
 	data.Assets = opts.Assets
 	if data.SourceName == "" {

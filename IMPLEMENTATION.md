@@ -257,8 +257,12 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   normal anchor to a standalone document. CSS opts same-origin navigations into
   cross-document View Transitions under the no-reduced-motion media query;
   there is no click interception, fetch/replace controller, or client-side
-  history. Each destination runs the existing one-shot initializer. This page
-  structure increments `RendererGeneration` to 4.
+  history. Each destination runs the existing one-shot initializer. Linked
+  pages add page-local diff projection, entry-only complete reports, and
+  marker-validated same-logical-page revision selection. Collapsed Pages uses
+  a native top-anchored popover while Contents retains its bottom-sheet dialog;
+  the mobile document toolbar is sticky. This page structure increments
+  `RendererGeneration` to 5.
 - Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, safe theme CSS/catalog metadata, structured headings/ToC
@@ -378,12 +382,21 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   invalid transition reservation to exclude new and stale appenders. The
   deleted member's control body remains as a markerless durable receipt for
   marker-last recovery, including when local history missed the first-link
-  projection and must recover chain identity from the receipt. Adjacent
-  exact source bytes are diffed with pure-Go go-difflib and Chroma renders the
-  immutable combined per-path diff into the built-in page's Changes view.
-  Binary asset changes become deterministic metadata summaries rather than
-  embedded bytes. Replicated revision indexes continue to store entry URLs
-  only.
+  projection and must recover chain identity from the receipt. Adjacent exact
+  source bytes are diffed with pure-Go go-difflib into one structured canonical
+  report. Its versioned envelope uses explicit JSON-encoded page and asset
+  section paths, avoiding collisions between logical paths and Airplan-owned
+  bundle headings. Deterministic bundle-level, page-descriptor, page-source,
+  order, and asset sections serialize the immutable stored bytes; the in-memory
+  model projects one page-local section into each changed page and the complete
+  report into the entry only. Chroma highlights each eligible projection once.
+  Upgrade parses that envelope strictly before mutation, binds nested unified
+  headers to the section path and envelope revisions, accepts the earlier
+  unversioned structured form, and maps legacy one-page diffs wholly to the
+  entry. Binary asset changes remain deterministic metadata summaries.
+  Replicated revision indexes continue to store entry URLs only; the browser
+  resolves child targets by fetching and validating the selected revision's v6
+  marker, with its validated entry URL as the failure fallback.
 - Collection storage: `UploadFiles` accepts known-size `io.ReadSeeker` members,
   hashes each member during preflight, rewinds it, hashes the transmitted bytes
   again, and fails before publishing the overview when a caller changes a

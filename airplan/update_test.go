@@ -75,7 +75,8 @@ func TestGenerateBundleRevisionDiffStopsAtAggregateLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	maxSize := len("# airplan revisions: 1 -> 2\n") + len("# a.md\n") + len(section)
+	maxSize := len("# airplan revisions: 1 -> 2\n") + len(revisionDiffFormatHeader) +
+		len("# airplan page: \"a.md\"\n") + len(section)
 	if len(section) == 0 || section[len(section)-1] != '\n' {
 		maxSize++
 	}
@@ -117,7 +118,8 @@ func TestGenerateBundleRevisionDiffRejectsExactAggregateExhaustionBeforeDiff(t *
 		{Path: "a.md", SourcePath: "a.md", Format: "md", Source: []byte(strings.Repeat("new\n", 4096))},
 		{Path: "b.md", SourcePath: "b.md", Format: "md", Source: []byte("new\n")},
 	}}
-	maxSize := len("# airplan revisions: 1 -> 2\n") + len("# a.md\n")
+	maxSize := len("# airplan revisions: 1 -> 2\n") + len(revisionDiffFormatHeader) +
+		len("# airplan page: \"a.md\"\n")
 	_, err := client.generateBundleRevisionDiff(context.Background(),
 		&revisionDocument{marker: marker, dirPrefix: dir + "/"}, next, nil,
 		1, 2, maxSize,

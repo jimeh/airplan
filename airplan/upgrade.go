@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"path"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -775,6 +774,20 @@ func (c *Client) materializeUpgradeSpooled(
 		return err
 	}
 	descriptors := upgradeMarkerPages(marker)
+	var diffReport *revisionDiffReport
+	pageDiffs := make(map[string]string)
+	changedPages := make(map[string]bool)
+	if len(plan.diff) != 0 {
+		diffReport, err = parseRevisionDiffReport(plan.diff, descriptors[0].Path)
+		if err != nil {
+			return fmt.Errorf("airplan: parse adjacent revision diff: %w", err)
+		}
+		projectedPages := make([]RenderedBundlePage, 0, len(descriptors))
+		for _, descriptor := range descriptors {
+			projectedPages = append(projectedPages, RenderedBundlePage{Path: descriptor.Path})
+		}
+		pageDiffs, changedPages = inlinePageDiffs(diffReport, projectedPages)
+	}
 	inputs := make([]PageInput, len(descriptors))
 	opened := make([]io.Closer, 0, len(descriptors))
 	closeOpened := func() {
@@ -825,9 +838,12 @@ func (c *Client) materializeUpgradeSpooled(
 		Revision:             revisionNumber(marker),
 		RevisionCount:        revisionLatest(plan.versions, c.cfg, plan.PageKey),
 		PreviousRevision:     previousRevision,
+		RevisionChainID:      revisionChainID(marker),
 		VersionsPath:         VersionsFilename,
 		DiffPath:             revisionDiffPath(marker),
-		DiffText:             inlineRevisionDiff(plan.diff),
+		PageDiffs:            pageDiffs,
+		ChangedPages:         changedPages,
+		CompleteDiffText:     inlineRevisionDiff(plan.diff),
 	}, c.template, c.templateErr, payloads.spool)
 	closeOpened()
 	if err != nil {
@@ -936,6 +952,13 @@ func revisionLatest(body []byte, cfg *Config, pageKey string) int {
 	return metadata.LatestRevision
 }
 
+func revisionChainID(marker *UploadMarker) string {
+	if marker == nil || marker.Revision == nil {
+		return ""
+	}
+	return marker.Revision.ChainID
+}
+
 func revisionPrevious(
 	body []byte, cfg *Config, pageKey string, marker *UploadMarker, diff []byte,
 ) (int, error) {
@@ -958,60 +981,6 @@ func revisionPrevious(
 		return 0, errors.New("airplan: adjacent revision diff does not match its marker")
 	}
 	return previous, nil
-}
-
-func revisionDiffRange(diff []byte) (int, int, error) {
-	lines := strings.Split(string(diff), "\n")
-	const bundlePrefix = "# airplan revisions: "
-	for _, line := range lines {
-		line = strings.TrimSuffix(line, "\r")
-		if !strings.HasPrefix(line, bundlePrefix) {
-			continue
-		}
-		parts := strings.Split(strings.TrimPrefix(line, bundlePrefix), " -> ")
-		if len(parts) != 2 {
-			return 0, 0, errors.New("bundle diff revision header is invalid")
-		}
-		previous, previousErr := strconv.Atoi(parts[0])
-		current, currentErr := strconv.Atoi(parts[1])
-		if previousErr != nil || currentErr != nil || previous <= 0 ||
-			current <= previous {
-			return 0, 0, errors.New("bundle diff revision range is invalid")
-		}
-		return previous, current, nil
-	}
-	parse := func(line, prefix string) (int, error) {
-		line = strings.TrimSuffix(line, "\r")
-		if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, "/plan.md") {
-			return 0, errors.New("diff header is invalid")
-		}
-		number, err := strconv.Atoi(strings.TrimSuffix(strings.TrimPrefix(
-			line, prefix,
-		), "/plan.md"))
-		if err != nil || number <= 0 {
-			return 0, errors.New("diff revision number is invalid")
-		}
-		return number, nil
-	}
-	for index := 0; index+1 < len(lines); index++ {
-		if !strings.HasPrefix(lines[index], "--- revision-") ||
-			!strings.HasPrefix(lines[index+1], "+++ revision-") {
-			continue
-		}
-		previous, err := parse(lines[index], "--- revision-")
-		if err != nil {
-			return 0, 0, err
-		}
-		current, err := parse(lines[index+1], "+++ revision-")
-		if err != nil {
-			return 0, 0, err
-		}
-		if current <= previous {
-			return 0, 0, errors.New("diff revision order is invalid")
-		}
-		return previous, current, nil
-	}
-	return 0, 0, errors.New("diff headers are missing")
 }
 
 func (c *Client) upgradeTemplateMatches(recipe *RenderRecipe) bool {

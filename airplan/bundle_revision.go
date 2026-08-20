@@ -3,6 +3,7 @@ package airplan
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -121,12 +122,17 @@ func (c *Client) createBundleRevision(
 	if err != nil {
 		return nil, err
 	}
+	diffReport, err := parseRevisionDiffReport(diffBody, comparison.Pages[0].Path)
+	if err != nil {
+		return nil, fmt.Errorf("airplan: parse generated revision diff: %w", err)
+	}
+	pageDiffs, changedPages := inlinePageDiffs(diffReport, comparison.Pages)
 	revisionInput, closeSources, err := reopenedDocumentInput(comparison, validatedInput)
 	if err != nil {
 		return nil, err
 	}
 	defer closeSources()
-	bundle, err := renderDocumentSpooled(ctx, revisionInput, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Indexable: recipe.Indexable, IncludeSource: true, NoExternalAssets: recipe.NoExternalAssets, MermaidURL: recipe.MermaidURL, Repository: latest.marker.Repo, Themes: c.cfg.ThemeBundle}, MaxGeneratedPageSize: input.Document.maxGeneratedPageSize, Revision: newRevision, RevisionCount: newRevision, PreviousRevision: previousRevision, VersionsPath: VersionsFilename, DiffPath: DiffFilename, DiffText: inlineRevisionDiff(diffBody)}, c.template, c.templateErr)
+	bundle, err := renderDocumentSpooled(ctx, revisionInput, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Indexable: recipe.Indexable, IncludeSource: true, NoExternalAssets: recipe.NoExternalAssets, MermaidURL: recipe.MermaidURL, Repository: latest.marker.Repo, Themes: c.cfg.ThemeBundle}, MaxGeneratedPageSize: input.Document.maxGeneratedPageSize, Revision: newRevision, RevisionCount: newRevision, PreviousRevision: previousRevision, RevisionChainID: chainID, VersionsPath: VersionsFilename, DiffPath: DiffFilename, PageDiffs: pageDiffs, ChangedPages: changedPages, CompleteDiffText: inlineRevisionDiff(diffBody)}, c.template, c.templateErr)
 	if err != nil {
 		return nil, err
 	}
@@ -523,11 +529,27 @@ func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revis
 	for index := range next.Pages {
 		newSources[next.Pages[index].Path] = &next.Pages[index]
 	}
-	paths := make(map[string]struct{}, len(oldSources)+len(newSources))
+	oldAssets := make(map[string]MarkerObject)
+	for _, object := range previous.marker.Objects {
+		if object.Role == MarkerRoleAsset {
+			oldAssets[object.Name] = object
+		}
+	}
+	newAssets := make(map[string]preparedAsset, len(assets))
+	for _, asset := range assets {
+		newAssets[asset.Path] = asset
+	}
+	paths := make(map[string]struct{}, len(oldSources)+len(newSources)+len(oldAssets)+len(newAssets))
 	for value := range oldSources {
 		paths[value] = struct{}{}
 	}
 	for value := range newSources {
+		paths[value] = struct{}{}
+	}
+	for value := range oldAssets {
+		paths[value] = struct{}{}
+	}
+	for value := range newAssets {
 		paths[value] = struct{}{}
 	}
 	ordered := make([]string, 0, len(paths))
@@ -537,6 +559,8 @@ func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revis
 	sort.Strings(ordered)
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "# airplan revisions: %d -> %d\n", previousRevision, newRevision)
+	out.WriteString(revisionDiffFormatHeader)
+	baseSize := out.Len()
 	sizeError := func() error {
 		return fmt.Errorf("airplan: revision diff exceeds maximum size of %s", formatSize(int64(maxSize)))
 	}
@@ -549,9 +573,77 @@ func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revis
 	if err := checkSize(); err != nil {
 		return nil, err
 	}
+	oldPageOrder := make([]string, 0, len(previous.marker.Pages))
+	for _, page := range previous.marker.Pages {
+		oldPageOrder = append(oldPageOrder, page.Path)
+	}
+	newPageOrder := make([]string, 0, len(next.Pages))
+	for _, page := range next.Pages {
+		newPageOrder = append(newPageOrder, page.Path)
+	}
+	if !revisionPathOrderEqual(oldPageOrder, newPageOrder) {
+		before, _ := json.Marshal(oldPageOrder)
+		after, _ := json.Marshal(newPageOrder)
+		fmt.Fprintf(&out, "# airplan page order\nbefore: %s\nafter: %s\n", before, after)
+	}
+	oldAssetOrder := make([]string, 0)
+	for _, object := range previous.marker.Objects {
+		if object.Role == MarkerRoleAsset {
+			oldAssetOrder = append(oldAssetOrder, object.Name)
+		}
+	}
+	newAssetOrder := make([]string, 0, len(assets))
+	for _, asset := range assets {
+		newAssetOrder = append(newAssetOrder, asset.Path)
+	}
+	if !revisionPathOrderEqual(oldAssetOrder, newAssetOrder) {
+		before, _ := json.Marshal(oldAssetOrder)
+		after, _ := json.Marshal(newAssetOrder)
+		fmt.Fprintf(&out, "# airplan asset order\nbefore: %s\nafter: %s\n", before, after)
+	}
+	if previous.marker.Slug != next.Slug || previous.marker.Title != next.Title ||
+		previous.marker.Format != next.Format {
+		before, _ := json.Marshal(struct {
+			Format string `json:"format"`
+			Title  string `json:"title"`
+			Slug   string `json:"slug"`
+		}{previous.marker.Format, previous.marker.Title, previous.marker.Slug})
+		after, _ := json.Marshal(struct {
+			Format string `json:"format"`
+			Title  string `json:"title"`
+			Slug   string `json:"slug"`
+		}{next.Format, next.Title, next.Slug})
+		fmt.Fprintf(&out, "# airplan metadata\nbefore: %s\nafter: %s\n", before, after)
+	}
+	if err := checkSize(); err != nil {
+		return nil, err
+	}
 	for _, logical := range ordered {
 		oldPage, oldOK := oldSources[logical]
 		newPage, newOK := newSources[logical]
+		if !oldOK && !newOK {
+			oldAsset, oldAssetOK := oldAssets[logical]
+			newAsset, newAssetOK := newAssets[logical]
+			if oldAssetOK && newAssetOK && oldAsset.Bytes == newAsset.Size &&
+				oldAsset.ContentType == newAsset.ContentType && oldAsset.SHA256 == newAsset.digest {
+				continue
+			}
+			switch {
+			case !oldAssetOK:
+				writeRevisionDiffSectionHeader(&out, "asset", logical)
+				fmt.Fprintf(&out, "asset added: %s, %d bytes, sha256 %s\n", newAsset.ContentType, newAsset.Size, newAsset.digest)
+			case !newAssetOK:
+				writeRevisionDiffSectionHeader(&out, "asset", logical)
+				fmt.Fprintf(&out, "asset removed: %s, %d bytes, sha256 %s\n", oldAsset.ContentType, oldAsset.Bytes, oldAsset.SHA256)
+			default:
+				writeRevisionDiffSectionHeader(&out, "asset", logical)
+				fmt.Fprintf(&out, "asset changed: %s, %d bytes, sha256 %s -> %s, %d bytes, sha256 %s\n", oldAsset.ContentType, oldAsset.Bytes, oldAsset.SHA256, newAsset.ContentType, newAsset.Size, newAsset.digest)
+			}
+			if err := checkSize(); err != nil {
+				return nil, err
+			}
+			continue
+		}
 		var oldBody, newBody []byte
 		if oldOK {
 			object, ok := markerObjectNamed(previous.marker, oldPage.Source)
@@ -573,10 +665,44 @@ func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revis
 				return nil, err
 			}
 		}
-		if oldOK && newOK && bytes.Equal(oldBody, newBody) {
+		metadataLine := ""
+		switch {
+		case !oldOK:
+			metadataLine = "page added: " + pageDescriptorJSON(newPage.Format, newPage.Title, newPage.Lang)
+		case !newOK:
+			metadataLine = "page removed: " + pageDescriptorJSON(oldPage.Format, oldPage.Title, oldPage.Lang)
+		default:
+			type changedValue struct {
+				Before string `json:"before"`
+				After  string `json:"after"`
+			}
+			changes := struct {
+				Format *changedValue `json:"format,omitempty"`
+				Title  *changedValue `json:"title,omitempty"`
+				Lang   *changedValue `json:"lang,omitempty"`
+			}{}
+			if oldPage.Format != newPage.Format {
+				changes.Format = &changedValue{oldPage.Format, newPage.Format}
+			}
+			if oldPage.Title != newPage.Title {
+				changes.Title = &changedValue{oldPage.Title, newPage.Title}
+			}
+			if oldPage.Lang != newPage.Lang {
+				changes.Lang = &changedValue{oldPage.Lang, newPage.Lang}
+			}
+			if changes.Format != nil || changes.Title != nil || changes.Lang != nil {
+				encoded, _ := json.Marshal(changes)
+				metadataLine = "page metadata changed: " + string(encoded)
+			}
+		}
+		sourceChanged := !oldOK || !newOK || !bytes.Equal(oldBody, newBody)
+		if !sourceChanged && metadataLine == "" {
 			continue
 		}
-		fmt.Fprintf(&out, "# %s\n", logical)
+		writeRevisionDiffSectionHeader(&out, "page", logical)
+		if metadataLine != "" {
+			fmt.Fprintln(&out, metadataLine)
+		}
 		if err := checkSize(); err != nil {
 			return nil, err
 		}
@@ -587,67 +713,55 @@ func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revis
 				return nil, sizeError()
 			}
 		}
-		section, err := generateRevisionDiff(oldBody, newBody, previousRevision, newRevision, sectionLimit)
-		if err != nil {
-			return nil, err
-		}
-		out.Write(section)
-		if len(section) == 0 || section[len(section)-1] != '\n' {
-			out.WriteByte('\n')
-		}
-		if err := checkSize(); err != nil {
-			return nil, err
-		}
-	}
-	oldAssets := make(map[string]MarkerObject)
-	for _, object := range previous.marker.Objects {
-		if object.Role == MarkerRoleAsset {
-			oldAssets[object.Name] = object
-		}
-	}
-	newAssets := make(map[string]preparedAsset, len(assets))
-	for _, asset := range assets {
-		newAssets[asset.Path] = asset
-	}
-	assetPaths := make(map[string]struct{}, len(oldAssets)+len(newAssets))
-	for value := range oldAssets {
-		assetPaths[value] = struct{}{}
-	}
-	for value := range newAssets {
-		assetPaths[value] = struct{}{}
-	}
-	ordered = ordered[:0]
-	for value := range assetPaths {
-		ordered = append(ordered, value)
-	}
-	sort.Strings(ordered)
-	for _, logical := range ordered {
-		oldAsset, oldOK := oldAssets[logical]
-		newAsset, newOK := newAssets[logical]
-		if oldOK && newOK && oldAsset.Bytes == newAsset.Size && oldAsset.ContentType == newAsset.ContentType && oldAsset.SHA256 == newAsset.digest {
-			continue
-		}
-		switch {
-		case !oldOK:
-			fmt.Fprintf(&out, "# %s\nasset added: %s, %d bytes, sha256 %s\n", logical, newAsset.ContentType, newAsset.Size, newAsset.digest)
-		case !newOK:
-			fmt.Fprintf(&out, "# %s\nasset removed: %s, %d bytes, sha256 %s\n", logical, oldAsset.ContentType, oldAsset.Bytes, oldAsset.SHA256)
-		default:
-			fmt.Fprintf(&out, "# %s\nasset changed: %s, %d bytes, sha256 %s -> %s, %d bytes, sha256 %s\n", logical, oldAsset.ContentType, oldAsset.Bytes, oldAsset.SHA256, newAsset.ContentType, newAsset.Size, newAsset.digest)
+		if sourceChanged {
+			section, err := generateRevisionDiffForPath(
+				oldBody, newBody, previousRevision, newRevision, logical, sectionLimit,
+			)
+			if err != nil {
+				return nil, err
+			}
+			out.Write(section)
+			if len(section) == 0 || section[len(section)-1] != '\n' {
+				out.WriteByte('\n')
+			}
 		}
 		if err := checkSize(); err != nil {
 			return nil, err
 		}
 	}
-	if out.Len() == len(fmt.Sprintf(
-		"# airplan revisions: %d -> %d\n", previousRevision, newRevision,
-	)) {
+	if out.Len() == baseSize {
 		out.WriteString("No textual changes.\n")
 	}
 	if err := checkSize(); err != nil {
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+func writeRevisionDiffSectionHeader(out *bytes.Buffer, kind, logical string) {
+	encoded, _ := json.Marshal(logical)
+	fmt.Fprintf(out, "# airplan %s: %s\n", kind, encoded)
+}
+
+func revisionPathOrderEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func pageDescriptorJSON(format, title, lang string) string {
+	encoded, _ := json.Marshal(struct {
+		Format string `json:"format"`
+		Title  string `json:"title,omitempty"`
+		Lang   string `json:"lang"`
+	}{format, title, lang})
+	return string(encoded)
 }
 
 func markerObjectNamed(marker *UploadMarker, name string) (MarkerObject, bool) {
@@ -657,4 +771,25 @@ func markerObjectNamed(marker *UploadMarker, name string) (MarkerObject, bool) {
 		}
 	}
 	return MarkerObject{}, false
+}
+
+func inlinePageDiffs(
+	report *revisionDiffReport, pages []RenderedBundlePage,
+) (map[string]string, map[string]bool) {
+	inline := make(map[string]string)
+	changed := make(map[string]bool)
+	if report == nil {
+		return inline, changed
+	}
+	for _, page := range pages {
+		section, ok := report.PageSections[page.Path]
+		if !ok {
+			continue
+		}
+		changed[page.Path] = true
+		if len(section) <= MaxInlineDiffSize {
+			inline[page.Path] = string(section)
+		}
+	}
+	return inline, changed
 }

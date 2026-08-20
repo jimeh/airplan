@@ -127,6 +127,34 @@ function isVersionManifestURL(url: string) {
   }
 }
 
+function isRevisionMarkerURL(url: string) {
+  try {
+    return new URL(url).pathname.endsWith("/.airplan.json");
+  } catch {
+    return false;
+  }
+}
+
+function linkedBundlePage(
+  source: Buffer,
+  revision: number,
+  chainID: string,
+  logicalPath: string,
+  entrypoint: string,
+) {
+  const html = source.toString();
+  const versions = '<meta name="airplan-versions" content="../.airplan-versions.json">';
+  if (!html.includes(versions)) throw new Error("bundle fixture lacks versions metadata");
+  return html.replace(
+    versions,
+    versions +
+      `\n<meta name="airplan-revision" content="${revision}">` +
+      `\n<meta name="airplan-revision-chain" content="${chainID}">` +
+      `\n<meta name="airplan-page-path" content="${logicalPath}">` +
+      `\n<meta name="airplan-entrypoint" content="${entrypoint}">`,
+  );
+}
+
 const test = base.extend({
   page: async ({ page }, use) => {
     const errors: string[] = [];
@@ -141,7 +169,7 @@ const test = base.extend({
     });
     page.on("response", (response) => {
       if (response.status() !== 404) return;
-      if (isVersionManifestURL(response.url())) return;
+      if (isVersionManifestURL(response.url()) || isRevisionMarkerURL(response.url())) return;
       errors.push(`response error: 404 ${response.url()}`);
     });
     page.on("console", (message) => {
@@ -470,19 +498,19 @@ test("bundle pages use ordinary navigation and update both rails", async ({
 
   if (testInfo.project.name.startsWith("narrow-")) {
     await openPages.click();
-    const dialog = page.getByRole("dialog", { name: "Pages" });
-    await expect(dialog).toBeVisible();
-    await expect(dialog.locator('a[aria-current="page"]')).toContainText("README.md");
+    const popover = page.locator("#pages-popover");
+    await expect(popover).toBeVisible();
+    await expect(popover.locator('a[aria-current="page"]')).toContainText("README.md");
+    await expect(openPages).toHaveAttribute("aria-expanded", "true");
 
     await page.setViewportSize({ width: 1400, height: 844 });
-    await expect(dialog).toBeHidden();
-    await expect(page.locator("#pages-dialog")).not.toHaveAttribute("open", "");
+    await expect(popover).toBeHidden();
     await page.setViewportSize({ width: 390, height: 844 });
     await openPages.click();
-    await expect(dialog).toBeVisible();
+    await expect(popover).toBeVisible();
     await Promise.all([
       page.waitForURL(`${baseURL}/bundle/docs/design.html`),
-      dialog.getByRole("link", { name: /Design notes/ }).click(),
+      popover.getByRole("link", { name: /Design notes/ }).click(),
     ]);
   } else {
     await Promise.all([
@@ -516,7 +544,12 @@ test("bundle pages use ordinary navigation and update both rails", async ({
     .toContain("# Design notes");
   await page.getByRole("button", { name: "Rendered view" }).click();
 
-  await page.getByRole("link", { name: "Deep dive" }).click();
+  if (testInfo.project.name.startsWith("narrow-")) {
+    await page.getByRole("button", { name: "Open table of contents" }).click();
+    await page.locator("#toc-dialog").getByRole("link", { name: "Deep dive" }).click();
+  } else {
+    await page.locator("#toc").getByRole("link", { name: "Deep dive" }).click();
+  }
   await expect(page).toHaveURL(`${baseURL}/bundle/docs/design.html#deep-dive`);
   await page.goBack();
   await expect(page).toHaveURL(`${baseURL}/bundle/docs/design.html`);
@@ -866,10 +899,13 @@ test("appearance panel dismisses accessibly and restores focus", async ({ page }
   await expect(panel).toBeHidden();
   await expect(trigger).toBeFocused();
   await trigger.click();
-  await page.getByRole("heading", { name: "Browser smoke plan" }).click();
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error("appearance dismissal test has no viewport");
+  await page.mouse.click(4, viewport.height - 4);
   await expect(panel).toBeHidden();
   await expect(trigger).toBeFocused();
 
+  if (viewport.width <= 768) return;
   await trigger.click();
   const sourceView = page.getByRole("button", { name: "Source view" });
   await sourceView.click();
@@ -1140,6 +1176,145 @@ test("revision metadata renders a compact picker and stale notice", async ({ pag
   await expect(page.locator("[data-revision-heading]")).not.toHaveClass(/is-stale/);
 });
 
+test("child revision selection preserves logical page and falls back to entry", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers marker routing");
+  const currentDir = "v".repeat(26);
+  const targetDir = "w".repeat(26);
+  const chainID = "s".repeat(26);
+  const currentChild = `${baseURL}/${currentDir}/docs/design.html`;
+  const targetChild = `${baseURL}/${targetDir}/docs/design.html`;
+  const targetEntry = `${baseURL}/${targetDir}/index.html`;
+  const childHTML = linkedBundlePage(
+    bundleMembers.get("/bundle/docs/design.html")!,
+    2,
+    chainID,
+    "docs/design.md",
+    "../index.html",
+  );
+  await page.route(currentChild, (route) =>
+    route.fulfill({ contentType: "text/html; charset=utf-8", body: childHTML }),
+  );
+  await page.route(`${baseURL}/${targetDir}/**`, (route) =>
+    route.fulfill({ contentType: "text/html; charset=utf-8", body: childHTML }),
+  );
+  await page.route(`**/${currentDir}/.airplan-versions.json?*`, (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schema: "airplan-versions",
+        version: 1,
+        chain_id: chainID,
+        current_revision: 2,
+        latest_revision: 2,
+        last_assigned_revision: 2,
+        revisions: [
+          { number: 1, url: targetEntry, created_at: "2026-08-15T10:00:00Z" },
+          {
+            number: 2,
+            url: `${baseURL}/${currentDir}/index.html`,
+            created_at: "2026-08-15T10:10:00Z",
+            diff_url: `${baseURL}/${currentDir}/.airplan-changes.diff`,
+          },
+        ],
+      }),
+    }),
+  );
+  const markerPattern = `**/${targetDir}/.airplan.json?*`;
+  const validMarker = {
+    schema: "airplan-upload",
+    version: 6,
+    kind: "document",
+    entrypoint: "index.html",
+    revision: { chain_id: chainID, number: 1 },
+    pages: [
+      {
+        path: "README.md",
+        page: "index.html",
+        source: "README.md",
+        format: "md",
+        lang: "Markdown",
+      },
+      {
+        path: "docs/design.md",
+        page: "docs/design.html",
+        source: "docs/design.md",
+        format: "md",
+        lang: "Markdown",
+      },
+    ],
+  };
+  await page.route(markerPattern, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(validMarker) });
+  });
+
+  await page.goto(currentChild + "#deep-dive");
+  const selector = page.getByRole("combobox", { name: "Document revision" });
+  const navigation = page.waitForURL(targetChild + "#deep-dive");
+  const selection = selector.selectOption({ label: "Revision 1 of 2" });
+  await expect(selector).toBeDisabled();
+  await Promise.all([navigation, selection]);
+  await expect(page).toHaveURL(targetChild + "#deep-dive");
+
+  const invalidTargets = [
+    { name: "missing marker", status: 404, body: "" },
+    { name: "malformed marker", status: 200, body: "{" },
+    {
+      name: "wrong version",
+      status: 200,
+      body: JSON.stringify({ ...validMarker, version: 5 }),
+    },
+    {
+      name: "wrong chain",
+      status: 200,
+      body: JSON.stringify({ ...validMarker, revision: { chain_id: "z".repeat(26), number: 1 } }),
+    },
+    {
+      name: "mismatched entrypoint",
+      status: 200,
+      body: JSON.stringify({ ...validMarker, entrypoint: "other.html" }),
+    },
+    {
+      name: "traversal mapping",
+      status: 200,
+      body: JSON.stringify({
+        ...validMarker,
+        pages: [validMarker.pages[0], { ...validMarker.pages[1], page: "../escape.html" }],
+      }),
+    },
+    {
+      name: "duplicate rendered mapping",
+      status: 200,
+      body: JSON.stringify({
+        ...validMarker,
+        pages: [...validMarker.pages, { ...validMarker.pages[1], path: "docs/copy.md" }],
+      }),
+    },
+    {
+      name: "missing logical page",
+      status: 200,
+      body: JSON.stringify({ ...validMarker, pages: validMarker.pages.slice(0, 1) }),
+    },
+  ];
+  for (const invalid of invalidTargets) {
+    await page.unroute(markerPattern);
+    await page.route(markerPattern, (route) =>
+      route.fulfill({
+        status: invalid.status,
+        contentType: "application/json",
+        body: invalid.body,
+      }),
+    );
+    await page.goto(currentChild + "#deep-dive");
+    await page.getByRole("combobox", { name: "Document revision" }).selectOption({
+      label: "Revision 1 of 2",
+    });
+    await expect(page, invalid.name).toHaveURL(targetEntry);
+  }
+});
+
 test("revision metadata rejects same-origin URLs outside the current key prefix", async ({
   page,
 }) => {
@@ -1280,26 +1455,24 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   await page.goto(revisions[1].url);
   await page.setViewportSize({ width: 700, height: 800 });
   const toolbarLayout = await page.locator(".toolbar").evaluate((element) => {
-    const view = element.querySelector(".viewtoggle")!.getBoundingClientRect();
-    const files = element.querySelector(".file-actions")!.getBoundingClientRect();
-    const theme = element.querySelector(".appearance")!.getBoundingClientRect();
+    const view = document.querySelector(".reader-controls .viewtoggle")!.getBoundingClientRect();
+    const toolbar = element.getBoundingClientRect();
     return {
       display: getComputedStyle(element).display,
-      viewCenter: view.top + view.height / 2,
-      themeCenter: theme.top + theme.height / 2,
-      firstRowBottom: Math.max(view.bottom, theme.bottom),
-      filesTop: files.top,
+      position: getComputedStyle(element).position,
+      toolbarBottom: toolbar.bottom,
+      viewTop: view.top,
     };
   });
-  expect(toolbarLayout.display).toBe("grid");
-  expect(toolbarLayout.viewCenter).toBeCloseTo(toolbarLayout.themeCenter, 0);
-  expect(toolbarLayout.filesTop).toBeGreaterThan(toolbarLayout.firstRowBottom);
+  expect(toolbarLayout.display).toBe("flex");
+  expect(toolbarLayout.position).toBe("sticky");
+  expect(toolbarLayout.viewTop).toBeGreaterThanOrEqual(toolbarLayout.toolbarBottom);
   const changesButton = page.getByRole("button", { name: "Changes view" });
   await expect(changesButton).toBeVisible();
   await changesButton.click();
   await expect(page.locator("#changes")).toBeVisible();
   await expect(page.locator("#rendered")).toBeHidden();
-  await expect(page.locator("#changes")).toContainText("Changes from revision 1");
+  await expect(page.locator("#changes")).toContainText("Changes to plan.md from revision 1");
   await expect(page.locator("#changes")).toContainText("-Original");
   await expect(page.locator("#changes")).toContainText("+Revised");
   await expect(page.getByRole("link", { name: "Open raw diff" })).toHaveAttribute(
@@ -1313,6 +1486,16 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   await page.getByRole("button", { name: "Rendered view" }).click();
   await expect(page.locator("#rendered")).toBeVisible();
   await expect(page.locator("#changes")).toBeHidden();
+  await page.getByRole("link", { name: "All changes" }).click();
+  await expect(page).toHaveURL(/#airplan-all-changes$/);
+  await expect(page.locator("[data-airplan-all-changes]")).toBeVisible();
+  await expect(page.locator("#rendered")).toBeHidden();
+  await expect(page.getByRole("link", { name: "Back to document" })).toBeVisible();
+  await page.reload();
+  await expect(page.locator("[data-airplan-all-changes]")).toBeVisible();
+  await page.goBack();
+  await expect(page).not.toHaveURL(/#airplan-all-changes$/);
+  await expect(page.locator("#rendered")).toBeVisible();
 });
 
 test("rendered page controls work", async ({ context, page }, testInfo) => {
@@ -1325,22 +1508,22 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
   await expect(page.locator("#rendered").getByText("This fixture verifies")).toBeVisible();
   const toolbar = page.getByRole("navigation", { name: "Document controls" });
   const narrow = testInfo.project.name.startsWith("narrow-");
-  await expect(toolbar).toHaveCSS("justify-content", narrow ? "stretch" : "flex-end");
+  await expect(toolbar).toHaveCSS("justify-content", "flex-end");
   await expect
     .poll(() =>
       toolbar.evaluate((element) =>
-        Array.from(
-          element.querySelectorAll(".viewtoggle, .copy-source, .download, .raw, .appearance"),
-        )
+        Array.from(element.querySelectorAll(".copy-source, .download, .raw, .appearance"))
           .filter((child) => !(child as HTMLElement).hidden)
           .map((child) =>
             Array.from(child.classList).find((name) =>
-              ["viewtoggle", "copy-source", "download", "raw", "appearance"].includes(name),
+              ["copy-source", "download", "raw", "appearance"].includes(name),
             ),
           ),
       ),
     )
-    .toEqual(["viewtoggle", "copy-source", "appearance"]);
+    .toEqual(["copy-source", "appearance"]);
+  await expect(page.locator(".reader-controls .viewtoggle")).toBeVisible();
+  await expect(toolbar.locator(".viewtoggle")).toHaveCount(0);
   const dividerDisplay = await page
     .locator(".appearance")
     .evaluate((element) => getComputedStyle(element, "::before").display);
@@ -1352,43 +1535,22 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
     const alignment = await toolbar.evaluate((element) => {
       const bounds = element.getBoundingClientRect();
       const styles = getComputedStyle(element);
-      const view = element.querySelector(".viewtoggle")!.getBoundingClientRect();
       const theme = element.querySelector(".appearance")!.getBoundingClientRect();
       const copy = element.querySelector(".copy-source")!.getBoundingClientRect();
       const fileActions = element.querySelector(".file-actions")!.getBoundingClientRect();
       return {
-        left: view.left - bounds.left,
-        leftPadding: Number.parseFloat(styles.paddingLeft),
         right: bounds.right - theme.right,
         rightPadding: Number.parseFloat(styles.paddingRight),
-        viewCenter: view.top + view.height / 2,
         themeCenter: theme.top + theme.height / 2,
-        firstRowBottom: Math.max(view.bottom, theme.bottom),
-        copyTop: copy.top,
-        actionsLeft: fileActions.left - bounds.left,
+        copyCenter: copy.top + copy.height / 2,
+        actionsRight: bounds.right - fileActions.right,
       };
     });
-    expect(alignment.left).toBeCloseTo(alignment.leftPadding, 0);
     expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
-    expect(alignment.viewCenter).toBeCloseTo(alignment.themeCenter, 0);
-    expect(alignment.copyTop).toBeGreaterThan(alignment.firstRowBottom);
-    expect(alignment.actionsLeft).toBeCloseTo(alignment.leftPadding, 0);
+    expect(alignment.copyCenter).toBeCloseTo(alignment.themeCenter, 0);
+    expect(alignment.actionsRight).toBeGreaterThanOrEqual(0);
     expect(dividerDisplay).toBe("none");
   } else {
-    const alignment = await toolbar.evaluate((element) => {
-      const bounds = element.getBoundingClientRect();
-      const styles = getComputedStyle(element);
-      const view = element.querySelector(".viewtoggle")!.getBoundingClientRect();
-      const theme = element.querySelector(".appearance")!.getBoundingClientRect();
-      return {
-        left: view.left - bounds.left,
-        leftPadding: Number.parseFloat(styles.paddingLeft),
-        right: bounds.right - theme.right,
-        rightPadding: Number.parseFloat(styles.paddingRight),
-      };
-    });
-    expect(alignment.left).toBeCloseTo(alignment.leftPadding, 0);
-    expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
     expect(dividerDisplay).not.toBe("none");
     const dividerSpacing = await page.locator(".appearance").evaluate((element) => {
       const bounds = element.getBoundingClientRect();
@@ -1461,15 +1623,8 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
   await expect(page.locator("html")).toHaveAttribute("data-airplan-mode", "system");
   await expect(systemTheme).toHaveAttribute("aria-pressed", "true");
 
-  const inlineToc = page.locator("#toc");
-  await inlineToc.getByRole("link", { name: "Details" }).click();
-  await expect(page).toHaveURL(/#details$/);
-  await expect(page.getByRole("heading", { name: "Details" })).toBeVisible();
-
   if (testInfo.project.name.startsWith("narrow-")) {
-    await expect
-      .poll(() => inlineToc.evaluate((element) => element.getBoundingClientRect().bottom))
-      .toBeLessThan(0);
+    await expect(page.locator("#toc")).toBeHidden();
     const openToc = page.getByRole("button", {
       name: "Open table of contents",
     });
@@ -1481,6 +1636,11 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
     await dialog.getByRole("link", { name: "Code sample" }).click();
     await expect(dialog).toBeHidden();
     await expect(page).toHaveURL(/#code-sample$/);
+  } else {
+    const inlineToc = page.locator("#toc");
+    await inlineToc.getByRole("link", { name: "Details" }).click();
+    await expect(page).toHaveURL(/#details$/);
+    await expect(page.getByRole("heading", { name: "Details" })).toBeVisible();
   }
 
   const renderedButton = page.getByRole("button", { name: "Rendered view" });
@@ -1991,15 +2151,12 @@ test("uploaded source controls share the first row on narrow screens", async ({
     const theme = element.querySelector(".appearance")!.getBoundingClientRect();
     return {
       actionsCenter: actions.top + actions.height / 2,
-      actionsLeft: actions.left - bounds.left,
-      leftPadding: Number.parseFloat(styles.paddingLeft),
       right: bounds.right - theme.right,
       rightPadding: Number.parseFloat(styles.paddingRight),
       themeCenter: theme.top + theme.height / 2,
     };
   });
   expect(alignment.actionsCenter).toBeCloseTo(alignment.themeCenter, 0);
-  expect(alignment.actionsLeft).toBeCloseTo(alignment.leftPadding, 0);
   expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
 });
 

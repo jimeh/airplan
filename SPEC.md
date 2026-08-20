@@ -318,17 +318,23 @@ described below.
   disable only revision navigation. A regular upload does not create this
   control object; the linked-revision feature creates it only when revision 2
   is uploaded. Custom templates do not gain this bootstrap automatically.
+- Every managed Markdown or text/source page in a linked bundle embeds the
+  immutable revision number, chain ID, exact logical page path, relative entry
+  page, and relative versions path. Revision discovery is therefore available
+  from child source pages as well as Markdown pages. Standalone text pages do
+  not gain revision discovery metadata.
 - A responsive table of contents is rendered from markdown headings:
   - H1, H2, and H3 headings are included. If an H1 is the first visible
     block in the document, it is treated as the document title and is
     the only heading omitted from the built-in table of contents. Later
     H1 headings remain top-level entries.
-  - Heading links and hierarchy work without JavaScript. On wide
-    screens the table of contents occupies a sticky rail beside the
-    centered document; on narrow screens it moves above the document.
-    As a progressive enhancement on layouts without the sticky rail, a
-    compact control keeps the table of contents reachable after its
-    inline version scrolls above the viewport.
+  - Heading links and hierarchy work without JavaScript. On wide screens the
+    table of contents occupies a sticky rail beside the centered document. At
+    the rail-collapse breakpoint, progressive enhancement replaces the inline
+    list with a permanent bottom-right Contents trigger throughout the rendered
+    view. The trigger is hidden in Source, Code, Changes, and All changes views
+    and while either transient navigation panel is open. Without native dialog
+    support or scripting, the inline list remains as the fallback.
   - In-page navigation scrolls smoothly by default. It becomes immediate
     when the reader requests reduced motion.
   - Scroll position highlighting is a progressive enhancement and
@@ -497,46 +503,54 @@ as-is (warn if combined).
 Template data contract (the stable API custom templates code
 against):
 
-| Field                         | Type      | Meaning                              |
-| ----------------------------- | --------- | ------------------------------------ |
-| `.Title`                      | string    | resolved title                       |
-| `.RenderedHTML`               | raw HTML  | rendered markdown or text page body  |
-| `.SourceText`                 | string    | original unmodified source           |
-| `.HighlightedSourceHTML`      | raw HTML  | syntax-highlighted original source   |
-| `.SyntaxCSS`                  | raw CSS   | styles required by highlighted HTML  |
-| `.Headings`                   | heading[] | all markdown headings                |
-| `.TOC`                        | heading[] | built-in H1-H3 ToC entries           |
-| `.Format`                     | string    | `md` or `txt`                        |
-| `.Language`                   | string    | resolved source-highlight language   |
-| `.SourceName`                 | string    | original basename; empty for stdin   |
-| `.SourcePath`                 | string    | relative path to the uploaded source |
-| `.Slug`                       | string    | resolved slug                        |
-| `.Indexable`                  | boolean   | whether indexing is allowed          |
-| `.HasMermaid`                 | boolean   | exact Mermaid fence was rendered     |
-| `.NoExternalAssets`           | boolean   | managed external loads are disabled  |
-| `.MermaidURL`                 | string    | resolved Mermaid module URL          |
-| `.FrontMatterText`            | string    | exact complete frontmatter block     |
-| `.FrontMatterFormat`          | string    | `yaml`, `toml`, or empty             |
-| `.FrontMatterTitle`           | string    | usable frontmatter title or empty    |
-| `.HighlightedFrontMatterHTML` | raw HTML  | highlighted frontmatter block        |
-| `.RepositoryURL`              | string    | resolved canonical repository URL    |
-| `.Revision`                   | integer   | this page's revision, or zero        |
-| `.RevisionCount`              | integer   | greatest live revision when rendered |
-| `.PreviousRevision`           | integer   | adjacent predecessor, or zero        |
-| `.VersionsPath`               | string    | relative versions metadata path      |
-| `.DiffPath`                   | string    | relative adjacent diff path          |
-| `.DiffText`                   | string    | inline adjacent diff, or empty       |
-| `.HighlightedDiffHTML`        | raw HTML  | highlighted inline adjacent diff     |
-| `.ThemeCSS`                   | raw CSS   | validated semantic screen/print CSS  |
-| `.ThemeCatalogJSON`           | safe JS   | validated browser catalog metadata   |
-| `.MermaidThemeJSON`           | safe JS   | palettes, or empty without Mermaid   |
-| `.DefaultLightTheme`          | string    | configured light-slot theme ID       |
-| `.DefaultDarkTheme`           | string    | configured dark-slot theme ID        |
-| `.AppearanceEnabled`          | boolean   | catalog has more than one theme      |
-| `.Pages`                      | page[]    | ordered managed-page navigation      |
-| `.CurrentPage`                | page      | current managed page                 |
-| `.Entrypoint`                 | string    | relative URL to the entry page       |
-| `.Assets`                     | asset[]   | ordered declared asset inventory     |
+| Field                          | Type      | Meaning                                |
+| ------------------------------ | --------- | -------------------------------------- |
+| `.Title`                       | string    | resolved title                         |
+| `.RenderedHTML`                | raw HTML  | rendered markdown or text page body    |
+| `.SourceText`                  | string    | original unmodified source             |
+| `.HighlightedSourceHTML`       | raw HTML  | syntax-highlighted original source     |
+| `.SyntaxCSS`                   | raw CSS   | styles required by highlighted HTML    |
+| `.Headings`                    | heading[] | all markdown headings                  |
+| `.TOC`                         | heading[] | built-in H1-H3 ToC entries             |
+| `.Format`                      | string    | `md` or `txt`                          |
+| `.Language`                    | string    | resolved source-highlight language     |
+| `.SourceName`                  | string    | original basename; empty for stdin     |
+| `.SourcePath`                  | string    | relative path to the uploaded source   |
+| `.Slug`                        | string    | resolved slug                          |
+| `.Indexable`                   | boolean   | whether indexing is allowed            |
+| `.HasMermaid`                  | boolean   | exact Mermaid fence was rendered       |
+| `.NoExternalAssets`            | boolean   | managed external loads are disabled    |
+| `.MermaidURL`                  | string    | resolved Mermaid module URL            |
+| `.FrontMatterText`             | string    | exact complete frontmatter block       |
+| `.FrontMatterFormat`           | string    | `yaml`, `toml`, or empty               |
+| `.FrontMatterTitle`            | string    | usable frontmatter title or empty      |
+| `.HighlightedFrontMatterHTML`  | raw HTML  | highlighted frontmatter block          |
+| `.RepositoryURL`               | string    | resolved canonical repository URL      |
+| `.Revision`                    | integer   | this page's revision, or zero          |
+| `.RevisionCount`               | integer   | greatest live revision when rendered   |
+| `.PreviousRevision`            | integer   | adjacent predecessor, or zero          |
+| `.VersionsPath`                | string    | relative versions metadata path        |
+| `.DiffPath`                    | string    | relative adjacent diff path            |
+| `.DiffText`                    | string    | inline adjacent diff, or empty         |
+| `.HighlightedDiffHTML`         | raw HTML  | highlighted inline adjacent diff       |
+| `.RevisionChainID`             | string    | immutable linked-revision chain ID     |
+| `.PageChanged`                 | boolean   | current page has adjacent changes      |
+| `.PageDiffText`                | string    | page-local inline diff, or empty       |
+| `.HighlightedPageDiffHTML`     | raw HTML  | highlighted page-local diff            |
+| `.CompleteDiffText`            | string    | entry-only complete inline report      |
+| `.HighlightedCompleteDiffHTML` | raw HTML  | highlighted complete report            |
+| `.HasCompleteDiff`             | boolean   | entry owns an adjacent complete report |
+| `.AllChangesPath`              | string    | relative entry all-changes URL         |
+| `.ThemeCSS`                    | raw CSS   | validated semantic screen/print CSS    |
+| `.ThemeCatalogJSON`            | safe JS   | validated browser catalog metadata     |
+| `.MermaidThemeJSON`            | safe JS   | palettes, or empty without Mermaid     |
+| `.DefaultLightTheme`           | string    | configured light-slot theme ID         |
+| `.DefaultDarkTheme`            | string    | configured dark-slot theme ID          |
+| `.AppearanceEnabled`           | boolean   | catalog has more than one theme        |
+| `.Pages`                       | page[]    | ordered managed-page navigation        |
+| `.CurrentPage`                 | page      | current managed page                   |
+| `.Entrypoint`                  | string    | relative URL to the entry page         |
+| `.Assets`                      | asset[]   | ordered declared asset inventory       |
 
 Each heading has `.Level` (1–6), `.ID`, `.Text`, and `.IsTitle`.
 `.IsTitle` is true only for a leading H1 that the built-in table of
@@ -1261,18 +1275,28 @@ with a 26-character lowercase RFC 4648 base32 `chain_id`, positive `number`,
 and, after revision 1, the previous page URL. Revisions greater than 1 declare
 exactly one `diff` object named `.airplan-changes.diff`, content type
 `text/plain; charset=utf-8`; standalone documents and revision 1 declare none.
-The adjacent deterministic diff combines logical-path sections. It contains
-unified diffs with three context lines for added, removed, and changed UTF-8
-managed sources. Renames appear as remove plus add unless exact-digest rename
-detection is unambiguous. Binary asset sections summarize path, content type,
-size, and digest changes without embedding asset bytes. Output uses LF and
-preserves final-newline distinctions in source sections. It is
-bounded to 32 MiB and generated before remote mutation. At most 512 KiB is
-embedded for server-highlighted display; larger diffs retain the Changes view
-and its raw sibling-object link without embedding the diff body in the page.
-Every bundle diff begins with `# airplan revisions: N -> M`; this remains a
-parseable adjacent range when a revision changes only metadata or assets and
-there are no unified source headers.
+The adjacent deterministic diff combines explicitly typed logical-path
+sections. Bundle-level metadata, page-order, and asset-order sections precede
+sorted page and asset path sections. Each current report begins with
+`# airplan revisions: N -> M` and `# airplan diff format: 2`. Page and asset
+section headings are respectively `# airplan page: <json-string>` and
+`# airplan asset: <json-string>`, where the JSON string is the exact logical
+path. Page sections contain fixed-prefix JSON descriptor summaries for
+additions, removals, or format/title/language changes and unified diffs with
+three context lines for changed UTF-8 sources. Renames appear as remove plus
+add. Binary asset sections summarize path, content type, size, and digest
+changes without embedding asset bytes. Output uses LF and preserves
+final-newline distinctions in source sections. It is bounded to 32 MiB and
+generated before remote mutation. The 512 KiB inline limit applies separately
+to each page-local section and to the complete report. A larger page section
+retains that page's Changes view and raw sibling-object link; a larger complete
+report retains All changes and its raw link.
+The range remains parseable when a revision changes only metadata or assets and
+there are no unified source headers. When a page section has unified source
+headers, both headers must repeat that section's exact logical path and the
+envelope's adjacent revision numbers. Upgrade accepts unversioned generation-4
+structured reports and legacy single-page diffs, but rejects malformed typed
+sections or mismatched nested headers before mutation.
 Each immutable `--- revision-N/<logical-path>` header remains the authoritative
 predecessor number when that predecessor has since become a metadata tombstone
 and its URL is no longer present in the chain index; re-rendering must not infer
@@ -1292,10 +1316,16 @@ refused before candidate upload with `ErrRevisionHistoryFull`; REST reports
 `revision_history_full` (422). A missing object means standalone; invalid
 metadata disables only revision navigation, not an otherwise complete payload.
 
-The revision index stores each revision's entry URL, not a page map. Selecting
-another revision from any child page performs a normal full navigation to that
-revision's entry. Pages added or removed between revisions therefore need no
-cross-revision identity rule.
+The revision index stores each revision's entry URL, not a page map. Exact,
+case-sensitive logical source path is page identity across revisions. Selecting
+another revision from a child page fetches that target directory's public v6
+marker with `no-store`, validates its document kind, revision number, chain ID,
+entrypoint, portable unique page paths, and same-directory object URLs, then
+navigates normally to the exact matching page. Missing pages and every marker
+fetch or validation failure fall back to the already validated target entry
+URL. Ordinary content fragments are retained only for a matching page. The
+reserved `#airplan-all-changes` fragment always selects the target entry for
+revisions greater than 1 and is dropped when selecting revision 1.
 
 The built-in page fetches metadata relative to itself with `no-store` and a
 per-load nonce. Valid metadata turns the muted revision indicator above the
@@ -1306,11 +1336,32 @@ page is labeled `Revision N (Latest)`. The whole indicator opens a native
 select, including a one-option selector when deletion leaves one live chain
 member; the toolbar contains no revision control and there are no previous,
 next, or latest shortcut links.
-Valid metadata also adds the server-highlighted Changes view and raw diff
-link. It validates same-origin Airplan-shaped URLs and inserts metadata text
-through DOM text APIs. Failure leaves the document, source, theme, ToC, print,
-and Mermaid behavior intact. Anyone who can read one chain URL learns every
-linked capability URL; this is intentional.
+Valid metadata also adds `All changes` beside the selector for every revision
+greater than 1. Markdown pages expose Rendered and Source modes plus Changes
+only when that logical page was added or its source, format, title, or language
+changed. Managed text pages expose Code plus the same optional Changes mode.
+Page reorder alone appears only in the complete report. Changes is page-local;
+the entry page does not absorb child changes. `All changes` is the complete
+adjacent report and opens only on the entry page through
+`#airplan-all-changes`, with Back to document and raw-diff links. It hides the
+page rails and content modes while active. These are normal anchors and
+navigations; the runtime does not replace document HTML or manage history.
+
+At the mobile toolbar breakpoint the document toolbar is sticky, opaque, and
+safe-area aware. It retains Pages, applicable Copy/Download/Raw actions as
+icon-only 44px targets, and Appearance. Revision controls and content modes
+remain with the document below it, and fragment offsets include its measured
+height. At collapsed-rail widths Pages progressively enhances into a native
+top-anchored popover below its trigger, with ordinary navigation links, light
+dismiss, Escape handling, and focus restoration. It is visually and
+behaviorally distinct from the bottom-sheet Contents dialog, and only one may
+be open. Without native popover support or scripting, the inline Pages list
+remains available.
+
+Revision metadata validation uses same-origin Airplan-shaped URLs and inserts
+metadata text through DOM text APIs. Failure leaves the document, source,
+theme, ToC, print, and Mermaid behavior intact. Anyone who can read one chain
+URL learns every linked capability URL; this is intentional.
 
 `get --diff` fetches the declared adjacent diff from a directory target and is
 mutually exclusive with `--source`. `show` exposes revision identity, latest

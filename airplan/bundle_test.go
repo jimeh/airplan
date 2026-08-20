@@ -125,6 +125,131 @@ func TestRenderDocumentNamesLinksAndAssets(t *testing.T) {
 	}
 }
 
+func TestRenderDocumentProjectsRevisionChangesPerPage(t *testing.T) {
+	report := "# airplan revisions: 2 -> 3\n# README.md\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1 +1 @@\n-old\n+new\n# server.go\n--- revision-2/server.go\n+++ revision-3/server.go\n@@ -1 +1 @@\n-old\n+new\n"
+	bundle, err := RenderDocument(context.Background(), DocumentInput{
+		Entry: PageInput{Reader: strings.NewReader("# New\n"), Path: "README.md"},
+		Pages: []PageInput{
+			{Reader: strings.NewReader("# Stable\n"), Path: "docs/stable.md"},
+			{Reader: strings.NewReader("package main\n"), Path: "server.go"},
+		},
+	}, DocumentRenderOptions{
+		RenderInputOptions: RenderInputOptions{IncludeSource: true},
+		Revision:           3, RevisionCount: 3, PreviousRevision: 2,
+		RevisionChainID: strings.Repeat("a", 26), VersionsPath: VersionsFilename,
+		DiffPath:     DiffFilename,
+		ChangedPages: map[string]bool{"README.md": true, "server.go": true},
+		PageDiffs: map[string]string{
+			"README.md": "# README.md\n--- revision-2/README.md\n+++ revision-3/README.md\n",
+			"server.go": "# server.go\n--- revision-2/server.go\n+++ revision-3/server.go\n",
+		},
+		CompleteDiffText: report,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(bundle.Pages[0].HTML, []byte(`data-view="changes"`)) ||
+		!bytes.Contains(bundle.Pages[0].HTML, []byte(`class="content all-changes-view"`)) ||
+		bytes.Contains(bundle.Pages[0].HTML, []byte(`Changes to server.go`)) {
+		t.Fatal("entry does not contain distinct page-local and complete changes")
+	}
+	if bytes.Contains(bundle.Pages[1].HTML, []byte(`data-view="changes"`)) ||
+		bytes.Contains(bundle.Pages[1].HTML, []byte(`class="content all-changes-view"`)) {
+		t.Fatal("unchanged child exposes changes UI")
+	}
+	if !bytes.Contains(bundle.Pages[2].HTML, []byte(`>Code</span>`)) ||
+		!bytes.Contains(bundle.Pages[2].HTML, []byte(`data-view="changes"`)) ||
+		bytes.Contains(bundle.Pages[2].HTML, []byte(`class="content all-changes-view"`)) {
+		t.Fatal("changed source page mode projection is incorrect")
+	}
+	for _, page := range bundle.Pages {
+		if !bytes.Contains(page.HTML, []byte(`name="airplan-page-path"`)) ||
+			!bytes.Contains(page.HTML, []byte(`name="airplan-revision-chain"`)) {
+			t.Fatalf("page %q lacks immutable revision identity", page.Path)
+		}
+	}
+}
+
+func TestCreateDocumentRevisionProjectsFourPageChanges(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	firstAsset := []byte("first asset")
+	secondAsset := []byte("second asset")
+	input := func(revised bool) DocumentInput {
+		entry, server, asset := "# Plan\n\nOriginal.\n", "package main\n", firstAsset
+		pages := []PageInput{
+			{Reader: strings.NewReader("# Stable\n"), Path: "stable.md"},
+			{Reader: strings.NewReader(server), Path: "airplan guide.go", Lang: "Go"},
+			{Reader: strings.NewReader("# Removed\n"), Path: "removed.md"},
+		}
+		if revised {
+			entry, server, asset = "# Plan\n\nRevised.\n", "package main\n\nfunc main() {}\n", secondAsset
+			pages = pages[:2]
+			pages[1].Reader = strings.NewReader(server)
+		}
+		return DocumentInput{
+			Entry: PageInput{Reader: strings.NewReader(entry), Path: "README.md"},
+			Pages: pages,
+			Assets: []AssetInput{{
+				Reader: bytes.NewReader(asset), Path: "assets/evidence.bin",
+				Size: int64(len(asset)), ContentType: "application/octet-stream",
+			}},
+			RepositoryURL: "none",
+		}
+	}
+
+	first, err := client.UploadDocument(context.Background(), input(false))
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.CreateDocumentRevision(
+		context.Background(),
+		CreateDocumentRevisionInput{Target: first.URL, Document: input(true)},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second.Pages) != 3 {
+		t.Fatalf("revision pages = %+v", second.Pages)
+	}
+
+	entry, entryOK := store.get(second.Pages[0].Key)
+	stable, stableOK := store.get(second.Pages[1].Key)
+	server, serverOK := store.get(second.Pages[2].Key)
+	diff, diffOK := store.get(second.ID + "/" + DiffFilename)
+	if !entryOK || !stableOK || !serverOK || !diffOK {
+		t.Fatal("revision page or diff object is missing")
+	}
+	if !bytes.Contains(entry, []byte(`data-view="changes"`)) ||
+		!bytes.Contains(entry, []byte(`class="content all-changes-view"`)) ||
+		!bytes.Contains(entry, []byte(`Changes to README.md`)) {
+		t.Fatal("changed entry lacks its local Changes mode or complete report")
+	}
+	if bytes.Contains(stable, []byte(`data-view="changes"`)) ||
+		bytes.Contains(stable, []byte(`class="content all-changes-view"`)) {
+		t.Fatal("unchanged Markdown page exposes changes UI")
+	}
+	if !bytes.Contains(server, []byte(`>Code</span>`)) ||
+		!bytes.Contains(server, []byte(`data-view="changes"`)) ||
+		!bytes.Contains(server, []byte(`Changes to airplan guide.go`)) ||
+		bytes.Contains(server, []byte(`class="content all-changes-view"`)) {
+		t.Fatal("changed source page lacks Code/Changes or embeds the complete report")
+	}
+	for _, want := range []string{
+		"# airplan page order\n", `# airplan page: "README.md"` + "\n",
+		`# airplan asset: "assets/evidence.bin"` + "\n",
+		`# airplan page: "removed.md"` + "\npage removed:",
+		`# airplan page: "airplan guide.go"` + "\n",
+	} {
+		if !bytes.Contains(diff, []byte(want)) {
+			t.Fatalf("complete diff lacks %q:\n%s", want, diff)
+		}
+	}
+	if bytes.Contains(diff, []byte("# stable.md\n")) {
+		t.Fatalf("complete diff includes unchanged page:\n%s", diff)
+	}
+}
+
 func TestUploadDocumentHonorsLowerGeneratedPageLimitBeforeMutation(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")
@@ -549,6 +674,31 @@ func TestCreateDocumentRevisionCompleteReplacementAndBundlePromotion(t *testing.
 	if !ok || !bytes.Contains(details, []byte(`class="pages-nav"`)) ||
 		!entryOK || bytes.Equal(details, entry) {
 		t.Fatalf("promoted detail page = %q", details)
+	}
+	for _, want := range []string{
+		`name="airplan-revision" content="1"`,
+		`name="airplan-revision-chain"`,
+		`name="airplan-page-path" content="docs/details.md"`,
+		`name="airplan-entrypoint" content="../plan.html"`,
+	} {
+		if !bytes.Contains(details, []byte(want)) {
+			t.Fatalf("promoted detail page lacks %q", want)
+		}
+	}
+	secondEntry, secondEntryOK := store.get(second.Key)
+	diff, diffOK := store.get(second.ID + "/" + DiffFilename)
+	if !secondEntryOK || !bytes.Contains(secondEntry, []byte(`data-airplan-all-changes`)) ||
+		!diffOK {
+		t.Fatal("revision entry or complete diff is missing")
+	}
+	for _, want := range []string{
+		"# airplan page order\n", "# airplan asset order\n",
+		"# airplan metadata\n", `# airplan page: "docs/details.md"` + "\npage removed:",
+		`# airplan asset: "asset.bin"` + "\nasset removed:",
+	} {
+		if !bytes.Contains(diff, []byte(want)) {
+			t.Fatalf("complete diff lacks %q:\n%s", want, diff)
+		}
 	}
 
 	noop, err := client.CreateDocumentRevision(

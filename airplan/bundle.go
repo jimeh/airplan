@@ -115,6 +115,10 @@ type DocumentRenderOptions struct {
 	VersionsPath         string
 	DiffPath             string
 	DiffText             string
+	RevisionChainID      string
+	PageDiffs            map[string]string
+	ChangedPages         map[string]bool
+	CompleteDiffText     string
 }
 
 // RenderedBundlePage is one generated standalone managed page.
@@ -433,7 +437,18 @@ func renderDocumentWithSpool(
 		for assetIndex, asset := range in.Assets {
 			currentAssets[assetIndex] = DocumentTemplateAsset{Path: asset.Path, URL: relativeObjectURL(page.PagePath, asset.Path), ContentType: asset.ContentType}
 		}
-		renderOpts := RenderOptions{Title: page.Title, Slug: slug, SourceName: pathpkg.Base(page.Path), SourcePath: sourcePath, Indexable: opts.Indexable, NoExternalAssets: opts.NoExternalAssets, MermaidURL: opts.MermaidURL, RepositoryURL: resolvedRepository, Lang: page.Lang, Template: tmpl, Themes: opts.Themes, Pages: currentViews, CurrentPage: currentViews[index], Entrypoint: relativeObjectURL(page.PagePath, entrypoint), Assets: currentAssets, ManagedPagePaths: managedPageMap(bundle.Pages), CurrentLogicalPath: page.Path, CurrentRenderedPath: page.PagePath, Revision: opts.Revision, RevisionCount: opts.RevisionCount, PreviousRevision: opts.PreviousRevision, VersionsPath: relativeControlPath(page.PagePath, versionsPath), DiffPath: relativeControlPath(page.PagePath, opts.DiffPath), DiffText: opts.DiffText}
+		pageDiff := opts.PageDiffs[page.Path]
+		pageChanged := opts.ChangedPages[page.Path]
+		completeDiff := ""
+		if index == 0 {
+			completeDiff = opts.CompleteDiffText
+		}
+		if opts.PageDiffs == nil && opts.DiffText != "" && index == 0 {
+			pageDiff = opts.DiffText
+			pageChanged = true
+			completeDiff = opts.DiffText
+		}
+		renderOpts := RenderOptions{Title: page.Title, Slug: slug, SourceName: pathpkg.Base(page.Path), SourcePath: sourcePath, Indexable: opts.Indexable, NoExternalAssets: opts.NoExternalAssets, MermaidURL: opts.MermaidURL, RepositoryURL: resolvedRepository, Lang: page.Lang, Template: tmpl, Themes: opts.Themes, Pages: currentViews, CurrentPage: currentViews[index], Entrypoint: relativeObjectURL(page.PagePath, entrypoint), Assets: currentAssets, ManagedPagePaths: managedPageMap(bundle.Pages), CurrentLogicalPath: page.Path, CurrentRenderedPath: page.PagePath, Revision: opts.Revision, RevisionCount: opts.RevisionCount, PreviousRevision: opts.PreviousRevision, RevisionChainID: opts.RevisionChainID, VersionsPath: relativeControlPath(page.PagePath, versionsPath), DiffPath: relativeControlPath(page.PagePath, opts.DiffPath), PageChanged: pageChanged, PageDiffText: pageDiff, CompleteDiffText: completeDiff, HasCompleteDiff: index == 0 && opts.Revision > 1 && opts.DiffPath != "", AllChangesPath: relativeObjectURL(page.PagePath, entrypoint) + "#airplan-all-changes", structuredDiff: opts.PageDiffs != nil}
 		if tmplErr != nil && format != FormatHTML {
 			return nil, tmplErr
 		}

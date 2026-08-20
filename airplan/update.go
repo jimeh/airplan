@@ -260,8 +260,12 @@ func (c *Client) updateDocument(
 		RepositoryURL: latest.marker.Repo, Template: c.template,
 		Themes:   c.cfg.ThemeBundle,
 		Revision: newRevision, RevisionCount: newRevision,
-		PreviousRevision: previousRevision, VersionsPath: VersionsFilename,
-		DiffPath: "./" + DiffFilename, DiffText: inlineRevisionDiff(diffBody),
+		PreviousRevision: previousRevision, RevisionChainID: chainID,
+		VersionsPath: VersionsFilename,
+		DiffPath:     "./" + DiffFilename, DiffText: inlineRevisionDiff(diffBody),
+		HasCompleteDiff:    true,
+		CurrentLogicalPath: sourceName, CurrentRenderedPath: pageName,
+		Entrypoint: pageName, AllChangesPath: "./" + pageName + "#airplan-all-changes",
 	})
 	if err != nil {
 		return nil, err
@@ -1219,7 +1223,7 @@ func (c *Client) promoteStandaloneRevision(
 			Themes:           c.cfg.ThemeBundle,
 		},
 		Revision: 1, RevisionCount: metadata.LatestRevision,
-		VersionsPath: VersionsFilename,
+		RevisionChainID: chainID, VersionsPath: VersionsFilename,
 	}, c.template, c.templateErr)
 	if err != nil {
 		return err
