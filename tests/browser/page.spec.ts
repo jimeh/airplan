@@ -1246,6 +1246,7 @@ test("child revision selection preserves logical page and falls back to entry", 
     slug: "index",
     format: "md",
     title: "Bundle overview",
+    repo: "https://github.com/acme/service",
     producer: { name: "airplan", version: "0.10.0" },
     render: {
       generation: 5,
@@ -1348,21 +1349,33 @@ test("child revision selection preserves logical page and falls back to entry", 
   });
   const validRevisionThreeMarker = {
     ...validMarker,
+    extension: { future: true },
+    producer: { ...validMarker.producer, extension: "accepted" },
+    render: {
+      ...validMarker.render,
+      extension: true,
+      template: { ...validMarker.render.template, extension: true },
+      themes: { ...validMarker.render.themes, extension: true },
+    },
     revision: {
       chain_id: chainID,
       number: 3,
       previous_url: `${baseURL}/${currentDir}/index.html`,
+      extension: true,
     },
     objects: [
-      ...validMarker.objects,
+      { ...validMarker.objects[0], extension: true },
+      ...validMarker.objects.slice(1),
       {
         name: ".airplan-changes.diff",
         role: "diff",
         bytes: 100,
         content_type: "text/plain; charset=utf-8",
         sha256: "f".repeat(64),
+        extension: true,
       },
     ],
+    pages: [{ ...validMarker.pages[0], extension: true }, ...validMarker.pages.slice(1)],
   };
   markerBody = JSON.stringify(validRevisionThreeMarker);
   await page.goto(currentChild + "#deep-dive");
@@ -1378,6 +1391,19 @@ test("child revision selection preserves logical page and falls back to entry", 
     { name: "missing marker", status: 404, body: "" },
     { name: "malformed marker", status: 200, body: "{" },
     {
+      name: "duplicate root field",
+      status: 200,
+      body: JSON.stringify(validRevisionThreeMarker).replace(/^\{/, '{"schema":"airplan-upload",'),
+    },
+    {
+      name: "duplicate nested field",
+      status: 200,
+      body: JSON.stringify(validRevisionThreeMarker).replace(
+        '"producer":{"name":"airplan"',
+        '"producer":{"name":"airplan","name":"airplan"',
+      ),
+    },
+    {
       name: "wrong version",
       status: 200,
       body: JSON.stringify({ ...validRevisionThreeMarker, version: 5 }),
@@ -1386,6 +1412,27 @@ test("child revision selection preserves logical page and falls back to entry", 
       name: "wrong directory",
       status: 200,
       body: JSON.stringify({ ...validRevisionThreeMarker, directory: "x".repeat(26) }),
+    },
+    {
+      name: "noncanonical repository",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        repo: "https://github.com/acme/service.git",
+      }),
+    },
+    {
+      name: "noncanonical slug",
+      status: 200,
+      body: JSON.stringify({ ...validRevisionThreeMarker, slug: "Index" }),
+    },
+    {
+      name: "non-UTC timestamp",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        created_at: "2026-08-15T11:10:00+01:00",
+      }),
     },
     {
       name: "missing producer",

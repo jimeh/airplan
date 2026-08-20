@@ -23,6 +23,9 @@ func (c *Client) createBundleRevision(
 	if input.Document.Entry.Reader == nil {
 		return nil, errors.New("airplan: document revision entry reader is nil")
 	}
+	if err := validateDocumentItemCount(input.Document); err != nil {
+		return nil, err
+	}
 	if c.remote != nil {
 		return c.remote.CreateDocumentRevision(ctx, input)
 	}

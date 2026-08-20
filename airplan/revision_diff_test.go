@@ -105,6 +105,20 @@ func TestParseRevisionDiffReportRetainsGenerationFourAirplanPath(t *testing.T) {
 	}
 }
 
+func TestParseRevisionDiffReportRetainsGenerationFourAssetSection(t *testing.T) {
+	body := []byte("# airplan revisions: 2 -> 3\n" +
+		"# assets/screenshot.png\n" +
+		"asset changed: image/png, 10 bytes, sha256 old -> image/png, 11 bytes, sha256 new\n")
+	report, err := parseRevisionDiffReport(body, "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.PageSections) != 0 ||
+		!bytes.Contains(report.AssetSections["assets/screenshot.png"], []byte("asset changed:")) {
+		t.Fatalf("report sections = %#v, %#v", report.PageSections, report.AssetSections)
+	}
+}
+
 func TestParseRevisionDiffReportDoesNotTreatHunkContentAsHeaders(t *testing.T) {
 	body := []byte("# airplan revisions: 2 -> 3\n" + revisionDiffFormatHeader +
 		"# airplan page: \"airplan guide.md\"\n" +
@@ -132,6 +146,12 @@ func TestParseRevisionDiffReportRejectsMalformedFormatTwoSections(t *testing.T) 
 		{"empty metadata", "# airplan page: \"README.md\"\npage metadata changed: {}\n"},
 		{"bad hunk counts", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1 +1 @@\n-old\n"},
 		{"trailing hunk junk", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1 +1 @@\n-old\n+new\njunk\n"},
+		{"zero coordinate with content", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -0 +1 @@\n-old\n+new\n"},
+		{"noncanonical coordinate", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -01 +1 @@\n-old\n+new\n"},
+		{"explicit unit counts", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1,1 +1,1 @@\n-old\n+new\n"},
+		{"overlapping hunks", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1 +1 @@\n-old\n+new\n@@ -1 +1 @@\n-again\n+again-new\n"},
+		{"newline marker before content", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1 +1 @@\n\\ No newline at end of file\n-old\n+new\n"},
+		{"duplicate newline marker", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1 +1 @@\n-old\n\\ No newline at end of file\n\\ No newline at end of file\n+new\n"},
 		{"noncanonical asset", "# airplan asset: \"image.png\"\nasset added: {\"sha256\":\"" + digest + "\",\"bytes\":1,\"content_type\":\"image/png\"}\n"},
 		{"asset trailing content", "# airplan asset: \"image.png\"\nasset added: {\"content_type\":\"image/png\",\"bytes\":1,\"sha256\":\"" + digest + "\"}\ntrailing\n"},
 		{"malformed page order", "# airplan page order\nbefore: [\"README.md\",\"README.md\"]\nafter: [\"README.md\"]\n"},

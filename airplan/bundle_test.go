@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -32,6 +33,17 @@ func (r *unreadableAssetReader) Read([]byte) (int, error) {
 func (r *unreadableAssetReader) Seek(int64, int) (int64, error) {
 	r.seeks++
 	return 0, errors.New("unexpected seek")
+}
+
+func oversizedUnreadableDocument(reader *unreadableAssetReader) DocumentInput {
+	assets := make([]AssetInput, MaxDocumentItems)
+	for index := range assets {
+		assets[index] = AssetInput{Reader: reader, Path: fmt.Sprintf("asset-%d.bin", index), Size: 1}
+	}
+	return DocumentInput{
+		Entry:  PageInput{Reader: strings.NewReader("# Entry"), Path: "entry.md"},
+		Assets: assets, RepositoryURL: "none",
+	}
 }
 
 func (r *trackedBundleReader) Read(p []byte) (int, error) {
@@ -376,14 +388,8 @@ func TestRenderDocumentRejectsGeneratedCollision(t *testing.T) {
 func TestRenderDocumentEnforcesItemBoundaryBeforeReading(t *testing.T) {
 	t.Parallel()
 	reader := &unreadableAssetReader{}
-	assets := make([]AssetInput, MaxDocumentItems)
-	for index := range assets {
-		assets[index] = AssetInput{Reader: reader, Path: fmt.Sprintf("asset-%d.bin", index), Size: 1}
-	}
-	_, err := RenderDocument(context.Background(), DocumentInput{
-		Entry:  PageInput{Reader: strings.NewReader("# Entry"), Path: "entry.md"},
-		Assets: assets, RepositoryURL: "none",
-	}, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Repository: "none"}})
+	_, err := RenderDocument(context.Background(), oversizedUnreadableDocument(reader),
+		DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Repository: "none"}})
 	if err == nil || !strings.Contains(err.Error(), "maximum is 100") {
 		t.Fatalf("error = %v", err)
 	}
@@ -394,20 +400,68 @@ func TestRenderDocumentEnforcesItemBoundaryBeforeReading(t *testing.T) {
 
 func TestUploadDocumentEnforcesItemBoundaryBeforeReading(t *testing.T) {
 	reader := &unreadableAssetReader{}
-	assets := make([]AssetInput, MaxDocumentItems)
-	for index := range assets {
-		assets[index] = AssetInput{Reader: reader, Path: fmt.Sprintf("asset-%d.bin", index), Size: 1}
-	}
 	store := newUpgradeStore(t)
-	_, err := store.client(t, "").UploadDocument(context.Background(), DocumentInput{
-		Entry:  PageInput{Reader: strings.NewReader("# Entry"), Path: "entry.md"},
-		Assets: assets, RepositoryURL: "none",
-	})
+	_, err := store.client(t, "").UploadDocument(
+		context.Background(), oversizedUnreadableDocument(reader),
+	)
 	if err == nil || !strings.Contains(err.Error(), "maximum is 100") {
 		t.Fatalf("error = %v", err)
 	}
 	if reader.reads != 0 || reader.seeks != 0 {
 		t.Fatalf("asset reader calls = %d reads, %d seeks", reader.reads, reader.seeks)
+	}
+}
+
+func TestMaterializeDocumentEnforcesItemBoundaryBeforeReading(t *testing.T) {
+	reader := &unreadableAssetReader{}
+	_, err := MaterializeDocument(
+		context.Background(), oversizedUnreadableDocument(reader),
+		DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Repository: "none"}},
+		filepath.Join(t.TempDir(), "output"),
+	)
+	if err == nil || !strings.Contains(err.Error(), "maximum is 100") {
+		t.Fatalf("error = %v", err)
+	}
+	if reader.reads != 0 || reader.seeks != 0 {
+		t.Fatalf("asset reader calls = %d reads, %d seeks", reader.reads, reader.seeks)
+	}
+}
+
+func TestCreateDocumentRevisionEnforcesItemBoundaryBeforeDispatchOrPreparation(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		requests++
+	}))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL, APIToken: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := &unreadableAssetReader{}
+	_, err = client.CreateDocumentRevision(context.Background(), CreateDocumentRevisionInput{
+		Target:   "https://plans.example.com/target/index.html",
+		Document: oversizedUnreadableDocument(reader),
+	})
+	if err == nil || !strings.Contains(err.Error(), "maximum is 100") {
+		t.Fatalf("error = %v", err)
+	}
+	if requests != 0 || reader.reads != 0 || reader.seeks != 0 {
+		t.Fatalf("requests = %d, asset reader calls = %d reads, %d seeks", requests, reader.reads, reader.seeks)
+	}
+
+	localReader := &unreadableAssetReader{}
+	localClient := newUpgradeStore(t).client(t, "")
+	_, err = localClient.createBundleRevision(context.Background(), CreateDocumentRevisionInput{
+		Target:   "https://plans.example.com/target/index.html",
+		Document: oversizedUnreadableDocument(localReader),
+	}, MaxDiffSize)
+	if err == nil || !strings.Contains(err.Error(), "maximum is 100") {
+		t.Fatalf("local error = %v", err)
+	}
+	if localReader.reads != 0 || localReader.seeks != 0 {
+		t.Fatalf("local asset reader calls = %d reads, %d seeks", localReader.reads, localReader.seeks)
 	}
 }
 

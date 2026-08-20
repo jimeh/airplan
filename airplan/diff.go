@@ -186,7 +186,7 @@ func parseRevisionDiffReport(body []byte, entryPath string) (*revisionDiffReport
 		if headerErr != nil {
 			return nil, headerErr
 		}
-		if !explicit && kind == "global" {
+		if !explicit {
 			if legacyKind := legacyRevisionDiffPathKind(section); legacyKind != "" {
 				kind, logical = legacyKind, name
 			}
@@ -521,7 +521,7 @@ func validateRevisionPageSection(
 	if !matchedHeaders {
 		return fmt.Errorf("airplan: revision diff page section %q has mismatched unified headers", logical)
 	}
-	return validateRevisionHunks(lines[2:], logical)
+	return validateRevisionHunks(lines[2:], logical, strict)
 }
 
 func validRevisionPageMetadataChanges(value revisionPageMetadataChanges) bool {
@@ -544,36 +544,57 @@ func validRevisionPageMetadataChanges(value revisionPageMetadataChanges) bool {
 	return true
 }
 
-func validateRevisionHunks(lines []string, logical string) error {
+func validateRevisionHunks(lines []string, logical string, strict bool) error {
 	if len(lines) == 0 {
 		return fmt.Errorf("airplan: revision diff page section %q has no unified hunks", logical)
 	}
+	previousOldEnd, previousNewEnd := -1, -1
 	for index := 0; index < len(lines); {
 		match := revisionHunkHeader.FindStringSubmatch(lines[index])
 		if match == nil {
 			return fmt.Errorf("airplan: revision diff page section %q has invalid unified hunk", logical)
 		}
-		oldCount, err := revisionHunkCount(match[2])
+		oldStart, oldCount, err := revisionHunkRange(match[1], match[2], strict)
 		if err != nil {
 			return fmt.Errorf("airplan: revision diff page section %q has invalid unified hunk", logical)
 		}
-		newCount, err := revisionHunkCount(match[4])
+		newStart, newCount, err := revisionHunkRange(match[3], match[4], strict)
 		if err != nil {
 			return fmt.Errorf("airplan: revision diff page section %q has invalid unified hunk", logical)
+		}
+		if strict {
+			if oldCount == 0 && newCount == 0 {
+				return fmt.Errorf("airplan: revision diff page section %q has empty unified hunk", logical)
+			}
+			oldEnd, oldEndErr := revisionHunkEnd(oldStart, oldCount)
+			newEnd, newEndErr := revisionHunkEnd(newStart, newCount)
+			if oldEndErr != nil || newEndErr != nil ||
+				(previousOldEnd >= 0 && (oldStart <= previousOldEnd || newStart <= previousNewEnd)) {
+				return fmt.Errorf("airplan: revision diff page section %q has non-monotonic unified hunks", logical)
+			}
+			previousOldEnd, previousNewEnd = oldEnd, newEnd
 		}
 		index++
 		oldSeen, newSeen := 0, 0
+		newlineMarkerEligible := false
 		for index < len(lines) && !strings.HasPrefix(lines[index], "@@ ") {
 			line := lines[index]
 			switch {
 			case line == `\ No newline at end of file`:
+				if strict && !newlineMarkerEligible {
+					return fmt.Errorf("airplan: revision diff page section %q has misplaced newline marker", logical)
+				}
+				newlineMarkerEligible = false
 			case strings.HasPrefix(line, " "):
 				oldSeen++
 				newSeen++
+				newlineMarkerEligible = true
 			case strings.HasPrefix(line, "+"):
 				newSeen++
+				newlineMarkerEligible = true
 			case strings.HasPrefix(line, "-"):
 				oldSeen++
+				newlineMarkerEligible = true
 			default:
 				return fmt.Errorf("airplan: revision diff page section %q has trailing or invalid unified content", logical)
 			}
@@ -586,11 +607,36 @@ func validateRevisionHunks(lines []string, logical string) error {
 	return nil
 }
 
-func revisionHunkCount(encoded string) (int, error) {
-	if encoded == "" {
-		return 1, nil
+func revisionHunkRange(startEncoded, countEncoded string, strict bool) (int, int, error) {
+	start, err := strconv.Atoi(startEncoded)
+	if err != nil {
+		return 0, 0, err
 	}
-	return strconv.Atoi(encoded)
+	count := 1
+	if countEncoded != "" {
+		count, err = strconv.Atoi(countEncoded)
+		if err != nil {
+			return 0, 0, err
+		}
+	}
+	if strict && (strconv.Itoa(start) != startEncoded ||
+		(countEncoded != "" && strconv.Itoa(count) != countEncoded) ||
+		(countEncoded != "" && count == 1) ||
+		(start == 0 && count != 0)) {
+		return 0, 0, errors.New("non-canonical unified range")
+	}
+	return start, count, nil
+}
+
+func revisionHunkEnd(start, count int) (int, error) {
+	if count == 0 {
+		return start, nil
+	}
+	maxInt := int(^uint(0) >> 1)
+	if start > maxInt-count+1 {
+		return 0, errors.New("unified range overflows")
+	}
+	return start + count - 1, nil
 }
 
 func revisionDiffRange(body []byte) (int, int, error) {

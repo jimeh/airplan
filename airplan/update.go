@@ -119,6 +119,9 @@ func (c *Client) CreateDocumentRevision(
 	if input.Document.Entry.Reader == nil {
 		return nil, errors.New("airplan: document revision entry reader is nil")
 	}
+	if err := validateDocumentItemCount(input.Document); err != nil {
+		return nil, err
+	}
 	if c != nil && c.remote != nil {
 		return c.remote.CreateDocumentRevision(ctx, input)
 	}

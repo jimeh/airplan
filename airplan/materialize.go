@@ -22,6 +22,9 @@ func MaterializeDocument(
 	if opts.Template != nil && opts.TemplatePath != "" {
 		return nil, errors.New("airplan: materialize document: template and template path are mutually exclusive")
 	}
+	if err := validateDocumentItemCount(in); err != nil {
+		return nil, err
+	}
 	assets, err := prepareAssets(ctx, in)
 	if err != nil {
 		return nil, err

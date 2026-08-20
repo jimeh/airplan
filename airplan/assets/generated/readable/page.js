@@ -290,36 +290,100 @@
         body.set(chunk, offset);
         offset += chunk.byteLength;
       });
-      return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
+      var text = new TextDecoder("utf-8", { fatal: true }).decode(body);
+      validateJSONMemberNames(text);
+      return JSON.parse(text);
+    }
+    function validateJSONMemberNames(text) {
+      var offset = 0;
+      function skipWhitespace() {
+        while (/\s/.test(text[offset] || ""))
+          offset += 1;
+      }
+      function readString() {
+        if (text[offset] !== '"')
+          throw new Error("JSON string is invalid");
+        var start = offset++;
+        while (offset < text.length) {
+          var character = text[offset++];
+          if (character === '"')
+            return JSON.parse(text.slice(start, offset));
+          if (character === "\\")
+            offset += 1;
+        }
+        throw new Error("JSON string is incomplete");
+      }
+      function readValue() {
+        skipWhitespace();
+        if (text[offset] === "{") {
+          offset += 1;
+          skipWhitespace();
+          var names = new Set;
+          if (text[offset] === "}") {
+            offset += 1;
+            return;
+          }
+          for (;; ) {
+            skipWhitespace();
+            var name = readString();
+            if (names.has(name))
+              throw new Error("JSON object has a duplicate field");
+            names.add(name);
+            skipWhitespace();
+            if (text[offset++] !== ":")
+              throw new Error("JSON object is invalid");
+            readValue();
+            skipWhitespace();
+            var delimiter = text[offset++];
+            if (delimiter === "}")
+              return;
+            if (delimiter !== ",")
+              throw new Error("JSON object is invalid");
+          }
+        }
+        if (text[offset] === "[") {
+          offset += 1;
+          skipWhitespace();
+          if (text[offset] === "]") {
+            offset += 1;
+            return;
+          }
+          for (;; ) {
+            readValue();
+            skipWhitespace();
+            var delimiter = text[offset++];
+            if (delimiter === "]")
+              return;
+            if (delimiter !== ",")
+              throw new Error("JSON array is invalid");
+          }
+        }
+        if (text[offset] === '"') {
+          readString();
+          return;
+        }
+        var scalar = text.slice(offset).match(/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/);
+        if (!scalar)
+          throw new Error("JSON value is invalid");
+        offset += scalar[0].length;
+      }
+      readValue();
+      skipWhitespace();
+      if (offset !== text.length)
+        throw new Error("JSON has trailing content");
     }
     function validateMarker(raw, directory, selected, chainID) {
-      if (!isRecord(raw) || !hasOnlyKeys(raw, [
-        "schema",
-        "version",
-        "directory",
-        "created_at",
-        "kind",
-        "slug",
-        "format",
-        "objects",
-        "title",
-        "repo",
-        "producer",
-        "render",
-        "revision",
-        "entrypoint",
-        "pages"
-      ]))
+      if (!isRecord(raw))
         throw new Error("marker is invalid");
       var marker = raw;
       var directoryParts = directory.pathname.split("/").filter(Boolean);
       var directoryName = directoryParts[directoryParts.length - 1] || "";
-      if (marker.schema !== "airplan-upload" || marker.version !== 6 || marker.kind !== "document" || marker.directory !== directoryName || !/^[a-z2-7]{26}$/.test(marker.directory) || typeof marker.created_at !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(marker.created_at) || Number.isNaN(Date.parse(marker.created_at)) || marker.format !== "md" || typeof marker.slug !== "string" || marker.slug === "" || marker.entrypoint !== marker.slug + ".html" || !isRecord(marker.producer) || !hasOnlyKeys(marker.producer, ["name", "version"]) || marker.producer.name !== "airplan" || typeof marker.producer.version !== "string" || marker.producer.version.trim() !== marker.producer.version || marker.producer.version === "" || !validMarkerRender(marker.render) || !isRecord(marker.revision) || !hasOnlyKeys(marker.revision, ["chain_id", "number", "previous_url"]) || marker.revision.number !== selected.number || marker.revision.chain_id !== chainID || (marker.revision.number === 1 ? marker.revision.previous_url !== undefined : typeof marker.revision.previous_url !== "string" || !safeAbsoluteHTMLURL(marker.revision.previous_url)) || !Array.isArray(marker.objects) || !Array.isArray(marker.pages) || marker.pages.length === 0)
+      if (marker.schema !== "airplan-upload" || marker.version !== 6 || marker.kind !== "document" || marker.directory !== directoryName || !/^[a-z2-7]{26}$/.test(marker.directory) || !validMarkerTimestamp(marker.created_at) || marker.format !== "md" || !validMarkerSlug(marker.slug) || marker.entrypoint !== marker.slug + ".html" || !isRecord(marker.producer) || marker.producer.name !== "airplan" || typeof marker.producer.version !== "string" || marker.producer.version.trim() !== marker.producer.version || marker.producer.version === "" || !validMarkerRender(marker.render) || !isRecord(marker.revision) || marker.revision.number !== selected.number || marker.revision.chain_id !== chainID || (marker.revision.number === 1 ? marker.revision.previous_url !== undefined : typeof marker.revision.previous_url !== "string" || !safeAbsoluteHTMLURL(marker.revision.previous_url)) || !Array.isArray(marker.objects) || !Array.isArray(marker.pages) || marker.pages.length === 0)
         throw new Error("marker identity is invalid");
       var entry = objectURL(directory, marker.entrypoint);
       if (entry !== selected.safeURL)
         throw new Error("marker entrypoint is invalid");
-      if (marker.title !== undefined && typeof marker.title !== "string" || marker.repo !== undefined && typeof marker.repo !== "string" || marker.objects.length === 0 || marker.pages.length > 100)
+      if (marker.title !== undefined && typeof marker.title !== "string" || marker.repo !== undefined && !validMarkerRepository(marker.repo) || marker.objects.length === 0 || marker.pages.length > 100)
         throw new Error("marker shape is invalid");
       var objectRoles = validateMarkerObjects(marker);
       var paths = new Set;
@@ -327,7 +391,7 @@
       var renderedObjects = new Set;
       var pages2 = new Map;
       marker.pages.forEach(function(page, pageIndex) {
-        if (!isRecord(page) || !hasOnlyKeys(page, ["path", "page", "source", "format", "title", "lang"]) || !portableMarkerPath(page.path) || paths.has(page.path) || foldedPaths.has(page.path.toLowerCase()) || page.format !== "md" && page.format !== "txt" || typeof page.lang !== "string" || page.title !== undefined && typeof page.title !== "string" || !portableMarkerPath(page.page) || !portableMarkerPath(page.source))
+        if (!isRecord(page) || !portableMarkerPath(page.path) || paths.has(page.path) || foldedPaths.has(page.path.toLowerCase()) || page.format !== "md" && page.format !== "txt" || typeof page.lang !== "string" || page.title !== undefined && typeof page.title !== "string" || !portableMarkerPath(page.page) || !portableMarkerPath(page.source))
           throw new Error("marker page descriptor is invalid");
         var expectedPage = managedPageName(page.path, page.format);
         var expectedSource = page.path;
@@ -377,14 +441,7 @@
       return (dot > slash ? logical.slice(0, dot) : logical) + ".html";
     }
     function validMarkerRender(render) {
-      if (!isRecord(render) || !hasOnlyKeys(render, [
-        "generation",
-        "template",
-        "indexable",
-        "no_external_assets",
-        "mermaid_url",
-        "themes"
-      ]) || !isRecord(render.template) || !hasOnlyKeys(render.template, ["kind", "sha256"]) || !isRecord(render.themes) || !hasOnlyKeys(render.themes, ["default_light", "default_dark", "catalog_sha256"]) || !Number.isInteger(render.generation) || render.generation <= 0 || typeof render.indexable !== "boolean" || typeof render.no_external_assets !== "boolean" || !render.template || render.template.kind !== "builtin" && render.template.kind !== "custom" || render.mermaid_url !== undefined && !safeMermaidURL(render.mermaid_url) || !render.themes)
+      if (!isRecord(render) || !isRecord(render.template) || !isRecord(render.themes) || !Number.isInteger(render.generation) || render.generation <= 0 || typeof render.indexable !== "boolean" || typeof render.no_external_assets !== "boolean" || !render.template || render.template.kind !== "builtin" && render.template.kind !== "custom" || render.mermaid_url !== undefined && !safeMermaidURL(render.mermaid_url) || !render.themes)
         return false;
       if (render.template.kind === "builtin" && render.template.sha256 !== undefined || render.template.kind === "custom" && !validDigest(render.template.sha256))
         return false;
@@ -396,10 +453,43 @@
     function isRecord(value) {
       return !!value && typeof value === "object" && !Array.isArray(value);
     }
-    function hasOnlyKeys(value, allowed) {
-      return Object.keys(value).every(function(key) {
-        return allowed.includes(key);
-      });
+    function validMarkerSlug(value) {
+      return typeof value === "string" && value.length <= 64 && /^[a-z0-9-]+$/.test(value);
+    }
+    function validMarkerTimestamp(value) {
+      if (typeof value !== "string")
+        return false;
+      var match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:[.,]\d+)?(Z|[+-]00:00)$/);
+      if (!match)
+        return false;
+      var year = Number(match[1]);
+      var month = Number(match[2]);
+      var day = Number(match[3]);
+      var hour = Number(match[4]);
+      var minute = Number(match[5]);
+      var second = Number(match[6]);
+      var leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+      var monthDays = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+      return month >= 1 && month <= 12 && day >= 1 && day <= monthDays[month - 1] && hour <= 23 && minute <= 59 && second <= 59;
+    }
+    function validMarkerRepository(value) {
+      if (typeof value !== "string" || value === "" || value.trim() !== value)
+        return false;
+      try {
+        var parsed = new URL(value);
+        if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash)
+          return false;
+        var parts = parsed.pathname.replace(/^\/+|\/+$/g, "").split("/");
+        if (parts.length !== 2)
+          return false;
+        var owner = parts[0];
+        var repository = parts[1].replace(/\.git$/, "");
+        if (!owner || !repository || owner === "." || owner === ".." || repository === "." || repository === ".." || /[?#@:\\]/.test(owner + repository))
+          return false;
+        return value === "https://" + parsed.hostname.toLowerCase() + "/" + owner + "/" + repository;
+      } catch {
+        return false;
+      }
     }
     function validNormalizedContentType(value) {
       return typeof value === "string" && /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+(?:; [a-z0-9!#$&^_.+-]+=(?:[a-z0-9!#$&^_.+-]+|"(?:[^"\\\r\n]|\\.)*"))*$/.test(value);
@@ -430,7 +520,7 @@
       var sources = 0;
       var assets = 0;
       marker.objects.forEach(function(object) {
-        if (!isRecord(object) || !hasOnlyKeys(object, ["name", "role", "bytes", "content_type", "sha256"]) || !portableMarkerPath(object.name) && object.name !== ".airplan-changes.diff" || roles.has(object.name) || folded.has(object.name.toLowerCase()) || !Number.isSafeInteger(object.bytes) || object.bytes < 0 || !validDigest(object.sha256) || !validNormalizedContentType(object.content_type))
+        if (!isRecord(object) || !portableMarkerPath(object.name) && object.name !== ".airplan-changes.diff" || roles.has(object.name) || folded.has(object.name.toLowerCase()) || !Number.isSafeInteger(object.bytes) || object.bytes < 0 || !validDigest(object.sha256) || !validNormalizedContentType(object.content_type))
           throw new Error("marker object inventory is invalid");
         if (object.role === "page") {
           pages2 += 1;
