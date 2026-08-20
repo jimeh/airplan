@@ -359,13 +359,11 @@ described below.
     across browsers. Escape and outside activation dismiss the panel, Escape
     restores focus, and narrow layouts keep it inset from viewport edges. With
     scripting disabled, uploader defaults follow the system preference and the
-    panel is absent. The appearance trigger follows the file controls. At wider sizes the rendered/source
-    toggle aligns left while file controls align right, with the theme toggle
-    at the far-right edge behind a quiet divider. At 48rem and below the
-    rendered/source and appearance controls share the first row at opposite edges,
-    with available file controls clustered and left-aligned below. When no
-    rendered/source toggle is available, the file controls instead occupy the
-    first row opposite the appearance control. Toolbar controls update immediately
+    panel is absent. The appearance trigger follows the file controls and stays
+    at the far-right edge behind a quiet divider. The document toolbar contains
+    file actions, Appearance, and the narrow-only Pages trigger; Rendered,
+    Source, Code, and Changes are content modes in the reader controls below
+    revision information. Toolbar and reader controls update immediately
     without color or background transitions when their active state or the
     page theme changes. Reader state uses `airplan-color-mode`,
     `airplan-light-theme`, and `airplan-dark-theme`. When the new mode key is
@@ -460,8 +458,8 @@ resets; existing persistent theme preferences continue across pages. Print
 includes only the loaded page. Custom templates receive bundle data but no
 built-in navigation, transition CSS, or JavaScript.
 
-The bundle page structure and transition CSS define renderer generation 4.
-Single-page output also uses generation 4 because the current writer has one
+The bundle page structure, revision-aware content modes, and transition CSS
+define renderer generation 5. Single-page output also uses generation 5 because the current writer has one
 renderer generation for all generated pages.
 
 ### Plain-text input
@@ -1284,8 +1282,9 @@ section headings are respectively `# airplan page: <json-string>` and
 path. Page sections contain fixed-prefix JSON descriptor summaries for
 additions, removals, or format/title/language changes and unified diffs with
 three context lines for changed UTF-8 sources. Renames appear as remove plus
-add. Binary asset sections summarize path, content type, size, and digest
-changes without embedding asset bytes. Output uses LF and preserves
+add. Binary asset sections use fixed-prefix canonical JSON descriptors to
+summarize content type, size, and digest changes without embedding asset bytes.
+Output uses LF and preserves
 final-newline distinctions in source sections. It is bounded to 32 MiB and
 generated before remote mutation. The 512 KiB inline limit applies separately
 to each page-local section and to the complete report. A larger page section
@@ -1319,9 +1318,12 @@ metadata disables only revision navigation, not an otherwise complete payload.
 The revision index stores each revision's entry URL, not a page map. Exact,
 case-sensitive logical source path is page identity across revisions. Selecting
 another revision from a child page fetches that target directory's public v6
-marker with `no-store`, validates its document kind, revision number, chain ID,
-entrypoint, portable unique page paths, and same-directory object URLs, then
-navigates normally to the exact matching page. Missing pages and every marker
+marker with `no-store`, bounds it to 256 KiB, and validates its directory,
+document and revision identity, producer and render provenance, portable unique
+object inventory with exact roles, sizes, digests, and content types, and each
+page descriptor's generated-page/source relationship. Object URL construction
+percent-encodes each validated path segment while preserving directory
+separators. It then navigates normally to the exact matching page. Missing pages and every marker
 fetch or validation failure fall back to the already validated target entry
 URL. Ordinary content fragments are retained only for a matching page. The
 reserved `#airplan-all-changes` fragment always selects the target entry for

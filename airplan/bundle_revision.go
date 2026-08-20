@@ -631,13 +631,17 @@ func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revis
 			switch {
 			case !oldAssetOK:
 				writeRevisionDiffSectionHeader(&out, "asset", logical)
-				fmt.Fprintf(&out, "asset added: %s, %d bytes, sha256 %s\n", newAsset.ContentType, newAsset.Size, newAsset.digest)
+				fmt.Fprintf(&out, "asset added: %s\n", revisionAssetDescriptorJSON(newAsset.ContentType, newAsset.Size, newAsset.digest))
 			case !newAssetOK:
 				writeRevisionDiffSectionHeader(&out, "asset", logical)
-				fmt.Fprintf(&out, "asset removed: %s, %d bytes, sha256 %s\n", oldAsset.ContentType, oldAsset.Bytes, oldAsset.SHA256)
+				fmt.Fprintf(&out, "asset removed: %s\n", revisionAssetDescriptorJSON(oldAsset.ContentType, oldAsset.Bytes, oldAsset.SHA256))
 			default:
 				writeRevisionDiffSectionHeader(&out, "asset", logical)
-				fmt.Fprintf(&out, "asset changed: %s, %d bytes, sha256 %s -> %s, %d bytes, sha256 %s\n", oldAsset.ContentType, oldAsset.Bytes, oldAsset.SHA256, newAsset.ContentType, newAsset.Size, newAsset.digest)
+				encoded, _ := json.Marshal(revisionAssetChange{
+					Before: revisionAssetDescriptor{ContentType: oldAsset.ContentType, Bytes: oldAsset.Bytes, SHA256: oldAsset.SHA256},
+					After:  revisionAssetDescriptor{ContentType: newAsset.ContentType, Bytes: newAsset.Size, SHA256: newAsset.digest},
+				})
+				fmt.Fprintf(&out, "asset changed: %s\n", encoded)
 			}
 			if err := checkSize(); err != nil {
 				return nil, err
@@ -761,6 +765,15 @@ func pageDescriptorJSON(format, title, lang string) string {
 		Title  string `json:"title,omitempty"`
 		Lang   string `json:"lang"`
 	}{format, title, lang})
+	return string(encoded)
+}
+
+func revisionAssetDescriptorJSON(contentType string, size int64, digest string) string {
+	encoded, _ := json.Marshal(revisionAssetDescriptor{
+		ContentType: contentType,
+		Bytes:       size,
+		SHA256:      digest,
+	})
 	return string(encoded)
 }
 

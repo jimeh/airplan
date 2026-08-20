@@ -215,6 +215,35 @@ func TestUpgradeDocumentReprojectsStructuredBundleDiff(t *testing.T) {
 		t.Fatalf("upgrade put order = %q, want entry last", putKeys)
 	}
 
+	validDiff, ok := store.get(second.ID + "/" + DiffFilename)
+	if !ok {
+		t.Fatal("revision diff is missing")
+	}
+	corruptedDiff := append([]byte(nil), validDiff...)
+	changedAt := bytes.Index(corruptedDiff, []byte("Original"))
+	if changedAt < 0 {
+		t.Fatal("revision diff lacks a safe same-size corruption target")
+	}
+	corruptedDiff[changedAt] = 'X'
+	store.set(second.ID+"/"+DiffFilename, corruptedDiff)
+	store.mu.Lock()
+	store.puts = 0
+	store.mu.Unlock()
+	corruptedPlan, err := client.PlanUpgradeDocument(
+		context.Background(), second.URL, UpgradeDocumentOptions{},
+	)
+	if err != nil || corruptedPlan.State != UpgradeStateInvalid ||
+		corruptedPlan.Reason != "revision diff is missing or invalid" {
+		t.Fatalf("same-size corrupted plan = %+v, error = %v", corruptedPlan, err)
+	}
+	store.mu.Lock()
+	putsAfterCorruption := store.puts
+	store.mu.Unlock()
+	if putsAfterCorruption != 0 {
+		t.Fatalf("same-size corrupted plan performed %d PUTs, want 0", putsAfterCorruption)
+	}
+	store.set(second.ID+"/"+DiffFilename, validDiff)
+
 	malformedDiff := []byte("# airplan revisions: 1 -> 2\n" + revisionDiffFormatHeader +
 		"# airplan page: \"README.md\"\n" +
 		"--- revision-1/other.md\n+++ revision-2/README.md\n" +

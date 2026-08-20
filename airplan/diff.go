@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -73,6 +75,42 @@ type revisionDiffReport struct {
 
 const revisionDiffFormatHeader = "# airplan diff format: 2\n"
 
+var revisionHunkHeader = regexp.MustCompile(`^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: .*)?$`)
+
+type revisionPageDescriptor struct {
+	Format string `json:"format"`
+	Title  string `json:"title,omitempty"`
+	Lang   string `json:"lang"`
+}
+
+type revisionChangedValue struct {
+	Before string `json:"before"`
+	After  string `json:"after"`
+}
+
+type revisionPageMetadataChanges struct {
+	Format *revisionChangedValue `json:"format,omitempty"`
+	Title  *revisionChangedValue `json:"title,omitempty"`
+	Lang   *revisionChangedValue `json:"lang,omitempty"`
+}
+
+type revisionAssetDescriptor struct {
+	ContentType string `json:"content_type"`
+	Bytes       int64  `json:"bytes"`
+	SHA256      string `json:"sha256"`
+}
+
+type revisionAssetChange struct {
+	Before revisionAssetDescriptor `json:"before"`
+	After  revisionAssetDescriptor `json:"after"`
+}
+
+type revisionBundleMetadata struct {
+	Format string `json:"format"`
+	Title  string `json:"title"`
+	Slug   string `json:"slug"`
+}
+
 func parseRevisionDiffReport(body []byte, entryPath string) (*revisionDiffReport, error) {
 	if !bytes.HasPrefix(body, []byte("# airplan revisions: ")) {
 		previous, current, err := revisionDiffRange(body)
@@ -87,7 +125,7 @@ func parseRevisionDiffReport(body []byte, entryPath string) (*revisionDiffReport
 			PageSections:  map[string][]byte{entryPath: append([]byte(nil), body...)},
 			AssetSections: make(map[string][]byte),
 		}
-		if err := validateRevisionPageSection(body, "plan.md", previous, current, false); err != nil {
+		if err := validateRevisionPageSection(body, "plan.md", previous, current, false, true, false); err != nil {
 			return nil, err
 		}
 		return report, nil
@@ -114,11 +152,17 @@ func parseRevisionDiffReport(body []byte, entryPath string) (*revisionDiffReport
 		rest = rest[len(revisionDiffFormatHeader):]
 	}
 	seenGlobals := make(map[string]struct{})
+	lastGlobalRank := 0
+	lastPath := ""
+	seenPath := false
+	sectionCount := 0
+	noChanges := false
 	for len(rest) > 0 {
 		if bytes.HasPrefix(rest, []byte("No textual changes.\n")) {
-			if len(rest) != len("No textual changes.\n") {
+			if len(rest) != len("No textual changes.\n") || sectionCount != 0 {
 				return nil, errors.New("airplan: revision diff has trailing content")
 			}
+			noChanges = true
 			break
 		}
 		if !bytes.HasPrefix(rest, []byte("# ")) {
@@ -147,56 +191,201 @@ func parseRevisionDiffReport(body []byte, entryPath string) (*revisionDiffReport
 				kind, logical = legacyKind, name
 			}
 		}
-		if explicit && (kind == "page" || kind == "asset") {
-			if err := validateExplicitRevisionPathSection(section, kind, logical); err != nil {
-				return nil, err
-			}
-		}
 		switch kind {
 		case "global":
 			if _, exists := seenGlobals[name]; exists {
 				return nil, fmt.Errorf("airplan: duplicate revision diff section %q", name)
 			}
 			seenGlobals[name] = struct{}{}
+			if explicit {
+				if seenPath {
+					return nil, fmt.Errorf("airplan: revision diff global section %q follows path sections", name)
+				}
+				rank := revisionGlobalSectionRank(name)
+				if rank <= lastGlobalRank {
+					return nil, fmt.Errorf("airplan: revision diff global section %q is out of order", name)
+				}
+				lastGlobalRank = rank
+				if err := validateExplicitRevisionGlobalSection(section, name); err != nil {
+					return nil, err
+				}
+			}
 		case "page":
 			if _, exists := report.PageSections[logical]; exists {
 				return nil, fmt.Errorf("airplan: duplicate revision diff page section %q", logical)
 			}
-			if err := validateRevisionPageSection(section, logical, previous, current, true); err != nil {
+			if explicit && seenPath && logical <= lastPath {
+				return nil, fmt.Errorf("airplan: revision diff path section %q is out of order", logical)
+			}
+			if err := validateRevisionPageSection(section, logical, previous, current, true, explicit, !explicit); err != nil {
 				return nil, err
 			}
 			report.PageSections[logical] = section
+			seenPath, lastPath = true, logical
 		case "asset":
 			if _, exists := report.AssetSections[logical]; exists {
 				return nil, fmt.Errorf("airplan: duplicate revision diff asset section %q", logical)
 			}
-			if bytes.Contains(section, []byte("\n--- revision-")) ||
-				bytes.Contains(section, []byte("\n+++ revision-")) {
-				return nil, fmt.Errorf("airplan: revision diff asset section %q contains unified headers", logical)
+			if explicit && seenPath && logical <= lastPath {
+				return nil, fmt.Errorf("airplan: revision diff path section %q is out of order", logical)
+			}
+			if explicit {
+				if err := validateExplicitRevisionAssetSection(section, logical); err != nil {
+					return nil, err
+				}
 			}
 			report.AssetSections[logical] = section
+			seenPath, lastPath = true, logical
 		}
+		sectionCount++
 		rest = rest[sectionEnd:]
+	}
+	if explicit && sectionCount == 0 && !noChanges {
+		return nil, errors.New("airplan: revision diff has no sections")
 	}
 	return report, nil
 }
 
-func validateExplicitRevisionPathSection(section []byte, kind, logical string) error {
+func revisionSectionPayload(section []byte, kind, logical string) ([]byte, error) {
 	lineEnd := bytes.IndexByte(section, '\n')
 	if lineEnd < 0 {
-		return fmt.Errorf("airplan: revision diff %s section %q is incomplete", kind, logical)
+		return nil, fmt.Errorf("airplan: revision diff %s section %q is incomplete", kind, logical)
 	}
-	payload := section[lineEnd+1:]
-	prefixes := []string{"page added: ", "page removed: ", "page metadata changed: ", "--- revision-"}
-	if kind == "asset" {
-		prefixes = []string{"asset added: ", "asset removed: ", "asset changed: "}
+	return section[lineEnd+1:], nil
+}
+
+func revisionGlobalSectionRank(name string) int {
+	switch name {
+	case "airplan page order":
+		return 1
+	case "airplan asset order":
+		return 2
+	case "airplan metadata":
+		return 3
+	default:
+		return 0
 	}
-	for _, prefix := range prefixes {
-		if bytes.HasPrefix(payload, []byte(prefix)) {
-			return nil
+}
+
+func decodeCanonicalRevisionJSON(encoded []byte, target any) error {
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return errors.New("trailing JSON value")
+	}
+	canonical, err := json.Marshal(target)
+	if err != nil || !bytes.Equal(canonical, encoded) {
+		return errors.New("JSON is not canonical")
+	}
+	return nil
+}
+
+func validateExplicitRevisionGlobalSection(section []byte, name string) error {
+	payload, err := revisionSectionPayload(section, "global", name)
+	if err != nil {
+		return err
+	}
+	if !bytes.HasSuffix(payload, []byte("\n")) {
+		return fmt.Errorf("airplan: revision diff global section %q is incomplete", name)
+	}
+	lines := bytes.Split(bytes.TrimSuffix(payload, []byte("\n")), []byte("\n"))
+	if len(lines) != 2 || !bytes.HasPrefix(lines[0], []byte("before: ")) || !bytes.HasPrefix(lines[1], []byte("after: ")) {
+		return fmt.Errorf("airplan: revision diff global section %q has invalid content", name)
+	}
+	var orderValues [][]string
+	var metadataValues []revisionBundleMetadata
+	for _, line := range lines {
+		encoded := line[bytes.Index(line, []byte(": "))+2:]
+		if name == "airplan metadata" {
+			var value revisionBundleMetadata
+			if err := decodeCanonicalRevisionJSON(encoded, &value); err != nil ||
+				value.Format != FormatMarkdown.String() || value.Slug == "" || SanitizeSlug(value.Slug) != value.Slug {
+				return fmt.Errorf("airplan: revision diff global section %q has invalid metadata", name)
+			}
+			metadataValues = append(metadataValues, value)
+			continue
+		}
+		var values []string
+		if err := decodeCanonicalRevisionJSON(encoded, &values); err != nil || values == nil {
+			return fmt.Errorf("airplan: revision diff global section %q has invalid order", name)
+		}
+		seen := make(map[string]struct{}, len(values))
+		for _, value := range values {
+			if ValidateBundlePath(value) != nil {
+				return fmt.Errorf("airplan: revision diff global section %q has invalid path %q", name, value)
+			}
+			folded := strings.ToLower(value)
+			if _, exists := seen[folded]; exists {
+				return fmt.Errorf("airplan: revision diff global section %q has duplicate path %q", name, value)
+			}
+			seen[folded] = struct{}{}
+		}
+		orderValues = append(orderValues, values)
+	}
+	if (len(orderValues) == 2 && revisionPathOrderEqual(orderValues[0], orderValues[1])) ||
+		(len(metadataValues) == 2 && metadataValues[0] == metadataValues[1]) {
+		return fmt.Errorf("airplan: revision diff global section %q does not describe a change", name)
+	}
+	return nil
+}
+
+func validateExplicitRevisionAssetSection(section []byte, logical string) error {
+	payload, err := revisionSectionPayload(section, "asset", logical)
+	if err != nil {
+		return err
+	}
+	if !bytes.HasSuffix(payload, []byte("\n")) || bytes.Count(payload, []byte("\n")) != 1 {
+		return fmt.Errorf("airplan: revision diff asset section %q has invalid content", logical)
+	}
+	line := bytes.TrimSuffix(payload, []byte("\n"))
+	for _, candidate := range []struct {
+		prefix string
+		value  any
+	}{
+		{"asset added: ", &revisionAssetDescriptor{}},
+		{"asset removed: ", &revisionAssetDescriptor{}},
+		{"asset changed: ", &revisionAssetChange{}},
+	} {
+		if !bytes.HasPrefix(line, []byte(candidate.prefix)) {
+			continue
+		}
+		if err := decodeCanonicalRevisionJSON(line[len(candidate.prefix):], candidate.value); err != nil || !validRevisionAssetValue(candidate.value) {
+			return fmt.Errorf("airplan: revision diff asset section %q has invalid summary", logical)
+		}
+		return nil
+	}
+	return fmt.Errorf("airplan: revision diff asset section %q has invalid content", logical)
+}
+
+func validRevisionAssetValue(value any) bool {
+	valid := func(item revisionAssetDescriptor) bool {
+		return validNormalizedContentType(item.ContentType) &&
+			item.Bytes >= 0 && validLowerHexDigest(item.SHA256)
+	}
+	switch item := value.(type) {
+	case *revisionAssetDescriptor:
+		return valid(*item)
+	case *revisionAssetChange:
+		return valid(item.Before) && valid(item.After) && item.Before != item.After
+	default:
+		return false
+	}
+}
+
+func validLowerHexDigest(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, char := range value {
+		if (char < '0' || char > '9') && (char < 'a' || char > 'f') {
+			return false
 		}
 	}
-	return fmt.Errorf("airplan: revision diff %s section %q has invalid content", kind, logical)
+	return true
 }
 
 func legacyRevisionDiffPathKind(section []byte) string {
@@ -257,41 +446,151 @@ func parseRevisionDiffSectionHeader(name string, explicit bool) (string, string,
 }
 
 func validateRevisionPageSection(
-	section []byte, logical string, previous, current int, hasSectionHeader bool,
+	section []byte, logical string, previous, current int, hasSectionHeader, strict, allowPlanMD bool,
 ) error {
 	payload := section
 	if hasSectionHeader {
-		lineEnd := bytes.IndexByte(section, '\n')
-		if lineEnd < 0 {
-			return fmt.Errorf("airplan: revision diff page section %q is incomplete", logical)
+		var err error
+		payload, err = revisionSectionPayload(section, "page", logical)
+		if err != nil {
+			return err
 		}
-		payload = section[lineEnd+1:]
+	}
+	if len(payload) == 0 || payload[len(payload)-1] != '\n' {
+		return fmt.Errorf("airplan: revision diff page section %q is incomplete", logical)
 	}
 	lines := strings.Split(strings.TrimSuffix(string(payload), "\n"), "\n")
-	minus, plus := -1, -1
-	for index, line := range lines {
-		if strings.HasPrefix(line, "--- revision-") {
-			if minus >= 0 {
-				return fmt.Errorf("airplan: revision diff page section %q has duplicate old headers", logical)
+	descriptor := false
+	requiresDiff := false
+	if strict && len(lines) > 0 {
+		for _, candidate := range []string{"page added: ", "page removed: "} {
+			if strings.HasPrefix(lines[0], candidate) {
+				var value revisionPageDescriptor
+				encoded := []byte(strings.TrimPrefix(lines[0], candidate))
+				if err := decodeCanonicalRevisionJSON(encoded, &value); err != nil ||
+					(value.Format != FormatMarkdown.String() && value.Format != FormatText.String()) || value.Lang == "" {
+					return fmt.Errorf("airplan: revision diff page section %q has invalid descriptor", logical)
+				}
+				descriptor = true
+				requiresDiff = true
+				lines = lines[1:]
+				break
 			}
-			minus = index
 		}
-		if strings.HasPrefix(line, "+++ revision-") {
-			if plus >= 0 {
-				return fmt.Errorf("airplan: revision diff page section %q has duplicate new headers", logical)
+		if !descriptor && strings.HasPrefix(lines[0], "page metadata changed: ") {
+			var value revisionPageMetadataChanges
+			encoded := []byte(strings.TrimPrefix(lines[0], "page metadata changed: "))
+			if err := decodeCanonicalRevisionJSON(encoded, &value); err != nil ||
+				!validRevisionPageMetadataChanges(value) {
+				return fmt.Errorf("airplan: revision diff page section %q has invalid metadata", logical)
 			}
-			plus = index
+			descriptor = true
+			lines = lines[1:]
+		}
+	} else if !strict && len(lines) > 0 {
+		for _, prefix := range []string{"page added: ", "page removed: ", "page metadata changed: "} {
+			if strings.HasPrefix(lines[0], prefix) {
+				descriptor = true
+				lines = lines[1:]
+				break
+			}
 		}
 	}
-	if minus < 0 && plus < 0 {
-		return nil
+	if len(lines) == 0 {
+		if descriptor && !requiresDiff {
+			return nil
+		}
+		return fmt.Errorf("airplan: revision diff page section %q has invalid content", logical)
 	}
-	if minus < 0 || plus != minus+1 ||
-		lines[minus] != fmt.Sprintf("--- revision-%d/%s", previous, logical) ||
-		lines[plus] != fmt.Sprintf("+++ revision-%d/%s", current, logical) {
+	if len(lines) < 3 || !strings.HasPrefix(lines[0], "--- revision-") ||
+		!strings.HasPrefix(lines[1], "+++ revision-") {
+		return fmt.Errorf("airplan: revision diff page section %q has invalid content", logical)
+	}
+	expectedPaths := []string{logical}
+	if allowPlanMD && logical != "plan.md" {
+		expectedPaths = append(expectedPaths, "plan.md")
+	}
+	matchedHeaders := false
+	for _, path := range expectedPaths {
+		if lines[0] == fmt.Sprintf("--- revision-%d/%s", previous, path) &&
+			lines[1] == fmt.Sprintf("+++ revision-%d/%s", current, path) {
+			matchedHeaders = true
+			break
+		}
+	}
+	if !matchedHeaders {
 		return fmt.Errorf("airplan: revision diff page section %q has mismatched unified headers", logical)
 	}
+	return validateRevisionHunks(lines[2:], logical)
+}
+
+func validRevisionPageMetadataChanges(value revisionPageMetadataChanges) bool {
+	if value.Format == nil && value.Title == nil && value.Lang == nil {
+		return false
+	}
+	for _, changed := range []*revisionChangedValue{value.Format, value.Title, value.Lang} {
+		if changed != nil && changed.Before == changed.After {
+			return false
+		}
+	}
+	if value.Format != nil {
+		validFormat := func(format string) bool {
+			return format == FormatMarkdown.String() || format == FormatText.String()
+		}
+		if !validFormat(value.Format.Before) || !validFormat(value.Format.After) {
+			return false
+		}
+	}
+	return true
+}
+
+func validateRevisionHunks(lines []string, logical string) error {
+	if len(lines) == 0 {
+		return fmt.Errorf("airplan: revision diff page section %q has no unified hunks", logical)
+	}
+	for index := 0; index < len(lines); {
+		match := revisionHunkHeader.FindStringSubmatch(lines[index])
+		if match == nil {
+			return fmt.Errorf("airplan: revision diff page section %q has invalid unified hunk", logical)
+		}
+		oldCount, err := revisionHunkCount(match[2])
+		if err != nil {
+			return fmt.Errorf("airplan: revision diff page section %q has invalid unified hunk", logical)
+		}
+		newCount, err := revisionHunkCount(match[4])
+		if err != nil {
+			return fmt.Errorf("airplan: revision diff page section %q has invalid unified hunk", logical)
+		}
+		index++
+		oldSeen, newSeen := 0, 0
+		for index < len(lines) && !strings.HasPrefix(lines[index], "@@ ") {
+			line := lines[index]
+			switch {
+			case line == `\ No newline at end of file`:
+			case strings.HasPrefix(line, " "):
+				oldSeen++
+				newSeen++
+			case strings.HasPrefix(line, "+"):
+				newSeen++
+			case strings.HasPrefix(line, "-"):
+				oldSeen++
+			default:
+				return fmt.Errorf("airplan: revision diff page section %q has trailing or invalid unified content", logical)
+			}
+			index++
+		}
+		if oldSeen != oldCount || newSeen != newCount {
+			return fmt.Errorf("airplan: revision diff page section %q has mismatched unified hunk counts", logical)
+		}
+	}
 	return nil
+}
+
+func revisionHunkCount(encoded string) (int, error) {
+	if encoded == "" {
+		return 1, nil
+	}
+	return strconv.Atoi(encoded)
 }
 
 func revisionDiffRange(body []byte) (int, int, error) {

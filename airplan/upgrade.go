@@ -341,7 +341,8 @@ func (c *Client) PlanUpgradeDocument(
 				plan.State, plan.Reason = UpgradeStateInvalid, "revision diff is missing or invalid"
 				return plan, nil
 			}
-			if int64(len(plan.diff)) != diffObject.Bytes {
+			if int64(len(plan.diff)) != diffObject.Bytes ||
+				(marker.Version >= 6 && contentSHA256(plan.diff) != diffObject.SHA256) {
 				plan.State, plan.Reason = UpgradeStateInvalid, "revision diff is missing or invalid"
 				return plan, nil
 			}

@@ -19,6 +19,21 @@ type trackedBundleReader struct {
 	reads  int
 }
 
+type unreadableAssetReader struct {
+	reads int
+	seeks int
+}
+
+func (r *unreadableAssetReader) Read([]byte) (int, error) {
+	r.reads++
+	return 0, errors.New("unexpected read")
+}
+
+func (r *unreadableAssetReader) Seek(int64, int) (int64, error) {
+	r.seeks++
+	return 0, errors.New("unexpected seek")
+}
+
 func (r *trackedBundleReader) Read(p []byte) (int, error) {
 	r.reads++
 	return r.reader.Read(p)
@@ -31,7 +46,7 @@ func TestValidateBundlePath(t *testing.T) {
 			t.Errorf("ValidateBundlePath(%q): %v", value, err)
 		}
 	}
-	for _, value := range []string{"", "/absolute", "../outside", "docs/../x", "docs//x", `docs\x`, "docs/.airplan-secret", ".airplan.json", "CON", "aux.txt", "trailing.", "trailing "} {
+	for _, value := range []string{"", "/absolute", "../outside", "docs/../x", "docs//x", `docs\x`, "docs/.airplan-secret", "docs/.AIRPLAN-secret", ".airplan.json", ".AIRPLAN.JSON", "CON", "aux.txt", "trailing.", "trailing "} {
 		if err := ValidateBundlePath(value); err == nil {
 			t.Errorf("ValidateBundlePath(%q) succeeded", value)
 		} else {
@@ -360,13 +375,58 @@ func TestRenderDocumentRejectsGeneratedCollision(t *testing.T) {
 
 func TestRenderDocumentEnforcesItemBoundaryBeforeReading(t *testing.T) {
 	t.Parallel()
-	pages := make([]PageInput, MaxDocumentItems)
+	reader := &unreadableAssetReader{}
+	assets := make([]AssetInput, MaxDocumentItems)
+	for index := range assets {
+		assets[index] = AssetInput{Reader: reader, Path: fmt.Sprintf("asset-%d.bin", index), Size: 1}
+	}
 	_, err := RenderDocument(context.Background(), DocumentInput{
-		Entry: PageInput{Reader: strings.NewReader("# Entry"), Path: "entry.md"},
-		Pages: pages, RepositoryURL: "none",
+		Entry:  PageInput{Reader: strings.NewReader("# Entry"), Path: "entry.md"},
+		Assets: assets, RepositoryURL: "none",
 	}, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Repository: "none"}})
 	if err == nil || !strings.Contains(err.Error(), "maximum is 100") {
 		t.Fatalf("error = %v", err)
+	}
+	if reader.reads != 0 || reader.seeks != 0 {
+		t.Fatalf("asset reader calls = %d reads, %d seeks", reader.reads, reader.seeks)
+	}
+}
+
+func TestUploadDocumentEnforcesItemBoundaryBeforeReading(t *testing.T) {
+	reader := &unreadableAssetReader{}
+	assets := make([]AssetInput, MaxDocumentItems)
+	for index := range assets {
+		assets[index] = AssetInput{Reader: reader, Path: fmt.Sprintf("asset-%d.bin", index), Size: 1}
+	}
+	store := newUpgradeStore(t)
+	_, err := store.client(t, "").UploadDocument(context.Background(), DocumentInput{
+		Entry:  PageInput{Reader: strings.NewReader("# Entry"), Path: "entry.md"},
+		Assets: assets, RepositoryURL: "none",
+	})
+	if err == nil || !strings.Contains(err.Error(), "maximum is 100") {
+		t.Fatalf("error = %v", err)
+	}
+	if reader.reads != 0 || reader.seeks != 0 {
+		t.Fatalf("asset reader calls = %d reads, %d seeks", reader.reads, reader.seeks)
+	}
+}
+
+func TestUploadDocumentPreservesPublicURLWarningAlongsideRenderWarnings(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	client.cfg.PublicBaseURL = ""
+	result, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry:         PageInput{Reader: strings.NewReader("<main>trusted</main>"), Path: "index.html"},
+		Assets:        []AssetInput{{Reader: bytes.NewReader(nil), Path: "empty.bin", Size: 0}},
+		RepositoryURL: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	warnings := strings.Join(result.Warnings, "\n")
+	if !strings.Contains(warnings, "no <head> tag") ||
+		strings.Count(warnings, PublicURLFallbackWarning) != 1 {
+		t.Fatalf("warnings = %#v", result.Warnings)
 	}
 }
 

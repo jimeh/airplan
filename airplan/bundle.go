@@ -192,6 +192,9 @@ func RenderDocument(
 	if ctx == nil {
 		return nil, errors.New("airplan: nil context")
 	}
+	if err := validateDocumentItemCount(in); err != nil {
+		return nil, err
+	}
 	if opts.Template != nil && opts.TemplatePath != "" {
 		return nil, errors.New("airplan: render document: template and template path are mutually exclusive")
 	}
@@ -251,8 +254,8 @@ func renderDocumentWithSpool(
 	if in.Entry.Reader == nil {
 		return nil, errors.New("airplan: document entry reader is nil")
 	}
-	if len(in.Pages)+len(in.Assets)+1 > MaxDocumentItems {
-		return nil, fmt.Errorf("airplan: document has %d items; maximum is %d", len(in.Pages)+len(in.Assets)+1, MaxDocumentItems)
+	if err := validateDocumentItemCount(in); err != nil {
+		return nil, err
 	}
 	pageLimit := effectiveLimit(in.MaxPageSize, DefaultMaxInputSize)
 	totalPageLimit := effectiveLimit(in.MaxTotalPageSize, DefaultMaxTotalPageSize)
@@ -784,6 +787,9 @@ func (c *Client) UploadDocument(ctx context.Context, in DocumentInput) (*Documen
 	if err := c.validate(ctx); err != nil {
 		return nil, err
 	}
+	if err := validateDocumentItemCount(in); err != nil {
+		return nil, err
+	}
 	if c.remote != nil {
 		return c.remote.UploadDocument(ctx, in)
 	}
@@ -850,16 +856,20 @@ func (c *Client) UploadDocument(ctx context.Context, in DocumentInput) (*Documen
 		if urlErr != nil {
 			return nil, urlErr
 		}
-		if fallback && len(result.Warnings) == 0 {
-			result.Warnings = append(result.Warnings, PublicURLFallbackWarning)
+		if fallback {
+			result.Warnings = appendUniqueStrings(result.Warnings, PublicURLFallbackWarning)
 		}
 		pageResult := PageResult{Path: page.Path, Format: page.Format, Title: page.Title, URL: pageURL, Key: pageKey, Bytes: page.pageSize()}
 		if page.SourcePath != "" {
 			pageResult.SourceBytes = page.sourceSize()
 			pageResult.SourceKey = BuildKey(c.cfg.KeyPrefix, dir, page.SourcePath)
-			pageResult.SourceURL, _, err = PublicURL(c.cfg, pageResult.SourceKey)
+			var sourceFallback bool
+			pageResult.SourceURL, sourceFallback, err = PublicURL(c.cfg, pageResult.SourceKey)
 			if err != nil {
 				return nil, err
+			}
+			if sourceFallback {
+				result.Warnings = appendUniqueStrings(result.Warnings, PublicURLFallbackWarning)
 			}
 			contentType := textContentType
 			if page.Format == FormatMarkdown.String() {
@@ -891,8 +901,8 @@ func (c *Client) UploadDocument(ctx context.Context, in DocumentInput) (*Documen
 		if urlErr != nil {
 			return nil, urlErr
 		}
-		if fallback && len(result.Warnings) == 0 {
-			result.Warnings = append(result.Warnings, PublicURLFallbackWarning)
+		if fallback {
+			result.Warnings = appendUniqueStrings(result.Warnings, PublicURLFallbackWarning)
 		}
 		result.Assets = append(result.Assets, AssetResult{Path: asset.Path, URL: assetURL, Key: assetKey, Bytes: asset.Size, ContentType: asset.ContentType})
 	}
@@ -911,9 +921,13 @@ func (c *Client) UploadDocument(ctx context.Context, in DocumentInput) (*Documen
 		return nil, err
 	}
 	result.Key = entryKey
-	result.URL, _, err = PublicURL(c.cfg, entryKey)
+	var entryFallback bool
+	result.URL, entryFallback, err = PublicURL(c.cfg, entryKey)
 	if err != nil {
 		return nil, err
+	}
+	if entryFallback {
+		result.Warnings = appendUniqueStrings(result.Warnings, PublicURLFallbackWarning)
 	}
 	result.Bytes = entry.pageSize()
 	result.ContentType = pageContentType
@@ -923,6 +937,14 @@ func (c *Client) UploadDocument(ctx context.Context, in DocumentInput) (*Documen
 	}
 	c.recordUpload(ctx, &result.Result, markerDeclaredTotals(marker, markerBody))
 	return result, nil
+}
+
+func validateDocumentItemCount(in DocumentInput) error {
+	count := len(in.Pages) + len(in.Assets) + 1
+	if count > MaxDocumentItems {
+		return fmt.Errorf("airplan: document has %d items; maximum is %d", count, MaxDocumentItems)
+	}
+	return nil
 }
 
 func (c *Client) putDocumentPayload(

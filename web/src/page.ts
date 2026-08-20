@@ -27,18 +27,43 @@ interface MarkerPage {
   title?: string;
 }
 
+interface MarkerObject {
+  bytes: number;
+  content_type: string;
+  name: string;
+  role: string;
+  sha256: string;
+}
+
 interface DocumentMarker {
+  created_at: string;
+  directory: string;
   entrypoint: string;
+  format: string;
   kind: string;
+  objects: MarkerObject[];
   pages: MarkerPage[];
-  revision: { chain_id: string; number: number };
+  producer: { name: string; version: string };
+  repo?: string;
+  render: {
+    generation: number;
+    indexable: boolean;
+    mermaid_url?: string;
+    no_external_assets: boolean;
+    template: { kind: string; sha256?: string };
+    themes: { catalog_sha256: string; default_dark: string; default_light: string };
+  };
+  revision: { chain_id: string; number: number; previous_url?: string };
   schema: string;
+  slug: string;
+  title?: string;
   version: number;
 }
 
 (function () {
   "use strict";
   var d = document;
+  var markerMaxBytes = 256 * 1024;
   const renderedElement = d.getElementById("rendered");
   if (!renderedElement) return;
   const rendered: HTMLElement = renderedElement;
@@ -96,6 +121,7 @@ interface DocumentMarker {
       return false;
     var parts = value.split("/");
     return parts.every(function (part) {
+      var lowerPart = part.toLowerCase();
       var hasControl = Array.from(part).some(function (character) {
         var code = character.codePointAt(0) || 0;
         return code < 32 || code === 127;
@@ -104,7 +130,8 @@ interface DocumentMarker {
         !part ||
         part === "." ||
         part === ".." ||
-        part.startsWith(".airplan-") ||
+        lowerPart.startsWith(".airplan-") ||
+        lowerPart === ".airplan.json" ||
         hasControl ||
         /[. ]$/.test(part) ||
         /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)
@@ -116,8 +143,12 @@ interface DocumentMarker {
 
   function objectURL(directory: URL, value: unknown) {
     if (!portableMarkerPath(value)) return null;
-    var relative = String(value);
-    if (relative.split("/", 1)[0].includes(":")) relative = "./" + relative;
+    var relative = String(value)
+      .split("/")
+      .map(function (part) {
+        return encodeURIComponent(part);
+      })
+      .join("/");
     var parsed = new URL(relative, directory);
     if (
       parsed.origin !== directory.origin ||
@@ -131,46 +162,155 @@ interface DocumentMarker {
     return parsed.href;
   }
 
+  async function readBoundedMarker(response: Response) {
+    if (!response.ok) throw new Error("marker request failed");
+    var declared = response.headers.get("content-length");
+    if (declared && /^\d+$/.test(declared) && Number(declared) > markerMaxBytes) {
+      if (response.body) await response.body.cancel("marker is too large");
+      throw new Error("marker is too large");
+    }
+    if (!response.body || typeof response.body.getReader !== "function")
+      throw new Error("bounded marker stream is unavailable");
+    var reader = response.body.getReader();
+    var chunks: Uint8Array[] = [];
+    var total = 0;
+    try {
+      for (;;) {
+        var result = await reader.read();
+        if (result.done) break;
+        total += result.value.byteLength;
+        if (total > markerMaxBytes) {
+          await reader.cancel("marker is too large");
+          throw new Error("marker is too large");
+        }
+        chunks.push(result.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    var body = new Uint8Array(total);
+    var offset = 0;
+    chunks.forEach(function (chunk) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    });
+    return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(body));
+  }
+
   function validateMarker(
     raw: unknown,
     directory: URL,
     selected: RevisionMetadata,
     chainID: string,
   ) {
-    if (!raw || typeof raw !== "object") throw new Error("marker is invalid");
-    var marker = raw as DocumentMarker;
+    if (
+      !isRecord(raw) ||
+      !hasOnlyKeys(raw, [
+        "schema",
+        "version",
+        "directory",
+        "created_at",
+        "kind",
+        "slug",
+        "format",
+        "objects",
+        "title",
+        "repo",
+        "producer",
+        "render",
+        "revision",
+        "entrypoint",
+        "pages",
+      ])
+    )
+      throw new Error("marker is invalid");
+    var marker = raw as unknown as DocumentMarker;
+    var directoryParts = directory.pathname.split("/").filter(Boolean);
+    var directoryName = directoryParts[directoryParts.length - 1] || "";
     if (
       marker.schema !== "airplan-upload" ||
       marker.version !== 6 ||
       marker.kind !== "document" ||
-      !marker.revision ||
+      marker.directory !== directoryName ||
+      !/^[a-z2-7]{26}$/.test(marker.directory) ||
+      typeof marker.created_at !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(marker.created_at) ||
+      Number.isNaN(Date.parse(marker.created_at)) ||
+      marker.format !== "md" ||
+      typeof marker.slug !== "string" ||
+      marker.slug === "" ||
+      marker.entrypoint !== marker.slug + ".html" ||
+      !isRecord(marker.producer) ||
+      !hasOnlyKeys(marker.producer, ["name", "version"]) ||
+      marker.producer.name !== "airplan" ||
+      typeof marker.producer.version !== "string" ||
+      marker.producer.version.trim() !== marker.producer.version ||
+      marker.producer.version === "" ||
+      !validMarkerRender(marker.render) ||
+      !isRecord(marker.revision) ||
+      !hasOnlyKeys(marker.revision, ["chain_id", "number", "previous_url"]) ||
       marker.revision.number !== selected.number ||
       marker.revision.chain_id !== chainID ||
+      (marker.revision.number === 1
+        ? marker.revision.previous_url !== undefined
+        : typeof marker.revision.previous_url !== "string" ||
+          !safeAbsoluteHTMLURL(marker.revision.previous_url)) ||
+      !Array.isArray(marker.objects) ||
       !Array.isArray(marker.pages) ||
       marker.pages.length === 0
     )
       throw new Error("marker identity is invalid");
     var entry = objectURL(directory, marker.entrypoint);
     if (entry !== selected.safeURL) throw new Error("marker entrypoint is invalid");
+    if (
+      (marker.title !== undefined && typeof marker.title !== "string") ||
+      (marker.repo !== undefined && typeof marker.repo !== "string") ||
+      marker.objects.length === 0 ||
+      marker.pages.length > 100
+    )
+      throw new Error("marker shape is invalid");
+    var objectRoles = validateMarkerObjects(marker);
     var paths = new Set<string>();
     var foldedPaths = new Set<string>();
     var renderedObjects = new Set<string>();
     var pages = new Map<string, string>();
-    marker.pages.forEach(function (page) {
+    marker.pages.forEach(function (page, pageIndex) {
       if (
-        !page ||
+        !isRecord(page) ||
+        !hasOnlyKeys(page, ["path", "page", "source", "format", "title", "lang"]) ||
         !portableMarkerPath(page.path) ||
         paths.has(page.path) ||
         foldedPaths.has(page.path.toLowerCase()) ||
         (page.format !== "md" && page.format !== "txt") ||
-        typeof page.lang !== "string"
+        typeof page.lang !== "string" ||
+        (page.title !== undefined && typeof page.title !== "string") ||
+        !portableMarkerPath(page.page) ||
+        !portableMarkerPath(page.source)
       )
         throw new Error("marker page descriptor is invalid");
+      var expectedPage = managedPageName(page.path, page.format);
+      var expectedSource = page.path;
+      if (pageIndex === 0) {
+        expectedPage = marker.entrypoint;
+        expectedSource = marker.slug + ".md";
+        if (page.format !== marker.format) throw new Error("marker entry format is invalid");
+      }
+      if (page.page !== expectedPage || page.source !== expectedSource)
+        throw new Error("marker generated page mapping is invalid");
       var rendered = objectURL(directory, page.page);
       if (!rendered || renderedObjects.has(rendered))
         throw new Error("marker page object is invalid");
-      if (page.source && !objectURL(directory, page.source))
-        throw new Error("marker source object is invalid");
+      if (!objectURL(directory, page.source)) throw new Error("marker source object is invalid");
+      if (objectRoles.get(page.page) !== "page" || objectRoles.get(page.source!) !== "source")
+        throw new Error("marker page object relationship is invalid");
+      var sourceType = marker.objects.find(function (object) {
+        return object.name === page.source;
+      })!.content_type;
+      if (
+        (page.format === "md" && sourceType !== "text/markdown; charset=utf-8") ||
+        (page.format === "txt" && sourceType !== "text/plain; charset=utf-8")
+      )
+        throw new Error("marker source content type is invalid");
       paths.add(page.path);
       foldedPaths.add(page.path.toLowerCase());
       renderedObjects.add(rendered);
@@ -183,7 +323,169 @@ interface DocumentMarker {
     }
     if (!paths.has(marker.pages[0].path) || pages.get(marker.pages[0].path) !== entry)
       throw new Error("marker entry page is invalid");
+    if (
+      renderedObjects.size !== marker.pages.length ||
+      Array.from(objectRoles.values()).filter(function (role) {
+        return role === "source";
+      }).length !== marker.pages.length
+    )
+      throw new Error("marker page inventory is invalid");
     return pages;
+  }
+
+  function managedPageName(logical: string, format: string) {
+    if (format !== "md") return logical + ".html";
+    var slash = logical.lastIndexOf("/");
+    var dot = logical.lastIndexOf(".");
+    return (dot > slash ? logical.slice(0, dot) : logical) + ".html";
+  }
+
+  function validMarkerRender(render: DocumentMarker["render"]) {
+    if (
+      !isRecord(render) ||
+      !hasOnlyKeys(render, [
+        "generation",
+        "template",
+        "indexable",
+        "no_external_assets",
+        "mermaid_url",
+        "themes",
+      ]) ||
+      !isRecord(render.template) ||
+      !hasOnlyKeys(render.template, ["kind", "sha256"]) ||
+      !isRecord(render.themes) ||
+      !hasOnlyKeys(render.themes, ["default_light", "default_dark", "catalog_sha256"]) ||
+      !Number.isInteger(render.generation) ||
+      render.generation <= 0 ||
+      typeof render.indexable !== "boolean" ||
+      typeof render.no_external_assets !== "boolean" ||
+      !render.template ||
+      (render.template.kind !== "builtin" && render.template.kind !== "custom") ||
+      (render.mermaid_url !== undefined && !safeMermaidURL(render.mermaid_url)) ||
+      !render.themes
+    )
+      return false;
+    if (
+      (render.template.kind === "builtin" && render.template.sha256 !== undefined) ||
+      (render.template.kind === "custom" && !validDigest(render.template.sha256))
+    )
+      return false;
+    return (
+      /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(render.themes.default_light) &&
+      /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(render.themes.default_dark) &&
+      validDigest(render.themes.catalog_sha256)
+    );
+  }
+
+  function validDigest(value: unknown) {
+    return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
+  }
+
+  function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function hasOnlyKeys(value: Record<string, unknown>, allowed: string[]) {
+    return Object.keys(value).every(function (key) {
+      return allowed.includes(key);
+    });
+  }
+
+  function validNormalizedContentType(value: unknown) {
+    return (
+      typeof value === "string" &&
+      /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+(?:; [a-z0-9!#$&^_.+-]+=(?:[a-z0-9!#$&^_.+-]+|"(?:[^"\\\r\n]|\\.)*"))*$/.test(
+        value,
+      )
+    );
+  }
+
+  function safeAbsoluteHTMLURL(value: string) {
+    try {
+      var parsed = new URL(value);
+      return (
+        (parsed.protocol === "https:" || parsed.protocol === "http:") &&
+        !parsed.username &&
+        !parsed.password &&
+        !parsed.search &&
+        !parsed.hash &&
+        parsed.pathname.endsWith(".html")
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  function safeMermaidURL(value: unknown) {
+    if (typeof value !== "string") return false;
+    try {
+      var parsed = new URL(value);
+      return (
+        parsed.protocol === "https:" &&
+        !!parsed.host &&
+        !parsed.username &&
+        !parsed.password &&
+        !parsed.hash
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  function validateMarkerObjects(marker: DocumentMarker) {
+    var roles = new Map<string, string>();
+    var folded = new Set<string>();
+    var diffCount = 0;
+    var pages = 0;
+    var sources = 0;
+    var assets = 0;
+    marker.objects.forEach(function (object) {
+      if (
+        !isRecord(object) ||
+        !hasOnlyKeys(object, ["name", "role", "bytes", "content_type", "sha256"]) ||
+        (!portableMarkerPath(object.name) && object.name !== ".airplan-changes.diff") ||
+        roles.has(object.name) ||
+        folded.has(object.name.toLowerCase()) ||
+        !Number.isSafeInteger(object.bytes) ||
+        object.bytes < 0 ||
+        !validDigest(object.sha256) ||
+        !validNormalizedContentType(object.content_type)
+      )
+        throw new Error("marker object inventory is invalid");
+      if (object.role === "page") {
+        pages += 1;
+        if (object.bytes <= 0 || object.content_type !== "text/html; charset=utf-8")
+          throw new Error("marker page object is invalid");
+      } else if (object.role === "source") {
+        sources += 1;
+        if (object.bytes <= 0) throw new Error("marker source object is invalid");
+      } else if (object.role === "asset") {
+        assets += 1;
+      } else if (object.role === "diff") {
+        diffCount += 1;
+        if (
+          object.name !== ".airplan-changes.diff" ||
+          object.bytes <= 0 ||
+          object.content_type !== "text/plain; charset=utf-8"
+        )
+          throw new Error("marker diff object is invalid");
+      } else throw new Error("marker object role is invalid");
+      roles.set(object.name, object.role);
+      folded.add(object.name.toLowerCase());
+    });
+    var names = Array.from(folded).sort();
+    for (var index = 1; index < names.length; index += 1) {
+      if (names[index].startsWith(names[index - 1] + "/"))
+        throw new Error("marker object paths conflict");
+    }
+    if (
+      pages !== marker.pages.length ||
+      sources !== marker.pages.length ||
+      pages + assets > 100 ||
+      (marker.revision.number === 1 ? diffCount !== 0 : diffCount !== 1)
+    )
+      throw new Error("marker object counts are invalid");
+    return roles;
   }
 
   function revisionDestination(entryURL: string, targetPage: string | null) {
@@ -324,10 +626,7 @@ interface DocumentMarker {
         Date.now().toString(36) + Math.random().toString(36).slice(2),
       );
       fetch(markerURL, { cache: "no-store", credentials: "same-origin" })
-        .then(function (response) {
-          if (!response.ok) throw new Error("marker request failed");
-          return response.json();
-        })
+        .then(readBoundedMarker)
         .then(function (marker) {
           var pages = validateMarker(marker, selectedDirectory, target, revisionChainMeta!.content);
           window.location.assign(
@@ -526,21 +825,21 @@ interface DocumentMarker {
             Math.min(480, window.innerWidth - Math.max(16, rect.left) - 16) + "px",
           );
         }
-        pagesTrigger.addEventListener("click", function () {
+        pagesTrigger.setAttribute("popovertarget", pagesPopover.id);
+        pagesTrigger.popoverTargetElement = pagesPopover;
+        pagesPopover.addEventListener("beforetoggle", function (event) {
+          if ((event as ToggleEvent).newState !== "open") return;
           closeTocDialog();
           positionPagesPopover();
-          if (pagesOpen()) {
-            closePagesPopover(true);
-          } else {
-            pagesPopover!.showPopover();
-            var current = pagesPopover!.querySelector('[aria-current="page"]');
-            if (current) current.scrollIntoView({ block: "nearest" });
-          }
         });
         pagesPopover.addEventListener("toggle", function (event) {
           var open = (event as ToggleEvent).newState === "open";
           pagesTrigger!.setAttribute("aria-expanded", open ? "true" : "false");
           d.body.classList.toggle("pages-popover-open", open);
+          if (open) {
+            var current = pagesPopover!.querySelector('[aria-current="page"]');
+            if (current) current.scrollIntoView({ block: "nearest" });
+          }
           syncTocTrigger();
         });
         pagesPopoverNav.querySelectorAll<HTMLAnchorElement>("a").forEach(function (link) {

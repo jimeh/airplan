@@ -2,6 +2,7 @@ package airplan
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 )
 
@@ -60,7 +61,7 @@ func TestParseRevisionDiffReportExplicitSectionsDisambiguateAirplanPath(t *testi
 		"--- revision-2/airplan guide.md\n+++ revision-3/airplan guide.md\n" +
 		"@@ -1 +1 @@\n-old\n+new\n" +
 		"# airplan asset: \"airplan screenshot.png\"\n" +
-		"asset changed: image/png, 1 bytes, sha256 old -> image/png, 1 bytes, sha256 new\n")
+		"asset changed: {\"before\":{\"content_type\":\"image/png\",\"bytes\":1,\"sha256\":\"" + strings.Repeat("a", 64) + "\"},\"after\":{\"content_type\":\"image/png\",\"bytes\":1,\"sha256\":\"" + strings.Repeat("b", 64) + "\"}}\n")
 	report, err := parseRevisionDiffReport(body, "README.md")
 	if err != nil {
 		t.Fatal(err)
@@ -92,7 +93,7 @@ func TestParseRevisionDiffReportRetainsGenerationFourAirplanPath(t *testing.T) {
 	for _, logical := range []string{"airplan guide.md", "airplan metadata"} {
 		body := []byte("# airplan revisions: 2 -> 3\n" +
 			"# " + logical + "\n" +
-			"--- revision-2/" + logical + "\n+++ revision-3/" + logical + "\n" +
+			"--- revision-2/plan.md\n+++ revision-3/plan.md\n" +
 			"@@ -1 +1 @@\n-old\n+new\n")
 		report, err := parseRevisionDiffReport(body, "README.md")
 		if err != nil {
@@ -104,11 +105,64 @@ func TestParseRevisionDiffReportRetainsGenerationFourAirplanPath(t *testing.T) {
 	}
 }
 
+func TestParseRevisionDiffReportDoesNotTreatHunkContentAsHeaders(t *testing.T) {
+	body := []byte("# airplan revisions: 2 -> 3\n" + revisionDiffFormatHeader +
+		"# airplan page: \"airplan guide.md\"\n" +
+		"--- revision-2/airplan guide.md\n+++ revision-3/airplan guide.md\n" +
+		"@@ -1 +1 @@\n--- revision-old/source.md\n++++ revision-new/source.md\n")
+	report, err := parseRevisionDiffReport(body, "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(report.PageSections["airplan guide.md"], []byte("revision-new")) {
+		t.Fatalf("page sections = %#v", report.PageSections)
+	}
+}
+
+func TestParseRevisionDiffReportRejectsMalformedFormatTwoSections(t *testing.T) {
+	digest := strings.Repeat("a", 64)
+	for _, test := range []struct {
+		name    string
+		section string
+	}{
+		{"noncanonical descriptor", "# airplan page: \"README.md\"\npage added: {\"lang\":\"Markdown\",\"format\":\"md\"}\n"},
+		{"unknown descriptor field", "# airplan page: \"README.md\"\npage added: {\"format\":\"md\",\"lang\":\"Markdown\",\"extra\":true}\n"},
+		{"added page without source diff", "# airplan page: \"README.md\"\npage added: {\"format\":\"md\",\"lang\":\"Markdown\"}\n"},
+		{"removed page without source diff", "# airplan page: \"README.md\"\npage removed: {\"format\":\"md\",\"lang\":\"Markdown\"}\n"},
+		{"empty metadata", "# airplan page: \"README.md\"\npage metadata changed: {}\n"},
+		{"bad hunk counts", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1 +1 @@\n-old\n"},
+		{"trailing hunk junk", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1 +1 @@\n-old\n+new\njunk\n"},
+		{"noncanonical asset", "# airplan asset: \"image.png\"\nasset added: {\"sha256\":\"" + digest + "\",\"bytes\":1,\"content_type\":\"image/png\"}\n"},
+		{"asset trailing content", "# airplan asset: \"image.png\"\nasset added: {\"content_type\":\"image/png\",\"bytes\":1,\"sha256\":\"" + digest + "\"}\ntrailing\n"},
+		{"malformed page order", "# airplan page order\nbefore: [\"README.md\",\"README.md\"]\nafter: [\"README.md\"]\n"},
+		{"malformed metadata", "# airplan metadata\nbefore: {\"format\":\"md\",\"title\":\"Old\"}\nafter: {\"format\":\"md\",\"title\":\"New\",\"slug\":\"plan\"}\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte("# airplan revisions: 2 -> 3\n" + revisionDiffFormatHeader + test.section)
+			if _, err := parseRevisionDiffReport(body, "README.md"); err == nil {
+				t.Fatalf("parse accepted malformed report:\n%s", body)
+			}
+		})
+	}
+}
+
 func TestParseRevisionDiffReportRejectsUnknownExplicitFormat(t *testing.T) {
 	body := []byte("# airplan revisions: 2 -> 3\n# airplan diff format: 3\n")
 	if _, err := parseRevisionDiffReport(body, "README.md"); err == nil ||
 		!bytes.Contains([]byte(err.Error()), []byte("format is unsupported")) {
 		t.Fatalf("error = %v, want unsupported format", err)
+	}
+}
+
+func TestParseRevisionDiffReportAcceptsExplicitNoChanges(t *testing.T) {
+	body := []byte("# airplan revisions: 2 -> 3\n" + revisionDiffFormatHeader +
+		"No textual changes.\n")
+	report, err := parseRevisionDiffReport(body, "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(report.PageSections) != 0 || len(report.AssetSections) != 0 {
+		t.Fatalf("report sections = %#v, %#v", report.PageSections, report.AssetSections)
 	}
 }
 

@@ -684,7 +684,7 @@ func validateModernMarker(
 			return invalid("object name %q is not a safe relative path",
 				object.Name)
 		}
-		if marker.Version >= 4 && strings.HasPrefix(object.Name, ".airplan-") &&
+		if marker.Version >= 4 && strings.HasPrefix(strings.ToLower(object.Name), ".airplan-") &&
 			(object.Role != MarkerRoleDiff || object.Name != DiffFilename) {
 			return invalid("object name %q uses the reserved .airplan- prefix",
 				object.Name)
@@ -1268,9 +1268,10 @@ func validMarkerObjectPath(name string) bool {
 		return false
 	}
 	for _, segment := range strings.Split(name, "/") {
+		lowerSegment := strings.ToLower(segment)
 		if segment == "" || segment == "." || segment == ".." ||
-			strings.HasPrefix(segment, ".airplan-") || segment == MarkerFilename ||
-			segment == CollectionMarkerFilename || segment == ProtectedFilename ||
+			strings.HasPrefix(lowerSegment, ".airplan-") || lowerSegment == MarkerFilename ||
+			lowerSegment == CollectionMarkerFilename || lowerSegment == ProtectedFilename ||
 			!validPortablePathSegment(segment) {
 			return false
 		}

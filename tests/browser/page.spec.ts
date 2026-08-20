@@ -502,6 +502,16 @@ test("bundle pages use ordinary navigation and update both rails", async ({
     await expect(popover).toBeVisible();
     await expect(popover.locator('a[aria-current="page"]')).toContainText("README.md");
     await expect(openPages).toHaveAttribute("aria-expanded", "true");
+    await openPages.click();
+    await expect(popover).toBeHidden();
+    await openPages.click();
+    await page.keyboard.press("Escape");
+    await expect(popover).toBeHidden();
+    await expect(openPages).toBeFocused();
+    await openPages.click();
+    await page.mouse.click(380, 820);
+    await expect(popover).toBeHidden();
+    await openPages.click();
 
     await page.setViewportSize({ width: 1400, height: 844 });
     await expect(popover).toBeHidden();
@@ -1183,14 +1193,17 @@ test("child revision selection preserves logical page and falls back to entry", 
   const currentDir = "v".repeat(26);
   const targetDir = "w".repeat(26);
   const chainID = "s".repeat(26);
-  const currentChild = `${baseURL}/${currentDir}/docs/design.html`;
-  const targetChild = `${baseURL}/${targetDir}/docs/design.html`;
+  const specialLogical = "docs/design ?#%.md";
+  const specialRendered = "docs/design ?#%.html";
+  const encodedRendered = specialRendered.split("/").map(encodeURIComponent).join("/");
+  const currentChild = `${baseURL}/${currentDir}/${encodedRendered}`;
+  const targetChild = `${baseURL}/${targetDir}/${encodedRendered}`;
   const targetEntry = `${baseURL}/${targetDir}/index.html`;
   const childHTML = linkedBundlePage(
     bundleMembers.get("/bundle/docs/design.html")!,
     2,
     chainID,
-    "docs/design.md",
+    specialLogical,
     "../index.html",
   );
   await page.route(currentChild, (route) =>
@@ -1199,55 +1212,106 @@ test("child revision selection preserves logical page and falls back to entry", 
   await page.route(`${baseURL}/${targetDir}/**`, (route) =>
     route.fulfill({ contentType: "text/html; charset=utf-8", body: childHTML }),
   );
-  await page.route(`**/${currentDir}/.airplan-versions.json?*`, (route) =>
+  const versionsPattern = `**/${currentDir}/.airplan-versions.json?*`;
+  let versionsBody = JSON.stringify({
+    schema: "airplan-versions",
+    version: 1,
+    chain_id: chainID,
+    current_revision: 2,
+    latest_revision: 2,
+    last_assigned_revision: 2,
+    revisions: [
+      { number: 1, url: targetEntry, created_at: "2026-08-15T10:00:00Z" },
+      {
+        number: 2,
+        url: `${baseURL}/${currentDir}/index.html`,
+        created_at: "2026-08-15T10:10:00Z",
+        diff_url: `${baseURL}/${currentDir}/.airplan-changes.diff`,
+      },
+    ],
+  });
+  await page.route(versionsPattern, (route) =>
     route.fulfill({
       contentType: "application/json",
-      body: JSON.stringify({
-        schema: "airplan-versions",
-        version: 1,
-        chain_id: chainID,
-        current_revision: 2,
-        latest_revision: 2,
-        last_assigned_revision: 2,
-        revisions: [
-          { number: 1, url: targetEntry, created_at: "2026-08-15T10:00:00Z" },
-          {
-            number: 2,
-            url: `${baseURL}/${currentDir}/index.html`,
-            created_at: "2026-08-15T10:10:00Z",
-            diff_url: `${baseURL}/${currentDir}/.airplan-changes.diff`,
-          },
-        ],
-      }),
+      body: versionsBody,
     }),
   );
   const markerPattern = `**/${targetDir}/.airplan.json?*`;
   const validMarker = {
     schema: "airplan-upload",
     version: 6,
+    directory: targetDir,
+    created_at: "2026-08-15T10:00:00Z",
     kind: "document",
+    slug: "index",
+    format: "md",
+    title: "Bundle overview",
+    producer: { name: "airplan", version: "0.10.0" },
+    render: {
+      generation: 5,
+      template: { kind: "builtin" },
+      indexable: false,
+      no_external_assets: false,
+      mermaid_url: "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs",
+      themes: {
+        default_light: "github-light",
+        default_dark: "github-dark",
+        catalog_sha256: "c".repeat(64),
+      },
+    },
     entrypoint: "index.html",
     revision: { chain_id: chainID, number: 1 },
+    objects: [
+      {
+        name: "index.html",
+        role: "page",
+        bytes: 100,
+        content_type: "text/html; charset=utf-8",
+        sha256: "a".repeat(64),
+      },
+      {
+        name: "index.md",
+        role: "source",
+        bytes: 10,
+        content_type: "text/markdown; charset=utf-8",
+        sha256: "b".repeat(64),
+      },
+      {
+        name: specialRendered,
+        role: "page",
+        bytes: 100,
+        content_type: "text/html; charset=utf-8",
+        sha256: "d".repeat(64),
+      },
+      {
+        name: specialLogical,
+        role: "source",
+        bytes: 10,
+        content_type: "text/markdown; charset=utf-8",
+        sha256: "e".repeat(64),
+      },
+    ],
     pages: [
       {
         path: "README.md",
         page: "index.html",
-        source: "README.md",
+        source: "index.md",
         format: "md",
         lang: "Markdown",
       },
       {
-        path: "docs/design.md",
-        page: "docs/design.html",
-        source: "docs/design.md",
+        path: specialLogical,
+        page: specialRendered,
+        source: specialLogical,
         format: "md",
         lang: "Markdown",
       },
     ],
   };
+  let markerBody = JSON.stringify(validMarker);
   await page.route(markerPattern, async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 100));
-    await route.fulfill({ contentType: "application/json", body: JSON.stringify(validMarker) });
+    await route.fulfill({ contentType: "application/json", body: markerBody });
   });
 
   await page.goto(currentChild + "#deep-dive");
@@ -1258,44 +1322,140 @@ test("child revision selection preserves logical page and falls back to entry", 
   await Promise.all([navigation, selection]);
   await expect(page).toHaveURL(targetChild + "#deep-dive");
 
+  const revisionOneEntry = `${baseURL}/${"q".repeat(26)}/index.html`;
+  versionsBody = JSON.stringify({
+    schema: "airplan-versions",
+    version: 1,
+    chain_id: chainID,
+    current_revision: 2,
+    latest_revision: 3,
+    last_assigned_revision: 3,
+    revisions: [
+      { number: 1, url: revisionOneEntry, created_at: "2026-08-15T09:50:00Z" },
+      {
+        number: 2,
+        url: `${baseURL}/${currentDir}/index.html`,
+        created_at: "2026-08-15T10:00:00Z",
+        diff_url: `${baseURL}/${currentDir}/.airplan-changes.diff`,
+      },
+      {
+        number: 3,
+        url: targetEntry,
+        created_at: "2026-08-15T10:10:00Z",
+        diff_url: `${baseURL}/${targetDir}/.airplan-changes.diff`,
+      },
+    ],
+  });
+  const validRevisionThreeMarker = {
+    ...validMarker,
+    revision: {
+      chain_id: chainID,
+      number: 3,
+      previous_url: `${baseURL}/${currentDir}/index.html`,
+    },
+    objects: [
+      ...validMarker.objects,
+      {
+        name: ".airplan-changes.diff",
+        role: "diff",
+        bytes: 100,
+        content_type: "text/plain; charset=utf-8",
+        sha256: "f".repeat(64),
+      },
+    ],
+  };
+  markerBody = JSON.stringify(validRevisionThreeMarker);
+  await page.goto(currentChild + "#deep-dive");
+  await Promise.all([
+    page.waitForURL(targetChild + "#deep-dive"),
+    page.getByRole("combobox", { name: "Document revision" }).selectOption({
+      label: "Revision 3 (Latest)",
+    }),
+  ]);
+  await expect(page).toHaveURL(targetChild + "#deep-dive");
+
   const invalidTargets = [
     { name: "missing marker", status: 404, body: "" },
     { name: "malformed marker", status: 200, body: "{" },
     {
       name: "wrong version",
       status: 200,
-      body: JSON.stringify({ ...validMarker, version: 5 }),
+      body: JSON.stringify({ ...validRevisionThreeMarker, version: 5 }),
+    },
+    {
+      name: "wrong directory",
+      status: 200,
+      body: JSON.stringify({ ...validRevisionThreeMarker, directory: "x".repeat(26) }),
+    },
+    {
+      name: "missing producer",
+      status: 200,
+      body: JSON.stringify({ ...validRevisionThreeMarker, producer: undefined }),
     },
     {
       name: "wrong chain",
       status: 200,
-      body: JSON.stringify({ ...validMarker, revision: { chain_id: "z".repeat(26), number: 1 } }),
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        revision: { ...validRevisionThreeMarker.revision, chain_id: "z".repeat(26) },
+      }),
+    },
+    {
+      name: "reserved case-folded object",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        objects: [
+          ...validRevisionThreeMarker.objects,
+          {
+            name: "docs/.AIRPLAN-secret",
+            role: "asset",
+            bytes: 0,
+            content_type: "application/octet-stream",
+            sha256: "f".repeat(64),
+          },
+        ],
+      }),
+    },
+    {
+      name: "oversized marker",
+      status: 200,
+      body: JSON.stringify({ ...validRevisionThreeMarker, padding: "x".repeat(256 * 1024) }),
     },
     {
       name: "mismatched entrypoint",
       status: 200,
-      body: JSON.stringify({ ...validMarker, entrypoint: "other.html" }),
+      body: JSON.stringify({ ...validRevisionThreeMarker, entrypoint: "other.html" }),
     },
     {
       name: "traversal mapping",
       status: 200,
       body: JSON.stringify({
-        ...validMarker,
-        pages: [validMarker.pages[0], { ...validMarker.pages[1], page: "../escape.html" }],
+        ...validRevisionThreeMarker,
+        pages: [
+          validRevisionThreeMarker.pages[0],
+          { ...validRevisionThreeMarker.pages[1], page: "../escape.html" },
+        ],
       }),
     },
     {
       name: "duplicate rendered mapping",
       status: 200,
       body: JSON.stringify({
-        ...validMarker,
-        pages: [...validMarker.pages, { ...validMarker.pages[1], path: "docs/copy.md" }],
+        ...validRevisionThreeMarker,
+        pages: [
+          ...validRevisionThreeMarker.pages,
+          { ...validRevisionThreeMarker.pages[1], path: "docs/copy.md" },
+        ],
       }),
     },
     {
       name: "missing logical page",
       status: 200,
-      body: JSON.stringify({ ...validMarker, pages: validMarker.pages.slice(0, 1) }),
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        pages: validRevisionThreeMarker.pages.slice(0, 1),
+      }),
     },
   ];
   for (const invalid of invalidTargets) {
@@ -1309,10 +1469,49 @@ test("child revision selection preserves logical page and falls back to entry", 
     );
     await page.goto(currentChild + "#deep-dive");
     await page.getByRole("combobox", { name: "Document revision" }).selectOption({
-      label: "Revision 1 of 2",
+      label: "Revision 3 (Latest)",
     });
     await expect(page, invalid.name).toHaveURL(targetEntry);
   }
+
+  await page.goto(currentChild + "#deep-dive");
+  await page.evaluate((limit) => {
+    sessionStorage.removeItem("airplan-marker-stream-pulls");
+    sessionStorage.removeItem("airplan-marker-stream-cancelled");
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const requestURL = input instanceof Request ? input.url : String(input);
+      if (!new URL(requestURL, window.location.href).pathname.endsWith("/.airplan.json"))
+        return nativeFetch(input, init);
+      let pulls = 0;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            pulls += 1;
+            sessionStorage.setItem("airplan-marker-stream-pulls", String(pulls));
+            controller.enqueue(new Uint8Array(limit + 1));
+            if (pulls === 5) controller.close();
+          },
+          cancel() {
+            sessionStorage.setItem("airplan-marker-stream-cancelled", "true");
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof window.fetch;
+  }, 256 * 1024);
+  await page.getByRole("combobox", { name: "Document revision" }).selectOption({
+    label: "Revision 3 (Latest)",
+  });
+  await expect(page).toHaveURL(targetEntry);
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem("airplan-marker-stream-cancelled")))
+    .toBe("true");
+  const markerPulls = Number(
+    await page.evaluate(() => sessionStorage.getItem("airplan-marker-stream-pulls")),
+  );
+  expect(markerPulls).toBeGreaterThan(0);
+  expect(markerPulls).toBeLessThan(5);
 });
 
 test("revision metadata rejects same-origin URLs outside the current key prefix", async ({

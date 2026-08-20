@@ -823,6 +823,9 @@ func TestUploadMarkerV6ValidatesNestedPaths(t *testing.T) {
 		{"reserved nested segment", func(m *UploadMarker) {
 			m.Objects[4].Name = "images/.airplan-private/flow.svg"
 		}},
+		{"case-folded reserved nested segment", func(m *UploadMarker) {
+			m.Objects[4].Name = "images/.AIRPLAN-private/flow.svg"
+		}},
 		{"case-folded object collision", func(m *UploadMarker) {
 			m.Objects = append(m.Objects, MarkerObject{
 				Name: "IMAGES/FLOW.SVG", Role: MarkerRoleAsset, Bytes: 1,

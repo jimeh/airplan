@@ -567,48 +567,48 @@ supported client version older than the token-capable release.&#160;<a href="#fn
 </div>
 <script>
 (() => {
-  function PE(S) {
+  function oE(S) {
     return S === "system" || S === "light" || S === "dark";
   }
-  function IE(S, J) {
+  function zE(S, $) {
     try {
-      return S?.getItem(J) ?? null;
+      return S?.getItem($) ?? null;
     } catch {
       return null;
     }
   }
-  function g(S, J, Q) {
+  function d(S, $, H) {
     try {
-      if (Q === null)
-        S?.removeItem(J);
+      if (H === null)
+        S?.removeItem($);
       else
-        S?.setItem(J, Q);
+        S?.setItem($, H);
     } catch {}
   }
-  function CE(S, J, Q) {
-    let $ = IE(Q, "airplan-color-mode");
-    if ($ === null) {
-      let O = IE(Q, "airplan-theme");
-      if ($ = O === "light" || O === "dark" ? O : "system", $ !== "system")
-        g(Q, "airplan-color-mode", $);
+  function DE(S, $, H) {
+    let W = zE(H, "airplan-color-mode");
+    if (W === null) {
+      let w = zE(H, "airplan-theme");
+      if (W = w === "light" || w === "dark" ? w : "system", W !== "system")
+        d(H, "airplan-color-mode", W);
     }
-    let x = PE($) ? $ : "system", V = new Set(S.themes.map((O) => O.id)), I = IE(Q, "airplan-light-theme"), X = IE(Q, "airplan-dark-theme"), K = I !== null && V.has(I) ? I : S.defaultLight, w = X !== null && V.has(X) ? X : S.defaultDark;
-    return HE(S, x, K, w, J);
+    let L = oE(W) ? W : "system", M = new Set(S.themes.map((w) => w.id)), Y = zE(H, "airplan-light-theme"), K = zE(H, "airplan-dark-theme"), I = Y !== null && M.has(Y) ? Y : S.defaultLight, N = K !== null && M.has(K) ? K : S.defaultDark;
+    return NE(S, L, I, N, $);
   }
-  function HE(S, J, Q, $, x) {
-    let V = new Map(S.themes.map((U) => [U.id, U])), I = V.has(Q) ? Q : S.defaultLight, X = V.has($) ? $ : S.defaultDark, K = J === "system" ? x ? "dark" : "light" : J, w = K === "light" ? I : X, O = V.get(w)?.variant ?? K;
-    return { mode: J, resolvedMode: K, lightTheme: I, darkTheme: X, theme: w, variant: O };
+  function NE(S, $, H, W, L) {
+    let M = new Map(S.themes.map((u) => [u.id, u])), Y = M.has(H) ? H : S.defaultLight, K = M.has(W) ? W : S.defaultDark, I = $ === "system" ? L ? "dark" : "light" : $, N = I === "light" ? Y : K, w = M.get(N)?.variant ?? I;
+    return { mode: $, resolvedMode: I, lightTheme: Y, darkTheme: K, theme: N, variant: w };
   }
-  function uE(S, J) {
-    if (J === "system")
-      g(S, "airplan-color-mode", null), g(S, "airplan-theme", null);
+  function jE(S, $) {
+    if ($ === "system")
+      d(S, "airplan-color-mode", null), d(S, "airplan-theme", null);
     else
-      g(S, "airplan-color-mode", J), g(S, "airplan-theme", J);
+      d(S, "airplan-color-mode", $), d(S, "airplan-theme", $);
   }
-  function RE(S, J, Q) {
-    g(S, J === "light" ? "airplan-light-theme" : "airplan-dark-theme", Q);
+  function uE(S, $, H) {
+    d(S, $ === "light" ? "airplan-light-theme" : "airplan-dark-theme", H);
   }
-  function hE(S) {
+  function yE(S) {
     return {
       mode: S.mode,
       resolvedMode: S.resolvedMode,
@@ -618,110 +618,110 @@ supported client version older than the token-capable release.&#160;<a href="#fn
   }
 
   (function() {
-    let S = document, J = S.documentElement;
-    S.querySelectorAll(".js-only").forEach((B) => {
-      B.hidden = !1;
+    let S = document, $ = S.documentElement;
+    S.querySelectorAll(".js-only").forEach((Q) => {
+      Q.hidden = !1;
     });
-    let Q = window.__AIRPLAN_THEME_CATALOG__;
-    if (!Q)
+    let H = window.__AIRPLAN_THEME_CATALOG__;
+    if (!H)
       return;
-    let $ = Q, x = window.matchMedia("(prefers-color-scheme: dark)"), V;
+    let W = H, L = window.matchMedia("(prefers-color-scheme: dark)"), M;
     try {
-      V = window.localStorage;
+      M = window.localStorage;
     } catch {}
-    let I = window.__airplanThemeState ?? CE($, x.matches, V), X = S.querySelector("[data-airplan-appearance-trigger]"), K = S.querySelector("[data-airplan-appearance-panel]"), w = S.querySelector('select[data-airplan-theme-slot="light"]'), O = S.querySelector('select[data-airplan-theme-slot="dark"]'), U = Array.from(S.querySelectorAll("[data-airplan-color-mode]"));
-    function i(B) {
-      if (!B || B.options.length > 0)
+    let Y = window.__airplanThemeState ?? DE(W, L.matches, M), K = S.querySelector("[data-airplan-appearance-trigger]"), I = S.querySelector("[data-airplan-appearance-panel]"), N = S.querySelector('select[data-airplan-theme-slot="light"]'), w = S.querySelector('select[data-airplan-theme-slot="dark"]'), u = Array.from(S.querySelectorAll("[data-airplan-color-mode]"));
+    function s(Q) {
+      if (!Q || Q.options.length > 0)
         return;
-      for (let [z, F] of [
+      for (let [z, h] of [
         ["light", "Light themes"],
         ["dark", "Dark themes"]
       ]) {
-        let N = S.createElement("optgroup");
-        N.label = F;
-        for (let b of $.themes) {
-          if (b.variant !== z)
+        let F = S.createElement("optgroup");
+        F.label = h;
+        for (let x of W.themes) {
+          if (x.variant !== z)
             continue;
-          let k = S.createElement("option");
-          k.value = b.id, k.textContent = b.name, N.append(k);
+          let o = S.createElement("option");
+          o.value = x.id, o.textContent = x.name, F.append(o);
         }
-        if (N.children.length > 0)
-          B.append(N);
+        if (F.children.length > 0)
+          Q.append(F);
       }
     }
-    i(w), i(O);
-    function v(B, z = !0) {
-      if (I = B, window.__airplanThemeState = I, J.dataset.airplanMode = I.mode, J.dataset.airplanResolvedMode = I.resolvedMode, J.dataset.airplanTheme = I.theme, J.dataset.airplanThemeVariant = I.variant, U.forEach((F) => {
-        let N = F.dataset.airplanColorMode === I.mode;
-        F.classList.toggle("active", N), F.setAttribute("aria-pressed", String(N));
-      }), w)
-        w.value = I.lightTheme;
-      if (O)
-        O.value = I.darkTheme;
+    s(N), s(w);
+    function y(Q, z = !0) {
+      if (Y = Q, window.__airplanThemeState = Y, $.dataset.airplanMode = Y.mode, $.dataset.airplanResolvedMode = Y.resolvedMode, $.dataset.airplanTheme = Y.theme, $.dataset.airplanThemeVariant = Y.variant, u.forEach((h) => {
+        let F = h.dataset.airplanColorMode === Y.mode;
+        h.classList.toggle("active", F), h.setAttribute("aria-pressed", String(F));
+      }), N)
+        N.value = Y.lightTheme;
+      if (w)
+        w.value = Y.darkTheme;
       if (z)
-        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: hE(I) }));
+        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: yE(Y) }));
     }
-    function s(B = {}) {
-      v(HE($, B.mode ?? I.mode, B.lightTheme ?? I.lightTheme, B.darkTheme ?? I.darkTheme, x.matches));
+    function k(Q = {}) {
+      y(NE(W, Q.mode ?? Y.mode, Q.lightTheme ?? Y.lightTheme, Q.darkTheme ?? Y.darkTheme, L.matches));
     }
-    function t(B, z = !1) {
-      if (!K || !X)
+    function t(Q, z = !1) {
+      if (!I || !K)
         return;
-      if (K.hidden = !B, X.setAttribute("aria-expanded", String(B)), B)
-        K.querySelector("button,select")?.focus();
+      if (I.hidden = !Q, K.setAttribute("aria-expanded", String(Q)), Q)
+        I.querySelector("button,select")?.focus();
       else if (z)
-        X.focus();
+        K.focus();
     }
-    X?.addEventListener("click", () => t(Boolean(K?.hidden ?? !0))), U.forEach((B) => B.addEventListener("click", () => {
-      let z = B.dataset.airplanColorMode;
+    K?.addEventListener("click", () => t(Boolean(I?.hidden ?? !0))), u.forEach((Q) => Q.addEventListener("click", () => {
+      let z = Q.dataset.airplanColorMode;
       if (!z)
         return;
-      uE(V, z), s({ mode: z });
+      jE(M, z), k({ mode: z });
     }));
-    function EE(B, z) {
-      RE(V, B, z.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: z.value } })), s(B === "light" ? { lightTheme: z.value } : { darkTheme: z.value });
+    function qE(Q, z) {
+      uE(M, Q, z.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: z.value } })), k(Q === "light" ? { lightTheme: z.value } : { darkTheme: z.value });
     }
-    w?.addEventListener("change", () => EE("light", w)), O?.addEventListener("change", () => EE("dark", O)), x.addEventListener("change", () => {
-      if (I.mode === "system")
-        s();
-    }), S.addEventListener("keydown", (B) => {
-      if (B.key === "Escape" && K && !K.hidden)
-        B.preventDefault(), t(!1, !0);
-    }), S.addEventListener("pointerdown", (B) => {
-      if (!K || K.hidden || !X)
+    N?.addEventListener("change", () => qE("light", N)), w?.addEventListener("change", () => qE("dark", w)), L.addEventListener("change", () => {
+      if (Y.mode === "system")
+        k();
+    }), S.addEventListener("keydown", (Q) => {
+      if (Q.key === "Escape" && I && !I.hidden)
+        Q.preventDefault(), t(!1, !0);
+    }), S.addEventListener("pointerdown", (Q) => {
+      if (!I || I.hidden || !K)
         return;
-      let z = B.target;
-      if (!(z instanceof Node) || K.contains(z) || X.contains(z))
+      let z = Q.target;
+      if (!(z instanceof Node) || I.contains(z) || K.contains(z))
         return;
-      let N = (z instanceof Element ? z : z.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), b = K.contains(S.activeElement) && !N;
-      if (t(!1), b)
+      let F = (z instanceof Element ? z : z.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), x = I.contains(S.activeElement) && !F;
+      if (t(!1), x)
         setTimeout(() => {
-          if (S.activeElement === S.body || K.contains(S.activeElement))
-            X.focus();
+          if (S.activeElement === S.body || I.contains(S.activeElement))
+            K.focus();
         });
-    }), v(I, !1);
+    }), y(Y, !1);
   })();
 
   (function() {
-    var S = document;
-    let J = S.getElementById("rendered");
-    if (!J)
+    var S = document, $ = 262144;
+    let H = S.getElementById("rendered");
+    if (!H)
       return;
-    let Q = J;
-    var $ = S.querySelector('meta[name="airplan-versions"]'), x = S.querySelector('meta[name="airplan-revision-chain"]'), V = S.querySelector('meta[name="airplan-page-path"]'), I = S.querySelector('meta[name="airplan-entrypoint"]'), X = $ ? new URL($.content, window.location.href) : null, K = X ? new URL("./", X) : null, w = K ? K.pathname.split("/").filter(Boolean) : [], O = w.slice(0, -1);
-    function U(E, A) {
+    let W = H;
+    var L = S.querySelector('meta[name="airplan-versions"]'), M = S.querySelector('meta[name="airplan-revision-chain"]'), Y = S.querySelector('meta[name="airplan-page-path"]'), K = S.querySelector('meta[name="airplan-entrypoint"]'), I = L ? new URL(L.content, window.location.href) : null, N = I ? new URL("./", I) : null, w = N ? N.pathname.split("/").filter(Boolean) : [], u = w.slice(0, -1);
+    function s(E, A) {
       if (typeof E !== "string")
         return null;
       try {
         var _ = new URL(E);
         if (_.origin !== window.location.origin || _.username || _.password || _.search || _.hash)
           return null;
-        var f = _.pathname.split("/").filter(Boolean);
-        if (f.length !== O.length + 2 || !O.every(function(Z, L) {
-          return f[L] === Z;
-        }) || !/^[a-z2-7]{26}$/.test(f[f.length - 2]))
+        var B = _.pathname.split("/").filter(Boolean);
+        if (B.length !== u.length + 2 || !u.every(function(Z, C) {
+          return B[C] === Z;
+        }) || !/^[a-z2-7]{26}$/.test(B[B.length - 2]))
           return null;
-        var q = f[f.length - 1];
+        var q = B[B.length - 1];
         if (A ? q !== ".airplan-changes.diff" : !q.endsWith(".html"))
           return null;
         return _.href;
@@ -729,60 +729,204 @@ supported client version older than the token-capable release.&#160;<a href="#fn
         return null;
       }
     }
-    function i(E) {
+    function y(E) {
       if (typeof E !== "string" || E === "" || E.startsWith("/") || E.includes("\\"))
         return !1;
       var A = E.split("/");
       return A.every(function(_) {
-        var f = Array.from(_).some(function(q) {
-          var Z = q.codePointAt(0) || 0;
-          return Z < 32 || Z === 127;
+        var B = _.toLowerCase(), q = Array.from(_).some(function(Z) {
+          var C = Z.codePointAt(0) || 0;
+          return C < 32 || C === 127;
         });
-        if (!_ || _ === "." || _ === ".." || _.startsWith(".airplan-") || f || /[. ]$/.test(_) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(_))
+        if (!_ || _ === "." || _ === ".." || B.startsWith(".airplan-") || B === ".airplan.json" || q || /[. ]$/.test(_) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(_))
           return !1;
         return !0;
       });
     }
-    function v(E, A) {
-      if (!i(A))
+    function k(E, A) {
+      if (!y(A))
         return null;
-      var _ = String(A);
-      if (_.split("/", 1)[0].includes(":"))
-        _ = "./" + _;
-      var f = new URL(_, E);
-      if (f.origin !== E.origin || f.username || f.password || f.search || f.hash || !f.pathname.startsWith(E.pathname))
+      var _ = String(A).split("/").map(function(q) {
+        return encodeURIComponent(q);
+      }).join("/"), B = new URL(_, E);
+      if (B.origin !== E.origin || B.username || B.password || B.search || B.hash || !B.pathname.startsWith(E.pathname))
         return null;
-      return f.href;
+      return B.href;
     }
-    function s(E, A, _, f) {
-      if (!E || typeof E !== "object")
+    async function t(E) {
+      if (!E.ok)
+        throw Error("marker request failed");
+      var A = E.headers.get("content-length");
+      if (A && /^\d+$/.test(A) && Number(A) > $) {
+        if (E.body)
+          await E.body.cancel("marker is too large");
+        throw Error("marker is too large");
+      }
+      if (!E.body || typeof E.body.getReader !== "function")
+        throw Error("bounded marker stream is unavailable");
+      var _ = E.body.getReader(), B = [], q = 0;
+      try {
+        for (;; ) {
+          var Z = await _.read();
+          if (Z.done)
+            break;
+          if (q += Z.value.byteLength, q > $)
+            throw await _.cancel("marker is too large"), Error("marker is too large");
+          B.push(Z.value);
+        }
+      } finally {
+        _.releaseLock();
+      }
+      var C = new Uint8Array(q), U = 0;
+      return B.forEach(function(O) {
+        C.set(O, U), U += O.byteLength;
+      }), JSON.parse(new TextDecoder("utf-8", { fatal: !0 }).decode(C));
+    }
+    function qE(E, A, _, B) {
+      if (!F(E) || !x(E, [
+        "schema",
+        "version",
+        "directory",
+        "created_at",
+        "kind",
+        "slug",
+        "format",
+        "objects",
+        "title",
+        "repo",
+        "producer",
+        "render",
+        "revision",
+        "entrypoint",
+        "pages"
+      ]))
         throw Error("marker is invalid");
-      var q = E;
-      if (q.schema !== "airplan-upload" || q.version !== 6 || q.kind !== "document" || !q.revision || q.revision.number !== _.number || q.revision.chain_id !== f || !Array.isArray(q.pages) || q.pages.length === 0)
+      var q = E, Z = A.pathname.split("/").filter(Boolean), C = Z[Z.length - 1] || "";
+      if (q.schema !== "airplan-upload" || q.version !== 6 || q.kind !== "document" || q.directory !== C || !/^[a-z2-7]{26}$/.test(q.directory) || typeof q.created_at !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(q.created_at) || Number.isNaN(Date.parse(q.created_at)) || q.format !== "md" || typeof q.slug !== "string" || q.slug === "" || q.entrypoint !== q.slug + ".html" || !F(q.producer) || !x(q.producer, ["name", "version"]) || q.producer.name !== "airplan" || typeof q.producer.version !== "string" || q.producer.version.trim() !== q.producer.version || q.producer.version === "" || !z(q.render) || !F(q.revision) || !x(q.revision, ["chain_id", "number", "previous_url"]) || q.revision.number !== _.number || q.revision.chain_id !== B || (q.revision.number === 1 ? q.revision.previous_url !== void 0 : typeof q.revision.previous_url !== "string" || !PE(q.revision.previous_url)) || !Array.isArray(q.objects) || !Array.isArray(q.pages) || q.pages.length === 0)
         throw Error("marker identity is invalid");
-      var Z = v(A, q.entrypoint);
-      if (Z !== _.safeURL)
+      var U = k(A, q.entrypoint);
+      if (U !== _.safeURL)
         throw Error("marker entrypoint is invalid");
-      var L = new Set, T = new Set, y = new Set, M = new Map;
-      q.pages.forEach(function(W) {
-        if (!W || !i(W.path) || L.has(W.path) || T.has(W.path.toLowerCase()) || W.format !== "md" && W.format !== "txt" || typeof W.lang !== "string")
+      if (q.title !== void 0 && typeof q.title !== "string" || q.repo !== void 0 && typeof q.repo !== "string" || q.objects.length === 0 || q.pages.length > 100)
+        throw Error("marker shape is invalid");
+      var O = bE(q), J = new Set, i = new Set, n = new Set, SE = new Map;
+      q.pages.forEach(function(G, R) {
+        if (!F(G) || !x(G, ["path", "page", "source", "format", "title", "lang"]) || !y(G.path) || J.has(G.path) || i.has(G.path.toLowerCase()) || G.format !== "md" && G.format !== "txt" || typeof G.lang !== "string" || G.title !== void 0 && typeof G.title !== "string" || !y(G.page) || !y(G.source))
           throw Error("marker page descriptor is invalid");
-        var h = v(A, W.page);
-        if (!h || y.has(h))
+        var b = Q(G.path, G.format), $E = G.path;
+        if (R === 0) {
+          if (b = q.entrypoint, $E = q.slug + ".md", G.format !== q.format)
+            throw Error("marker entry format is invalid");
+        }
+        if (G.page !== b || G.source !== $E)
+          throw Error("marker generated page mapping is invalid");
+        var l = k(A, G.page);
+        if (!l || n.has(l))
           throw Error("marker page object is invalid");
-        if (W.source && !v(A, W.source))
+        if (!k(A, G.source))
           throw Error("marker source object is invalid");
-        L.add(W.path), T.add(W.path.toLowerCase()), y.add(h), M.set(W.path, h);
+        if (O.get(G.page) !== "page" || O.get(G.source) !== "source")
+          throw Error("marker page object relationship is invalid");
+        var _E = q.objects.find(function(ME) {
+          return ME.name === G.source;
+        }).content_type;
+        if (G.format === "md" && _E !== "text/markdown; charset=utf-8" || G.format === "txt" && _E !== "text/plain; charset=utf-8")
+          throw Error("marker source content type is invalid");
+        J.add(G.path), i.add(G.path.toLowerCase()), n.add(l), SE.set(G.path, l);
       });
-      var c = Array.from(T).sort();
-      for (var D = 1;D < c.length; D += 1)
-        if (c[D].startsWith(c[D - 1] + "/"))
+      var m = Array.from(i).sort();
+      for (var T = 1;T < m.length; T += 1)
+        if (m[T].startsWith(m[T - 1] + "/"))
           throw Error("marker page paths conflict");
-      if (!L.has(q.pages[0].path) || M.get(q.pages[0].path) !== Z)
+      if (!J.has(q.pages[0].path) || SE.get(q.pages[0].path) !== U)
         throw Error("marker entry page is invalid");
-      return M;
+      if (n.size !== q.pages.length || Array.from(O.values()).filter(function(G) {
+        return G === "source";
+      }).length !== q.pages.length)
+        throw Error("marker page inventory is invalid");
+      return SE;
     }
-    function t(E, A) {
+    function Q(E, A) {
+      if (A !== "md")
+        return E + ".html";
+      var _ = E.lastIndexOf("/"), B = E.lastIndexOf(".");
+      return (B > _ ? E.slice(0, B) : E) + ".html";
+    }
+    function z(E) {
+      if (!F(E) || !x(E, [
+        "generation",
+        "template",
+        "indexable",
+        "no_external_assets",
+        "mermaid_url",
+        "themes"
+      ]) || !F(E.template) || !x(E.template, ["kind", "sha256"]) || !F(E.themes) || !x(E.themes, ["default_light", "default_dark", "catalog_sha256"]) || !Number.isInteger(E.generation) || E.generation <= 0 || typeof E.indexable !== "boolean" || typeof E.no_external_assets !== "boolean" || !E.template || E.template.kind !== "builtin" && E.template.kind !== "custom" || E.mermaid_url !== void 0 && !mE(E.mermaid_url) || !E.themes)
+        return !1;
+      if (E.template.kind === "builtin" && E.template.sha256 !== void 0 || E.template.kind === "custom" && !h(E.template.sha256))
+        return !1;
+      return /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(E.themes.default_light) && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(E.themes.default_dark) && h(E.themes.catalog_sha256);
+    }
+    function h(E) {
+      return typeof E === "string" && /^[0-9a-f]{64}$/.test(E);
+    }
+    function F(E) {
+      return !!E && typeof E === "object" && !Array.isArray(E);
+    }
+    function x(E, A) {
+      return Object.keys(E).every(function(_) {
+        return A.includes(_);
+      });
+    }
+    function o(E) {
+      return typeof E === "string" && /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+(?:; [a-z0-9!#$&^_.+-]+=(?:[a-z0-9!#$&^_.+-]+|"(?:[^"\\\r\n]|\\.)*"))*$/.test(E);
+    }
+    function PE(E) {
+      try {
+        var A = new URL(E);
+        return (A.protocol === "https:" || A.protocol === "http:") && !A.username && !A.password && !A.search && !A.hash && A.pathname.endsWith(".html");
+      } catch {
+        return !1;
+      }
+    }
+    function mE(E) {
+      if (typeof E !== "string")
+        return !1;
+      try {
+        var A = new URL(E);
+        return A.protocol === "https:" && !!A.host && !A.username && !A.password && !A.hash;
+      } catch {
+        return !1;
+      }
+    }
+    function bE(E) {
+      var A = new Map, _ = new Set, B = 0, q = 0, Z = 0, C = 0;
+      E.objects.forEach(function(J) {
+        if (!F(J) || !x(J, ["name", "role", "bytes", "content_type", "sha256"]) || !y(J.name) && J.name !== ".airplan-changes.diff" || A.has(J.name) || _.has(J.name.toLowerCase()) || !Number.isSafeInteger(J.bytes) || J.bytes < 0 || !h(J.sha256) || !o(J.content_type))
+          throw Error("marker object inventory is invalid");
+        if (J.role === "page") {
+          if (q += 1, J.bytes <= 0 || J.content_type !== "text/html; charset=utf-8")
+            throw Error("marker page object is invalid");
+        } else if (J.role === "source") {
+          if (Z += 1, J.bytes <= 0)
+            throw Error("marker source object is invalid");
+        } else if (J.role === "asset")
+          C += 1;
+        else if (J.role === "diff") {
+          if (B += 1, J.name !== ".airplan-changes.diff" || J.bytes <= 0 || J.content_type !== "text/plain; charset=utf-8")
+            throw Error("marker diff object is invalid");
+        } else
+          throw Error("marker object role is invalid");
+        A.set(J.name, J.role), _.add(J.name.toLowerCase());
+      });
+      var U = Array.from(_).sort();
+      for (var O = 1;O < U.length; O += 1)
+        if (U[O].startsWith(U[O - 1] + "/"))
+          throw Error("marker object paths conflict");
+      if (q !== E.pages.length || Z !== E.pages.length || q + C > 100 || (E.revision.number === 1 ? B !== 0 : B !== 1))
+        throw Error("marker object counts are invalid");
+      return A;
+    }
+    function kE(E, A) {
       var _ = window.location.hash;
       if (_ === "#airplan-all-changes")
         return E + _;
@@ -790,83 +934,79 @@ supported client version older than the token-capable release.&#160;<a href="#fn
         return E;
       return A + (_ && _ !== "#airplan-all-changes" ? _ : "");
     }
-    function EE(E) {
+    function vE(E) {
       var A = S.querySelector('meta[name="airplan-revision"]'), _ = A ? Number(A.content) : Number(E.current_revision);
-      if (!Number.isInteger(_) || _ <= 0 || E.current_revision !== _ || !Number.isInteger(E.latest_revision) || !Number.isInteger(E.last_assigned_revision) || !Array.isArray(E.revisions) || E.revisions.length === 0 || E.last_assigned_revision !== E.revisions.length || !/^[a-z2-7]{26}$/.test(E.chain_id) || x && x.content !== E.chain_id)
+      if (!Number.isInteger(_) || _ <= 0 || E.current_revision !== _ || !Number.isInteger(E.latest_revision) || !Number.isInteger(E.last_assigned_revision) || !Array.isArray(E.revisions) || E.revisions.length === 0 || E.last_assigned_revision !== E.revisions.length || !/^[a-z2-7]{26}$/.test(E.chain_id) || M && M.content !== E.chain_id)
         throw Error("revision identity is invalid");
-      var f = !1, q = 0, Z = E.revisions.filter(function(G) {
+      var B = !1, q = 0, Z = E.revisions.filter(function(G) {
         if (!G || !Number.isInteger(G.number) || G.number !== q + 1)
-          return f = !0, !1;
+          return B = !0, !1;
         if (q = G.number, G.deleted)
           return !1;
-        if (G.safeURL = U(G.url, !1), !G.safeURL)
-          return f = !0, !1;
+        if (G.safeURL = s(G.url, !1), !G.safeURL)
+          return B = !0, !1;
         if (G.number > 1) {
-          var C = U(G.diff_url, !0);
-          if (!C || new URL(C).pathname.replace(/[^/]+$/, "") !== new URL(G.safeURL).pathname.replace(/[^/]+$/, ""))
-            return f = !0, !1;
+          var R = s(G.diff_url, !0);
+          if (!R || new URL(R).pathname.replace(/[^/]+$/, "") !== new URL(G.safeURL).pathname.replace(/[^/]+$/, ""))
+            return B = !0, !1;
         }
         return !0;
       });
-      if (f || E.revisions[0].number !== 1 || !Z.some(function(G) {
+      if (B || E.revisions[0].number !== 1 || !Z.some(function(G) {
         return G.number === _;
       }))
         throw Error("revision entries are invalid");
-      var L = Z.find(function(G) {
+      var C = Z.find(function(G) {
         return G.number === _;
-      }), T = new URL(window.location.href);
-      if (T.search = "", T.hash = "", !L || !K || new URL(L.safeURL || "").pathname.replace(/[^/]+$/, "") !== K.pathname || !T.pathname.startsWith(K.pathname))
+      }), U = new URL(window.location.href);
+      if (U.search = "", U.hash = "", !C || !N || new URL(C.safeURL || "").pathname.replace(/[^/]+$/, "") !== N.pathname || !U.pathname.startsWith(N.pathname))
         throw Error("current revision URL is invalid");
-      var y = Math.max.apply(null, Z.map(function(G) {
+      var O = Math.max.apply(null, Z.map(function(G) {
         return G.number;
       }));
-      if (y !== E.latest_revision)
+      if (O !== E.latest_revision)
         throw Error("latest is invalid");
-      var M = S.querySelector("[data-revision-heading]");
-      if (!M) {
-        M = S.createElement("p"), M.className = "revision-heading", M.setAttribute("data-revision-heading", "");
-        var c = S.getElementById("rendered");
-        if (!c)
+      var J = S.querySelector("[data-revision-heading]");
+      if (!J) {
+        J = S.createElement("p"), J.className = "revision-heading", J.setAttribute("data-revision-heading", "");
+        var i = S.getElementById("rendered");
+        if (!i)
           throw Error("rendered view is unavailable");
-        c.prepend(M);
+        i.prepend(J);
       }
-      var D = _ < y, W = D ? "Revision " + _ + " of " + y : "Revision " + _ + " (Latest)", h = S.createElement("span");
-      h.className = "revision-picker-label", h.textContent = W, h.setAttribute("aria-hidden", "true");
-      var d = S.createElement("select");
-      d.setAttribute("aria-label", "Document revision"), Z.forEach(function(G) {
-        var C = S.createElement("option");
-        C.value = G.safeURL || "", C.textContent = G.number === y ? "Revision " + G.number + " (Latest)" : "Revision " + G.number + " of " + y, C.selected = G.number === _, d.appendChild(C);
-      }), d.addEventListener("change", function() {
-        var G = d.selectedIndex;
+      var n = _ < O, SE = n ? "Revision " + _ + " of " + O : "Revision " + _ + " (Latest)", m = S.createElement("span");
+      m.className = "revision-picker-label", m.textContent = SE, m.setAttribute("aria-hidden", "true");
+      var T = S.createElement("select");
+      T.setAttribute("aria-label", "Document revision"), Z.forEach(function(G) {
+        var R = S.createElement("option");
+        R.value = G.safeURL || "", R.textContent = G.number === O ? "Revision " + G.number + " (Latest)" : "Revision " + G.number + " of " + O, R.selected = G.number === _, T.appendChild(R);
+      }), T.addEventListener("change", function() {
+        var G = T.selectedIndex;
         if (G < 0 || G >= Z.length)
           return;
-        var C = Z[G], e = C.safeURL || "";
+        var R = Z[G], b = R.safeURL || "";
         if (window.location.hash === "#airplan-all-changes") {
-          window.location.assign(e + (C.number > 1 ? "#airplan-all-changes" : ""));
+          window.location.assign(b + (R.number > 1 ? "#airplan-all-changes" : ""));
           return;
         }
-        var bE = I ? new URL(I.content, window.location.href).href : "";
-        if (!V || T.href === bE || !x) {
-          window.location.assign(e);
+        var $E = K ? new URL(K.content, window.location.href).href : "";
+        if (!Y || U.href === $E || !M) {
+          window.location.assign(b);
           return;
         }
-        M.setAttribute("aria-busy", "true"), d.disabled = !0;
-        var wE = new URL("./", e), NE = new URL(".airplan.json", wE);
-        NE.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2)), fetch(NE, { cache: "no-store", credentials: "same-origin" }).then(function(zE) {
-          if (!zE.ok)
-            throw Error("marker request failed");
-          return zE.json();
-        }).then(function(zE) {
-          var kE = s(zE, wE, C, x.content);
-          window.location.assign(t(e, kE.get(V.content) || null));
+        J.setAttribute("aria-busy", "true"), T.disabled = !0;
+        var l = new URL("./", b), _E = new URL(".airplan.json", l);
+        _E.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2)), fetch(_E, { cache: "no-store", credentials: "same-origin" }).then(t).then(function(ME) {
+          var tE = qE(ME, l, R, M.content);
+          window.location.assign(kE(b, tE.get(Y.content) || null));
         }).catch(function() {
-          console.warn("airplan: selected revision page map is unavailable or invalid"), window.location.assign(e);
+          console.warn("airplan: selected revision page map is unavailable or invalid"), window.location.assign(b);
         });
-      }), M.replaceChildren(h, d), M.classList.add("is-picker"), M.classList.toggle("is-stale", D), S.body.classList.toggle("airplan-stale-revision", D);
+      }), J.replaceChildren(m, T), J.classList.add("is-picker"), J.classList.toggle("is-stale", n), S.body.classList.toggle("airplan-stale-revision", n);
     }
-    if ($) {
-      var B = new URL($.content, window.location.href);
-      B.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2)), fetch(B, { cache: "no-store", credentials: "same-origin" }).then(function(E) {
+    if (L) {
+      var wE = new URL(L.content, window.location.href);
+      wE.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2)), fetch(wE, { cache: "no-store", credentials: "same-origin" }).then(function(E) {
         if (E.status === 404)
           return null;
         if (!E.ok)
@@ -877,249 +1017,249 @@ supported client version older than the token-capable release.&#160;<a href="#fn
           return;
         if (!E || E.schema !== "airplan-versions" || E.version !== 1 || !Array.isArray(E.revisions) || E.revisions.length < 2)
           throw Error("metadata is invalid");
-        EE(E), window.dispatchEvent(new CustomEvent("airplan:versions", {
+        vE(E), window.dispatchEvent(new CustomEvent("airplan:versions", {
           detail: E
         }));
       }).catch(function() {
         console.warn("airplan: revision metadata is unavailable or invalid");
       });
     }
-    var z = S.createElement("div");
-    z.className = "sr-status", z.setAttribute("aria-live", "polite"), S.body.appendChild(z);
-    var F = null;
-    function N() {
-      if (F !== null)
+    var AE = S.createElement("div");
+    AE.className = "sr-status", AE.setAttribute("aria-live", "polite"), S.body.appendChild(AE);
+    var p = null;
+    function nE() {
+      if (p !== null)
         return;
-      F = Array.from(S.querySelectorAll("details:not([open])")), F.forEach(function(E) {
+      p = Array.from(S.querySelectorAll("details:not([open])")), p.forEach(function(E) {
         E.open = !0;
       });
     }
-    function b() {
-      if (F === null)
+    function lE() {
+      if (p === null)
         return;
-      F.forEach(function(E) {
+      p.forEach(function(E) {
         E.open = !1;
-      }), F = null;
+      }), p = null;
     }
-    window.addEventListener("beforeprint", N), window.addEventListener("afterprint", b);
-    function k(E, A, _) {
-      z.textContent = A;
-      var f = E.querySelector(".action-label"), q = f ? f.textContent : "";
-      if (f)
-        f.textContent = _ ? "Copied" : "Failed";
+    window.addEventListener("beforeprint", nE), window.addEventListener("afterprint", lE);
+    function XE(E, A, _) {
+      AE.textContent = A;
+      var B = E.querySelector(".action-label"), q = B ? B.textContent : "";
+      if (B)
+        B.textContent = _ ? "Copied" : "Failed";
       E.classList.add(_ ? "is-copied" : "is-failed"), E.disabled = !0, setTimeout(function() {
-        if (E.classList.remove("is-copied", "is-failed"), E.disabled = !1, f)
-          f.textContent = q;
+        if (E.classList.remove("is-copied", "is-failed"), E.disabled = !1, B)
+          B.textContent = q;
       }, 1200);
     }
-    function jE(E, A) {
+    function CE(E, A) {
       if (!navigator.clipboard) {
-        k(A, "Copy failed", !1);
+        XE(A, "Copy failed", !1);
         return;
       }
       navigator.clipboard.writeText(E).then(function() {
-        k(A, "Copied!", !0);
+        XE(A, "Copied!", !0);
       }, function() {
-        k(A, "Copy failed", !1);
+        XE(A, "Copy failed", !1);
       });
     }
-    var UE = '<svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>', mE = '<svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>', LE = '<svg class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', TE = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 4h9M5 8h9M5 12h9"/><circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="12" r=".75" fill="currentColor" stroke="none"/></svg>', yE = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', OE = S.getElementById("pages"), u = S.querySelector(".pages-trigger"), H = null, JE = window.matchMedia("(max-width: 78rem)"), R = function() {};
-    function SE() {
-      return H ? H.matches(":popover-open") : !1;
+    var pE = '<svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>', cE = '<svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>', gE = '<svg class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', iE = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 4h9M5 8h9M5 12h9"/><circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/><circle cx="2" cy="12" r=".75" fill="currentColor" stroke="none"/></svg>', dE = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', xE = S.getElementById("pages"), D = S.querySelector(".pages-trigger"), V = null, IE = window.matchMedia("(max-width: 78rem)"), j = function() {};
+    function HE() {
+      return V ? V.matches(":popover-open") : !1;
     }
-    function n(E) {
-      if (!H || !SE())
+    function a(E) {
+      if (!V || !HE())
         return;
-      if (H.hidePopover(), E && u && JE.matches)
+      if (V.hidePopover(), E && D && IE.matches)
         setTimeout(function() {
-          u.focus();
+          D.focus();
         }, 0);
     }
-    if (OE && u) {
-      var WE = OE.querySelector(".pages-list");
-      if (WE) {
-        var KE = S.createElement("div");
-        if ("popover" in KE && typeof KE.showPopover === "function") {
+    if (xE && D) {
+      var UE = xE.querySelector(".pages-list");
+      if (UE) {
+        var WE = S.createElement("div");
+        if ("popover" in WE && typeof WE.showPopover === "function") {
           let E = function() {
-            if (!u || !H)
+            if (!D || !V)
               return;
-            var A = u.getBoundingClientRect();
-            H.style.setProperty("--pages-left", Math.max(16, A.left) + "px"), H.style.setProperty("--pages-top", A.bottom + "px"), H.style.setProperty("--pages-width", Math.min(480, window.innerWidth - Math.max(16, A.left) - 16) + "px");
+            var A = D.getBoundingClientRect();
+            V.style.setProperty("--pages-left", Math.max(16, A.left) + "px"), V.style.setProperty("--pages-top", A.bottom + "px"), V.style.setProperty("--pages-width", Math.min(480, window.innerWidth - Math.max(16, A.left) - 16) + "px");
           };
-          H = KE, H.className = "pages-popover", H.id = "pages-popover", H.setAttribute("popover", "auto");
-          var o = S.createElement("nav");
-          o.className = "pages-popover-nav", o.setAttribute("aria-label", "Pages"), o.appendChild(WE.cloneNode(!0)), H.appendChild(o), u.addEventListener("click", function() {
-            if (R(), E(), SE())
-              n(!0);
-            else {
-              H.showPopover();
-              var A = H.querySelector('[aria-current="page"]');
-              if (A)
-                A.scrollIntoView({ block: "nearest" });
-            }
-          }), H.addEventListener("toggle", function(A) {
+          V = WE, V.className = "pages-popover", V.id = "pages-popover", V.setAttribute("popover", "auto");
+          var r = S.createElement("nav");
+          r.className = "pages-popover-nav", r.setAttribute("aria-label", "Pages"), r.appendChild(UE.cloneNode(!0)), V.appendChild(r), D.setAttribute("popovertarget", V.id), D.popoverTargetElement = V, V.addEventListener("beforetoggle", function(A) {
+            if (A.newState !== "open")
+              return;
+            j(), E();
+          }), V.addEventListener("toggle", function(A) {
             var _ = A.newState === "open";
-            u.setAttribute("aria-expanded", _ ? "true" : "false"), S.body.classList.toggle("pages-popover-open", _), P();
-          }), o.querySelectorAll("a").forEach(function(A) {
+            if (D.setAttribute("aria-expanded", _ ? "true" : "false"), S.body.classList.toggle("pages-popover-open", _), _) {
+              var B = V.querySelector('[aria-current="page"]');
+              if (B)
+                B.scrollIntoView({ block: "nearest" });
+            }
+            v();
+          }), r.querySelectorAll("a").forEach(function(A) {
             A.addEventListener("click", function() {
-              n(!1);
+              a(!1);
             });
-          }), JE.addEventListener("change", function() {
-            if (!JE.matches)
-              n(!1);
+          }), IE.addEventListener("change", function() {
+            if (!IE.matches)
+              a(!1);
           }), window.addEventListener("resize", function() {
-            if (SE())
+            if (HE())
               E();
-          }), u.hidden = !1, u.setAttribute("aria-expanded", "false"), S.body.appendChild(H), S.body.classList.add("pages-popover-ready");
+          }), D.hidden = !1, D.setAttribute("aria-expanded", "false"), S.body.appendChild(V), S.body.classList.add("pages-popover-ready");
         }
       }
     }
-    var l = S.getElementById("source"), _E = S.getElementById("changes"), AE = S.querySelector("[data-airplan-all-changes]"), m = S.getElementById("toc"), j = null, Y = null, VE = window.matchMedia("(max-width: 78rem)");
-    R = function() {
-      if (Y && Y.open)
-        Y.close();
+    var c = S.getElementById("source"), GE = S.getElementById("changes"), BE = S.querySelector("[data-airplan-all-changes]"), P = S.getElementById("toc"), f = null, X = null, RE = window.matchMedia("(max-width: 78rem)");
+    j = function() {
+      if (X && X.open)
+        X.close();
     };
-    function P() {
-      if (!m || !j || !Y)
+    function v() {
+      if (!P || !f || !X)
         return;
-      var E = VE.matches && !Q.hidden && !Y.open && !SE();
-      if (j.classList.toggle("is-visible", E), j.tabIndex = E ? 0 : -1, j.setAttribute("aria-hidden", E ? "false" : "true"), Y.open && (!VE.matches || Q.hidden))
-        R();
+      var E = RE.matches && !W.hidden && !X.open && !HE();
+      if (f.classList.toggle("is-visible", E), f.tabIndex = E ? 0 : -1, f.setAttribute("aria-hidden", E ? "false" : "true"), X.open && (!RE.matches || W.hidden))
+        j();
     }
-    function FE(E) {
-      if (n(!1), R(), Q.hidden = E !== "rendered", l)
-        l.hidden = E !== "source";
-      if (_E)
-        _E.hidden = E !== "changes";
-      if (m)
-        m.hidden = E !== "rendered";
+    function LE(E) {
+      if (a(!1), j(), W.hidden = E !== "rendered", c)
+        c.hidden = E !== "source";
+      if (GE)
+        GE.hidden = E !== "changes";
+      if (P)
+        P.hidden = E !== "rendered";
       S.querySelectorAll(".viewtoggle button").forEach(function(A) {
         var _ = A.dataset.view === E;
         A.classList.toggle("active", _), A.setAttribute("aria-pressed", _ ? "true" : "false");
-      }), P();
+      }), v();
     }
     S.querySelectorAll(".viewtoggle button").forEach(function(E) {
       E.addEventListener("click", function() {
-        FE(E.dataset.view || "rendered");
+        LE(E.dataset.view || "rendered");
       });
     });
-    var QE = !1;
+    var VE = !1;
     S.querySelectorAll('.all-changes-link[href$="#airplan-all-changes"]').forEach(function(E) {
       E.addEventListener("click", function() {
-        QE = new URL(E.href).pathname === window.location.pathname;
+        VE = new URL(E.href).pathname === window.location.pathname;
       });
     });
-    function ME() {
-      var E = window.location.hash === "#airplan-all-changes" && !!AE;
-      if (n(!1), R(), S.body.classList.toggle("all-changes-active", E), AE)
-        AE.hidden = !E;
+    function TE() {
+      var E = window.location.hash === "#airplan-all-changes" && !!BE;
+      if (a(!1), j(), S.body.classList.toggle("all-changes-active", E), BE)
+        BE.hidden = !E;
       if (E) {
-        if (Q.hidden = !0, l)
-          l.hidden = !0;
-        if (_E)
-          _E.hidden = !0;
-        if (m)
-          m.hidden = !0;
-        if (QE)
-          AE.querySelector("h1")?.focus();
+        if (W.hidden = !0, c)
+          c.hidden = !0;
+        if (GE)
+          GE.hidden = !0;
+        if (P)
+          P.hidden = !0;
+        if (VE)
+          BE.querySelector("h1")?.focus();
       } else
-        FE("rendered");
-      QE = !1, P();
+        LE("rendered");
+      VE = !1, v();
     }
-    if (window.addEventListener("hashchange", ME), ME(), m) {
+    if (window.addEventListener("hashchange", TE), TE(), P) {
       let E = function() {
-        if (r.length === 0) {
-          P();
+        if (e.length === 0) {
+          v();
           return;
         }
         var _ = 0;
-        if (DE.forEach(function(q, Z) {
+        if (sE.forEach(function(q, Z) {
           if (q && q.getBoundingClientRect().top <= 128)
             _ = Z;
         }), window.innerHeight + window.scrollY >= S.documentElement.scrollHeight - 2)
-          _ = r.length - 1;
-        var f = r[_].getAttribute("href");
-        YE.forEach(function(q) {
-          var Z = q.getAttribute("href") === f;
+          _ = e.length - 1;
+        var B = e[_].getAttribute("href");
+        FE.forEach(function(q) {
+          var Z = q.getAttribute("href") === B;
           if (q.classList.toggle("active", Z), Z)
             q.setAttribute("aria-current", "location");
           else
             q.removeAttribute("aria-current");
-        }), P();
+        }), v();
       }, A = function() {
-        if (ZE)
+        if (KE)
           return;
-        ZE = !0, window.requestAnimationFrame(function() {
-          ZE = !1, E();
+        KE = !0, window.requestAnimationFrame(function() {
+          KE = !1, E();
         });
       };
-      var r = Array.from(m.querySelectorAll('a[href^="#"]')), xE = m.querySelector(".toc-list");
-      if (xE)
-        if (Y = S.createElement("dialog"), typeof Y.showModal === "function") {
-          Y.className = "toc-dialog", Y.id = "toc-dialog", Y.setAttribute("aria-labelledby", "toc-dialog-title");
-          var fE = S.createElement("div");
-          fE.className = "toc-dialog-panel";
-          var qE = S.createElement("div");
-          qE.className = "toc-dialog-header";
-          var BE = S.createElement("h2");
-          BE.className = "toc-dialog-title", BE.id = "toc-dialog-title", BE.textContent = "Contents";
-          var p = S.createElement("button");
-          p.className = "toc-dialog-close", p.type = "button", p.setAttribute("aria-label", "Close table of contents"), p.innerHTML = yE, qE.appendChild(BE), qE.appendChild(p);
-          var a = S.createElement("nav");
-          a.className = "toc-dialog-nav", a.setAttribute("aria-label", "Table of contents"), a.appendChild(xE.cloneNode(!0)), fE.appendChild(qE), fE.appendChild(a), Y.appendChild(fE), j = S.createElement("button"), j.className = "toc-trigger", j.type = "button", j.tabIndex = -1, j.setAttribute("aria-label", "Open table of contents"), j.setAttribute("aria-controls", "toc-dialog"), j.setAttribute("aria-haspopup", "dialog"), j.setAttribute("aria-hidden", "true"), j.innerHTML = TE, S.body.appendChild(j), S.body.appendChild(Y), S.body.classList.add("toc-dialog-ready"), j.addEventListener("click", function() {
-            n(!1), Y.showModal(), S.body.classList.add("toc-dialog-open"), P();
-            var _ = Y.querySelector("a.active");
+      var e = Array.from(P.querySelectorAll('a[href^="#"]')), hE = P.querySelector(".toc-list");
+      if (hE)
+        if (X = S.createElement("dialog"), typeof X.showModal === "function") {
+          X.className = "toc-dialog", X.id = "toc-dialog", X.setAttribute("aria-labelledby", "toc-dialog-title");
+          var JE = S.createElement("div");
+          JE.className = "toc-dialog-panel";
+          var QE = S.createElement("div");
+          QE.className = "toc-dialog-header";
+          var YE = S.createElement("h2");
+          YE.className = "toc-dialog-title", YE.id = "toc-dialog-title", YE.textContent = "Contents";
+          var g = S.createElement("button");
+          g.className = "toc-dialog-close", g.type = "button", g.setAttribute("aria-label", "Close table of contents"), g.innerHTML = dE, QE.appendChild(YE), QE.appendChild(g);
+          var EE = S.createElement("nav");
+          EE.className = "toc-dialog-nav", EE.setAttribute("aria-label", "Table of contents"), EE.appendChild(hE.cloneNode(!0)), JE.appendChild(QE), JE.appendChild(EE), X.appendChild(JE), f = S.createElement("button"), f.className = "toc-trigger", f.type = "button", f.tabIndex = -1, f.setAttribute("aria-label", "Open table of contents"), f.setAttribute("aria-controls", "toc-dialog"), f.setAttribute("aria-haspopup", "dialog"), f.setAttribute("aria-hidden", "true"), f.innerHTML = iE, S.body.appendChild(f), S.body.appendChild(X), S.body.classList.add("toc-dialog-ready"), f.addEventListener("click", function() {
+            a(!1), X.showModal(), S.body.classList.add("toc-dialog-open"), v();
+            var _ = X.querySelector("a.active");
             if (_)
               _.scrollIntoView({ block: "nearest" });
-          }), p.addEventListener("click", R), Y.addEventListener("click", function(_) {
-            if (_.target === Y)
-              R();
-          }), Y.addEventListener("keydown", function(_) {
+          }), g.addEventListener("click", j), X.addEventListener("click", function(_) {
+            if (_.target === X)
+              j();
+          }), X.addEventListener("keydown", function(_) {
             if (_.key === "Escape")
-              _.preventDefault(), R();
-          }), Y.addEventListener("close", function() {
-            if (S.body.classList.remove("toc-dialog-open"), P(), j.classList.contains("is-visible"))
+              _.preventDefault(), j();
+          }), X.addEventListener("close", function() {
+            if (S.body.classList.remove("toc-dialog-open"), v(), f.classList.contains("is-visible"))
               setTimeout(function() {
-                j.focus();
+                f.focus();
               }, 50);
-          }), a.querySelectorAll("a").forEach(function(_) {
-            _.addEventListener("click", R);
+          }), EE.querySelectorAll("a").forEach(function(_) {
+            _.addEventListener("click", j);
           });
         } else
-          Y = null;
-      var YE = r.slice();
-      if (Y)
-        YE = YE.concat(Array.from(Y.querySelectorAll('a[href^="#"]')));
-      var DE = r.map(function(_) {
+          X = null;
+      var FE = e.slice();
+      if (X)
+        FE = FE.concat(Array.from(X.querySelectorAll('a[href^="#"]')));
+      var sE = e.map(function(_) {
         return S.getElementById((_.getAttribute("href") || "").slice(1));
-      }), ZE = !1;
+      }), KE = !1;
       S.addEventListener("scroll", A, { passive: !0 }), window.addEventListener("resize", E), E();
     }
-    var GE = S.querySelector(".toolbar");
-    function $E() {
-      var E = GE && window.matchMedia("(max-width: 48rem)").matches ? GE.getBoundingClientRect().height : 0;
+    var ZE = S.querySelector(".toolbar");
+    function fE() {
+      var E = ZE && window.matchMedia("(max-width: 48rem)").matches ? ZE.getBoundingClientRect().height : 0;
       S.documentElement.style.setProperty("--airplan-sticky-height", E + "px");
     }
-    if (GE) {
+    if (ZE) {
       if (typeof ResizeObserver === "function")
-        new ResizeObserver($E).observe(GE);
-      window.addEventListener("resize", $E), $E();
+        new ResizeObserver(fE).observe(ZE);
+      window.addEventListener("resize", fE), fE();
     }
-    let XE = S.querySelector(".copy-source");
-    if (XE && l)
-      XE.addEventListener("click", function() {
-        var E = l.querySelector("pre");
-        jE(E ? E.textContent : "", XE);
+    let OE = S.querySelector(".copy-source");
+    if (OE && c)
+      OE.addEventListener("click", function() {
+        var E = c.querySelector("pre");
+        CE(E ? E.textContent : "", OE);
       });
-    Q.querySelectorAll("pre").forEach(function(E) {
+    W.querySelectorAll("pre").forEach(function(E) {
       if (E.classList.contains("mermaid"))
         return;
       var A = S.createElement("div");
       A.className = "codewrap", E.parentNode?.insertBefore(A, E), A.appendChild(E);
       var _ = S.createElement("button");
-      _.className = "codecopy", _.type = "button", _.setAttribute("aria-label", "Copy code"), _.title = "Copy code", _.innerHTML = UE + mE + LE, _.addEventListener("click", function() {
-        var f = E.querySelector("code");
-        jE((f || E).textContent, _);
+      _.className = "codecopy", _.type = "button", _.setAttribute("aria-label", "Copy code"), _.title = "Copy code", _.innerHTML = pE + cE + gE, _.addEventListener("click", function() {
+        var B = E.querySelector("code");
+        CE((B || E).textContent, _);
       }), A.appendChild(_);
     });
   })();
