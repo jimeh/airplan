@@ -1440,6 +1440,39 @@ test("child revision selection preserves logical page and falls back to entry", 
       body: JSON.stringify({ ...validRevisionThreeMarker, producer: undefined }),
     },
     {
+      name: "missing light theme provenance",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        render: {
+          ...validRevisionThreeMarker.render,
+          themes: { ...validRevisionThreeMarker.render.themes, default_light: undefined },
+        },
+      }),
+    },
+    {
+      name: "null dark theme provenance",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        render: {
+          ...validRevisionThreeMarker.render,
+          themes: { ...validRevisionThreeMarker.render.themes, default_dark: null },
+        },
+      }),
+    },
+    {
+      name: "oversized theme provenance",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        render: {
+          ...validRevisionThreeMarker.render,
+          themes: { ...validRevisionThreeMarker.render.themes, default_light: "a".repeat(49) },
+        },
+      }),
+    },
+    {
       name: "wrong chain",
       status: 200,
       body: JSON.stringify({

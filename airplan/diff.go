@@ -125,7 +125,7 @@ func parseRevisionDiffReport(body []byte, entryPath string) (*revisionDiffReport
 			PageSections:  map[string][]byte{entryPath: append([]byte(nil), body...)},
 			AssetSections: make(map[string][]byte),
 		}
-		if err := validateRevisionPageSection(body, "plan.md", previous, current, false, true, false); err != nil {
+		if err := validateRevisionPageSection(body, "plan.md", previous, current, false, false, false); err != nil {
 			return nil, err
 		}
 		return report, nil
@@ -576,25 +576,37 @@ func validateRevisionHunks(lines []string, logical string, strict bool) error {
 		}
 		index++
 		oldSeen, newSeen := 0, 0
-		newlineMarkerEligible := false
+		markerOldEligible, markerNewEligible := false, false
+		oldClosed, newClosed := false, false
 		for index < len(lines) && !strings.HasPrefix(lines[index], "@@ ") {
 			line := lines[index]
 			switch {
 			case line == `\ No newline at end of file`:
-				if strict && !newlineMarkerEligible {
+				if strict && !markerOldEligible && !markerNewEligible {
 					return fmt.Errorf("airplan: revision diff page section %q has misplaced newline marker", logical)
 				}
-				newlineMarkerEligible = false
+				oldClosed = oldClosed || markerOldEligible
+				newClosed = newClosed || markerNewEligible
+				markerOldEligible, markerNewEligible = false, false
 			case strings.HasPrefix(line, " "):
+				if strict && (oldClosed || newClosed) {
+					return fmt.Errorf("airplan: revision diff page section %q has content after newline marker", logical)
+				}
 				oldSeen++
 				newSeen++
-				newlineMarkerEligible = true
+				markerOldEligible, markerNewEligible = true, true
 			case strings.HasPrefix(line, "+"):
+				if strict && newClosed {
+					return fmt.Errorf("airplan: revision diff page section %q has content after newline marker", logical)
+				}
 				newSeen++
-				newlineMarkerEligible = true
+				markerOldEligible, markerNewEligible = false, true
 			case strings.HasPrefix(line, "-"):
+				if strict && oldClosed {
+					return fmt.Errorf("airplan: revision diff page section %q has content after newline marker", logical)
+				}
 				oldSeen++
-				newlineMarkerEligible = true
+				markerOldEligible, markerNewEligible = true, false
 			default:
 				return fmt.Errorf("airplan: revision diff page section %q has trailing or invalid unified content", logical)
 			}

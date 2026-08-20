@@ -406,9 +406,17 @@ interface DocumentMarker {
     )
       return false;
     return (
-      /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(render.themes.default_light) &&
-      /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(render.themes.default_dark) &&
+      validMarkerThemeID(render.themes.default_light) &&
+      validMarkerThemeID(render.themes.default_dark) &&
       validDigest(render.themes.catalog_sha256)
+    );
+  }
+
+  function validMarkerThemeID(value: unknown) {
+    return (
+      typeof value === "string" &&
+      new TextEncoder().encode(value).byteLength <= 48 &&
+      /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value)
     );
   }
 

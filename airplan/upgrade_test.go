@@ -247,8 +247,7 @@ func TestUpgradeDocumentReprojectsStructuredBundleDiff(t *testing.T) {
 	malformedDiff := []byte("# airplan revisions: 1 -> 2\n" + revisionDiffFormatHeader +
 		"# airplan page: \"README.md\"\n" +
 		"--- revision-1/README.md\n+++ revision-2/README.md\n" +
-		"@@ -1 +1 @@\n-old\n+new\n" +
-		"@@ -1 +1 @@\n-old-again\n+new-again\n")
+		"@@ -1,2 +1 @@\n-old\n\\ No newline at end of file\n-old-after-eof\n+new\n")
 	markerBody, ok := store.get(second.MarkerKey)
 	if !ok {
 		t.Fatal("revision marker is missing")
@@ -283,7 +282,7 @@ func TestUpgradeDocumentReprojectsStructuredBundleDiff(t *testing.T) {
 		t.Fatalf("malformed upgrade plan = %+v, error = %v", malformedPlan, err)
 	}
 	if _, err := client.UpgradeDocument(context.Background(), *malformedPlan); err == nil ||
-		!strings.Contains(err.Error(), "non-monotonic unified hunks") {
+		!strings.Contains(err.Error(), "content after newline marker") {
 		t.Fatalf("malformed upgrade error = %v", err)
 	}
 	store.mu.Lock()

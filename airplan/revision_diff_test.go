@@ -152,6 +152,10 @@ func TestParseRevisionDiffReportRejectsMalformedFormatTwoSections(t *testing.T) 
 		{"overlapping hunks", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1 +1 @@\n-old\n+new\n@@ -1 +1 @@\n-again\n+again-new\n"},
 		{"newline marker before content", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1 +1 @@\n\\ No newline at end of file\n-old\n+new\n"},
 		{"duplicate newline marker", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1 +1 @@\n-old\n\\ No newline at end of file\n\\ No newline at end of file\n+new\n"},
+		{"old line after old EOF", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1,2 +1 @@\n-old\n\\ No newline at end of file\n-old-after-eof\n+new\n"},
+		{"new line after new EOF", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1 +1,2 @@\n-old\n+new\n\\ No newline at end of file\n+new-after-eof\n"},
+		{"context after old EOF", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1,2 +1,2 @@\n-old\n\\ No newline at end of file\n context-after-eof\n+new\n"},
+		{"context after both EOFs", "# airplan page: \"README.md\"\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1,2 +1,2 @@\n context\n\\ No newline at end of file\n another-context\n"},
 		{"noncanonical asset", "# airplan asset: \"image.png\"\nasset added: {\"sha256\":\"" + digest + "\",\"bytes\":1,\"content_type\":\"image/png\"}\n"},
 		{"asset trailing content", "# airplan asset: \"image.png\"\nasset added: {\"content_type\":\"image/png\",\"bytes\":1,\"sha256\":\"" + digest + "\"}\ntrailing\n"},
 		{"malformed page order", "# airplan page order\nbefore: [\"README.md\",\"README.md\"]\nafter: [\"README.md\"]\n"},
@@ -194,6 +198,27 @@ func TestParseRevisionDiffReportSupportsLegacySinglePageDiff(t *testing.T) {
 	}
 	if !bytes.Equal(report.PageSections["README.md"], body) {
 		t.Fatalf("legacy section = %q", report.PageSections["README.md"])
+	}
+}
+
+func TestParseRevisionDiffReportSupportsLegacyExplicitUnitCounts(t *testing.T) {
+	body := []byte("--- revision-1/plan.md\n+++ revision-2/plan.md\n@@ -1,1 +1,1 @@\n-old\n+new\n")
+	report, err := parseRevisionDiffReport(body, "README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(report.PageSections["README.md"], body) {
+		t.Fatalf("legacy section = %q", report.PageSections["README.md"])
+	}
+}
+
+func TestParseRevisionDiffReportSupportsDualEOFMarkers(t *testing.T) {
+	body := []byte("# airplan revisions: 2 -> 3\n" + revisionDiffFormatHeader +
+		"# airplan page: \"README.md\"\n" +
+		"--- revision-2/README.md\n+++ revision-3/README.md\n" +
+		"@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n")
+	if _, err := parseRevisionDiffReport(body, "README.md"); err != nil {
+		t.Fatal(err)
 	}
 }
 

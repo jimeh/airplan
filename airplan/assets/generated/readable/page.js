@@ -445,7 +445,10 @@
         return false;
       if (render.template.kind === "builtin" && render.template.sha256 !== undefined || render.template.kind === "custom" && !validDigest(render.template.sha256))
         return false;
-      return /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(render.themes.default_light) && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(render.themes.default_dark) && validDigest(render.themes.catalog_sha256);
+      return validMarkerThemeID(render.themes.default_light) && validMarkerThemeID(render.themes.default_dark) && validDigest(render.themes.catalog_sha256);
+    }
+    function validMarkerThemeID(value) {
+      return typeof value === "string" && new TextEncoder().encode(value).byteLength <= 48 && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value);
     }
     function validDigest(value) {
       return typeof value === "string" && /^[0-9a-f]{64}$/.test(value);
