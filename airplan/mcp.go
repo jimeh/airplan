@@ -273,6 +273,11 @@ func NewMCPServerWithOptions(
 				ctx, err, !localFiles, options.Logger,
 			)
 		}
+		if result == nil {
+			return nil, DocumentResult{}, errors.New(
+				"airplan: document upload returned no result",
+			)
+		}
 		if !localFiles {
 			result.Warnings = serverSafeWarnings(result.Warnings)
 		}
@@ -331,6 +336,11 @@ func NewMCPServerWithOptions(
 			if err != nil {
 				return nil, DocumentResult{}, mcpOperationError(ctx, err, false, options.Logger)
 			}
+			if result == nil {
+				return nil, DocumentResult{}, errors.New(
+					"airplan: document upload returned no result",
+				)
+			}
 			return uploadDocumentToolContent(result), *result, nil
 		})
 		mcp.AddTool(server, &mcp.Tool{
@@ -349,6 +359,11 @@ func NewMCPServerWithOptions(
 			result, err := client.CreateDocumentRevision(ctx, CreateDocumentRevisionInput{Target: input.URLOrKey, Document: opened.input})
 			if err != nil {
 				return nil, DocumentRevisionResult{}, mcpOperationError(ctx, err, false, options.Logger)
+			}
+			if result == nil {
+				return nil, DocumentRevisionResult{}, errors.New(
+					"airplan: document revision returned no result",
+				)
 			}
 			return uploadDocumentToolContent(&result.DocumentResult), *result, nil
 		})
@@ -745,9 +760,16 @@ func mcpInlineDocument(input mcpUploadDocumentInput, repository string, hosted b
 	document := DocumentInput{
 		Entry: PageInput{Reader: strings.NewReader(input.Content), Path: name, Format: input.Format, Title: input.Title, Lang: input.Lang},
 		Slug:  input.Slug, Title: input.Title,
-		MaxPageSize:      mcpDocumentLimit(input.MaxSize, hosted),
-		MaxTotalPageSize: input.MaxTotalPageSize,
-		MaxAssetSize:     input.MaxAssetSize, MaxTotalSize: input.MaxTotalSize,
+		MaxPageSize: mcpDocumentLimit(input.MaxSize, hosted),
+		MaxTotalPageSize: mcpHostedLimit(
+			input.MaxTotalPageSize, hosted, DefaultMaxTotalPageSize,
+		),
+		MaxAssetSize: mcpHostedLimit(
+			input.MaxAssetSize, hosted, DefaultMaxAssetSize,
+		),
+		MaxTotalSize: mcpHostedLimit(
+			input.MaxTotalSize, hosted, DefaultMaxDocumentAssetTotalSize,
+		),
 		RepositoryURL: repository,
 	}
 	for _, page := range input.Pages {
@@ -1079,13 +1101,17 @@ func mcpOperationError(
 }
 
 func mcpDocumentLimit(requested int64, hosted bool) int64 {
-	if !hosted {
+	return mcpHostedLimit(requested, hosted, DefaultMaxInputSize)
+}
+
+func mcpHostedLimit(requested int64, hosted bool, ceiling int64) int64 {
+	if !hosted || ceiling <= 0 {
 		return requested
 	}
-	if requested > 0 && requested < DefaultMaxInputSize {
+	if requested > 0 && requested < ceiling {
 		return requested
 	}
-	return DefaultMaxInputSize
+	return ceiling
 }
 
 func mcpOperationContext(

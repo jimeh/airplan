@@ -472,7 +472,8 @@ func rewriteManagedPageLinks(doc ast.Node, opts RenderOptions) error {
 		}
 		parsed, err := url.Parse(string(link.Destination))
 		if err != nil || parsed.IsAbs() || parsed.Host != "" ||
-			strings.HasPrefix(string(link.Destination), "//") || parsed.Path == "" {
+			strings.HasPrefix(string(link.Destination), "//") ||
+			strings.HasPrefix(parsed.Path, "/") || parsed.Path == "" {
 			return ast.WalkContinue, nil
 		}
 		logical := pathpkg.Clean(pathpkg.Join(pathpkg.Dir(opts.CurrentLogicalPath), parsed.Path))

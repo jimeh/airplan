@@ -130,19 +130,22 @@ func materializeRenderedDocument(
 		}
 	}
 	for _, prepared := range assets {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		asset := prepared.AssetInput
 		if _, err := asset.Reader.Seek(prepared.start, io.SeekStart); err != nil {
 			return fmt.Errorf("airplan: seek preview asset %q: %w", asset.Path, err)
 		}
 		target := filepath.Join(temporary, filepath.FromSlash(asset.Path))
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
+			return fmt.Errorf("airplan: create preview asset directory for %q: %w", asset.Path, err)
 		}
 		file, err := os.OpenFile(
 			target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600,
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("airplan: create preview asset %q: %w", asset.Path, err)
 		}
 		_, copyErr := io.CopyN(file, asset.Reader, asset.Size)
 		closeErr := file.Close()
@@ -154,11 +157,17 @@ func materializeRenderedDocument(
 		}
 		written, err := os.Open(target)
 		if err != nil {
-			return err
+			return fmt.Errorf("airplan: reopen preview asset %q: %w", asset.Path, err)
 		}
 		digest, hashErr := hashExactReader(written, 0, asset.Size)
-		_ = written.Close()
-		if hashErr != nil || digest != prepared.digest {
+		closeErr = written.Close()
+		if hashErr != nil {
+			return fmt.Errorf("airplan: hash preview asset %q: %w", asset.Path, hashErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("airplan: close preview asset %q after hashing: %w", asset.Path, closeErr)
+		}
+		if digest != prepared.digest {
 			return fmt.Errorf("airplan: preview asset %q changed after preflight", asset.Path)
 		}
 		publishedFiles = append(publishedFiles, target)

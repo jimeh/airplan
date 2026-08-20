@@ -2,10 +2,20 @@
 
 package airplan
 
-import "golang.org/x/sys/unix"
+import (
+	"errors"
+	"fmt"
+
+	"golang.org/x/sys/unix"
+)
 
 func publishDirectoryNoReplace(source, destination string) error {
-	return unix.Renameat2(
+	err := unix.Renameat2(
 		unix.AT_FDCWD, source, unix.AT_FDCWD, destination, unix.RENAME_NOREPLACE,
 	)
+	if errors.Is(err, unix.ENOSYS) || errors.Is(err, unix.EINVAL) ||
+		errors.Is(err, unix.EOPNOTSUPP) {
+		return fmt.Errorf("exclusive no-replace directory publication is unsupported by this filesystem: %w", err)
+	}
+	return err
 }

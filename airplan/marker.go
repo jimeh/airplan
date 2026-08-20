@@ -993,6 +993,12 @@ func validateDocumentMarkerV6(
 		if previous, ok := folded[fold]; ok && previous != object.Name {
 			return invalid("object names %q and %q collide when case-folded", previous, object.Name)
 		}
+		for previousFold, previous := range folded {
+			if strings.HasPrefix(fold, previousFold+"/") ||
+				strings.HasPrefix(previousFold, fold+"/") {
+				return invalid("object names %q and %q conflict as file and directory", previous, object.Name)
+			}
+		}
 		folded[fold] = object.Name
 	}
 	entry, ok := objects[marker.Entrypoint]
@@ -1037,6 +1043,24 @@ func validateDocumentMarkerV6(
 				return invalid("page paths %q and %q collide when case-folded", previous, descriptor.Path)
 			}
 			seenPaths[fold] = descriptor.Path
+			var format Format
+			switch descriptor.Format {
+			case "md":
+				format = FormatMarkdown
+			case "txt":
+				format = FormatText
+			default:
+				return invalid("page %q format %q is unsupported", descriptor.Path, descriptor.Format)
+			}
+			expectedPage := managedPageObjectName(descriptor.Path, format)
+			expectedSource := descriptor.Path
+			if index == 0 {
+				expectedPage = marker.Entrypoint
+				expectedSource = entrySourceObjectName(marker.Slug, descriptor.Path, format)
+			}
+			if descriptor.Page != expectedPage {
+				return invalid("page descriptor %q page %q does not match generated path %q", descriptor.Path, descriptor.Page, expectedPage)
+			}
 			page, exists := objects[descriptor.Page]
 			if !exists || page.Role != MarkerRolePage {
 				return invalid("page descriptor %q does not identify a page object", descriptor.Path)
@@ -1045,10 +1069,10 @@ func validateDocumentMarkerV6(
 				return invalid("page object %q is used by multiple descriptors", descriptor.Page)
 			}
 			seenPages[descriptor.Page] = struct{}{}
-			if descriptor.Format != "md" && descriptor.Format != "txt" {
-				return invalid("page %q format %q is unsupported", descriptor.Path, descriptor.Format)
-			}
 			if descriptor.Source != "" {
+				if descriptor.Source != expectedSource {
+					return invalid("page descriptor %q source %q does not match generated path %q", descriptor.Path, descriptor.Source, expectedSource)
+				}
 				source, exists := objects[descriptor.Source]
 				if !exists || source.Role != MarkerRoleSource {
 					return invalid("page descriptor %q does not identify a source object", descriptor.Path)

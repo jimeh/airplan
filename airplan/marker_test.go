@@ -832,6 +832,20 @@ func TestUploadMarkerV6ValidatesNestedPaths(t *testing.T) {
 		{"case-folded page path collision", func(m *UploadMarker) {
 			m.Pages[0].Path = "EXAMPLES/SERVER.GO"
 		}},
+		{"entry source does not match logical path", func(m *UploadMarker) {
+			m.Objects[1].Name = "unrelated.md"
+			m.Pages[0].Source = "unrelated.md"
+		}},
+		{"managed page does not match logical path", func(m *UploadMarker) {
+			m.Objects[2].Name = "examples/other.html"
+			m.Pages[1].Page = "examples/other.html"
+		}},
+		{"file and directory object conflict", func(m *UploadMarker) {
+			m.Objects = append(m.Objects, MarkerObject{
+				Name: "images/flow.svg/data.bin", Role: MarkerRoleAsset, Bytes: 1,
+				ContentType: "application/octet-stream", SHA256: strings.Repeat("f", 64),
+			})
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

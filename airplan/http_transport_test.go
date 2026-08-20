@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jimeh/airplan/internal/httpapi"
@@ -480,22 +481,24 @@ func TestPortableUploadLimit(t *testing.T) {
 
 func TestAirplanBackendNegotiatesCanonicalRevisionBeforeReading(t *testing.T) {
 	const token = "01234567890123456789012345678901"
-	capabilitySeen := false
+	var capabilitySeen atomic.Bool
+	var unexpectedPath atomic.Value
 	reader := &capabilityGuardReader{
-		check:  func() bool { return capabilitySeen },
+		check:  capabilitySeen.Load,
 		Reader: strings.NewReader("# Revised\n"),
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/api/v1/capabilities":
-			capabilitySeen = true
+			capabilitySeen.Store(true)
 			writeBundleCapabilities(t, w, true)
 		case "/api/v1/uploads/documents/revisions":
 			_, _ = io.Copy(io.Discard, r.Body)
 			w.WriteHeader(http.StatusCreated)
 			_, _ = io.WriteString(w, `{"id":"revision","kind":"document","url":"https://example/revision/plan.html","key":"revision/plan.html","bucket":"plans","bytes":1,"content_type":"text/html","created_at":"2026-08-19T00:00:00Z","marker_version":6,"marker_key":"revision/.airplan.json","warnings":[],"unchanged":false}`)
 		default:
-			t.Fatalf("unexpected path %q", r.URL.Path)
+			unexpectedPath.Store(r.URL.Path)
+			http.Error(w, "unexpected path", http.StatusInternalServerError)
 		}
 	}))
 	t.Cleanup(server.Close)
@@ -513,8 +516,11 @@ func TestAirplanBackendNegotiatesCanonicalRevisionBeforeReading(t *testing.T) {
 				Reader: reader, Path: "plan.md", Format: "md",
 			}},
 		})
-	if err != nil || result.ID != "revision" || !reader.read {
-		t.Fatalf("result = %+v, read = %t, error = %v", result, reader.read, err)
+	if path, ok := unexpectedPath.Load().(string); ok {
+		t.Fatalf("unexpected path %q", path)
+	}
+	if err != nil || result.ID != "revision" || !reader.read.Load() {
+		t.Fatalf("result = %+v, read = %t, error = %v", result, reader.read.Load(), err)
 	}
 }
 
@@ -523,13 +529,13 @@ func TestAirplanBackendRejectsBundleBeforeReadingWhenCapabilityAbsent(t *testing
 	reader := &capabilityGuardReader{
 		check: func() bool { return true }, Reader: strings.NewReader("# Entry\n"),
 	}
-	posts := 0
+	var posts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/capabilities" {
 			_, _ = io.WriteString(w, `{"api_version":"v1","server_version":"old","operations":["upload_document"],"upload_formats":["md"],"limits":{"document_bytes":10485760,"collection_file_bytes":1073741824,"collection_total_bytes":2147483648},"marker_versions":[5]}`)
 			return
 		}
-		posts++
+		posts.Add(1)
 	}))
 	t.Cleanup(server.Close)
 	client, err := New(context.Background(), &Config{
@@ -544,22 +550,22 @@ func TestAirplanBackendRejectsBundleBeforeReadingWhenCapabilityAbsent(t *testing
 		Pages: []PageInput{{Reader: strings.NewReader("page"), Path: "page.md"}},
 	})
 	if err == nil || !strings.Contains(err.Error(), "upgrade the server") ||
-		reader.read || posts != 0 {
-		t.Fatalf("error = %v, read = %t, posts = %d", err, reader.read, posts)
+		reader.read.Load() || posts.Load() != 0 {
+		t.Fatalf("error = %v, read = %t, posts = %d", err, reader.read.Load(), posts.Load())
 	}
 }
 
 type capabilityGuardReader struct {
 	Reader io.Reader
 	check  func() bool
-	read   bool
+	read   atomic.Bool
 }
 
 func (r *capabilityGuardReader) Read(buffer []byte) (int, error) {
 	if !r.check() {
 		return 0, errors.New("reader opened before capability negotiation")
 	}
-	r.read = true
+	r.read.Store(true)
 	return r.Reader.Read(buffer)
 }
 
@@ -674,5 +680,27 @@ func TestValidateBundleCapabilityAcceptsLowerGeneratedPageLimit(t *testing.T) {
 	}
 	if err := validateBundleCapability(capability, upload); err != nil {
 		t.Fatalf("lower generated-page capability was rejected: %v", err)
+	}
+}
+
+func TestValidateBundleCapabilityRejectsNegativeAssetSize(t *testing.T) {
+	capability := httpapi.DocumentBundleCapabilities{
+		ManagedPages: true, Assets: true, MaxItems: MaxDocumentItems,
+		MaxPageBytes: 1 << 20, MaxTotalPageBytes: 2 << 20,
+		MaxGeneratedPageBytes: 2 << 20,
+		MaxAssetBytes:         1 << 20, MaxTotalAssetBytes: 2 << 20,
+		MaxMetadataBytes: 1 << 20, MaxRequestBytes: 4 << 20,
+	}
+	upload := httpapi.DocumentUpload{
+		Metadata: httpapi.DocumentMetadata{Name: "plan.md"}, DocumentSize: 1,
+		Assets: []httpapi.DocumentAsset{{
+			DocumentAssetDescriptor: httpapi.DocumentAssetDescriptor{
+				Path: "asset.bin", Size: -1,
+			},
+		}},
+	}
+	err := validateBundleCapability(capability, upload)
+	if err == nil || !strings.Contains(err.Error(), "invalid size") {
+		t.Fatalf("error = %v", err)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -538,6 +537,18 @@ func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revis
 	sort.Strings(ordered)
 	var out bytes.Buffer
 	fmt.Fprintf(&out, "# airplan revisions: %d -> %d\n", previousRevision, newRevision)
+	sizeError := func() error {
+		return fmt.Errorf("airplan: revision diff exceeds maximum size of %s", formatSize(int64(maxSize)))
+	}
+	checkSize := func() error {
+		if maxSize > 0 && out.Len() > maxSize {
+			return sizeError()
+		}
+		return nil
+	}
+	if err := checkSize(); err != nil {
+		return nil, err
+	}
 	for _, logical := range ordered {
 		oldPage, oldOK := oldSources[logical]
 		newPage, newOK := newSources[logical]
@@ -566,13 +577,26 @@ func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revis
 			continue
 		}
 		fmt.Fprintf(&out, "# %s\n", logical)
-		section, err := generateRevisionDiff(oldBody, newBody, previousRevision, newRevision, maxSize)
+		if err := checkSize(); err != nil {
+			return nil, err
+		}
+		sectionLimit := maxSize
+		if maxSize > 0 {
+			sectionLimit = maxSize - out.Len()
+			if sectionLimit <= 0 {
+				return nil, sizeError()
+			}
+		}
+		section, err := generateRevisionDiff(oldBody, newBody, previousRevision, newRevision, sectionLimit)
 		if err != nil {
 			return nil, err
 		}
 		out.Write(section)
-		if !strings.HasSuffix(out.String(), "\n") {
+		if len(section) == 0 || section[len(section)-1] != '\n' {
 			out.WriteByte('\n')
+		}
+		if err := checkSize(); err != nil {
+			return nil, err
 		}
 	}
 	oldAssets := make(map[string]MarkerObject)
@@ -611,14 +635,17 @@ func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revis
 		default:
 			fmt.Fprintf(&out, "# %s\nasset changed: %s, %d bytes, sha256 %s -> %s, %d bytes, sha256 %s\n", logical, oldAsset.ContentType, oldAsset.Bytes, oldAsset.SHA256, newAsset.ContentType, newAsset.Size, newAsset.digest)
 		}
+		if err := checkSize(); err != nil {
+			return nil, err
+		}
 	}
 	if out.Len() == len(fmt.Sprintf(
 		"# airplan revisions: %d -> %d\n", previousRevision, newRevision,
 	)) {
 		out.WriteString("No textual changes.\n")
 	}
-	if maxSize > 0 && out.Len() > maxSize {
-		return nil, fmt.Errorf("airplan: revision diff exceeds maximum size of %s", formatSize(int64(maxSize)))
+	if err := checkSize(); err != nil {
+		return nil, err
 	}
 	return out.Bytes(), nil
 }

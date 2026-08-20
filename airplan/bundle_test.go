@@ -90,7 +90,7 @@ func TestRenderDocumentNamesLinksAndAssets(t *testing.T) {
 	t.Parallel()
 	asset := []byte("<svg>asset</svg>")
 	bundle, err := RenderDocument(context.Background(), DocumentInput{
-		Entry: PageInput{Reader: strings.NewReader("# Entry\n\n[Design](docs/design.md?plain=1#details)\n"), Path: "README.md"},
+		Entry: PageInput{Reader: strings.NewReader("# Entry\n\n[Design](docs/design.md?plain=1#details)\n\n[Absolute](/docs/design.md)\n"), Path: "README.md"},
 		Pages: []PageInput{
 			{Reader: strings.NewReader("# Design\n\n[Entry](../README.md)\n"), Path: "docs/design.md"},
 			{Reader: strings.NewReader("package main\n"), Path: "src/main.go"},
@@ -113,6 +113,9 @@ func TestRenderDocumentNamesLinksAndAssets(t *testing.T) {
 	}
 	if !bytes.Contains(bundle.Pages[0].HTML, []byte(`href="docs/design.html?plain=1#details"`)) {
 		t.Errorf("entry link was not rewritten:\n%s", bundle.Pages[0].HTML)
+	}
+	if !bytes.Contains(bundle.Pages[0].HTML, []byte(`href="/docs/design.md"`)) {
+		t.Errorf("root-relative link was rewritten:\n%s", bundle.Pages[0].HTML)
 	}
 	if !bytes.Contains(bundle.Pages[1].HTML, []byte(`href="../readme.html"`)) {
 		t.Errorf("nested link was not rewritten:\n%s", bundle.Pages[1].HTML)

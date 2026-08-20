@@ -327,6 +327,9 @@ func validateBundleCapabilityValues(
 	}
 	var assetTotal int64
 	for _, asset := range assets {
+		if asset.Size < 0 {
+			return fmt.Errorf("airplan: asset %q has invalid size", asset.Path)
+		}
 		if asset.Size > capability.MaxAssetBytes {
 			return fmt.Errorf(
 				"airplan: asset %q exceeds server limit of %d bytes",

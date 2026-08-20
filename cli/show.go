@@ -280,8 +280,10 @@ func printInspection(w io.Writer, in *airplan.UploadInspection) error {
 	if err := write("PROTECTED", protected); err != nil {
 		return err
 	}
-	if err := printInspectedObject(tw, "PAGE", in.Page); err != nil {
-		return err
+	if in.Page != nil {
+		if err := printInspectedObject(tw, "PAGE", in.Page); err != nil {
+			return err
+		}
 	}
 	if in.Source != nil {
 		if err := printInspectedObject(tw, "SOURCE", in.Source); err != nil {
@@ -299,8 +301,10 @@ func printInspection(w io.Writer, in *airplan.UploadInspection) error {
 		}
 	}
 	for i, page := range in.Pages {
-		if err := printInspectedObject(tw, fmt.Sprintf("MANAGED PAGE %d", i+1), page.Page); err != nil {
-			return err
+		if page.Page != nil {
+			if err := printInspectedObject(tw, fmt.Sprintf("MANAGED PAGE %d", i+1), page.Page); err != nil {
+				return err
+			}
 		}
 		if page.Source != nil {
 			if err := printInspectedObject(tw, fmt.Sprintf("MANAGED SOURCE %d", i+1), page.Source); err != nil {
@@ -309,6 +313,9 @@ func printInspection(w io.Writer, in *airplan.UploadInspection) error {
 		}
 	}
 	for i, asset := range in.Assets {
+		if asset == nil {
+			continue
+		}
 		if err := printInspectedObject(tw, fmt.Sprintf("ASSET %d", i+1), asset); err != nil {
 			return err
 		}

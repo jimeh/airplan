@@ -46,6 +46,94 @@ func TestUpdateDocumentValidatesBeforeRemoteDispatch(t *testing.T) {
 	}
 }
 
+func TestGenerateBundleRevisionDiffStopsAtAggregateLimit(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	if err := client.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.Repeat("d", 26)
+	marker := &UploadMarker{}
+	next := &RenderedDocumentBundle{}
+	for _, path := range []string{"a.md", "b.md", "c.md"} {
+		oldBody := []byte("old\n")
+		newBody := []byte("new\n")
+		marker.Pages = append(marker.Pages, MarkerPage{
+			Path: path, Source: path, Format: "md",
+		})
+		marker.Objects = append(marker.Objects, MarkerObject{
+			Name: path, Role: MarkerRoleSource, Bytes: int64(len(oldBody)),
+		})
+		store.set(dir+"/"+path, oldBody)
+		next.Pages = append(next.Pages, RenderedBundlePage{
+			Path: path, SourcePath: path, Format: "md", Source: newBody,
+		})
+	}
+	section, err := generateRevisionDiff(
+		[]byte("old\n"), []byte("new\n"), 1, 2, 1<<20,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	maxSize := len("# airplan revisions: 1 -> 2\n") + len("# a.md\n") + len(section)
+	if len(section) == 0 || section[len(section)-1] != '\n' {
+		maxSize++
+	}
+	_, err = client.generateBundleRevisionDiff(context.Background(),
+		&revisionDocument{marker: marker, dirPrefix: dir + "/"}, next, nil,
+		1, 2, maxSize,
+	)
+	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Fatalf("error = %v", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if got := store.getKeyAttempts[dir+"/c.md"]; got != 0 {
+		t.Fatalf("third source GET attempts = %d, want 0 after aggregate overflow", got)
+	}
+}
+
+func TestGenerateBundleRevisionDiffRejectsExactAggregateExhaustionBeforeDiff(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	if err := client.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.Repeat("e", 26)
+	oldBody := []byte("old\n")
+	marker := &UploadMarker{
+		Pages: []MarkerPage{
+			{Path: "a.md", Source: "a.md", Format: "md"},
+			{Path: "b.md", Source: "b.md", Format: "md"},
+		},
+		Objects: []MarkerObject{
+			{Name: "a.md", Role: MarkerRoleSource, Bytes: int64(len(oldBody))},
+			{Name: "b.md", Role: MarkerRoleSource, Bytes: int64(len(oldBody))},
+		},
+	}
+	store.set(dir+"/a.md", oldBody)
+	store.set(dir+"/b.md", oldBody)
+	next := &RenderedDocumentBundle{Pages: []RenderedBundlePage{
+		{Path: "a.md", SourcePath: "a.md", Format: "md", Source: []byte(strings.Repeat("new\n", 4096))},
+		{Path: "b.md", SourcePath: "b.md", Format: "md", Source: []byte("new\n")},
+	}}
+	maxSize := len("# airplan revisions: 1 -> 2\n") + len("# a.md\n")
+	_, err := client.generateBundleRevisionDiff(context.Background(),
+		&revisionDocument{marker: marker, dirPrefix: dir + "/"}, next, nil,
+		1, 2, maxSize,
+	)
+	if err == nil || !strings.Contains(
+		err.Error(), "airplan: revision diff exceeds maximum size of",
+	) {
+		t.Fatalf("error = %v, want aggregate size error", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if got := store.getKeyAttempts[dir+"/b.md"]; got != 0 {
+		t.Fatalf("later source GET attempts = %d, want 0 at exact exhaustion", got)
+	}
+}
+
 func TestUpdateDocumentRejectsNameThatChangesExistingSlugBeforeMutation(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")

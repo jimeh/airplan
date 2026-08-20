@@ -229,7 +229,7 @@ func TestTypedClientStreamsOrderedDocumentBundleAndCleansTempFiles(t *testing.T)
 		if string(entry) != "# Entry\n" || string(page) != "package main\n" ||
 			string(asset) != "asset" || request.Pages[0].Path != "src/main.go" ||
 			request.Assets[0].Path != "images/flow.svg" {
-			t.Fatalf("unexpected bundle: %+v %q %q %q", request, entry, page, asset)
+			t.Errorf("unexpected bundle: %+v %q %q %q", request, entry, page, asset)
 		}
 		return UploadResult{
 			ID: "bundle", Kind: "document", URL: "https://example/bundle",
@@ -268,7 +268,7 @@ func TestDocumentUploadPassesLowerGeneratedPageLimit(t *testing.T) {
 		ctx context.Context, _ DocumentUpload,
 	) (UploadResult, error) {
 		if got := GeneratedPageLimit(ctx); got != generatedLimit {
-			t.Fatalf("generated page limit = %d, want %d", got, generatedLimit)
+			t.Errorf("generated page limit = %d, want %d", got, generatedLimit)
 		}
 		return UploadResult{ID: "document", Kind: "document", URL: "https://example/document"}, nil
 	}}

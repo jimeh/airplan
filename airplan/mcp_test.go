@@ -1160,6 +1160,30 @@ func TestMCPHostedDocumentLimitAndPerCallTimeout(t *testing.T) {
 				test.requested, test.hosted, got, test.want)
 		}
 	}
+	document, err := mcpInlineDocument(mcpUploadDocumentInput{
+		Content: "# Plan\n", MaxSize: -1, MaxTotalPageSize: -1,
+		MaxAssetSize: -1, MaxTotalSize: -1,
+	}, "none", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.MaxPageSize != DefaultMaxInputSize ||
+		document.MaxTotalPageSize != DefaultMaxTotalPageSize ||
+		document.MaxAssetSize != DefaultMaxAssetSize ||
+		document.MaxTotalSize != DefaultMaxDocumentAssetTotalSize {
+		t.Fatalf("hosted limits = %+v", document)
+	}
+	document, err = mcpInlineDocument(mcpUploadDocumentInput{
+		Content: "# Plan\n", MaxSize: 1, MaxTotalPageSize: 2,
+		MaxAssetSize: 3, MaxTotalSize: 4,
+	}, "none", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.MaxPageSize != 1 || document.MaxTotalPageSize != 2 ||
+		document.MaxAssetSize != 3 || document.MaxTotalSize != 4 {
+		t.Fatalf("lower hosted limits = %+v", document)
+	}
 
 	base := context.Background()
 	client := &Client{cfg: &Config{Timeout: time.Second}}
@@ -1170,6 +1194,55 @@ func TestMCPHostedDocumentLimitAndPerCallTimeout(t *testing.T) {
 	}
 	if _, ok := ctx.Deadline(); !ok {
 		t.Fatal("tool operation context has no configured deadline")
+	}
+}
+
+func TestMCPDocumentToolsHandleNilOperationResults(t *testing.T) {
+	entry := filepath.Join(t.TempDir(), "plan.md")
+	if err := os.WriteFile(entry, []byte("# Plan\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	transport := &mcpTestTransport{}
+	client := &Client{cfg: &Config{}, remote: transport}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", true)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	for _, test := range []struct {
+		name      string
+		arguments map[string]any
+	}{
+		{name: "upload_document", arguments: map[string]any{"content": "# Plan\n"}},
+		{name: "upload_document_files", arguments: map[string]any{"entry_path": entry}},
+		{name: "new_document_revision_files", arguments: map[string]any{
+			"url_or_key": "old/plan.html", "entry_path": entry,
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, callErr := session.CallTool(ctx, &mcp.CallToolParams{
+				Name: test.name, Arguments: test.arguments,
+			})
+			if callErr != nil {
+				t.Fatal(callErr)
+			}
+			if !result.IsError {
+				t.Fatalf("result = %+v, want tool error", result)
+			}
+		})
 	}
 }
 

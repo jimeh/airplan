@@ -11,6 +11,16 @@ import (
 	"testing"
 )
 
+type trackedSeekReader struct {
+	*bytes.Reader
+	reads int
+}
+
+func (r *trackedSeekReader) Read(p []byte) (int, error) {
+	r.reads++
+	return r.Reader.Read(p)
+}
+
 func TestRenderDocumentSpooledUsesPrivateFilesAndCleansUp(t *testing.T) {
 	bundle, err := renderDocumentSpooled(context.Background(), DocumentInput{
 		Entry: PageInput{
@@ -85,6 +95,38 @@ func TestMaterializeRenderedDocumentRemovesStagingAfterDigestFailure(t *testing.
 	}
 	if len(matches) != 0 {
 		t.Fatalf("preview staging remains after failure: %v", matches)
+	}
+}
+
+func TestMaterializeRenderedDocumentChecksCancellationBeforeAssets(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "preview")
+	reader := &trackedSeekReader{Reader: bytes.NewReader([]byte("asset"))}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := materializeRenderedDocument(ctx, destination,
+		&RenderedDocumentBundle{}, []preparedAsset{{
+			AssetInput: AssetInput{
+				Reader: reader, Path: "asset.bin", Size: 5,
+			},
+			digest: contentSHA256([]byte("asset")),
+		}},
+	)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("error = %v, want context cancellation", err)
+	}
+	if reader.reads != 0 {
+		t.Fatalf("asset reads = %d, want 0", reader.reads)
+	}
+	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("failed preview destination exists: %v", statErr)
+	}
+	matches, globErr := filepath.Glob(filepath.Join(root, ".airplan-preview-*"))
+	if globErr != nil {
+		t.Fatal(globErr)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("preview staging remains after cancellation: %v", matches)
 	}
 }
 

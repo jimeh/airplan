@@ -238,18 +238,25 @@ func TestRootJSONOutputShape(t *testing.T) {
 	})
 }
 
-func TestSingleDocumentUploadRejectsMaxTotalSize(t *testing.T) {
-	fake := newFakeS3(t)
-	_, _, err := executeRoot(t, fake, "# Plan\n",
-		"--max-total-size=1MiB", "-",
-	)
-	if err == nil || !strings.Contains(
-		err.Error(), "only valid for document bundles or collections",
-	) {
-		t.Fatalf("error = %v", err)
-	}
-	if uploads := fake.uploads(); len(uploads) != 0 {
-		t.Fatalf("uploads = %d, want 0", len(uploads))
+func TestSingleDocumentUploadRejectsBundleOnlyLimits(t *testing.T) {
+	for _, test := range []struct {
+		flag string
+		want string
+	}{
+		{flag: "--max-total-page-size=1MiB", want: "only valid for document bundles"},
+		{flag: "--max-asset-size=1MiB", want: "only valid for document bundles"},
+		{flag: "--max-total-size=1MiB", want: "only valid for document bundles or collections"},
+	} {
+		t.Run(test.flag, func(t *testing.T) {
+			fake := newFakeS3(t)
+			_, _, err := executeRoot(t, fake, "# Plan\n", test.flag, "-")
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v", err)
+			}
+			if uploads := fake.uploads(); len(uploads) != 0 {
+				t.Fatalf("uploads = %d, want 0", len(uploads))
+			}
+		})
 	}
 }
 

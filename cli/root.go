@@ -250,11 +250,17 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	if err := validateModeFlags(cmd, collection); err != nil {
 		return err
 	}
-	if !collection && len(opts.pages) == 0 && len(opts.assets) == 0 &&
-		cmd.Flags().Changed("max-total-size") {
-		return errors.New(
-			"airplan: --max-total-size is only valid for document bundles or collections",
-		)
+	if !collection && len(opts.pages) == 0 && len(opts.assets) == 0 {
+		for _, name := range []string{"max-total-page-size", "max-asset-size", "max-total-size"} {
+			if !cmd.Flags().Changed(name) {
+				continue
+			}
+			scope := "document bundles"
+			if name == "max-total-size" {
+				scope += " or collections"
+			}
+			return fmt.Errorf("airplan: --%s is only valid for %s", name, scope)
+		}
 	}
 	if collection && !cmd.Flags().Changed("max-size") {
 		opts.maxSize = "1GiB"

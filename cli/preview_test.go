@@ -161,6 +161,7 @@ func TestPreviewOutputDirNoSource(t *testing.T) {
 }
 
 func TestDocumentPreviewRemovesPrivateStagingAfterCopyFailure(t *testing.T) {
+	isolateEnv(t)
 	root := t.TempDir()
 	destination := filepath.Join(root, "preview")
 	_, err := airplan.MaterializeDocument(context.Background(),
