@@ -9,6 +9,11 @@ page UI
 
 Repository baseline: Airplan v0.10.0, spec 0.40.0
 
+Follow-up: [Revision-aware page navigation and diff UX](revision-aware-navigation-and-diffs.md)
+supersedes this plan's entry-only revision switching and bundle-wide per-page
+Changes presentation. The storage model, browser-native navigation, and other
+bundle decisions remain unchanged.
+
 ## 1. Goal
 
 Let one Airplan document upload represent a small, self-contained body of work:
