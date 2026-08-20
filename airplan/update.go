@@ -1193,6 +1193,12 @@ func (c *Client) promoteStandaloneRevision(
 		if spoolErr != nil {
 			return spoolErr
 		}
+		if doc.marker.Version >= 6 && payload.digest != object.SHA256 {
+			return fmt.Errorf(
+				"airplan: standalone source %q checksum does not match marker",
+				descriptor.Source,
+			)
+		}
 		reader, openErr := payload.open()
 		if openErr != nil {
 			return openErr

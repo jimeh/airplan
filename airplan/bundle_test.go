@@ -25,6 +25,26 @@ type unreadableAssetReader struct {
 	seeks int
 }
 
+type failSecondHashReader struct {
+	reader     *bytes.Reader
+	startSeeks int
+	failErr    error
+}
+
+func (r *failSecondHashReader) Read(p []byte) (int, error) {
+	if r.startSeeks >= 3 {
+		return 0, r.failErr
+	}
+	return r.reader.Read(p)
+}
+
+func (r *failSecondHashReader) Seek(offset int64, whence int) (int64, error) {
+	if offset == 0 && whence == io.SeekStart {
+		r.startSeeks++
+	}
+	return r.reader.Seek(offset, whence)
+}
+
 func (r *unreadableAssetReader) Read([]byte) (int, error) {
 	r.reads++
 	return 0, errors.New("unexpected read")
@@ -272,7 +292,7 @@ func TestCreateDocumentRevisionProjectsFourPageChanges(t *testing.T) {
 			t.Fatalf("complete diff lacks %q:\n%s", want, diff)
 		}
 	}
-	if bytes.Contains(diff, []byte("# stable.md\n")) {
+	if bytes.Contains(diff, []byte(`# airplan page: "stable.md"`+"\n")) {
 		t.Fatalf("complete diff includes unchanged page:\n%s", diff)
 	}
 }
@@ -517,6 +537,48 @@ func TestUploadDocumentRejectsAssetMutationBeforePublishingEntry(t *testing.T) {
 	if len(putPaths) != 2 || !strings.HasSuffix(putPaths[0], "/"+MarkerFilename) ||
 		!strings.HasSuffix(putPaths[1], "/entry.md") {
 		t.Fatalf("PUT paths = %q, want marker and source only", putPaths)
+	}
+}
+
+func TestCreateDocumentRevisionPreservesAssetReverificationReadError(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	readErr := errors.New("asset re-verification failed")
+	body := []byte("evidence")
+	first, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{
+			Reader: strings.NewReader("# Entry"), Path: "entry.md",
+		},
+		Assets: []AssetInput{{
+			Reader: bytes.NewReader(body), Path: "evidence.bin",
+			Size: int64(len(body)), ContentType: "application/octet-stream",
+		}},
+		RepositoryURL: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := &failSecondHashReader{
+		reader: bytes.NewReader(body), failErr: readErr,
+	}
+	_, err = client.CreateDocumentRevision(context.Background(), CreateDocumentRevisionInput{
+		Target: first.URL,
+		Document: DocumentInput{
+			Entry: PageInput{
+				Reader: strings.NewReader("# Revised entry"), Path: "entry.md",
+			},
+			Assets: []AssetInput{{
+				Reader: reader, Path: "evidence.bin", Size: int64(len(body)),
+				ContentType: "application/octet-stream",
+			}},
+			RepositoryURL: "none",
+		},
+	})
+	if !errors.Is(err, readErr) {
+		t.Fatalf("error = %v, want wrapped %v", err, readErr)
+	}
+	if strings.Contains(err.Error(), "changed after preflight") {
+		t.Fatalf("read failure reported as asset mutation: %v", err)
 	}
 }
 

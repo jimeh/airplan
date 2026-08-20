@@ -467,6 +467,15 @@ test("bundle pages use ordinary navigation and update both rails", async ({
 
   const inlinePages = page.locator(".page-shell > .pages-nav");
   const openPages = page.getByRole("button", { name: "Open pages" });
+  const pagesTrigger = page.locator(".pages-trigger");
+  await expect(pagesTrigger).toHaveAttribute("aria-controls", "pages-popover");
+  await expect(pagesTrigger).toHaveAttribute("popovertarget", "");
+  expect(await pagesTrigger.getAttribute("aria-haspopup")).toBeNull();
+  expect(
+    await pagesTrigger.evaluate(
+      (trigger) => (trigger as HTMLButtonElement).popoverTargetElement?.id,
+    ),
+  ).toBe("pages-popover");
   if (testInfo.project.name.startsWith("narrow-")) {
     await expect(inlinePages).toBeHidden();
     await expect(openPages).toBeVisible();

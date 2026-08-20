@@ -440,6 +440,96 @@ func TestPromoteStandaloneRevisionReconstructsOversizedBundle(t *testing.T) {
 	}
 }
 
+func TestPromoteStandaloneRevisionRejectsChangedV6SourceBeforeMutation(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	if err := client.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.Repeat("w", 26)
+	chainID := strings.Repeat("d", 26)
+	page := []byte("<html>old</html>")
+	source := []byte("# Plan\n")
+	replacement := []byte("# Nope\n")
+	markerBody, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+		Kind:      UploadKindDocument, Slug: "plan", Format: "md", Title: "Plan",
+		Producer:   Producer{Name: "airplan", Version: "0.10.0"},
+		Render:     documentRenderRecipe(client.cfg, client.templateDigest),
+		Entrypoint: "plan.html",
+		Pages: []MarkerPage{{
+			Path: "plan.md", Page: "plan.html", Source: "plan.md",
+			Format: "md", Title: "Plan", Lang: "Markdown",
+		}},
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType, SHA256: contentSHA256(source)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerKey := dir + "/" + MarkerFilename
+	pageKey := dir + "/plan.html"
+	store.set(markerKey, markerBody)
+	store.set(pageKey, page)
+	store.set(dir+"/plan.md", replacement)
+	markerBody, markerETag, _, err := client.st.getBytesWithETag(
+		context.Background(), markerKey, MaxMarkerSize,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageBody, pageETag, _, err := client.st.getBytesWithETag(
+		context.Background(), pageKey, maxUpgradePageSize,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, err := DecodeUploadMarker(markerBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageURL, _, err := PublicURL(client.cfg, pageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := &revisionDocument{
+		marker: marker, markerBody: markerBody, markerETag: markerETag,
+		pageBody: pageBody, pageETag: pageETag, dirPrefix: dir + "/",
+		pageKey: pageKey, sourceKey: dir + "/plan.md", pageURL: pageURL,
+		needsPromotion: true,
+	}
+	store.mu.Lock()
+	putsBefore := store.puts
+	objectsBefore := make(map[string][]byte, len(store.objects))
+	for key, body := range store.objects {
+		objectsBefore[key] = bytes.Clone(body)
+	}
+	store.mu.Unlock()
+
+	err = client.promoteStandaloneRevision(
+		context.Background(), doc, chainID, VersionsMetadata{LatestRevision: 2},
+	)
+	if err == nil || !strings.Contains(err.Error(), `source "plan.md" checksum does not match marker`) {
+		t.Fatalf("error = %v", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.puts != putsBefore {
+		t.Fatalf("promotion performed %d writes", store.puts-putsBefore)
+	}
+	if len(store.objects) != len(objectsBefore) {
+		t.Fatalf("promotion changed object count from %d to %d", len(objectsBefore), len(store.objects))
+	}
+	for key, before := range objectsBefore {
+		if after, ok := store.objects[key]; !ok || !bytes.Equal(after, before) {
+			t.Fatalf("promotion mutated %q", key)
+		}
+	}
+}
+
 func TestUpdateDocumentCreatesLinkedRevisionsOnlyOnFirstUpdate(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")

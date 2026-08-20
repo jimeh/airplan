@@ -228,7 +228,12 @@ func (c *Client) createBundleRevision(
 	assetResults := make([]AssetResult, 0, len(assets))
 	for _, asset := range assets {
 		digest, hashErr := hashExactReader(asset.Reader, asset.start, asset.Size)
-		if hashErr != nil || digest != asset.digest {
+		if hashErr != nil {
+			return nil, fmt.Errorf(
+				"airplan: verify asset %q after preflight: %w", asset.Path, hashErr,
+			)
+		}
+		if digest != asset.digest {
 			return nil, fmt.Errorf("airplan: asset %q changed after preflight", asset.Path)
 		}
 		if _, err := asset.Reader.Seek(asset.start, io.SeekStart); err != nil {
