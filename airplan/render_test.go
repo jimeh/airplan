@@ -277,6 +277,7 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 			`data-revision-heading`,
 			`Revision 2 of 3`,
 			`data-view="changes"`,
+			`title="Changes from revision 1"><svg class="icon"`,
 			`class="content changes-view"`,
 			`href="./.airplan-changes.diff"`,
 			`Changes from revision 1`,

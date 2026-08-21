@@ -204,7 +204,8 @@ func TestRenderDocumentProjectsRevisionChangesPerPage(t *testing.T) {
 		bytes.Contains(bundle.Pages[1].HTML, []byte(`class="content all-changes-view"`)) {
 		t.Fatal("unchanged child exposes changes UI")
 	}
-	if !bytes.Contains(bundle.Pages[2].HTML, []byte(`>Code</span>`)) ||
+	if !bytes.Contains(bundle.Pages[2].HTML, []byte(`aria-label="Source view"`)) ||
+		!bytes.Contains(bundle.Pages[2].HTML, []byte(`>Source</span>`)) ||
 		!bytes.Contains(bundle.Pages[2].HTML, []byte(`data-view="changes"`)) ||
 		bytes.Contains(bundle.Pages[2].HTML, []byte(`class="content all-changes-view"`)) {
 		t.Fatal("changed source page mode projection is incorrect")
@@ -276,11 +277,12 @@ func TestCreateDocumentRevisionProjectsFourPageChanges(t *testing.T) {
 		bytes.Contains(stable, []byte(`class="content all-changes-view"`)) {
 		t.Fatal("unchanged Markdown page exposes changes UI")
 	}
-	if !bytes.Contains(server, []byte(`>Code</span>`)) ||
+	if !bytes.Contains(server, []byte(`aria-label="Source view"`)) ||
+		!bytes.Contains(server, []byte(`>Source</span>`)) ||
 		!bytes.Contains(server, []byte(`data-view="changes"`)) ||
 		!bytes.Contains(server, []byte(`Changes to airplan guide.go`)) ||
 		bytes.Contains(server, []byte(`class="content all-changes-view"`)) {
-		t.Fatal("changed source page lacks Code/Changes or embeds the complete report")
+		t.Fatal("changed source page lacks Source/Changes or embeds the complete report")
 	}
 	for _, want := range []string{
 		"# airplan page order\n", `# airplan page: "README.md"` + "\n",

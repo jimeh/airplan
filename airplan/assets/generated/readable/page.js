@@ -191,6 +191,13 @@
     apply(state, false);
   })();
 
+  // airplan-generated-icons:icons.ts
+  var iconClose = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>';
+  var iconCopied = '<svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>';
+  var iconCopy = '<svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
+  var iconFailed = '<svg class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>';
+  var iconToc = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>';
+
   // web/src/page.ts
   (function() {
     var d = document;
@@ -744,11 +751,6 @@
         flash(btn, "Copy failed", false);
       });
     }
-    var iconCopy = '<svg class="icon icon-copy" aria-hidden="true"' + ' viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0' + " 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0" + "-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5" + "a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.7" + '5 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5' + "C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1" + ".75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .13" + "8.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25" + '-.25Z"/></svg>';
-    var iconCheck = '<svg class="icon icon-check" aria-hidden="true"' + ' viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22' + "a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28" + "a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6" + '.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>';
-    var iconX = '<svg class="icon icon-x" aria-hidden="true"' + ' viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72' + "a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.32" + "6.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326" + " 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0" + " 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.7" + '5 0 0 1 0-1.06Z"/></svg>';
-    var iconToc = '<svg class="icon" aria-hidden="true"' + ' viewBox="0 0 16 16" fill="none" stroke="currentColor"' + ' stroke-width="1.5" stroke-linecap="round">' + '<path d="M5 4h9M5 8h9M5 12h9"/>' + '<circle cx="2" cy="4" r=".75" fill="currentColor" stroke="none"/>' + '<circle cx="2" cy="8" r=".75" fill="currentColor" stroke="none"/>' + '<circle cx="2" cy="12" r=".75" fill="currentColor"' + ' stroke="none"/></svg>';
-    var iconClose = '<svg class="icon" aria-hidden="true"' + ' viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72' + "a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1" + " 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749" + ".749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3" + ".22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1" + '.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>';
     var pages = d.getElementById("pages");
     var pagesTrigger = d.querySelector(".pages-trigger");
     var pagesPopover = null;
@@ -1059,7 +1061,7 @@
       btn.type = "button";
       btn.setAttribute("aria-label", "Copy code");
       btn.title = "Copy code";
-      btn.innerHTML = iconCopy + iconCheck + iconX;
+      btn.innerHTML = iconCopy + iconCopied + iconFailed;
       btn.addEventListener("click", function() {
         var code = pre.querySelector("code");
         copyText((code || pre).textContent, btn);

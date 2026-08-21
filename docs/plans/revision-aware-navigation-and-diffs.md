@@ -114,8 +114,8 @@ The built-in UI follows this matrix for revisions greater than 1:
 | Entry Markdown         | no                   | Rendered, Source          | All changes     |
 | Child Markdown         | yes                  | Rendered, Source, Changes | All changes     |
 | Child Markdown         | no                   | Rendered, Source          | All changes     |
-| Managed text or source | yes                  | Code, Changes             | All changes     |
-| Managed text or source | no                   | Code                      | All changes     |
+| Managed text or source | yes                  | Source, Changes           | All changes     |
+| Managed text or source | no                   | Source                    | All changes     |
 
 `Changes` appears when the current page was added or its source, format, title,
 or language changed relative to the adjacent predecessor. Reordering a page
@@ -236,12 +236,13 @@ On wide layouts, keep the Pages and On this page headings outside their rail
 scroll containers. Only the item lists scroll, so readers retain the rail's
 identity while moving through a long page or bundle.
 
-Move the one semantic content-mode control out of the sticky bar. It stays near
-the top of the content column and precedes revision controls at every
-breakpoint. Do not duplicate the toggle for different breakpoints. Retain the
-established eye and code icons beside their visible labels. Reset those buttons
-independently of toolbar styles: inactive modes are transparent, while the
-active mode alone uses the theme's control background.
+Keep one semantic content-mode control. On wide layouts, align it at the left
+of the top control row opposite the file actions and Appearance. When the page
+rails collapse, move it below the fixed-height sticky toolbar and keep it above
+the revision controls. Do not duplicate the toggle for different breakpoints.
+Retain the established eye and code icons beside their visible labels. Reset
+those buttons independently of toolbar styles: inactive modes are transparent,
+while the active mode alone uses the theme's control background.
 
 The revision selector and `All changes` remain non-sticky. They describe the
 revision being read, so they belong with the page content rather than the

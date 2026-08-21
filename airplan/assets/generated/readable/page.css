@@ -297,6 +297,7 @@ body {
   --alert-caution-bg: var(--alert-danger-bg);
   --prose-width: 78ch;
   --toc-width: 14rem;
+  --airplan-toolbar-height: 3.5rem;
   --airplan-sticky-height: 0px;
 }
 
@@ -318,9 +319,33 @@ html {
   min-height: 100vh;
 }
 
-.toolbar {
+.top-controls {
   grid-column: 2;
   grid-row: 1;
+  display: flex;
+  height: var(--airplan-toolbar-height);
+  align-items:  center;
+  gap: .5rem;
+  padding: 0 1.5rem;
+}
+
+.top-controls:not(:has( > .view-controls)):has( > .toolbar:not(:has( > :not([hidden])))) {
+  display: none;
+}
+
+.top-controls .toolbar {
+  flex-wrap: nowrap;
+  flex: 1;
+  width: auto;
+  height: 100%;
+  padding: 0;
+}
+
+.view-controls {
+  flex: none;
+  order: -1;
+  margin-right: auto;
+  font-size: .85rem;
 }
 
 .toc {
@@ -660,10 +685,6 @@ body.toc-dialog-open {
   display: inline;
 }
 
-.viewtoggle {
-  margin-right: auto;
-}
-
 .revision-heading {
   color: var(--muted);
   margin: 0 0 1rem;
@@ -724,10 +745,6 @@ body.toc-dialog-open {
 .reader-controls {
   grid-column: 2;
   grid-row: 2;
-  display: flex;
-  flex-direction: column;
-  align-items:  flex-start;
-  gap: .85rem;
   width: 100%;
   padding: 1rem 1.5rem 0;
 }
@@ -748,7 +765,7 @@ body.toc-dialog-open {
   font-weight: 600;
 }
 
-.reader-controls .mode-toggle {
+.view-controls .mode-toggle {
   width: -moz-fit-content;
   width: fit-content;
 }
@@ -757,7 +774,7 @@ body.toc-dialog-open {
   overflow-x: auto;
 }
 
-body.all-changes-active .pages-nav, body.all-changes-active .toc, body.all-changes-active .reader-controls .mode-toggle, body.all-changes-active .toolbar .pages-trigger {
+body.all-changes-active .pages-nav, body.all-changes-active .toc, body.all-changes-active .view-controls, body.all-changes-active .toolbar .pages-trigger {
   display: none !important;
 }
 
@@ -1453,6 +1470,10 @@ mark {
     display: block;
   }
 
+  .top-controls {
+    display: contents;
+  }
+
   .toolbar, .pages-nav, .toc, .reader-controls, .content {
     max-width: var(--page-width);
     width: 100%;
@@ -1463,11 +1484,22 @@ mark {
   .toolbar {
     position: sticky;
     z-index: 15;
-    min-height: calc(44px + env(safe-area-inset-top));
-    padding-top: env(safe-area-inset-top);
+    height: calc(var(--airplan-toolbar-height)  + env(safe-area-inset-top));
+    min-height: calc(var(--airplan-toolbar-height)  + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 1.5rem 0;
     background: var(--bg);
     border-bottom: 1px solid var(--border);
+    flex-wrap: nowrap;
     top: 0;
+  }
+
+  .view-controls {
+    order: initial;
+    max-width: var(--page-width);
+    width: 100%;
+    margin-inline-start: auto;
+    margin-inline-end: auto;
+    padding: 1rem 1.5rem 0;
   }
 
   .toc, .pages-nav {
@@ -1501,6 +1533,11 @@ mark {
 }
 
 @media (max-width: 48rem) {
+  .toolbar, .view-controls {
+    padding-inline-start: 1.25rem;
+    padding-inline-end: 1.25rem;
+  }
+
   .toolbar .appearance {
     margin-left: 0;
   }

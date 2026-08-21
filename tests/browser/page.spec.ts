@@ -1121,10 +1121,6 @@ test("built-in pages share canonical toolbar control styling", async ({ page }) 
       const iconStyle = getComputedStyle(icon);
       const actionStyle = getComputedStyle(action);
       return {
-        toolbarWidth: toolbar.getBoundingClientRect().width,
-        themeRight: window.innerWidth - toggle.getBoundingClientRect().right,
-        toolbarPaddingLeft: toolbarStyle.paddingLeft,
-        toolbarPaddingRight: toolbarStyle.paddingRight,
         toolbarGap: toolbarStyle.gap,
         toggleHeight: toggle.getBoundingClientRect().height,
         toggleGap: toggleStyle.gap,
@@ -1876,14 +1872,42 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
     }),
   );
   await page.goto(revisions[1].url);
-  const readerControls = page.locator(".reader-controls");
-  for (const width of [1400, 700]) {
+  await page.setViewportSize({ width: 1400, height: 800 });
+  const wideControlLayout = await page.locator(".page-shell").evaluate((element) => {
+    const toolbar = element.querySelector<HTMLElement>(".toolbar")!.getBoundingClientRect();
+    const actionElement = element.querySelector<HTMLElement>(".toolbar .file-actions button")!;
+    const action = actionElement.getBoundingClientRect();
+    const actionStyle = getComputedStyle(actionElement);
+    const viewElement = element.querySelector<HTMLElement>(".viewtoggle button")!;
+    const view = viewElement.getBoundingClientRect();
+    const viewStyle = getComputedStyle(viewElement);
+    return {
+      actionCenter: action.top + action.height / 2,
+      actionFontSize: actionStyle.fontSize,
+      actionLineHeight: actionStyle.lineHeight,
+      toolbarBottom: toolbar.bottom,
+      toolbarTop: toolbar.top,
+      viewBottom: view.bottom,
+      viewCenter: view.top + view.height / 2,
+      viewFontSize: viewStyle.fontSize,
+      viewLineHeight: viewStyle.lineHeight,
+      viewTop: view.top,
+    };
+  });
+  expect(wideControlLayout.viewCenter).toBeCloseTo(wideControlLayout.actionCenter, 0);
+  expect(wideControlLayout.viewFontSize).toBe(wideControlLayout.actionFontSize);
+  expect(wideControlLayout.viewLineHeight).toBe(wideControlLayout.actionLineHeight);
+  expect(wideControlLayout.viewTop).toBeGreaterThanOrEqual(wideControlLayout.toolbarTop);
+  expect(wideControlLayout.viewBottom).toBeLessThanOrEqual(wideControlLayout.toolbarBottom);
+
+  const pageShell = page.locator(".page-shell");
+  for (const width of [700]) {
     await page.setViewportSize({ width, height: 800 });
     await expect
       .poll(() =>
-        readerControls.evaluate((element) => {
-          const view = element.querySelector(".viewtoggle")!;
-          const revision = element.querySelector(".revision-controls")!;
+        pageShell.evaluate((element) => {
+          const view = element.querySelector(".view-controls")!;
+          const revision = element.querySelector(".reader-controls")!;
           return {
             domOrder: Boolean(
               view.compareDocumentPosition(revision) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -1903,7 +1927,7 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   );
   await page.setViewportSize({ width: 700, height: 800 });
   const toolbarLayout = await page.locator(".toolbar").evaluate((element) => {
-    const view = document.querySelector(".reader-controls .viewtoggle")!.getBoundingClientRect();
+    const view = document.querySelector(".view-controls .viewtoggle")!.getBoundingClientRect();
     const toolbar = element.getBoundingClientRect();
     return {
       display: getComputedStyle(element).display,
@@ -1915,8 +1939,16 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   expect(toolbarLayout.display).toBe("flex");
   expect(toolbarLayout.position).toBe("sticky");
   expect(toolbarLayout.viewTop).toBeGreaterThanOrEqual(toolbarLayout.toolbarBottom);
+  const collapsedToolbarHeights = [];
+  for (const width of [1000, 700, 520]) {
+    await page.setViewportSize({ width, height: 800 });
+    collapsedToolbarHeights.push(
+      await page.locator(".toolbar").evaluate((element) => element.getBoundingClientRect().height),
+    );
+  }
+  expect(collapsedToolbarHeights).toEqual([56, 56, 56]);
   const modeBackgrounds = await page
-    .locator(".reader-controls .mode-toggle button")
+    .locator(".view-controls .mode-toggle button")
     .evaluateAll((buttons) =>
       buttons.map((button) => ({
         active: button.classList.contains("active"),
@@ -1947,6 +1979,7 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   await page.goto(revisions[1].url);
   const changesButton = page.getByRole("button", { name: "Changes view" });
   await expect(changesButton).toBeVisible();
+  await expect(changesButton.locator("svg.icon")).toHaveCount(1);
   await changesButton.click();
   await expect(page.locator("#changes")).toBeVisible();
   await expect(page.locator("#rendered")).toBeHidden();
@@ -2012,7 +2045,7 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
       ),
     )
     .toEqual(["copy-source", "appearance"]);
-  await expect(page.locator(".reader-controls .viewtoggle")).toBeVisible();
+  await expect(page.locator(".view-controls .viewtoggle")).toBeVisible();
   await expect(toolbar.locator(".viewtoggle")).toHaveCount(0);
   const dividerDisplay = await page
     .locator(".appearance")

@@ -65,6 +65,9 @@ var minifiedMermaidJS string
 //go:embed assets/generated/minified/collection.js
 var minifiedCollectionJS string
 
+//go:embed assets/generated/icons.html.tmpl
+var generatedIconTemplates string
+
 //go:embed assets/theme-toggle.html.tmpl
 var themeToggle string
 
@@ -73,6 +76,7 @@ var themeToggle string
 // SyntaxCSS remains data because it is coupled to generated highlighting
 // classes (SPEC.md §3).
 var builtinTemplate = bakeTemplate(builtinTemplateLayout,
+	templateReplacement{"<!-- airplan:icon-templates -->", generatedIconTemplates},
 	templateReplacement{"/* airplan:page-css */", readablePageCSS},
 	templateReplacement{"/* airplan:theme-init-js */", readableThemeInitJS},
 	templateReplacement{"/* airplan:page-js */", readablePageJS},
@@ -83,6 +87,7 @@ var builtinTemplate = bakeTemplate(builtinTemplateLayout,
 // builtinCollectionTemplate is the exact reusable custom-template source
 // printed by `airplan template collection`.
 var builtinCollectionTemplate = bakeTemplate(builtinCollectionTemplateLayout,
+	templateReplacement{"<!-- airplan:icon-templates -->", generatedIconTemplates},
 	templateReplacement{"/* airplan:collection-css */", readableCollectionCSS},
 	templateReplacement{"/* airplan:theme-init-js */", readableThemeInitJS},
 	templateReplacement{"/* airplan:collection-js */", readableCollectionJS},
@@ -94,6 +99,7 @@ var builtinCollectionTemplate = bakeTemplate(builtinCollectionTemplateLayout,
 // Keeping the comments in builtinTemplate makes its dumped customization
 // source useful without introducing trailing spaces in rendered pages.
 var executableBuiltinTemplate = bakeTemplate(builtinTemplateLayout,
+	templateReplacement{"<!-- airplan:icon-templates -->", generatedIconTemplates},
 	templateReplacement{"/* airplan:page-css */", minifiedPageCSS},
 	templateReplacement{"/* airplan:theme-init-js */", minifiedThemeInitJS},
 	templateReplacement{"/* airplan:page-js */", minifiedPageJS},
@@ -103,6 +109,7 @@ var executableBuiltinTemplate = bakeTemplate(builtinTemplateLayout,
 
 var executableBuiltinCollectionTemplate = bakeTemplate(
 	builtinCollectionTemplateLayout,
+	templateReplacement{"<!-- airplan:icon-templates -->", generatedIconTemplates},
 	templateReplacement{"/* airplan:collection-css */", minifiedCollectionCSS},
 	templateReplacement{"/* airplan:theme-init-js */", minifiedThemeInitJS},
 	templateReplacement{"/* airplan:collection-js */", minifiedCollectionJS},

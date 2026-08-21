@@ -245,11 +245,14 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
 - Built-in document and collection templates share authored TypeScript and CSS
   for base styling, early theme selection, runtime theme behavior, and
   theme-control markup. `web/build.ts` uses explicit Bun browser targets and
-  formats to generate readable and minified page-specific bundles. It replaces
-  exactly one inert Mermaid URL sentinel with the existing Go template action,
-  rejects template delimiters from all other generated content, and produces
-  no runtime network dependency beyond conditional Mermaid loading. A
-  generalized bake step expands readable assets for
+  formats to generate readable and minified page-specific bundles. A semantic
+  manifest selects build-time `@primer/octicons` inputs. The same generator
+  emits Go template definitions and named TypeScript constants, so Bun drops
+  icons unused by each browser bundle while authored templates and scripts
+  contain no copied SVG markup. It replaces exactly one inert Mermaid URL
+  sentinel with the existing Go template action, rejects template delimiters
+  from all other generated content, and produces no runtime network dependency
+  beyond conditional Mermaid loading. A generalized bake step expands readable assets for
   `airplan template [document|collection]` and minified assets for executable
   built-ins. Both commands therefore emit complete, standalone, reusable
   templates without exposing internal bake markers.

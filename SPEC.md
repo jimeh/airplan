@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.41.0**
+**Spec version: 0.43.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -333,7 +333,7 @@ described below.
     rail heading remains fixed while only the heading list scrolls. At
     the rail-collapse breakpoint, progressive enhancement replaces the inline
     list with a permanent bottom-right Contents trigger throughout the rendered
-    view. The trigger is hidden in Source, Code, Changes, and All changes views
+    view. The trigger is hidden in Source, Changes, and All changes views
     and while either transient navigation panel is open. Without native dialog
     support or scripting, the inline list remains as the fallback.
   - In-page navigation scrolls smoothly by default. It becomes immediate
@@ -361,11 +361,14 @@ described below.
     restores focus, and narrow layouts keep it inset from viewport edges. With
     scripting disabled, uploader defaults follow the system preference and the
     panel is absent. The appearance trigger follows the file controls and stays
-    at the far-right edge behind a quiet divider. The document toolbar contains
-    file actions, Appearance, and the narrow-only Pages trigger; Rendered,
-    Source, Code, and Changes are content modes in the reader controls above
-    revision information. Their established eye and code icons remain visible
-    beside the labels. Toolbar and reader controls update immediately
+    at the far-right edge behind a quiet divider. On wide layouts, the document
+    control row aligns Rendered, Source, and Changes at the left with file
+    actions and Appearance at the right. At collapsed-rail widths, the sticky
+    toolbar contains file actions, Appearance, and the Pages trigger while the
+    content modes move into the document above revision information. Their
+    eye, code, and diff icons remain visible beside the labels. Content-mode
+    labels use the same 0.85rem type scale as the file actions. Toolbar
+    and reader controls update immediately
     without color or background transitions when their active state or the
     page theme changes. Inactive content-mode buttons have transparent
     backgrounds; only the active mode uses the selected theme's control
@@ -463,8 +466,9 @@ resets; existing persistent theme preferences continue across pages. Print
 includes only the loaded page. Custom templates receive bundle data but no
 built-in navigation, transition CSS, or JavaScript.
 
-The bundle page structure, revision-aware content modes, and transition CSS
-define renderer generation 6. Single-page output also uses generation 6 because
+The bundle page structure, revision-aware content modes, transition CSS, and
+built-in control icon set define renderer generation 10. Single-page output
+also uses generation 10 because
 the current writer has one renderer generation for all generated pages.
 
 ### Plain-text input
@@ -1346,7 +1350,7 @@ next, or latest shortcut links.
 Valid metadata also adds `All changes` beside the selector for every revision
 greater than 1. Markdown pages expose Rendered and Source modes plus Changes
 only when that logical page was added or its source, format, title, or language
-changed. Managed text pages expose Code plus the same optional Changes mode.
+changed. Managed text pages expose Source plus the same optional Changes mode.
 Page reorder alone appears only in the complete report. Changes is page-local;
 the entry page does not absorb child changes. `All changes` is the complete
 adjacent report and opens only on the entry page through
@@ -1357,9 +1361,10 @@ for long diffs. These are normal anchors and
 navigations; the runtime does not replace document HTML or manage history.
 
 At the collapsed-rail breakpoint the document toolbar becomes sticky, opaque,
-and safe-area aware, and Pages stays aligned to its left edge. It retains Pages,
-applicable Copy/Download/Raw actions, and Appearance. At the mobile action
-breakpoint the file actions become icon-only 44px targets. Content modes
+and safe-area aware, and Pages stays aligned to its left edge. Its content row
+remains 3.5rem tall across collapsed viewport sizes, plus any safe-area inset.
+It retains Pages, applicable Copy/Download/Raw actions, and Appearance. At the
+mobile action breakpoint the file actions become icon-only 44px targets. Content modes
 followed by revision controls remain with the document below the toolbar, and
 fragment offsets include its measured height. Pages progressively enhances into a native
 top-anchored popover below its trigger, with ordinary navigation links, light
@@ -2113,7 +2118,7 @@ conforming implementations can share a manifest:
  "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
  "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":6,
- "producer_version":"0.8.0","renderer_version":6}
+ "producer_version":"0.8.0","renderer_version":10}
 {"type":"upload","time":"2026-07-21T12:03:00Z",
  "created_at":"2026-07-21T12:03:00Z",
  "key":"gaj4.../index.html",
@@ -2122,7 +2127,7 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"collection",
  "title":"login.png and 1 more","bytes":9216,"objects":4,
  "total_bytes":203512,"marker_version":6,
- "producer_version":"0.8.0","renderer_version":6}
+ "producer_version":"0.8.0","renderer_version":10}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
@@ -2140,7 +2145,7 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
  "bytes":19200,"marker_version":6,"producer_version":"0.8.0",
- "renderer_version":6}
+ "renderer_version":10}
 {"type":"link","time":"2026-08-15T10:05:00Z",
  "created_at":"2026-07-21T12:00:00Z",
  "key":"vq3n.../plan.html","source_key":"vq3n.../plan.md",
@@ -2149,7 +2154,7 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
  "bytes":19200,"objects":4,"total_bytes":20120,"marker_version":6,
- "producer_version":"0.8.0","renderer_version":6,
+ "producer_version":"0.8.0","renderer_version":10,
  "revision_chain_id":"d2x4...","revision":1,"latest_revision":2}
 ```
 

@@ -5,6 +5,8 @@ import {
   type ThemeCatalog,
 } from "./theme-state";
 
+import { iconDiagramClose, iconDiagramOpen } from "../../airplan/assets/generated/icons.ts";
+
 interface MermaidRenderResult {
   bindFunctions?: (element: Element) => void;
   svg: string;
@@ -218,17 +220,7 @@ function createMermaidViewer(): MermaidViewer | null {
   zoomValue.textContent = "100%";
   const zoomIn = createButton("Zoom in", "zoom-in", "+");
   const fit = createButton("Fit diagram", "fit", "Fit");
-  const closeButton = createButton(
-    "Close diagram viewer",
-    "close",
-    '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16"' +
-      ' fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8' +
-      " 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215" +
-      ".734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0" +
-      " 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018" +
-      ".751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1" +
-      ' 0-1.06Z"/></svg>',
-  );
+  const closeButton = createButton("Close diagram viewer", "close", iconDiagramClose);
   toolbar.append(zoomOut, zoomValue, zoomIn, fit, closeButton);
   header.appendChild(toolbar);
 
@@ -432,20 +424,7 @@ function createMermaidViewer(): MermaidViewer | null {
       if (!svg) return;
       let trigger = block.querySelector<HTMLButtonElement>(":scope > [data-airplan-mermaid-open]");
       if (!trigger) {
-        trigger = createButton(
-          "Open diagram viewer",
-          "open",
-          '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16"' +
-            ' fill="currentColor"><path d="M3.75 2A1.75 1.75 0 0 0 2 3.75v2.5' +
-            "a.75.75 0 0 0 1.5 0v-2.5a.25.25 0 0 1 .25-.25h2.5a.75.75 0" +
-            " 0 0 0-1.5Zm6 0a.75.75 0 0 0 0 1.5h2.5a.25.25 0 0 1 .25.25" +
-            "v2.5a.75.75 0 0 0 1.5 0v-2.5A1.75 1.75 0 0 0 12.25 2ZM2.75" +
-            " 9a.75.75 0 0 1 .75.75v2.5c0 .138.112.25.25.25h2.5a.75.75 0 0" +
-            " 1 0 1.5h-2.5A1.75 1.75 0 0 1 2 12.25v-2.5A.75.75 0 0 1 2.75" +
-            " 9m10.5 0a.75.75 0 0 1 .75.75v2.5A1.75 1.75 0 0 1 12.25 14h" +
-            "-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25v-2.5a.75.75" +
-            ' 0 0 1 .75-.75"/></svg>',
-        );
+        trigger = createButton("Open diagram viewer", "open", iconDiagramOpen);
         trigger.classList.add("mermaid-open");
         trigger.setAttribute("aria-haspopup", "dialog");
         trigger.setAttribute("aria-controls", dialog.id);
