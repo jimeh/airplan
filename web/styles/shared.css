@@ -84,6 +84,7 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.4rem;
   color: var(--muted);
   background: transparent;
   border: 0;

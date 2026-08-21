@@ -99,6 +99,7 @@ body {
   border-radius: 6px;
   justify-content: center;
   align-items:  center;
+  gap: .4rem;
   padding: .3rem .55rem;
 }
 

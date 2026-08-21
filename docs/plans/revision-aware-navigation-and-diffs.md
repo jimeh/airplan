@@ -207,11 +207,11 @@ The mobile page should read like this:
 │ Pages       Copy  Download  Raw  Theme │  sticky document bar
 └─────────────────────────────────────────┘
 
-Revision 3 (Latest)             All changes
-
 ┌──────────┬────────┬─────────┐
 │ Rendered │ Source │ Changes │            content-local modes
 └──────────┴────────┴─────────┘
+
+Revision 3 (Latest)             All changes
 
 Document content
                                       ┌─────┐
@@ -236,12 +236,12 @@ On wide layouts, keep the Pages and On this page headings outside their rail
 scroll containers. Only the item lists scroll, so readers retain the rail's
 identity while moving through a long page or bundle.
 
-Move the one semantic content-mode control out of the sticky bar. On mobile it
-sits after revision controls and immediately before the active content. Do not
-duplicate the toggle for different breakpoints. Desktop may place the same
-element in its current toolbar position through the page grid. Reset those
-buttons independently of toolbar styles: inactive modes are transparent, while
-the active mode alone uses the theme's control background.
+Move the one semantic content-mode control out of the sticky bar. It stays near
+the top of the content column and precedes revision controls at every
+breakpoint. Do not duplicate the toggle for different breakpoints. Retain the
+established eye and code icons beside their visible labels. Reset those buttons
+independently of toolbar styles: inactive modes are transparent, while the
+active mode alone uses the theme's control background.
 
 The revision selector and `All changes` remain non-sticky. They describe the
 revision being read, so they belong with the page content rather than the
@@ -685,9 +685,9 @@ list.
   `role="menu"`; its children remain ordinary links.
 - Expose the Pages trigger's expanded state and associate it with the popover.
   Native light dismiss and Escape behavior must return focus predictably.
-- Preserve logical focus order: sticky document actions, revision controls,
-  content modes, then document content. Visual placement must not reorder them
-  with positive `tabindex` values.
+- Preserve logical focus order: sticky document actions, content modes,
+  revision controls, then document content. Visual placement must not reorder
+  them with positive `tabindex` values.
 - Keep the permanent ToC trigger out of the tab order whenever its related
   rendered view is inactive or either transient menu is open.
 - Reduced-motion readers receive the same navigation and fragment behavior

@@ -1870,6 +1870,31 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
     }),
   );
   await page.goto(revisions[1].url);
+  const readerControls = page.locator(".reader-controls");
+  for (const width of [1400, 700]) {
+    await page.setViewportSize({ width, height: 800 });
+    await expect
+      .poll(() =>
+        readerControls.evaluate((element) => {
+          const view = element.querySelector(".viewtoggle")!;
+          const revision = element.querySelector(".revision-controls")!;
+          return {
+            domOrder: Boolean(
+              view.compareDocumentPosition(revision) & Node.DOCUMENT_POSITION_FOLLOWING,
+            ),
+            visualOrder:
+              view.getBoundingClientRect().bottom <= revision.getBoundingClientRect().top,
+          };
+        }),
+      )
+      .toEqual({ domOrder: true, visualOrder: true });
+  }
+  await expect(page.getByRole("button", { name: "Rendered view" }).locator("svg.icon")).toHaveCount(
+    1,
+  );
+  await expect(page.getByRole("button", { name: "Source view" }).locator("svg.icon")).toHaveCount(
+    1,
+  );
   await page.setViewportSize({ width: 700, height: 800 });
   const toolbarLayout = await page.locator(".toolbar").evaluate((element) => {
     const view = document.querySelector(".reader-controls .viewtoggle")!.getBoundingClientRect();

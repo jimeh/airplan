@@ -99,6 +99,7 @@ body {
   border-radius: 6px;
   justify-content: center;
   align-items:  center;
+  gap: .4rem;
   padding: .3rem .55rem;
 }
 
@@ -723,6 +724,10 @@ body.toc-dialog-open {
 .reader-controls {
   grid-column: 2;
   grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  align-items:  flex-start;
+  gap: .85rem;
   width: 100%;
   padding: 1rem 1.5rem 0;
 }
@@ -746,7 +751,6 @@ body.toc-dialog-open {
 .reader-controls .mode-toggle {
   width: -moz-fit-content;
   width: fit-content;
-  margin-top: .85rem;
 }
 
 .changes-view pre, .all-changes-view pre {

@@ -363,8 +363,9 @@ described below.
     panel is absent. The appearance trigger follows the file controls and stays
     at the far-right edge behind a quiet divider. The document toolbar contains
     file actions, Appearance, and the narrow-only Pages trigger; Rendered,
-    Source, Code, and Changes are content modes in the reader controls below
-    revision information. Toolbar and reader controls update immediately
+    Source, Code, and Changes are content modes in the reader controls above
+    revision information. Their established eye and code icons remain visible
+    beside the labels. Toolbar and reader controls update immediately
     without color or background transitions when their active state or the
     page theme changes. Inactive content-mode buttons have transparent
     backgrounds; only the active mode uses the selected theme's control
@@ -463,8 +464,8 @@ includes only the loaded page. Custom templates receive bundle data but no
 built-in navigation, transition CSS, or JavaScript.
 
 The bundle page structure, revision-aware content modes, and transition CSS
-define renderer generation 5. Single-page output also uses generation 5 because the current writer has one
-renderer generation for all generated pages.
+define renderer generation 6. Single-page output also uses generation 6 because
+the current writer has one renderer generation for all generated pages.
 
 ### Plain-text input
 
@@ -1358,9 +1359,9 @@ navigations; the runtime does not replace document HTML or manage history.
 At the collapsed-rail breakpoint the document toolbar becomes sticky, opaque,
 and safe-area aware, and Pages stays aligned to its left edge. It retains Pages,
 applicable Copy/Download/Raw actions, and Appearance. At the mobile action
-breakpoint the file actions become icon-only 44px targets. Revision controls
-and content modes remain with the document below the toolbar, and fragment
-offsets include its measured height. Pages progressively enhances into a native
+breakpoint the file actions become icon-only 44px targets. Content modes
+followed by revision controls remain with the document below the toolbar, and
+fragment offsets include its measured height. Pages progressively enhances into a native
 top-anchored popover below its trigger, with ordinary navigation links, light
 dismiss, Escape handling, and focus restoration. It is visually and
 behaviorally distinct from the bottom-sheet Contents dialog, and only one may
