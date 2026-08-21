@@ -113,6 +113,7 @@ let fixedHTML = Buffer.alloc(0);
 let fixedCollectionHTML = Buffer.alloc(0);
 let subsetHTML = Buffer.alloc(0);
 let revisionHTML = Buffer.alloc(0);
+let revisionNotesHTML = Buffer.alloc(0);
 let bundleMembers = new Map<string, Buffer>();
 const versionRequests: Array<{
   headers: import("node:http").IncomingHttpHeaders;
@@ -368,6 +369,7 @@ syntax = "derived"
   fixedCollectionHTML = await readFile(fixedCollectionOutputPath);
   subsetHTML = await readFile(subsetOutputPath);
   revisionHTML = await readFile(revisionOutputPath);
+  revisionNotesHTML = await readFile(join(tempRoot, "notes.html"));
   bundleMembers = new Map([
     ["/bundle/index.html", await readFile(join(bundleOutputPath, "index.html"))],
     ["/bundle/docs/design.html", await readFile(join(bundleOutputPath, "docs", "design.html"))],
@@ -394,6 +396,8 @@ syntax = "derived"
       body = sourceHTML;
     } else if (request.url === `/${"r".repeat(26)}/plan.html`) {
       body = revisionHTML;
+    } else if (request.url === `/${"r".repeat(26)}/notes.html`) {
+      body = revisionNotesHTML;
     } else if (request.url === `/${"r".repeat(26)}/.airplan-changes.diff`) {
       response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       response.end("--- revision-1/plan.md\n+++ revision-2/plan.md\n");
@@ -623,6 +627,11 @@ test("wide rail headings remain outside their scroll areas", async ({ page }, te
 
   await page.setViewportSize({ width: 1400, height: 240 });
   await page.goto(`${baseURL}/bundle/docs/design.html`);
+  const pagesBounds = await page.locator(".pages-nav").boundingBox();
+  const tocBounds = await page.locator(".toc").boundingBox();
+  expect(pagesBounds).not.toBeNull();
+  expect(tocBounds).not.toBeNull();
+  expect(pagesBounds!.x + pagesBounds!.width).toBeLessThanOrEqual(tocBounds!.x);
   for (const selector of [".pages-nav", ".toc"]) {
     const rail = page.locator(selector);
     const result = await rail.evaluate((element) => {
@@ -1887,7 +1896,13 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
     modeBackgrounds.filter((button) => !button.active).map((button) => button.background),
   ).toEqual(["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"]);
   expect(modeBackgrounds.find((button) => button.active)?.background).not.toBe("rgba(0, 0, 0, 0)");
-  await expect(page.getByRole("button", { name: "Open pages" })).toBeVisible();
+  const pagesButton = page.getByRole("button", { name: "Open pages" });
+  await expect(pagesButton).toBeVisible();
+  await pagesButton.click();
+  await page.locator(".pages-popover-nav").getByRole("link", { name: "Notes notes.md" }).click();
+  await expect(page).toHaveURL(`${baseURL}/${currentDir}/notes.html`);
+  await expect(page.getByRole("heading", { level: 1, name: "Notes" })).toBeVisible();
+  await page.goto(revisions[1].url);
   const changesButton = page.getByRole("button", { name: "Changes view" });
   await expect(changesButton).toBeVisible();
   await changesButton.click();
