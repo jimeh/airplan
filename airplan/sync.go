@@ -370,10 +370,10 @@ func manifestRecordNeedsTotals(rec ManifestRecord) bool {
 	if rec.Objects != 0 || rec.TotalBytes != 0 {
 		return false
 	}
-	switch rec.MarkerVersion {
-	case 3, 4, 5:
+	switch {
+	case rec.MarkerVersion >= 3 && IsSupportedMarkerVersion(rec.MarkerVersion):
 		return true
-	case 2:
+	case rec.MarkerVersion == 2:
 		return rec.SourceKey == ""
 	default:
 		return false

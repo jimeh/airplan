@@ -117,10 +117,23 @@ func TestGeneratedClientInvokesEveryGeneratedServerOperation(t *testing.T) {
 		writeGeneratedPart(t, writer, "document", "plan.md",
 			"text/markdown", "# Revised plan")
 	})
-	updated, err := client.UpdateDocumentWithBodyWithResponse(
+	updated, err := client.UpdateDocumentWithBodyWithResponse( //nolint:staticcheck // Contract coverage for the deprecated alias.
 		ctx, updateType, updateBody,
 	)
 	assertGeneratedResponse(t, updated, err)
+
+	revisionBody, revisionType := generatedMultipartBody(t, func(
+		writer *multipart.Writer,
+	) {
+		writeGeneratedPart(t, writer, "metadata", "", "application/json",
+			`{"target":"doc/plan.html","name":"plan.md"}`)
+		writeGeneratedPart(t, writer, "document", "plan.md",
+			"text/markdown", "# Canonical revision")
+	})
+	revision, err := client.CreateDocumentRevisionWithBodyWithResponse(
+		ctx, revisionType, revisionBody,
+	)
+	assertGeneratedResponse(t, revision, err)
 
 	collectionBody, collectionType := generatedMultipartBody(t, func(
 		writer *multipart.Writer,

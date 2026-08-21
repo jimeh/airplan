@@ -34,6 +34,7 @@ func TestOpenAPIHasExpectedVersionAndRoutes(t *testing.T) {
 		"/openapi.yaml",
 		"/api/v1/capabilities",
 		"/api/v1/uploads/documents",
+		"/api/v1/uploads/documents/revisions",
 		"/api/v1/uploads/documents/update",
 		"/api/v1/uploads/collections",
 		"/api/v1/uploads/inspect",

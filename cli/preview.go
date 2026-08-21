@@ -17,11 +17,14 @@ type previewOptions struct {
 	lang               string
 	slug               string
 	title              string
+	noSource           bool
 	indexable          bool
 	noExternalAssets   bool
 	mermaidURL         string
 	repository         string
 	maxSize            string
+	maxTotalPageSize   string
+	maxAssetSize       string
 	template           string
 	collectionTemplate string
 	files              bool
@@ -29,6 +32,9 @@ type previewOptions struct {
 	profile            string
 	config             string
 	output             string
+	outputDir          string
+	pages              []string
+	assets             []string
 }
 
 func newPreviewCmd() *cobra.Command {
@@ -51,6 +57,8 @@ func newPreviewCmd() *cobra.Command {
 		"page slug (default: from filename)")
 	f.StringVarP(&opts.title, "title", "t", "",
 		"page title (default: from content)")
+	f.BoolVar(&opts.noSource, "no-source", false,
+		"don't include original source files in output-dir previews")
 	f.BoolVar(&opts.indexable, "indexable", false,
 		"omit the noindex robots meta tag")
 	f.BoolVar(&opts.noExternalAssets, "no-external-assets", false,
@@ -61,6 +69,12 @@ func newPreviewCmd() *cobra.Command {
 		"repository context: auto, none, or URL (default: auto)")
 	f.StringVar(&opts.maxSize, "max-size", "10MiB",
 		"per-input limit (10MiB documents, 1GiB collections); 0 = no limit")
+	f.StringVar(&opts.maxTotalPageSize, "max-total-page-size", "100MiB",
+		"document managed-source total limit; 0 = no limit")
+	f.StringVar(&opts.maxAssetSize, "max-asset-size", "1GiB",
+		"document per-asset limit; 0 = no limit")
+	f.StringArrayVar(&opts.pages, "page", nil, "managed page file (repeatable)")
+	f.StringArrayVar(&opts.assets, "asset", nil, "supporting asset file (repeatable)")
 	f.StringVar(&opts.template, "template", "",
 		"custom page template file (md and text input)")
 	f.StringVar(&opts.collectionTemplate, "collection-template", "",
@@ -76,6 +90,9 @@ func newPreviewCmd() *cobra.Command {
 	// SPEC.md §6 defines -o as the preview --output shorthand.
 	f.StringVarP(&opts.output, "output", "o", "",
 		"write HTML to this path instead of stdout; - means stdout")
+	f.StringVar(&opts.outputDir, "output-dir", "",
+		"write a complete document bundle to a new directory")
+	cmd.MarkFlagsMutuallyExclusive("output", "output-dir")
 	return cmd
 }
 
@@ -84,10 +101,20 @@ func runPreview(
 	args []string,
 	opts *previewOptions,
 ) error {
-	if opts.files || len(args) > 1 {
+	bundled := len(opts.pages) != 0 || len(opts.assets) != 0
+	collection := opts.files || len(args) > 1
+	if cmd.Flags().Changed("max-total-size") && !bundled && !collection {
+		return errors.New(
+			"--max-total-size is only valid for document bundle or collection previews",
+		)
+	}
+	if len(opts.pages) != 0 || len(opts.assets) != 0 || opts.outputDir != "" {
+		return runDocumentBundlePreview(cmd, args, opts)
+	}
+	if collection {
 		return runCollectionPreview(cmd, args, opts)
 	}
-	for _, name := range []string{"collection-template", "max-total-size"} {
+	for _, name := range []string{"collection-template"} {
 		if cmd.Flags().Changed(name) {
 			return fmt.Errorf("--%s is only valid for collection previews", name)
 		}
@@ -108,6 +135,9 @@ func runPreview(
 			opts.mermaidURL,
 			cmd.Flags().Changed("mermaid-url"),
 		),
+	}
+	if cmd.Flags().Changed("no-source") {
+		overrides.NoSource = &opts.noSource
 	}
 	if cmd.Flags().Changed("indexable") {
 		overrides.Indexable = &opts.indexable
@@ -189,7 +219,7 @@ func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOption
 			return errors.New("--files requires one or more named files")
 		}
 	}
-	for _, name := range []string{"format", "lang", "slug", "template", "no-external-assets", "mermaid-url"} {
+	for _, name := range []string{"format", "lang", "slug", "template", "no-source", "no-external-assets", "mermaid-url"} {
 		if cmd.Flags().Changed(name) {
 			return fmt.Errorf("--%s is only valid for document previews", name)
 		}

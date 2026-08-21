@@ -176,7 +176,7 @@ func TestSyncManifestReconstructsRevisionProjections(t *testing.T) {
 	for index, dir := range dirs {
 		objects := []MarkerObject{
 			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(pages[index])), ContentType: pageContentType, SHA256: contentSHA256(pages[index])},
-			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(sources[index])), ContentType: sourceContentType},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(sources[index])), ContentType: sourceContentType, SHA256: contentSHA256(sources[index])},
 		}
 		descriptor := &RevisionDescriptor{ChainID: chainID, Number: index + 1}
 		if index == 1 {
@@ -184,6 +184,7 @@ func TestSyncManifestReconstructsRevisionProjections(t *testing.T) {
 			objects = append(objects, MarkerObject{
 				Name: DiffFilename,
 				Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType,
+				SHA256: contentSHA256(diff),
 			})
 		}
 		fake.addUpload(t, UploadMarker{
@@ -197,6 +198,11 @@ func TestSyncManifestReconstructsRevisionProjections(t *testing.T) {
 				Themes: themeRecipePtr(defaultThemeBundle()),
 			},
 			Revision: descriptor, Objects: objects,
+			Entrypoint: "plan.html",
+			Pages: []MarkerPage{{
+				Path: "plan.md", Page: "plan.html", Source: "plan.md",
+				Format: "md", Lang: "",
+			}},
 		}, pages[index])
 		fake.addObject(dir+"/plan.md", sources[index], when)
 		if index == 1 {
@@ -258,10 +264,15 @@ func TestSyncManifestDoesNotProjectUnannouncedRevisionCandidate(t *testing.T) {
 			ChainID: chainID, Number: 2,
 			PreviousURL: "https://plans.example.com/" + previousDir + "/plan.html",
 		},
+		Entrypoint: "plan.html",
+		Pages: []MarkerPage{{
+			Path: "plan.md", Page: "plan.html", Source: "plan.md",
+			Format: "md", Lang: "",
+		}},
 		Objects: []MarkerObject{
 			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
-			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
-			{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType, SHA256: contentSHA256(source)},
+			{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType, SHA256: contentSHA256(diff)},
 		},
 	}, page)
 	fake.addObject(dir+"/plan.md", source, when)
@@ -300,10 +311,15 @@ func TestSyncManifestDoesNotReimportTombstonedRemoteRevision(t *testing.T) {
 			Template:   RenderTemplate{Kind: "builtin"}, MermaidURL: DefaultMermaidURL,
 			Themes: themeRecipePtr(defaultThemeBundle()),
 		},
-		Revision: &RevisionDescriptor{ChainID: chain, Number: 1},
+		Revision:   &RevisionDescriptor{ChainID: chain, Number: 1},
+		Entrypoint: "plan.html",
+		Pages: []MarkerPage{{
+			Path: "plan.md", Page: "plan.html", Source: "plan.md",
+			Format: "md", Lang: "",
+		}},
 		Objects: []MarkerObject{
 			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
-			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType, SHA256: contentSHA256(source)},
 		},
 	}, page)
 	fake.addObject(dir+"/plan.md", source, when)

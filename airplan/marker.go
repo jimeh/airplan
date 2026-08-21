@@ -25,7 +25,7 @@ const CollectionMarkerFilename = ".airplan-collection.json"
 const MarkerSchema = "airplan-upload"
 
 // MarkerVersion is the latest ownership marker version written by airplan.
-const MarkerVersion = 5
+const MarkerVersion = 6
 
 // IsSupportedMarkerVersion reports whether version can be safely managed by
 // this airplan release.
@@ -34,10 +34,14 @@ func IsSupportedMarkerVersion(version int) bool {
 }
 
 // MaxMarkerSize is the maximum accepted marker body size.
-const MaxMarkerSize = 64 * 1024
+const MaxMarkerSize = 256 * 1024
 
 // MaxCollectionFiles is the maximum number of files declared by a collection.
 const MaxCollectionFiles = 100
+
+// MaxDocumentItems is the maximum number of user-supplied entry, page, and
+// asset items declared by a document marker.
+const MaxDocumentItems = 100
 
 // UploadKind identifies the shape and lifecycle rules for an upload.
 type UploadKind string
@@ -57,7 +61,19 @@ const (
 	MarkerRoleSource MarkerRole = "source"
 	MarkerRoleFile   MarkerRole = "file"
 	MarkerRoleDiff   MarkerRole = "diff"
+	MarkerRoleAsset  MarkerRole = "asset"
 )
+
+// MarkerPage describes one managed source page in a document bundle. Pages
+// are ordered and include the entry when Airplan rendered it.
+type MarkerPage struct {
+	Path   string `json:"path"`
+	Page   string `json:"page"`
+	Source string `json:"source,omitempty"`
+	Format string `json:"format"`
+	Title  string `json:"title,omitempty"`
+	Lang   string `json:"lang"`
+}
 
 // RevisionDescriptor is the immutable chain identity carried by linked
 // Markdown ownership markers. Mutable latest-navigation state lives in the
@@ -115,7 +131,7 @@ type RenderRecipe struct {
 
 // RendererGeneration is incremented only when generated page capabilities or
 // embedded assets require existing source-backed pages to be re-rendered.
-const RendererGeneration = 3
+const RendererGeneration = 6
 
 // MarkerDeclaredTotals returns the object count and byte total an upload
 // declares (SPEC.md §9): its ownership marker plus every object the marker
@@ -143,7 +159,8 @@ func MarkerDeclaredTotals(
 		}
 		return 2, total, true
 	}
-	if marker.Version != 3 && marker.Version != 4 && marker.Version != 5 {
+	if marker.Version != 3 && marker.Version != 4 && marker.Version != 5 &&
+		marker.Version != 6 {
 		return 0, 0, false
 	}
 	objects = 1
@@ -216,19 +233,21 @@ func MarkerCode(err error) (MarkerErrorCode, bool) {
 // UploadMarker is the versioned ownership record stored in every airplan
 // upload directory (SPEC.md §5).
 type UploadMarker struct {
-	Schema    string              `json:"schema"`
-	Version   int                 `json:"version"`
-	Directory string              `json:"directory"`
-	CreatedAt time.Time           `json:"created_at"`
-	Kind      UploadKind          `json:"kind"`
-	Slug      string              `json:"slug,omitempty"`
-	Format    string              `json:"format,omitempty"`
-	Objects   []MarkerObject      `json:"objects"`
-	Title     string              `json:"title,omitempty"`
-	Repo      string              `json:"repo,omitempty"`
-	Producer  Producer            `json:"producer"`
-	Render    *RenderRecipe       `json:"render,omitempty"`
-	Revision  *RevisionDescriptor `json:"revision,omitempty"`
+	Schema     string              `json:"schema"`
+	Version    int                 `json:"version"`
+	Directory  string              `json:"directory"`
+	CreatedAt  time.Time           `json:"created_at"`
+	Kind       UploadKind          `json:"kind"`
+	Slug       string              `json:"slug,omitempty"`
+	Format     string              `json:"format,omitempty"`
+	Objects    []MarkerObject      `json:"objects"`
+	Title      string              `json:"title,omitempty"`
+	Repo       string              `json:"repo,omitempty"`
+	Producer   Producer            `json:"producer"`
+	Render     *RenderRecipe       `json:"render,omitempty"`
+	Revision   *RevisionDescriptor `json:"revision,omitempty"`
+	Entrypoint string              `json:"entrypoint,omitempty"`
+	Pages      []MarkerPage        `json:"pages,omitempty"`
 
 	// Page, PageBytes, PageSHA256, and Source are normalized compatibility views
 	// used by callers that predate marker v3. They are never encoded separately
@@ -240,22 +259,24 @@ type UploadMarker struct {
 }
 
 type markerWire struct {
-	Schema    *string         `json:"schema"`
-	Version   *int            `json:"version"`
-	Directory *string         `json:"directory"`
-	CreatedAt *string         `json:"created_at"`
-	Kind      *string         `json:"kind"`
-	Slug      *string         `json:"slug"`
-	Format    *string         `json:"format"`
-	Objects   json.RawMessage `json:"objects"`
-	Page      *string         `json:"page"`
-	PageBytes json.RawMessage `json:"page_bytes"`
-	Source    *string         `json:"source"`
-	Title     *string         `json:"title"`
-	Repo      json.RawMessage `json:"repo"`
-	Producer  json.RawMessage `json:"producer"`
-	Render    json.RawMessage `json:"render"`
-	Revision  json.RawMessage `json:"revision"`
+	Schema     *string         `json:"schema"`
+	Version    *int            `json:"version"`
+	Directory  *string         `json:"directory"`
+	CreatedAt  *string         `json:"created_at"`
+	Kind       *string         `json:"kind"`
+	Slug       *string         `json:"slug"`
+	Format     *string         `json:"format"`
+	Objects    json.RawMessage `json:"objects"`
+	Page       *string         `json:"page"`
+	PageBytes  json.RawMessage `json:"page_bytes"`
+	Source     *string         `json:"source"`
+	Title      *string         `json:"title"`
+	Repo       json.RawMessage `json:"repo"`
+	Producer   json.RawMessage `json:"producer"`
+	Render     json.RawMessage `json:"render"`
+	Revision   json.RawMessage `json:"revision"`
+	Entrypoint *string         `json:"entrypoint"`
+	Pages      json.RawMessage `json:"pages"`
 }
 
 type markerObjectWire struct {
@@ -264,6 +285,15 @@ type markerObjectWire struct {
 	Bytes       *int64          `json:"bytes"`
 	ContentType *string         `json:"content_type"`
 	SHA256      json.RawMessage `json:"sha256"`
+}
+
+type markerPageWire struct {
+	Path   *string `json:"path"`
+	Page   *string `json:"page"`
+	Source *string `json:"source"`
+	Format *string `json:"format"`
+	Title  *string `json:"title"`
+	Lang   *string `json:"lang"`
 }
 
 // EncodeUploadMarker validates and encodes marker as UTF-8 JSON.
@@ -302,23 +332,26 @@ func EncodeUploadMarker(marker UploadMarker) ([]byte, error) {
 			}
 		}
 		value = struct {
-			Schema    string              `json:"schema"`
-			Version   int                 `json:"version"`
-			Directory string              `json:"directory"`
-			CreatedAt time.Time           `json:"created_at"`
-			Kind      UploadKind          `json:"kind"`
-			Slug      string              `json:"slug,omitempty"`
-			Format    string              `json:"format,omitempty"`
-			Objects   []MarkerObject      `json:"objects"`
-			Title     string              `json:"title,omitempty"`
-			Repo      string              `json:"repo,omitempty"`
-			Producer  Producer            `json:"producer,omitzero"`
-			Render    *RenderRecipe       `json:"render,omitempty"`
-			Revision  *RevisionDescriptor `json:"revision,omitempty"`
+			Schema     string              `json:"schema"`
+			Version    int                 `json:"version"`
+			Directory  string              `json:"directory"`
+			CreatedAt  time.Time           `json:"created_at"`
+			Kind       UploadKind          `json:"kind"`
+			Slug       string              `json:"slug,omitempty"`
+			Format     string              `json:"format,omitempty"`
+			Objects    []MarkerObject      `json:"objects"`
+			Title      string              `json:"title,omitempty"`
+			Repo       string              `json:"repo,omitempty"`
+			Producer   Producer            `json:"producer,omitzero"`
+			Render     *RenderRecipe       `json:"render,omitempty"`
+			Revision   *RevisionDescriptor `json:"revision,omitempty"`
+			Entrypoint string              `json:"entrypoint,omitempty"`
+			Pages      []MarkerPage        `json:"pages,omitempty"`
 		}{
 			marker.Schema, marker.Version, marker.Directory, marker.CreatedAt,
 			marker.Kind, marker.Slug, marker.Format, objects,
 			marker.Title, marker.Repo, producer, render, marker.Revision,
+			marker.Entrypoint, marker.Pages,
 		}
 	} else {
 		value = struct {
@@ -458,6 +491,17 @@ func DecodeUploadMarkerForName(
 					fmt.Errorf("revision is invalid: %w", err))
 			}
 			marker.Revision = &revision
+		}
+		if marker.Version >= 6 {
+			if wire.Entrypoint != nil {
+				marker.Entrypoint = *wire.Entrypoint
+			}
+			if len(wire.Pages) > 0 {
+				marker.Pages, err = decodeMarkerPages(wire.Pages)
+				if err != nil {
+					return nil, err
+				}
+			}
 		}
 	} else {
 		if markerBasename != MarkerFilename {
@@ -609,6 +653,9 @@ func validateModernMarker(
 	markerBasename string,
 	invalid func(string, ...any) error,
 ) error {
+	if marker.Version < 6 && (marker.Entrypoint != "" || len(marker.Pages) != 0) {
+		return invalid("marker versions before 6 must not declare entrypoint or pages")
+	}
 	wantBasename, ok := MarkerFilenameForKind(marker.Kind)
 	if !ok {
 		return invalid("kind %q is unsupported", marker.Kind)
@@ -623,14 +670,21 @@ func validateModernMarker(
 
 	names := make(map[string]struct{}, len(marker.Objects))
 	var page, source, diff *MarkerObject
+	pages := 0
+	sources := 0
+	assets := 0
 	files := 0
 	for i := range marker.Objects {
 		object := &marker.Objects[i]
-		if !validMarkerObjectName(object.Name) {
-			return invalid("object name %q is not a safe direct basename",
+		validName := validMarkerObjectName(object.Name)
+		if marker.Version >= 6 {
+			validName = validMarkerObjectPath(object.Name) || object.Name == DiffFilename
+		}
+		if !validName {
+			return invalid("object name %q is not a safe relative path",
 				object.Name)
 		}
-		if marker.Version >= 4 && strings.HasPrefix(object.Name, ".airplan-") &&
+		if marker.Version >= 4 && strings.HasPrefix(strings.ToLower(object.Name), ".airplan-") &&
 			(object.Role != MarkerRoleDiff || object.Name != DiffFilename) {
 			return invalid("object name %q uses the reserved .airplan- prefix",
 				object.Name)
@@ -647,16 +701,19 @@ func validateModernMarker(
 			return invalid("object %q sha256 must be 64 lowercase hex characters",
 				object.Name)
 		}
-		if marker.Version >= 4 && object.Role != MarkerRolePage &&
+		if marker.Version >= 4 && marker.Version < 6 && object.Role != MarkerRolePage &&
 			object.SHA256 != "" {
 			return invalid("object %q sha256 is only valid for the page", object.Name)
 		}
 		switch object.Role {
 		case MarkerRolePage:
-			if page != nil {
+			if marker.Version < 6 && page != nil {
 				return invalid("objects must contain exactly one page")
 			}
-			page = object
+			if page == nil {
+				page = object
+			}
+			pages++
 			if object.Bytes <= 0 {
 				return invalid("page %q bytes must be positive", object.Name)
 			}
@@ -665,10 +722,13 @@ func validateModernMarker(
 					object.Name)
 			}
 		case MarkerRoleSource:
-			if source != nil {
+			if marker.Version < 6 && source != nil {
 				return invalid("objects must contain at most one source")
 			}
-			source = object
+			if source == nil {
+				source = object
+			}
+			sources++
 			if object.Bytes <= 0 {
 				return invalid("source %q bytes must be positive", object.Name)
 			}
@@ -692,6 +752,14 @@ func validateModernMarker(
 				return invalid("diff %q must have content type %q",
 					object.Name, diffContentType)
 			}
+		case MarkerRoleAsset:
+			if marker.Version < 6 || marker.Kind != UploadKindDocument {
+				return invalid("object %q role %q is unsupported", object.Name, object.Role)
+			}
+			assets++
+			if object.Bytes < 0 {
+				return invalid("asset %q bytes must not be negative", object.Name)
+			}
 		default:
 			return invalid("object %q role %q is unsupported",
 				object.Name, object.Role)
@@ -703,11 +771,24 @@ func validateModernMarker(
 	if marker.Version >= 4 && page.SHA256 == "" {
 		return invalid("page %q sha256 is required", page.Name)
 	}
+	if marker.Version >= 6 {
+		for _, object := range marker.Objects {
+			if object.SHA256 == "" {
+				return invalid("object %q sha256 is required", object.Name)
+			}
+		}
+	}
 
 	switch marker.Kind {
 	case UploadKindDocument:
+		if marker.Version >= 6 {
+			return validateDocumentMarkerV6(marker, pages, sources, assets, files, diff, invalid)
+		}
 		return validateDocumentMarkerV3(marker, page, source, diff, files, invalid)
 	case UploadKindCollection:
+		if marker.Version >= 6 && (marker.Entrypoint != "" || len(marker.Pages) != 0) {
+			return invalid("collection markers must not declare entrypoint or pages")
+		}
 		if diff != nil {
 			return invalid("collection markers must not declare a diff")
 		}
@@ -889,6 +970,143 @@ func validateDocumentMarkerV3(
 	return nil
 }
 
+func validateDocumentMarkerV6(
+	marker *UploadMarker,
+	pageCount, sourceCount, assetCount, files int,
+	diff *MarkerObject,
+	invalid func(string, ...any) error,
+) error {
+	if marker.Slug == "" || !validSlug(marker.Slug) {
+		return invalid("slug %q is not valid", marker.Slug)
+	}
+	if files != 0 {
+		return invalid("document markers must not declare file objects")
+	}
+	if marker.Entrypoint == "" {
+		return invalid("entrypoint is required")
+	}
+	objects := make(map[string]MarkerObject, len(marker.Objects))
+	folded := make(map[string]string, len(marker.Objects))
+	for _, object := range marker.Objects {
+		objects[object.Name] = object
+		fold := strings.ToLower(object.Name)
+		if previous, ok := folded[fold]; ok && previous != object.Name {
+			return invalid("object names %q and %q collide when case-folded", previous, object.Name)
+		}
+		for previousFold, previous := range folded {
+			if strings.HasPrefix(fold, previousFold+"/") ||
+				strings.HasPrefix(previousFold, fold+"/") {
+				return invalid("object names %q and %q conflict as file and directory", previous, object.Name)
+			}
+		}
+		folded[fold] = object.Name
+	}
+	entry, ok := objects[marker.Entrypoint]
+	if !ok || entry.Role != MarkerRolePage {
+		return invalid("entrypoint %q must identify a page object", marker.Entrypoint)
+	}
+	if marker.Entrypoint != marker.Slug+".html" {
+		return invalid("entrypoint %q does not match slug %q", marker.Entrypoint, marker.Slug)
+	}
+	switch marker.Format {
+	case "html":
+		if pageCount != 1 {
+			return invalid("authored HTML documents must contain exactly one page object")
+		}
+		if len(marker.Pages) != 0 || sourceCount != 0 {
+			return invalid("authored HTML documents must not declare managed pages or sources")
+		}
+	case "txt":
+		if pageCount != 1 || len(marker.Pages) != 1 {
+			return invalid("text documents must contain exactly one managed page")
+		}
+	case "md":
+		if pageCount != len(marker.Pages) {
+			return invalid("pages descriptors and page objects do not match")
+		}
+	default:
+		return invalid("format %q is unsupported", marker.Format)
+	}
+	if marker.Format != "html" {
+		if len(marker.Pages) == 0 || marker.Pages[0].Page != marker.Entrypoint {
+			return invalid("the first managed page must be the entrypoint")
+		}
+		seenPaths := make(map[string]string, len(marker.Pages))
+		seenPages := make(map[string]struct{}, len(marker.Pages))
+		seenSources := make(map[string]struct{}, len(marker.Pages))
+		for index, descriptor := range marker.Pages {
+			if !validMarkerObjectPath(descriptor.Path) {
+				return invalid("page %d path %q is not a safe relative path", index, descriptor.Path)
+			}
+			fold := strings.ToLower(descriptor.Path)
+			if previous, exists := seenPaths[fold]; exists {
+				return invalid("page paths %q and %q collide when case-folded", previous, descriptor.Path)
+			}
+			seenPaths[fold] = descriptor.Path
+			var format Format
+			switch descriptor.Format {
+			case "md":
+				format = FormatMarkdown
+			case "txt":
+				format = FormatText
+			default:
+				return invalid("page %q format %q is unsupported", descriptor.Path, descriptor.Format)
+			}
+			expectedPage := managedPageObjectName(descriptor.Path, format)
+			expectedSource := descriptor.Path
+			if index == 0 {
+				expectedPage = marker.Entrypoint
+				expectedSource = entrySourceObjectName(marker.Slug, descriptor.Path, format)
+			}
+			if descriptor.Page != expectedPage {
+				return invalid("page descriptor %q page %q does not match generated path %q", descriptor.Path, descriptor.Page, expectedPage)
+			}
+			page, exists := objects[descriptor.Page]
+			if !exists || page.Role != MarkerRolePage {
+				return invalid("page descriptor %q does not identify a page object", descriptor.Path)
+			}
+			if _, exists := seenPages[descriptor.Page]; exists {
+				return invalid("page object %q is used by multiple descriptors", descriptor.Page)
+			}
+			seenPages[descriptor.Page] = struct{}{}
+			if descriptor.Source != "" {
+				if descriptor.Source != expectedSource {
+					return invalid("page descriptor %q source %q does not match generated path %q", descriptor.Path, descriptor.Source, expectedSource)
+				}
+				source, exists := objects[descriptor.Source]
+				if !exists || source.Role != MarkerRoleSource {
+					return invalid("page descriptor %q does not identify a source object", descriptor.Path)
+				}
+				if _, exists := seenSources[descriptor.Source]; exists {
+					return invalid("source object %q is used by multiple descriptors", descriptor.Source)
+				}
+				seenSources[descriptor.Source] = struct{}{}
+			}
+		}
+		if len(seenSources) != sourceCount {
+			return invalid("source objects and page descriptors do not match")
+		}
+		if marker.Format != marker.Pages[0].Format {
+			return invalid("entry format %q does not match top-level format %q", marker.Pages[0].Format, marker.Format)
+		}
+	}
+	if pageCount+assetCount > MaxDocumentItems {
+		return invalid("document declares %d items; maximum is %d", pageCount+assetCount, MaxDocumentItems)
+	}
+	if marker.Revision == nil && diff != nil {
+		return invalid("standalone documents must not declare a diff")
+	}
+	if marker.Revision != nil {
+		if marker.Revision.Number == 1 && diff != nil {
+			return invalid("revision 1 must not declare a diff")
+		}
+		if marker.Revision.Number > 1 && diff == nil {
+			return invalid("revision %d must declare a diff", marker.Revision.Number)
+		}
+	}
+	return nil
+}
+
 func validateCollectionMarkerV3(
 	marker *UploadMarker,
 	page, source *MarkerObject,
@@ -946,7 +1164,46 @@ func decodeMarkerObjects(data json.RawMessage, version int) ([]MarkerObject, err
 	return objects, nil
 }
 
+func decodeMarkerPages(data json.RawMessage) ([]MarkerPage, error) {
+	var wires []markerPageWire
+	if err := json.Unmarshal(data, &wires); err != nil {
+		return nil, markerInvalid(MarkerErrorInvalidFields,
+			fmt.Errorf("pages is not an array: %w", err))
+	}
+	pages := make([]MarkerPage, len(wires))
+	for index, wire := range wires {
+		if wire.Path == nil || wire.Page == nil || wire.Format == nil || wire.Lang == nil {
+			return nil, markerInvalid(MarkerErrorInvalidFields,
+				fmt.Errorf("page %d is missing one or more required fields", index))
+		}
+		pages[index] = MarkerPage{
+			Path: *wire.Path, Page: *wire.Page, Format: *wire.Format, Lang: *wire.Lang,
+		}
+		if wire.Source != nil {
+			pages[index].Source = *wire.Source
+		}
+		if wire.Title != nil {
+			pages[index].Title = *wire.Title
+		}
+	}
+	return pages, nil
+}
+
 func normalizeV3Compatibility(marker *UploadMarker) {
+	if marker.Version >= 6 && marker.Kind == UploadKindDocument {
+		marker.Page = marker.Entrypoint
+		for _, object := range marker.Objects {
+			if object.Name == marker.Entrypoint {
+				marker.PageBytes = object.Bytes
+				marker.PageSHA256 = object.SHA256
+				break
+			}
+		}
+		if len(marker.Pages) > 0 {
+			marker.Source = marker.Pages[0].Source
+		}
+		return
+	}
 	for _, object := range marker.Objects {
 		switch object.Role {
 		case MarkerRolePage:
@@ -1003,6 +1260,46 @@ func validMarkerObjectName(name string) bool {
 		}
 	}
 	return true
+}
+
+func validMarkerObjectPath(name string) bool {
+	if !utf8.ValidString(name) || name == "" || strings.HasPrefix(name, "/") ||
+		strings.ContainsRune(name, '\\') {
+		return false
+	}
+	for _, segment := range strings.Split(name, "/") {
+		lowerSegment := strings.ToLower(segment)
+		if segment == "" || segment == "." || segment == ".." ||
+			strings.HasPrefix(lowerSegment, ".airplan-") || lowerSegment == MarkerFilename ||
+			lowerSegment == CollectionMarkerFilename || lowerSegment == ProtectedFilename ||
+			!validPortablePathSegment(segment) {
+			return false
+		}
+		for _, r := range segment {
+			if r == 0 || unicode.IsControl(r) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validPortablePathSegment(segment string) bool {
+	if strings.HasSuffix(segment, ".") || strings.HasSuffix(segment, " ") {
+		return false
+	}
+	base := segment
+	if dot := strings.IndexByte(base, '.'); dot >= 0 {
+		base = base[:dot]
+	}
+	switch strings.ToUpper(base) {
+	case "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
+		"COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
+		"LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
+		return false
+	default:
+		return true
+	}
 }
 
 func validNormalizedContentType(value string) bool {

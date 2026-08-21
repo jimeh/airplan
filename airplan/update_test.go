@@ -46,6 +46,96 @@ func TestUpdateDocumentValidatesBeforeRemoteDispatch(t *testing.T) {
 	}
 }
 
+func TestGenerateBundleRevisionDiffStopsAtAggregateLimit(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	if err := client.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.Repeat("d", 26)
+	marker := &UploadMarker{}
+	next := &RenderedDocumentBundle{}
+	for _, path := range []string{"a.md", "b.md", "c.md"} {
+		oldBody := []byte("old\n")
+		newBody := []byte("new\n")
+		marker.Pages = append(marker.Pages, MarkerPage{
+			Path: path, Source: path, Format: "md",
+		})
+		marker.Objects = append(marker.Objects, MarkerObject{
+			Name: path, Role: MarkerRoleSource, Bytes: int64(len(oldBody)),
+		})
+		store.set(dir+"/"+path, oldBody)
+		next.Pages = append(next.Pages, RenderedBundlePage{
+			Path: path, SourcePath: path, Format: "md", Source: newBody,
+		})
+	}
+	section, err := generateRevisionDiff(
+		[]byte("old\n"), []byte("new\n"), 1, 2, 1<<20,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	maxSize := len("# airplan revisions: 1 -> 2\n") + len(revisionDiffFormatHeader) +
+		len("# airplan page: \"a.md\"\n") + len(section)
+	if len(section) == 0 || section[len(section)-1] != '\n' {
+		maxSize++
+	}
+	_, err = client.generateBundleRevisionDiff(context.Background(),
+		&revisionDocument{marker: marker, dirPrefix: dir + "/"}, next, nil,
+		1, 2, maxSize,
+	)
+	if err == nil || !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Fatalf("error = %v", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if got := store.getKeyAttempts[dir+"/c.md"]; got != 0 {
+		t.Fatalf("third source GET attempts = %d, want 0 after aggregate overflow", got)
+	}
+}
+
+func TestGenerateBundleRevisionDiffRejectsExactAggregateExhaustionBeforeDiff(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	if err := client.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.Repeat("e", 26)
+	oldBody := []byte("old\n")
+	marker := &UploadMarker{
+		Pages: []MarkerPage{
+			{Path: "a.md", Source: "a.md", Format: "md"},
+			{Path: "b.md", Source: "b.md", Format: "md"},
+		},
+		Objects: []MarkerObject{
+			{Name: "a.md", Role: MarkerRoleSource, Bytes: int64(len(oldBody))},
+			{Name: "b.md", Role: MarkerRoleSource, Bytes: int64(len(oldBody))},
+		},
+	}
+	store.set(dir+"/a.md", oldBody)
+	store.set(dir+"/b.md", oldBody)
+	next := &RenderedDocumentBundle{Pages: []RenderedBundlePage{
+		{Path: "a.md", SourcePath: "a.md", Format: "md", Source: []byte(strings.Repeat("new\n", 4096))},
+		{Path: "b.md", SourcePath: "b.md", Format: "md", Source: []byte("new\n")},
+	}}
+	maxSize := len("# airplan revisions: 1 -> 2\n") + len(revisionDiffFormatHeader) +
+		len("# airplan page: \"a.md\"\n")
+	_, err := client.generateBundleRevisionDiff(context.Background(),
+		&revisionDocument{marker: marker, dirPrefix: dir + "/"}, next, nil,
+		1, 2, maxSize,
+	)
+	if err == nil || !strings.Contains(
+		err.Error(), "airplan: revision diff exceeds maximum size of",
+	) {
+		t.Fatalf("error = %v, want aggregate size error", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if got := store.getKeyAttempts[dir+"/b.md"]; got != 0 {
+		t.Fatalf("later source GET attempts = %d, want 0 at exact exhaustion", got)
+	}
+}
+
 func TestUpdateDocumentRejectsNameThatChangesExistingSlugBeforeMutation(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")
@@ -169,6 +259,273 @@ func TestUpdateDocumentRejectsChangedThemeRecipeBeforePromotionRepair(t *testing
 	for key, before := range objectsBefore {
 		if after, ok := store.objects[key]; !ok || !bytes.Equal(after, before) {
 			t.Fatalf("promotion theme mismatch mutated %q", key)
+		}
+	}
+}
+
+func TestPromoteStandaloneRevisionRepairsPreV6Document(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	if err := client.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.Repeat("u", 26)
+	chainID := strings.Repeat("b", 26)
+	page := []byte("<html>old</html>")
+	source := []byte("# Plan\n")
+	markerBody, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: 5, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+		Kind:      UploadKindDocument, Slug: "plan", Format: "md", Title: "Plan",
+		Producer: Producer{Name: "airplan", Version: "0.10.0"},
+		Render:   documentRenderRecipe(client.cfg, client.templateDigest),
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerKey := dir + "/" + MarkerFilename
+	pageKey := dir + "/plan.html"
+	store.set(markerKey, markerBody)
+	store.set(pageKey, page)
+	store.set(dir+"/plan.md", source)
+	markerBody, markerETag, _, err := client.st.getBytesWithETag(
+		context.Background(), markerKey, MaxMarkerSize,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageBody, pageETag, _, err := client.st.getBytesWithETag(
+		context.Background(), pageKey, maxUpgradePageSize,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, err := DecodeUploadMarker(markerBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageURL, _, err := PublicURL(client.cfg, pageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := &revisionDocument{
+		marker: marker, markerBody: markerBody, markerETag: markerETag,
+		pageBody: pageBody, pageETag: pageETag, dirPrefix: dir + "/",
+		pageKey: pageKey, sourceKey: dir + "/plan.md", pageURL: pageURL,
+		needsPromotion: true,
+	}
+	metadata := VersionsMetadata{LatestRevision: 2}
+	if err := client.promoteStandaloneRevision(
+		context.Background(), doc, chainID, metadata,
+	); err != nil {
+		t.Fatal(err)
+	}
+	promotedBody, ok := store.get(markerKey)
+	if !ok {
+		t.Fatal("promoted marker is missing")
+	}
+	promoted, err := DecodeUploadMarker(promotedBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if promoted.Version != 5 || promoted.Revision == nil ||
+		promoted.Revision.ChainID != chainID || promoted.Revision.Number != 1 {
+		t.Fatalf("promoted marker = %+v", promoted)
+	}
+	gotPage, ok := store.get(pageKey)
+	if !ok || bytes.Equal(gotPage, page) ||
+		!bytes.Contains(gotPage, []byte(
+			`<meta name="airplan-revision" content="1">`,
+		)) {
+		t.Fatalf("promoted page missing revision identity")
+	}
+}
+
+func TestPromoteStandaloneRevisionReconstructsOversizedBundle(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	if err := client.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.Repeat("v", 26)
+	chainID := strings.Repeat("c", 26)
+	page := []byte("<html>old</html>")
+	childPage := []byte("<html>old child</html>")
+	source := []byte("# Plan\n")
+	childSource := bytes.Repeat([]byte("a"), DefaultMaxInputSize+1)
+	markerBody, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+		Kind:      UploadKindDocument, Slug: "plan", Format: "md", Title: "Plan",
+		Producer:   Producer{Name: "airplan", Version: "0.10.0"},
+		Render:     documentRenderRecipe(client.cfg, client.templateDigest),
+		Entrypoint: "plan.html",
+		Pages: []MarkerPage{
+			{Path: "plan.md", Page: "plan.html", Source: "plan.md", Format: "md", Title: "Plan", Lang: "Markdown"},
+			{Path: "large.txt", Page: "large.txt.html", Source: "large.txt", Format: "txt", Title: "large.txt", Lang: "text"},
+		},
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType, SHA256: contentSHA256(source)},
+			{Name: "large.txt.html", Role: MarkerRolePage, Bytes: int64(len(childPage)), ContentType: pageContentType, SHA256: contentSHA256(childPage)},
+			{Name: "large.txt", Role: MarkerRoleSource, Bytes: int64(len(childSource)), ContentType: textContentType, SHA256: contentSHA256(childSource)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerKey := dir + "/" + MarkerFilename
+	pageKey := dir + "/plan.html"
+	store.set(markerKey, markerBody)
+	store.set(pageKey, page)
+	store.set(dir+"/plan.md", source)
+	store.set(dir+"/large.txt.html", childPage)
+	store.set(dir+"/large.txt", childSource)
+	markerBody, markerETag, _, err := client.st.getBytesWithETag(
+		context.Background(), markerKey, MaxMarkerSize,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageBody, pageETag, _, err := client.st.getBytesWithETag(
+		context.Background(), pageKey, maxUpgradePageSize,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, err := DecodeUploadMarker(markerBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageURL, _, err := PublicURL(client.cfg, pageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := &revisionDocument{
+		marker: marker, markerBody: markerBody, markerETag: markerETag,
+		pageBody: pageBody, pageETag: pageETag, dirPrefix: dir + "/",
+		pageKey: pageKey, sourceKey: dir + "/plan.md", pageURL: pageURL,
+		needsPromotion: true,
+	}
+	metadata := VersionsMetadata{LatestRevision: 2}
+	if err := client.promoteStandaloneRevision(
+		context.Background(), doc, chainID, metadata,
+	); err != nil {
+		t.Fatal(err)
+	}
+	promotedBody, ok := store.get(markerKey)
+	if !ok {
+		t.Fatal("promoted marker is missing")
+	}
+	promoted, err := DecodeUploadMarker(promotedBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if promoted.Version != MarkerVersion || promoted.Revision == nil ||
+		promoted.Revision.ChainID != chainID || promoted.Revision.Number != 1 {
+		t.Fatalf("promoted marker = %+v", promoted)
+	}
+	gotPage, ok := store.get(pageKey)
+	gotChildPage, childOK := store.get(dir + "/large.txt.html")
+	if !ok || !childOK || bytes.Equal(gotPage, page) ||
+		len(gotChildPage) <= DefaultMaxInputSize ||
+		!bytes.Contains(gotPage, []byte(
+			`<meta name="airplan-revision" content="1">`,
+		)) {
+		t.Fatalf("promoted page missing revision identity")
+	}
+}
+
+func TestPromoteStandaloneRevisionRejectsChangedV6SourceBeforeMutation(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	if err := client.ensureStorage(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	dir := strings.Repeat("w", 26)
+	chainID := strings.Repeat("d", 26)
+	page := []byte("<html>old</html>")
+	source := []byte("# Plan\n")
+	replacement := []byte("# Nope\n")
+	markerBody, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+		Kind:      UploadKindDocument, Slug: "plan", Format: "md", Title: "Plan",
+		Producer:   Producer{Name: "airplan", Version: "0.10.0"},
+		Render:     documentRenderRecipe(client.cfg, client.templateDigest),
+		Entrypoint: "plan.html",
+		Pages: []MarkerPage{{
+			Path: "plan.md", Page: "plan.html", Source: "plan.md",
+			Format: "md", Title: "Plan", Lang: "Markdown",
+		}},
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType, SHA256: contentSHA256(source)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerKey := dir + "/" + MarkerFilename
+	pageKey := dir + "/plan.html"
+	store.set(markerKey, markerBody)
+	store.set(pageKey, page)
+	store.set(dir+"/plan.md", replacement)
+	markerBody, markerETag, _, err := client.st.getBytesWithETag(
+		context.Background(), markerKey, MaxMarkerSize,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageBody, pageETag, _, err := client.st.getBytesWithETag(
+		context.Background(), pageKey, maxUpgradePageSize,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marker, err := DecodeUploadMarker(markerBody, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageURL, _, err := PublicURL(client.cfg, pageKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := &revisionDocument{
+		marker: marker, markerBody: markerBody, markerETag: markerETag,
+		pageBody: pageBody, pageETag: pageETag, dirPrefix: dir + "/",
+		pageKey: pageKey, sourceKey: dir + "/plan.md", pageURL: pageURL,
+		needsPromotion: true,
+	}
+	store.mu.Lock()
+	putsBefore := store.puts
+	objectsBefore := make(map[string][]byte, len(store.objects))
+	for key, body := range store.objects {
+		objectsBefore[key] = bytes.Clone(body)
+	}
+	store.mu.Unlock()
+
+	err = client.promoteStandaloneRevision(
+		context.Background(), doc, chainID, VersionsMetadata{LatestRevision: 2},
+	)
+	if err == nil || !strings.Contains(err.Error(), `source "plan.md" checksum does not match marker`) {
+		t.Fatalf("error = %v", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.puts != putsBefore {
+		t.Fatalf("promotion performed %d writes", store.puts-putsBefore)
+	}
+	if len(store.objects) != len(objectsBefore) {
+		t.Fatalf("promotion changed object count from %d to %d", len(objectsBefore), len(store.objects))
+	}
+	for key, before := range objectsBefore {
+		if after, ok := store.objects[key]; !ok || !bytes.Equal(after, before) {
+			t.Fatalf("promotion mutated %q", key)
 		}
 	}
 }
@@ -2187,10 +2544,15 @@ func TestRevisionMetadataCapacityPreflightDoesNotMutateStorage(t *testing.T) {
 			ChainID: metadata.ChainID, Number: metadata.CurrentRevision,
 			PreviousURL: "https://plans.example.com/" + strings.Repeat("p", 26) + "/plan.html",
 		},
+		Entrypoint: "plan.html",
+		Pages: []MarkerPage{{
+			Path: "plan.md", Page: "plan.html", Source: "plan.md",
+			Format: "md", Title: "Plan", Lang: "",
+		}},
 		Objects: []MarkerObject{
 			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
-			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
-			{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType, SHA256: contentSHA256(source)},
+			{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType, SHA256: contentSHA256(diff)},
 		},
 	})
 	if err != nil {
@@ -2236,9 +2598,14 @@ func TestLoadRevisionDocumentUsesDeclaredSourceSizeAndRejectsTruncation(t *testi
 			Template:   RenderTemplate{Kind: "builtin"},
 			Themes:     themeRecipePtr(defaultThemeBundle()),
 		},
+		Entrypoint: "plan.html",
+		Pages: []MarkerPage{{
+			Path: "plan.md", Page: "plan.html", Source: "plan.md",
+			Format: "md", Lang: "",
+		}},
 		Objects: []MarkerObject{
 			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
-			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType, SHA256: contentSHA256(source)},
 		},
 	}
 	markerBody, err := EncodeUploadMarker(marker)

@@ -166,6 +166,12 @@ func (s *storage) putConditionalHeaders(
 }
 
 func (s *storage) putStream(ctx context.Context, obj streamObject) error {
+	return s.putStreamConditional(ctx, obj, "")
+}
+
+func (s *storage) putStreamConditional(
+	ctx context.Context, obj streamObject, ifMatch string,
+) error {
 	if obj.Body == nil {
 		return fmt.Errorf("airplan: put object %q: nil reader", obj.Key)
 	}
@@ -174,7 +180,7 @@ func (s *storage) putStream(ctx context.Context, obj streamObject) error {
 		return fmt.Errorf("airplan: seek object %q: %w", obj.Key, err)
 	}
 	reader := &exactSizeReadSeeker{reader: obj.Body, start: start, size: obj.Size}
-	_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
+	input := &s3.PutObjectInput{
 		Bucket:        aws.String(s.bucket),
 		Key:           aws.String(obj.Key),
 		Body:          reader,
@@ -182,8 +188,18 @@ func (s *storage) putStream(ctx context.Context, obj streamObject) error {
 		ContentType:   aws.String(obj.ContentType),
 		CacheControl:  aws.String("no-store"),
 		Metadata:      obj.Metadata,
-	})
+	}
+	if ifMatch != "" {
+		input.IfMatch = aws.String(ifMatch)
+	}
+	_, err = s.client.PutObject(ctx, input)
 	if err != nil {
+		var responseErr *smithyhttp.ResponseError
+		if errors.As(err, &responseErr) &&
+			(responseErr.HTTPStatusCode() == 409 ||
+				responseErr.HTTPStatusCode() == 412) {
+			return fmt.Errorf("%w: %q", ErrConflict, obj.Key)
+		}
 		return fmt.Errorf("airplan: put object %q: %w", obj.Key, err)
 	}
 	if reader.remaining != 0 {
@@ -329,18 +345,25 @@ func (s *storage) getTo(ctx context.Context, key string, dst io.Writer) error {
 func (s *storage) open(
 	ctx context.Context, key string,
 ) (io.ReadCloser, string, error) {
+	body, _, contentType, err := s.openWithETag(ctx, key)
+	return body, contentType, err
+}
+
+func (s *storage) openWithETag(
+	ctx context.Context, key string,
+) (io.ReadCloser, string, string, error) {
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(s.bucket), Key: aws.String(key),
 	})
 	if err != nil {
 		if storageNotFound(err) {
-			return nil, "", fmt.Errorf(
+			return nil, "", "", fmt.Errorf(
 				"airplan: get object %q: %w", key, errObjectNotFound,
 			)
 		}
-		return nil, "", fmt.Errorf("airplan: get object %q: %w", key, err)
+		return nil, "", "", fmt.Errorf("airplan: get object %q: %w", key, err)
 	}
-	return out.Body, aws.ToString(out.ContentType), nil
+	return out.Body, aws.ToString(out.ETag), aws.ToString(out.ContentType), nil
 }
 
 func storageNotFound(err error) bool {

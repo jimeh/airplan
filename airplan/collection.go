@@ -162,6 +162,7 @@ type PreparedFile struct {
 type collectionFile struct {
 	FileInput
 	MediaKind, Path string
+	Digest          string
 }
 
 func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, error) {
@@ -201,7 +202,7 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 	createdAt := time.Now().UTC().Truncate(time.Second)
 	objects := []MarkerObject{{Name: "index.html", Role: MarkerRolePage, Bytes: int64(len(overview)), ContentType: pageContentType, SHA256: contentSHA256(overview)}}
 	for _, f := range files {
-		objects = append(objects, MarkerObject{Name: f.Name, Role: MarkerRoleFile, Bytes: f.Size, ContentType: f.ContentType})
+		objects = append(objects, MarkerObject{Name: f.Name, Role: MarkerRoleFile, Bytes: f.Size, ContentType: f.ContentType, SHA256: f.Digest})
 	}
 	marker := UploadMarker{Schema: MarkerSchema, Version: MarkerVersion, Directory: dir, CreatedAt: createdAt, Kind: UploadKindCollection, Objects: objects, Title: title, Repo: repo, Producer: Producer{Name: "airplan", Version: producerVersion(c.cfg.ProducerVersion)}, Render: collectionRenderRecipe(c.cfg, templateSHA)}
 	markerBody, err := EncodeUploadMarker(marker)
@@ -215,6 +216,13 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 	res := &FilesResult{Result: Result{ID: dir, Bucket: c.cfg.Bucket, Title: title, CreatedAt: createdAt, MarkerVersion: MarkerVersion, MarkerKey: markerKey, RepositoryURL: repo, Kind: string(UploadKindCollection), ContentType: pageContentType}}
 	for _, f := range files {
 		key := BuildKey(c.cfg.KeyPrefix, dir, f.Name)
+		digest, digestErr := hashExactReader(f.Reader, 0, f.Size)
+		if digestErr != nil {
+			return nil, fmt.Errorf("airplan: verify collection file %q: %w", f.Name, digestErr)
+		}
+		if digest != f.Digest {
+			return nil, fmt.Errorf("airplan: collection file %q changed after preflight", f.Name)
+		}
 		if _, err = f.Reader.Seek(0, io.SeekStart); err != nil {
 			return nil, fmt.Errorf("airplan: seek input %q: %w", f.Name, err)
 		}
@@ -259,6 +267,19 @@ func prepareCollection(ctx context.Context, in FilesInput, repository string) ([
 	if maxTotal == 0 {
 		maxTotal = DefaultMaxCollectionTotalSize
 	}
+	var declaredTotal int64
+	for _, input := range in.Files {
+		if input.Size < 0 {
+			return nil, "", "", 0, fmt.Errorf("airplan: file %q has invalid size", filepath.Base(input.Name))
+		}
+		if input.Size > mathMaxInt64-declaredTotal {
+			return nil, "", "", 0, errors.New("airplan: collection total size is out of range")
+		}
+		declaredTotal += input.Size
+		if maxTotal > 0 && declaredTotal > maxTotal {
+			return nil, "", "", 0, fmt.Errorf("airplan: collection exceeds maximum total size of %s", formatSize(maxTotal))
+		}
+	}
 	seen := map[string]bool{}
 	files := make([]collectionFile, 0, len(in.Files))
 	var total int64
@@ -301,7 +322,11 @@ func prepareCollection(ctx context.Context, in FilesInput, repository string) ([
 		if err != nil {
 			return nil, "", "", 0, err
 		}
-		files = append(files, collectionFile{FileInput: FileInput{Name: name, Reader: input.Reader, Size: input.Size, ContentType: contentType}, MediaKind: mediaKind(contentType), Path: "./" + url.PathEscape(name)})
+		digest, err := hashExactReader(input.Reader, 0, input.Size)
+		if err != nil {
+			return nil, "", "", 0, fmt.Errorf("airplan: hash collection file %q: %w", name, err)
+		}
+		files = append(files, collectionFile{FileInput: FileInput{Name: name, Reader: input.Reader, Size: input.Size, ContentType: contentType}, MediaKind: mediaKind(contentType), Path: "./" + url.PathEscape(name), Digest: digest})
 	}
 	title := strings.TrimSpace(in.Title)
 	if title == "" {

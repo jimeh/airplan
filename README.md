@@ -30,16 +30,20 @@ hard to reach.
 It also works whenever you want to share a local document without running a
 server or using a paste service.
 
-Collections make screenshots, browser recordings, PDFs, archives, and other
-artifacts easy to attach to a pull request or issue. Airplan uploads the
-original files together, generates an overview page with media previews and
-copyable direct links, and treats the directory as one cleanup unit.
+Document bundles keep a primary Markdown narrative together with supporting
+Markdown or source-code pages and byte-exact assets. Airplan renders each page,
+rewrites declared page links, and adds ordinary browser navigation among them.
+Collections remain the right fit for peer screenshots, browser recordings,
+PDFs, archives, and other artifacts with no primary narrative. Both shapes are
+one cleanup unit.
 
 - Markdown becomes a polished page with eleven built-in themes, independent
   light/dark mode slots, and validated custom themes.
   Authored HTML and link destinations are preserved, so treat it as trusted
   content.
 - Source and plain-text files become highlighted, gist-like pages.
+- A Markdown entry can include ordered pages and assets with `--page` and
+  `--asset`; the entry URL stays the command result.
 - HTML stays HTML, with no rendering step. Treat HTML input as trusted code: it
   may execute scripts when someone opens the link.
 - Images, video, and audio render on a responsive collection overview. Generic
@@ -224,6 +228,13 @@ storage before listening and exposes:
 - authenticated MCP Streamable HTTP at `/mcp`;
 - unauthenticated liveness at `/healthz`; and
 - the authoritative OpenAPI 3.0.3 schema at `/openapi.yaml`.
+
+REST document uploads stream one metadata part, one entry part, then repeated
+page and asset parts. `POST /api/v1/uploads/documents/revisions` is the canonical
+revision route; `/api/v1/uploads/documents/update` remains a deprecated
+compatibility route to the same operation. Clients negotiate document-bundle
+and canonical-route support through `/api/v1/capabilities` before streaming, so
+they never replay a partially sent body after probing an unsupported route.
 
 The default `info` log level keeps stderr quiet apart from the listening line
 and server failures. `warn` and `error` suppress the listening line. Use
@@ -427,6 +438,31 @@ airplan --open plan.md            # upload and open in a browser
 airplan --json plan.md            # structured result for scripts
 ```
 
+Add managed pages and byte-exact assets explicitly when one entry document
+should own the whole set:
+
+```sh
+airplan README.md \
+  --page docs/design.md \
+  --page examples/server.go \
+  --asset images/flow.svg \
+  --asset recordings/demo.mp4
+```
+
+The entry file's directory is the bundle root. Page and asset paths must remain
+beneath it, including after resolving symlinks. Airplan preserves safe nested
+paths, renders Markdown pages as sibling `.html` files, appends `.html` to
+source-code page names, and rewrites links only when they exactly name a
+declared managed source. Assets are uploaded unchanged and do not appear in the
+Pages navigation. The plain result remains the entry URL. JSON adds ordered
+`.pages` and `.assets`; existing top-level fields still describe the entry.
+
+Bundles accept at most 100 total items. Defaults are 10 MiB per managed source,
+100 MiB across managed sources, 100 MiB of generated HTML, 1 GiB per asset, and
+2 GiB across assets. Adjust the client-side limits with `--max-size`,
+`--max-total-page-size`, `--max-asset-size`, and `--max-total-size`. A server may
+advertise lower limits.
+
 Pass multiple files to create one collection. Airplan prints each direct file
 URL in argument order, then the overview URL:
 
@@ -463,7 +499,8 @@ cat main.go | airplan --format txt --lang go -
 ### Upgrade existing Markdown pages
 
 Airplan can re-render an existing source-backed Markdown upload with the
-current page capabilities while keeping its original URL and source bytes:
+current page capabilities while keeping its original URLs, source bytes, and
+assets:
 
 ```sh
 airplan upgrade --check https://plans.example.com/vq3n.../plan.html
@@ -474,6 +511,12 @@ airplan upgrade --all --yes
 airplan upgrade --all --all-profiles --yes
 ```
 
+For a bundle, upgrade re-renders every managed page. It writes the entry last
+and uses stored SHA-256 digests to skip pages already in the desired state. A
+failed attempt may temporarily leave old and new renderer generations at
+different page URLs; inspection reports the mismatch and a retry repairs only
+the remaining pages.
+
 Single-target and bulk upgrades are planned against live ownership markers and
 replanned immediately before apply; only a still-upgradeable target whose
 inspected marker/page ETags match can be written. Bulk apply
@@ -483,11 +526,12 @@ one. Built-in Markdown pages merely carry dormant, cache-busted discovery so a
 future revision 2 can add history without replacing the original page URL.
 Template mismatches are refused unless `--force` explicitly replaces the
 stored recipe; pass `--template PATH` for a custom replacement or
-`--template=` to return to the built-in template. Version 5 pages also record
-their theme catalog and defaults. After changing theme configuration, run
-`airplan upgrade --force <url|key>` before updating that revision; update
-otherwise fails closed rather than re-rendering it under a different theme
-recipe implicitly.
+`--template=` to return to the built-in template. Version 5 and 6 pages also
+record their theme catalog and defaults. After changing theme configuration, run
+`airplan upgrade --force <url|key>` before creating that revision;
+otherwise Airplan fails closed rather than re-rendering it under a different
+theme recipe implicitly.
+
 `--all-profiles` inventories configured profiles even when none is selected by
 default and ignores `AIRPLAN_PROFILE` for that inventory; every participating
 profile must use direct S3. It cannot be combined with an explicit `--profile`.
@@ -500,8 +544,15 @@ Upload a complete new revision while keeping every previously shared page as
 an immutable view of its original source:
 
 ```sh
-airplan update --json https://plans.example.com/vq3n.../plan.html plan.md
+airplan new-revision --json https://plans.example.com/vq3n.../plan.html plan.md
+
+airplan new-revision https://plans.example.com/vq3n.../readme.html README.md \
+  --page docs/design.md \
+  --asset images/flow.svg
 ```
+
+`new-revision` is the canonical name. `update` remains a warning-free
+compatibility alias with the same flags and behavior.
 
 The first real update promotes the standalone upload to revision 1 and creates
 revision 2 under a new capability URL. Only then is
@@ -517,6 +568,12 @@ The JSON result includes `previous_url`, `diff_url`, and `unchanged`; revision
 numbers are omitted only for an unchanged standalone document that has not yet
 formed a chain.
 
+A bundle revision is complete replacement. Resupply every page and asset that
+should remain; omission removes it from the new revision. Page metadata,
+ordering, source bytes, and asset metadata or bytes participate in no-op
+detection. The combined Changes view contains per-path text diffs and concise
+binary asset summaries without embedding binary data.
+
 ### Preview without uploading
 
 `preview` uses the same renderer locally. It does not need storage credentials,
@@ -525,8 +582,16 @@ contact S3, or update the upload history.
 ```sh
 airplan preview plan.md > plan.html
 airplan preview -o plan.html plan.md
+airplan preview README.md --page docs/design.md \
+  --asset images/flow.svg --output-dir ./preview
 airplan preview --files screenshot.png demo.webm -o index.html
 ```
+
+A preview with pages or assets requires `--output-dir`. Airplan stages the
+complete rendered-page, included-source, and asset tree beside the destination,
+then renames it into place. It refuses an existing directory so a failed
+preview cannot look complete. The output contains no ownership marker or other
+remote-management metadata.
 
 Use `--collection-template custom.html` to replace the collection overview
 without affecting document templates. `airplan template collection` prints the
@@ -540,7 +605,7 @@ beside staged input files when its local media links need to work.
 airplan list                     # uploads known to the local manifest
 airplan ls -r                    # airplan uploads currently in the bucket
 airplan show <url-or-key>         # validate and inspect one remote upload
-airplan get [--source|--diff] <url-or-key>  # raw page, source, or adjacent diff
+airplan get [--source|--diff|--page PATH|--asset PATH] <url-or-key>
 airplan delete <url-or-key>      # delete one upload
 airplan list --newer-than 7d     # only recent uploads (also --kind, --slug)
 airplan list --protected         # only purge-protected uploads
@@ -612,6 +677,13 @@ or `delete` uniquely matches marker-managed local history, its recorded profile
 is selected automatically unless `--profile` or `AIRPLAN_PROFILE` is explicit.
 The remote ownership marker is still authoritative.
 
+For a document directory or marker target, `get` returns the entry by default.
+Use `--page PATH` or `--asset PATH` to select a logical child;
+`--page PATH --source` returns that page's source. A direct declared child URL
+still returns that exact object and cannot be combined with a selector. Direct
+child targets work for inspection and lifecycle commands, but delete, protect,
+unprotect, purge, sync, and upgrade always act on the complete owning document.
+
 `airplan sync` imports complete marker-managed uploads made from other machines
 into the receiving machine's manifest. It also tombstones local records whose
 markers are confirmed absent remotely; `--no-prune` makes the operation
@@ -620,7 +692,7 @@ a targeted request instead of trusting a bucket listing alone. It also completes
 older local records that predate the recorded `objects` and `total_bytes`
 totals, appending an enriched copy of each one with its original time and
 identity; those are reported separately from imports and never resurrect a
-deleted upload. Marker v3 through v5, plus v2-without-source records, can supply
+deleted upload. Marker v3 through v6, plus v2-without-source records, can supply
 exact totals; v1 and v2-with-source records stay absent without recurring marker fetches.
 Enrichment fetch or marker problems are warnings deferred to a later sync, not
 sync failures. `--concurrency`
@@ -628,13 +700,16 @@ controls concurrent marker requests (default 8, range 1-64). It converges the
 active remote inventory, not the historical JSONL event stream; deletion
 history is not uploaded.
 
-Every new upload uses ownership marker version 5 with one declared-object model
-for pages, document sources, and collection files. Documents require a slug;
+Every new upload uses ownership marker version 6 with one declared-object model
+for document pages, sources, assets, diffs, and collection files. Every declared
+payload has a provider-independent SHA-256 digest, and object paths may preserve
+validated nested document structure. Documents require a slug and entrypoint;
 collections have no slug and always use `index.html`. Current Airplan releases
-manage marker versions 1 through 5. Version 4 introduced the producing
-Airplan release, renderer/template recipe, revisions, and exact page SHA-256;
-version 5 adds the selected theme IDs and canonical catalog digest. Older
-clients fail closed and must be upgraded before they can manage new v5 uploads.
+manage marker versions 1 through 6. Version 4 introduced producer and renderer
+provenance, revisions, and page SHA-256; version 5 added theme identity; version
+6 adds document page descriptors, assets, nested paths, and digests for every
+payload. Older clients fail closed and must be upgraded before they can manage
+v6 uploads.
 Repository metadata is stored remotely for every input mode when `--repo`
 supplies or discovers a repository.
 
@@ -671,6 +746,16 @@ HTML. Use `--no-external-assets` to keep airplan-managed features offline, or
 does not block external content authored in trusted Markdown, HTML, or custom
 templates. The original Markdown remains exact in source view and the optional
 source object.
+
+Multi-page documents add an ordered Pages rail, an active-page indicator,
+previous and next links, and a separate On this page rail. Narrow layouts keep
+a normal no-JavaScript page list and add an accessible dialog after the page
+runtime initializes. Every link remains an ordinary link to a standalone HTML
+document. In same-origin browsers that support cross-document View Transitions,
+the built-in template uses a short native transition unless the reader requests
+reduced motion. Other browsers perform the same normal navigation. Each page
+loads fresh and initializes its own scripts; Airplan does not implement a
+client-side router, page cache, or custom history.
 
 Collection overview pages render images inline, video and audio with controls,
 and arbitrary files as linked cards. Every member has Open, Download, and Copy
@@ -714,11 +799,16 @@ Streamable HTTP endpoint at `https://airplan.example.com/mcp` and configure
 `Authorization: Bearer <token>`. Clients that cannot attach a custom
 Authorization header are not supported by the initial single-user server.
 
-The MCP server exposes upload, list, inspect, delete, sync, two-phase purge,
-and preview-by-default document upgrade tools. `upgrade_documents` applies
-only exact items returned by its preview. Local stdio also supports collection
-upload from local paths. Hosted MCP does not accept server-local paths and
-therefore omits that tool. Template dumping, config inspection, arbitrary
+The MCP server exposes upload, revision, list, inspect, delete, sync, two-phase
+purge, and preview-by-default document upgrade tools. `upload_document` and the
+canonical `new_document_revision` accept inline UTF-8 pages and base64 assets;
+`update_document` remains an identical compatibility tool. Inline assets have a
+32 MiB decoded aggregate limit in addition to the hosted request-body limit.
+Local stdio adds `upload_document_files` and
+`new_document_revision_files` for entry, page, and asset paths, plus the
+existing collection `upload_files`. Hosted MCP never accepts server-local paths
+and omits all three local-file tools. `upgrade_documents` applies only exact
+items returned by its preview. Template dumping, config inspection, arbitrary
 object access, and filesystem browsing are not exposed.
 
 ## Configuration reference
@@ -978,6 +1068,10 @@ and recordings for tokens, usernames, private messages, browser chrome, and
 unrelated desktop content before uploading. Filenames are public in direct URLs
 and on the overview. HTML and SVG members may execute active content when
 opened; Airplan uploads every member byte-for-byte and does not sanitize it.
+Document assets have the same byte-exact trust boundary. HTML, SVG, and
+JavaScript assets may execute when opened or embedded. Every nested page and
+asset URL shares the entry's capability boundary and persists until the owning
+document is deleted.
 
 Use `airplan purge --older-than 30d --yes` manually or from cron when uploads
 should expire. Mark uploads that must survive bulk cleanup — a demo linked
@@ -1030,6 +1124,45 @@ func upload(ctx context.Context, f io.Reader) error {
     return nil
 }
 ```
+
+Use `UploadDocument` when one entry owns managed pages and assets. Logical
+paths are explicit; filesystem-root and symlink checks belong to the CLI or
+another local adapter:
+
+```go
+func uploadBundle(
+    ctx context.Context,
+    client *airplan.Client,
+    entry io.Reader,
+    design io.Reader,
+    diagram io.ReadSeeker,
+    diagramSize int64,
+) error {
+    res, err := client.UploadDocument(ctx, airplan.DocumentInput{
+        Entry: airplan.PageInput{Reader: entry, Path: "README.md"},
+        Pages: []airplan.PageInput{{
+            Reader: design,
+            Path:   "docs/design.md",
+        }},
+        Assets: []airplan.AssetInput{{
+            Reader:      diagram,
+            Path:        "images/flow.svg",
+            Size:        diagramSize,
+            ContentType: "image/svg+xml",
+        }},
+    })
+    if err != nil {
+        return err
+    }
+    fmt.Println(res.URL, res.Pages[1].URL, res.Assets[0].URL)
+    return nil
+}
+```
+
+`CreateDocumentRevision` creates a complete replacement revision. The older
+`UpdateDocument` API remains as a deprecated, source-compatible one-entry
+wrapper. `RenderDocument` renders the complete bundle without storage;
+`Upload` and `RenderInput` remain the single-page wrappers.
 
 Collections use seekable readers and declared sizes so large members can
 stream without whole-file buffering:

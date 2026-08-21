@@ -15,6 +15,7 @@ import { binaryPath, cleanEnv, fixtureBinaryPath, repoRoot } from "./airplan-bin
 const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturePath = join(here, "testdata", "smoke.md");
+const bundleFixtureRoot = join(here, "testdata", "bundle");
 const sourceFixturePath = join(
   repoRoot,
   "airplan",
@@ -94,6 +95,7 @@ const legacyThemePage = `<!doctype html><html><body>
 });</script></body></html>`;
 
 let baseURL = "";
+let bundleURL = "";
 let collectionURL = "";
 let customURL = "";
 let fixedURL = "";
@@ -111,6 +113,9 @@ let fixedHTML = Buffer.alloc(0);
 let fixedCollectionHTML = Buffer.alloc(0);
 let subsetHTML = Buffer.alloc(0);
 let revisionHTML = Buffer.alloc(0);
+let revisionNotesHTML = Buffer.alloc(0);
+let revisionNotesSource = Buffer.alloc(0);
+let bundleMembers = new Map<string, Buffer>();
 const versionRequests: Array<{
   headers: import("node:http").IncomingHttpHeaders;
   url: string;
@@ -122,6 +127,34 @@ function isVersionManifestURL(url: string) {
   } catch {
     return false;
   }
+}
+
+function isRevisionMarkerURL(url: string) {
+  try {
+    return new URL(url).pathname.endsWith("/.airplan.json");
+  } catch {
+    return false;
+  }
+}
+
+function linkedBundlePage(
+  source: Buffer,
+  revision: number,
+  chainID: string,
+  logicalPath: string,
+  entrypoint: string,
+) {
+  const html = source.toString();
+  const versions = '<meta name="airplan-versions" content="../.airplan-versions.json">';
+  if (!html.includes(versions)) throw new Error("bundle fixture lacks versions metadata");
+  return html.replace(
+    versions,
+    versions +
+      `\n<meta name="airplan-revision" content="${revision}">` +
+      `\n<meta name="airplan-revision-chain" content="${chainID}">` +
+      `\n<meta name="airplan-page-path" content="${logicalPath}">` +
+      `\n<meta name="airplan-entrypoint" content="${entrypoint}">`,
+  );
 }
 
 const test = base.extend({
@@ -138,7 +171,7 @@ const test = base.extend({
     });
     page.on("response", (response) => {
       if (response.status() !== 404) return;
-      if (isVersionManifestURL(response.url())) return;
+      if (isVersionManifestURL(response.url()) || isRevisionMarkerURL(response.url())) return;
       errors.push(`response error: 404 ${response.url()}`);
     });
     page.on("console", (message) => {
@@ -175,6 +208,7 @@ test.beforeAll(async () => {
   const fixedCollectionOutputPath = join(tempRoot, "fixed-collection.html");
   const subsetOutputPath = join(tempRoot, "subset.html");
   const revisionOutputPath = join(tempRoot, "revision.html");
+  const bundleOutputPath = join(tempRoot, "bundle");
   const configRoot = join(tempRoot, "config");
   const env = cleanEnv();
   env.XDG_CONFIG_HOME = configRoot;
@@ -185,6 +219,24 @@ test.beforeAll(async () => {
     binaryPath,
     ["preview", "--repo", "none", "--output", outputPath, fixturePath],
     { cwd: repoRoot, env },
+  );
+  await execFileAsync(
+    binaryPath,
+    [
+      "preview",
+      "--repo",
+      "none",
+      "--slug",
+      "index",
+      "--page",
+      "docs/design.md",
+      "--page",
+      "examples/server.go",
+      "--output-dir",
+      bundleOutputPath,
+      "README.md",
+    ],
+    { cwd: bundleFixtureRoot, env },
   );
   const subsetConfigPath = join(tempRoot, "subset-config", "airplan.toml");
   await mkdir(dirname(subsetConfigPath), { recursive: true });
@@ -318,6 +370,16 @@ syntax = "derived"
   fixedCollectionHTML = await readFile(fixedCollectionOutputPath);
   subsetHTML = await readFile(subsetOutputPath);
   revisionHTML = await readFile(revisionOutputPath);
+  revisionNotesHTML = await readFile(join(tempRoot, "notes.html"));
+  revisionNotesSource = await readFile(join(tempRoot, "notes.md"));
+  bundleMembers = new Map([
+    ["/bundle/index.html", await readFile(join(bundleOutputPath, "index.html"))],
+    ["/bundle/docs/design.html", await readFile(join(bundleOutputPath, "docs", "design.html"))],
+    [
+      "/bundle/examples/server.go.html",
+      await readFile(join(bundleOutputPath, "examples", "server.go.html")),
+    ],
+  ]);
   collectionMembers = new Map([
     ["/demo.webm", await readFile(join(tempRoot, "demo.webm"))],
     ["/sound.ogg", await readFile(join(tempRoot, "sound.ogg"))],
@@ -336,12 +398,26 @@ syntax = "derived"
       body = sourceHTML;
     } else if (request.url === `/${"r".repeat(26)}/plan.html`) {
       body = revisionHTML;
+    } else if (request.url === `/${"r".repeat(26)}/notes.html`) {
+      body = revisionNotesHTML;
+    } else if (request.url === `/${"r".repeat(26)}/notes.md`) {
+      response.writeHead(200, { "Content-Type": "text/markdown; charset=utf-8" });
+      response.end(revisionNotesSource);
+      return;
     } else if (request.url === `/${"r".repeat(26)}/.airplan-changes.diff`) {
       response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       response.end("--- revision-1/plan.md\n+++ revision-2/plan.md\n");
       return;
     } else if (request.url && /^\/[a-z2-7]{26}\/plan\.html$/.test(request.url)) {
       body = html;
+    } else if (request.url && bundleMembers.has(request.url)) {
+      body = bundleMembers.get(request.url);
+      response.writeHead(200, {
+        "Cache-Control": "no-store",
+        "Content-Type": "text/html; charset=utf-8",
+      });
+      response.end(body);
+      return;
     } else if (request.url === "/collection") {
       body = collectionHTML;
     } else if (request.url === "/custom") {
@@ -381,12 +457,261 @@ syntax = "derived"
   });
   const address = server.address() as AddressInfo;
   baseURL = `http://127.0.0.1:${address.port}`;
+  bundleURL = `${baseURL}/bundle/index.html`;
   collectionURL = `${baseURL}/collection`;
   customURL = `${baseURL}/custom`;
   subsetURL = `${baseURL}/subset`;
   fixedURL = `${baseURL}/fixed`;
   fixedCollectionURL = `${baseURL}/fixed-collection`;
   sourceURL = `${baseURL}/source`;
+});
+
+test("bundle pages use ordinary navigation and update both rails", async ({
+  context,
+  page,
+}, testInfo) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: baseURL });
+  await page.goto(bundleURL);
+  await expect(page).toHaveTitle("Bundle overview");
+  await expect(page.locator("pre.mermaid")).toHaveCount(0);
+
+  const inlinePages = page.locator(".page-shell > .pages-nav");
+  const openPages = page.getByRole("button", { name: "Open pages" });
+  const pagesTrigger = page.locator(".pages-trigger");
+  await expect(pagesTrigger).toHaveAttribute("aria-controls", "pages-popover");
+  await expect(pagesTrigger).toHaveAttribute("popovertarget", "");
+  expect(await pagesTrigger.getAttribute("aria-haspopup")).toBeNull();
+  expect(
+    await pagesTrigger.evaluate(
+      (trigger) => (trigger as HTMLButtonElement).popoverTargetElement?.id,
+    ),
+  ).toBe("pages-popover");
+  if (testInfo.project.name.startsWith("narrow-")) {
+    await expect(inlinePages).toBeHidden();
+    await expect(openPages).toBeVisible();
+  } else {
+    await expect(inlinePages).toBeVisible();
+    await expect(openPages).toBeHidden();
+    const columns = await page.evaluate(() => {
+      const pages = document.querySelector(".pages-nav")!.getBoundingClientRect();
+      const content = document.querySelector(".content")!.getBoundingClientRect();
+      const toc = document.querySelector(".toc")!.getBoundingClientRect();
+      return {
+        contentLeft: content.left,
+        contentRight: content.right,
+        pagesRight: pages.right,
+        tocLeft: toc.left,
+      };
+    });
+    expect(columns.pagesRight).toBeLessThanOrEqual(columns.contentLeft);
+    expect(columns.tocLeft).toBeGreaterThanOrEqual(columns.contentRight);
+  }
+
+  await expect(inlinePages.locator('a[aria-current="page"]')).toContainText("README.md");
+  await expect(page.locator("#toc .rail-title")).toHaveText("On this page");
+  await expect(page.locator(".page-sequence-next")).toContainText("Design notes");
+  const entryLifetime = await page.evaluate(
+    () => (window as typeof window & { __airplanBundleLifetime?: string }).__airplanBundleLifetime,
+  );
+  expect(entryLifetime).toBeTruthy();
+
+  if (testInfo.project.name.startsWith("narrow-")) {
+    await openPages.click();
+    const popover = page.locator("#pages-popover");
+    await expect(popover).toBeVisible();
+    await expect(popover.locator('a[aria-current="page"]')).toContainText("README.md");
+    await expect(openPages).toHaveAttribute("aria-expanded", "true");
+    await openPages.click();
+    await expect(popover).toBeHidden();
+    await openPages.click();
+    await page.keyboard.press("Escape");
+    await expect(popover).toBeHidden();
+    await expect(openPages).toBeFocused();
+    await openPages.click();
+    await page.mouse.click(380, 820);
+    await expect(popover).toBeHidden();
+    await openPages.click();
+
+    await page.setViewportSize({ width: 1400, height: 844 });
+    await expect(popover).toBeHidden();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await openPages.click();
+    await expect(popover).toBeVisible();
+    await Promise.all([
+      page.waitForURL(`${baseURL}/bundle/docs/design.html`),
+      popover.getByRole("link", { name: /Design notes/ }).click(),
+    ]);
+  } else {
+    await Promise.all([
+      page.waitForURL(`${baseURL}/bundle/docs/design.html`),
+      inlinePages.getByRole("link", { name: /Design notes/ }).click(),
+    ]);
+  }
+
+  await expect(page).toHaveTitle("Design notes");
+  const designLifetime = await page.evaluate(
+    () => (window as typeof window & { __airplanBundleLifetime?: string }).__airplanBundleLifetime,
+  );
+  expect(designLifetime).toBeTruthy();
+  expect(designLifetime).not.toBe(entryLifetime);
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem("airplan-bundle-authored-runs")))
+    .toBe("2");
+  await expect(page.locator(".page-shell > .pages-nav a[aria-current=page]")).toContainText(
+    "docs/design.md",
+  );
+  await expect(page.locator("pre.mermaid > svg")).toHaveCount(1);
+  await expect(page.locator(".page-sequence-previous")).toContainText("Bundle overview");
+  await expect(page.locator(".page-sequence-next")).toContainText("server.go");
+
+  const sourceButton = page.getByRole("button", { name: "Source view" });
+  await sourceButton.click();
+  await expect(page.locator("#source")).toBeVisible();
+  await page.getByRole("button", { name: "Copy markdown" }).click();
+  await expect
+    .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+    .toContain("# Design notes");
+  await page.getByRole("button", { name: "Rendered view" }).click();
+
+  if (testInfo.project.name.startsWith("narrow-")) {
+    await page.getByRole("button", { name: "Open table of contents" }).click();
+    await page.locator("#toc-dialog").getByRole("link", { name: "Deep dive" }).click();
+  } else {
+    await page.locator("#toc").getByRole("link", { name: "Deep dive" }).click();
+  }
+  await expect(page).toHaveURL(`${baseURL}/bundle/docs/design.html#deep-dive`);
+  await page.goBack();
+  await expect(page).toHaveURL(`${baseURL}/bundle/docs/design.html`);
+  await page.goBack();
+  await expect(page).toHaveURL(bundleURL);
+  await page.goForward();
+  await expect(page).toHaveURL(`${baseURL}/bundle/docs/design.html`);
+});
+
+test("collapsed bundle navigation stays sticky with Pages on the left", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers the medium breakpoint");
+
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await page.goto(`${baseURL}/bundle/docs/design.html`);
+
+  const toolbar = page.getByRole("navigation", { name: "Document controls" });
+  const pages = page.getByRole("button", { name: "Open pages" });
+  await expect(page.locator(".page-shell > .pages-nav")).toBeHidden();
+  await expect(pages).toBeVisible();
+  const layout = await toolbar.evaluate((element) => {
+    const styles = getComputedStyle(element);
+    const trigger = element.querySelector(".pages-trigger")!.getBoundingClientRect();
+    const bounds = element.getBoundingClientRect();
+    return {
+      position: styles.position,
+      left: trigger.left - bounds.left,
+      leftPadding: Number.parseFloat(styles.paddingLeft),
+    };
+  });
+  expect(layout.position).toBe("sticky");
+  expect(layout.left).toBeCloseTo(layout.leftPadding, 0);
+
+  await page.evaluate(() => window.scrollTo(0, 320));
+  await expect
+    .poll(() => toolbar.evaluate((element) => element.getBoundingClientRect().top))
+    .toBeCloseTo(0, 0);
+  const stickyHeight = await page
+    .locator("html")
+    .evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).getPropertyValue("--airplan-sticky-height")),
+    );
+  expect(stickyHeight).toBeCloseTo(
+    await toolbar.evaluate((element) => (element as HTMLElement).offsetHeight),
+    0,
+  );
+});
+
+test("wide rail headings remain outside their scroll areas", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one wide project covers rail structure");
+
+  await page.setViewportSize({ width: 1400, height: 240 });
+  await page.goto(`${baseURL}/bundle/docs/design.html`);
+  const pagesBounds = await page.locator(".pages-nav").boundingBox();
+  const tocBounds = await page.locator(".toc").boundingBox();
+  expect(pagesBounds).not.toBeNull();
+  expect(tocBounds).not.toBeNull();
+  expect(pagesBounds!.x + pagesBounds!.width).toBeLessThanOrEqual(tocBounds!.x);
+  for (const selector of [".pages-nav", ".toc"]) {
+    const rail = page.locator(selector);
+    const result = await rail.evaluate((element) => {
+      const title = element.querySelector<HTMLElement>(".rail-title")!;
+      const list = element.querySelector<HTMLOListElement>("ol")!;
+      const before = title.getBoundingClientRect().top;
+      list.scrollTop = 48;
+      return {
+        railOverflow: getComputedStyle(element).overflowY,
+        listOverflow: getComputedStyle(list).overflowY,
+        titleTopBefore: before,
+        titleTopAfter: title.getBoundingClientRect().top,
+      };
+    });
+    expect(result.railOverflow).toBe("hidden");
+    expect(result.listOverflow).toBe("auto");
+    expect(result.titleTopAfter).toBeCloseTo(result.titleTopBefore, 0);
+  }
+});
+
+test("bundle navigation keeps its narrow no-JavaScript fallback", async ({ browser }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers the no-JS fallback");
+  const context = await browser.newContext({
+    colorScheme: "light",
+    javaScriptEnabled: false,
+    viewport: { width: 390, height: 844 },
+  });
+  try {
+    const page = await context.newPage();
+    await page.goto(bundleURL);
+    const pages = page.locator(".page-shell > .pages-nav");
+    await expect(pages).toBeVisible();
+    await expect(page.getByRole("button", { name: "Open pages" })).toBeHidden();
+    await expect(pages.locator('a[aria-current="page"]')).toContainText("README.md");
+    await pages.getByRole("link", { name: /Design notes/ }).click();
+    await expect(page).toHaveURL(`${baseURL}/bundle/docs/design.html`);
+    await expect(page.locator(".page-shell > .pages-nav a[aria-current=page]")).toContainText(
+      "docs/design.md",
+    );
+  } finally {
+    await context.close();
+  }
+});
+
+test("built-in page transitions honor reduced motion", async ({ page }) => {
+  await page.goto(bundleURL);
+  const compactCSS = await page.locator("style").evaluateAll((styles) =>
+    styles
+      .map((style) => style.textContent || "")
+      .join("\n")
+      .replaceAll(/\s/g, ""),
+  );
+  expect(compactCSS).toContain(
+    "@media(prefers-reduced-motion:no-preference){@view-transition{navigation:auto;}}",
+  );
+  expect(
+    await page.evaluate(() => matchMedia("(prefers-reduced-motion:no-preference)").matches),
+  ).toBe(true);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  expect(
+    await page.evaluate(() => matchMedia("(prefers-reduced-motion:no-preference)").matches),
+  ).toBe(false);
+});
+
+test("bundle print output contains only the loaded page", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers bundle printing");
+  await page.goto(`${baseURL}/bundle/docs/design.html`);
+  const detail = page.locator("#bundle-print-detail");
+  await expect(detail).not.toHaveAttribute("open", "");
+  await page.emulateMedia({ media: "print" });
+  await expect(detail.getByText("Printed bundle content")).toBeVisible();
+  await expect(page.locator(".pages-nav")).toBeHidden();
+  await expect(page.locator(".page-sequence")).toBeHidden();
+  await expect(page.locator(".pages-trigger")).toBeHidden();
 });
 
 test("collection overview presents and links every media kind", async ({ context, page }) => {
@@ -673,10 +998,13 @@ test("appearance panel dismisses accessibly and restores focus", async ({ page }
   await expect(panel).toBeHidden();
   await expect(trigger).toBeFocused();
   await trigger.click();
-  await page.getByRole("heading", { name: "Browser smoke plan" }).click();
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error("appearance dismissal test has no viewport");
+  await page.mouse.click(4, viewport.height - 4);
   await expect(panel).toBeHidden();
   await expect(trigger).toBeFocused();
 
+  if (viewport.width <= 768) return;
   await trigger.click();
   const sourceView = page.getByRole("button", { name: "Source view" });
   await sourceView.click();
@@ -947,6 +1275,469 @@ test("revision metadata renders a compact picker and stale notice", async ({ pag
   await expect(page.locator("[data-revision-heading]")).not.toHaveClass(/is-stale/);
 });
 
+test("child revision selection preserves logical page and falls back to entry", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers marker routing");
+  const currentDir = "v".repeat(26);
+  const targetDir = "w".repeat(26);
+  const chainID = "s".repeat(26);
+  const specialLogical = "docs/design ?#%.md";
+  const specialRendered = "docs/design ?#%.html";
+  const encodedRendered = specialRendered.split("/").map(encodeURIComponent).join("/");
+  const currentChild = `${baseURL}/${currentDir}/${encodedRendered}`;
+  const targetChild = `${baseURL}/${targetDir}/${encodedRendered}`;
+  const targetEntry = `${baseURL}/${targetDir}/index.html`;
+  const childHTML = linkedBundlePage(
+    bundleMembers.get("/bundle/docs/design.html")!,
+    2,
+    chainID,
+    specialLogical,
+    "../index.html",
+  );
+  await page.route(currentChild, (route) =>
+    route.fulfill({ contentType: "text/html; charset=utf-8", body: childHTML }),
+  );
+  await page.route(`${baseURL}/${targetDir}/**`, (route) =>
+    route.fulfill({ contentType: "text/html; charset=utf-8", body: childHTML }),
+  );
+  const versionsPattern = `**/${currentDir}/.airplan-versions.json?*`;
+  let versionsBody = JSON.stringify({
+    schema: "airplan-versions",
+    version: 1,
+    chain_id: chainID,
+    current_revision: 2,
+    latest_revision: 2,
+    last_assigned_revision: 2,
+    revisions: [
+      { number: 1, url: targetEntry, created_at: "2026-08-15T10:00:00Z" },
+      {
+        number: 2,
+        url: `${baseURL}/${currentDir}/index.html`,
+        created_at: "2026-08-15T10:10:00Z",
+        diff_url: `${baseURL}/${currentDir}/.airplan-changes.diff`,
+      },
+    ],
+  });
+  await page.route(versionsPattern, (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: versionsBody,
+    }),
+  );
+  const markerPattern = `**/${targetDir}/.airplan.json?*`;
+  const validMarker = {
+    schema: "airplan-upload",
+    version: 6,
+    directory: targetDir,
+    created_at: "2026-08-15T10:00:00Z",
+    kind: "document",
+    slug: "index",
+    format: "md",
+    title: "Bundle overview",
+    repo: "https://github.com/acme/service",
+    producer: { name: "airplan", version: "0.10.0" },
+    render: {
+      generation: 5,
+      template: { kind: "builtin" },
+      indexable: false,
+      no_external_assets: false,
+      mermaid_url: "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs",
+      themes: {
+        default_light: "github-light",
+        default_dark: "github-dark",
+        catalog_sha256: "c".repeat(64),
+      },
+    },
+    entrypoint: "index.html",
+    revision: { chain_id: chainID, number: 1 },
+    objects: [
+      {
+        name: "index.html",
+        role: "page",
+        bytes: 100,
+        content_type: "text/html; charset=utf-8",
+        sha256: "a".repeat(64),
+      },
+      {
+        name: "index.md",
+        role: "source",
+        bytes: 10,
+        content_type: "text/markdown; charset=utf-8",
+        sha256: "b".repeat(64),
+      },
+      {
+        name: specialRendered,
+        role: "page",
+        bytes: 100,
+        content_type: "text/html; charset=utf-8",
+        sha256: "d".repeat(64),
+      },
+      {
+        name: specialLogical,
+        role: "source",
+        bytes: 10,
+        content_type: "text/markdown; charset=utf-8",
+        sha256: "e".repeat(64),
+      },
+    ],
+    pages: [
+      {
+        path: "README.md",
+        page: "index.html",
+        source: "index.md",
+        format: "md",
+        lang: "Markdown",
+      },
+      {
+        path: specialLogical,
+        page: specialRendered,
+        source: specialLogical,
+        format: "md",
+        lang: "Markdown",
+      },
+    ],
+  };
+  let markerBody = JSON.stringify(validMarker);
+  await page.route(markerPattern, async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await route.fulfill({ contentType: "application/json", body: markerBody });
+  });
+
+  await page.goto(currentChild + "#deep-dive");
+  const selector = page.getByRole("combobox", { name: "Document revision" });
+  const navigation = page.waitForURL(targetChild + "#deep-dive");
+  const selection = selector.selectOption({ label: "Revision 1 of 2" });
+  await expect(selector).toBeDisabled();
+  await Promise.all([navigation, selection]);
+  await expect(page).toHaveURL(targetChild + "#deep-dive");
+
+  const revisionOneEntry = `${baseURL}/${"q".repeat(26)}/index.html`;
+  versionsBody = JSON.stringify({
+    schema: "airplan-versions",
+    version: 1,
+    chain_id: chainID,
+    current_revision: 2,
+    latest_revision: 3,
+    last_assigned_revision: 3,
+    revisions: [
+      { number: 1, url: revisionOneEntry, created_at: "2026-08-15T09:50:00Z" },
+      {
+        number: 2,
+        url: `${baseURL}/${currentDir}/index.html`,
+        created_at: "2026-08-15T10:00:00Z",
+        diff_url: `${baseURL}/${currentDir}/.airplan-changes.diff`,
+      },
+      {
+        number: 3,
+        url: targetEntry,
+        created_at: "2026-08-15T10:10:00Z",
+        diff_url: `${baseURL}/${targetDir}/.airplan-changes.diff`,
+      },
+    ],
+  });
+  const validRevisionThreeMarker = {
+    ...validMarker,
+    extension: { future: true },
+    producer: { ...validMarker.producer, extension: "accepted" },
+    render: {
+      ...validMarker.render,
+      extension: true,
+      template: { ...validMarker.render.template, extension: true },
+      themes: { ...validMarker.render.themes, extension: true },
+    },
+    revision: {
+      chain_id: chainID,
+      number: 3,
+      previous_url: `${baseURL}/${currentDir}/index.html`,
+      extension: true,
+    },
+    objects: [
+      { ...validMarker.objects[0], extension: true },
+      ...validMarker.objects.slice(1),
+      {
+        name: ".airplan-changes.diff",
+        role: "diff",
+        bytes: 100,
+        content_type: "text/plain; charset=utf-8",
+        sha256: "f".repeat(64),
+        extension: true,
+      },
+    ],
+    pages: [{ ...validMarker.pages[0], extension: true }, ...validMarker.pages.slice(1)],
+  };
+  markerBody = JSON.stringify(validRevisionThreeMarker);
+  await page.goto(currentChild + "#deep-dive");
+  await Promise.all([
+    page.waitForURL(targetChild + "#deep-dive"),
+    page.getByRole("combobox", { name: "Document revision" }).selectOption({
+      label: "Revision 3 (Latest)",
+    }),
+  ]);
+  await expect(page).toHaveURL(targetChild + "#deep-dive");
+
+  const conflictPageObjects = ["a!b", "a/b"].flatMap((logical, index) => [
+    {
+      name: `${logical}.html`,
+      role: "page",
+      bytes: 100,
+      content_type: "text/html; charset=utf-8",
+      sha256: String(index + 1).repeat(64),
+    },
+    {
+      name: logical,
+      role: "source",
+      bytes: 10,
+      content_type: "text/markdown; charset=utf-8",
+      sha256: String(index + 3).repeat(64),
+    },
+  ]);
+  const conflictPages = ["a!b", "a/b"].map((logical) => ({
+    path: logical,
+    page: `${logical}.html`,
+    source: logical,
+    format: "md",
+    lang: "Markdown",
+  }));
+  const pageAncestorConflictMarker = {
+    ...validRevisionThreeMarker,
+    objects: [...validRevisionThreeMarker.objects, ...conflictPageObjects],
+    pages: [
+      { ...validRevisionThreeMarker.pages[0], path: "a" },
+      ...validRevisionThreeMarker.pages.slice(1),
+      ...conflictPages,
+    ],
+  };
+  const objectAncestorConflictMarker = {
+    ...validRevisionThreeMarker,
+    objects: [
+      ...validRevisionThreeMarker.objects,
+      ...["a", "a!b", "a/b"].map((name, index) => ({
+        name,
+        role: "asset",
+        bytes: 1,
+        content_type: "application/octet-stream",
+        sha256: String(index + 6).repeat(64),
+      })),
+    ],
+  };
+  const invalidTargets = [
+    { name: "missing marker", status: 404, body: "" },
+    { name: "malformed marker", status: 200, body: "{" },
+    {
+      name: "duplicate root field",
+      status: 200,
+      body: JSON.stringify(validRevisionThreeMarker).replace(/^\{/, '{"schema":"airplan-upload",'),
+    },
+    {
+      name: "duplicate nested field",
+      status: 200,
+      body: JSON.stringify(validRevisionThreeMarker).replace(
+        '"producer":{"name":"airplan"',
+        '"producer":{"name":"airplan","name":"airplan"',
+      ),
+    },
+    {
+      name: "wrong version",
+      status: 200,
+      body: JSON.stringify({ ...validRevisionThreeMarker, version: 5 }),
+    },
+    {
+      name: "wrong directory",
+      status: 200,
+      body: JSON.stringify({ ...validRevisionThreeMarker, directory: "x".repeat(26) }),
+    },
+    {
+      name: "non-adjacent object ancestor conflict",
+      status: 200,
+      body: JSON.stringify(objectAncestorConflictMarker),
+    },
+    {
+      name: "non-adjacent page ancestor conflict",
+      status: 200,
+      body: JSON.stringify(pageAncestorConflictMarker),
+    },
+    {
+      name: "noncanonical repository",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        repo: "https://github.com/acme/service.git",
+      }),
+    },
+    {
+      name: "noncanonical slug",
+      status: 200,
+      body: JSON.stringify({ ...validRevisionThreeMarker, slug: "Index" }),
+    },
+    {
+      name: "non-UTC timestamp",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        created_at: "2026-08-15T11:10:00+01:00",
+      }),
+    },
+    {
+      name: "missing producer",
+      status: 200,
+      body: JSON.stringify({ ...validRevisionThreeMarker, producer: undefined }),
+    },
+    {
+      name: "missing light theme provenance",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        render: {
+          ...validRevisionThreeMarker.render,
+          themes: { ...validRevisionThreeMarker.render.themes, default_light: undefined },
+        },
+      }),
+    },
+    {
+      name: "null dark theme provenance",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        render: {
+          ...validRevisionThreeMarker.render,
+          themes: { ...validRevisionThreeMarker.render.themes, default_dark: null },
+        },
+      }),
+    },
+    {
+      name: "oversized theme provenance",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        render: {
+          ...validRevisionThreeMarker.render,
+          themes: { ...validRevisionThreeMarker.render.themes, default_light: "a".repeat(49) },
+        },
+      }),
+    },
+    {
+      name: "wrong chain",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        revision: { ...validRevisionThreeMarker.revision, chain_id: "z".repeat(26) },
+      }),
+    },
+    {
+      name: "reserved case-folded object",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        objects: [
+          ...validRevisionThreeMarker.objects,
+          {
+            name: "docs/.AIRPLAN-secret",
+            role: "asset",
+            bytes: 0,
+            content_type: "application/octet-stream",
+            sha256: "f".repeat(64),
+          },
+        ],
+      }),
+    },
+    {
+      name: "oversized marker",
+      status: 200,
+      body: JSON.stringify({ ...validRevisionThreeMarker, padding: "x".repeat(256 * 1024) }),
+    },
+    {
+      name: "mismatched entrypoint",
+      status: 200,
+      body: JSON.stringify({ ...validRevisionThreeMarker, entrypoint: "other.html" }),
+    },
+    {
+      name: "traversal mapping",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        pages: [
+          validRevisionThreeMarker.pages[0],
+          { ...validRevisionThreeMarker.pages[1], page: "../escape.html" },
+        ],
+      }),
+    },
+    {
+      name: "duplicate rendered mapping",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        pages: [
+          ...validRevisionThreeMarker.pages,
+          { ...validRevisionThreeMarker.pages[1], path: "docs/copy.md" },
+        ],
+      }),
+    },
+    {
+      name: "missing logical page",
+      status: 200,
+      body: JSON.stringify({
+        ...validRevisionThreeMarker,
+        pages: validRevisionThreeMarker.pages.slice(0, 1),
+      }),
+    },
+  ];
+  for (const invalid of invalidTargets) {
+    await page.unroute(markerPattern);
+    await page.route(markerPattern, (route) =>
+      route.fulfill({
+        status: invalid.status,
+        contentType: "application/json",
+        body: invalid.body,
+      }),
+    );
+    await page.goto(currentChild + "#deep-dive");
+    await page.getByRole("combobox", { name: "Document revision" }).selectOption({
+      label: "Revision 3 (Latest)",
+    });
+    await expect(page, invalid.name).toHaveURL(targetEntry);
+  }
+
+  await page.goto(currentChild + "#deep-dive");
+  await page.evaluate((limit) => {
+    sessionStorage.removeItem("airplan-marker-stream-pulls");
+    sessionStorage.removeItem("airplan-marker-stream-cancelled");
+    const nativeFetch = window.fetch.bind(window);
+    window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const requestURL = input instanceof Request ? input.url : String(input);
+      if (!new URL(requestURL, window.location.href).pathname.endsWith("/.airplan.json"))
+        return nativeFetch(input, init);
+      let pulls = 0;
+      return new Response(
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            pulls += 1;
+            sessionStorage.setItem("airplan-marker-stream-pulls", String(pulls));
+            controller.enqueue(new Uint8Array(limit + 1));
+            if (pulls === 5) controller.close();
+          },
+          cancel() {
+            sessionStorage.setItem("airplan-marker-stream-cancelled", "true");
+          },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as typeof window.fetch;
+  }, 256 * 1024);
+  await page.getByRole("combobox", { name: "Document revision" }).selectOption({
+    label: "Revision 3 (Latest)",
+  });
+  await expect(page).toHaveURL(targetEntry);
+  await expect
+    .poll(() => page.evaluate(() => sessionStorage.getItem("airplan-marker-stream-cancelled")))
+    .toBe("true");
+  const markerPulls = Number(
+    await page.evaluate(() => sessionStorage.getItem("airplan-marker-stream-pulls")),
+  );
+  expect(markerPulls).toBeGreaterThan(0);
+  expect(markerPulls).toBeLessThan(5);
+});
+
 test("revision metadata rejects same-origin URLs outside the current key prefix", async ({
   page,
 }) => {
@@ -1085,28 +1876,81 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
     }),
   );
   await page.goto(revisions[1].url);
+  const readerControls = page.locator(".reader-controls");
+  for (const width of [1400, 700]) {
+    await page.setViewportSize({ width, height: 800 });
+    await expect
+      .poll(() =>
+        readerControls.evaluate((element) => {
+          const view = element.querySelector(".viewtoggle")!;
+          const revision = element.querySelector(".revision-controls")!;
+          return {
+            domOrder: Boolean(
+              view.compareDocumentPosition(revision) & Node.DOCUMENT_POSITION_FOLLOWING,
+            ),
+            visualOrder:
+              view.getBoundingClientRect().bottom <= revision.getBoundingClientRect().top,
+          };
+        }),
+      )
+      .toEqual({ domOrder: true, visualOrder: true });
+  }
+  await expect(page.getByRole("button", { name: "Rendered view" }).locator("svg.icon")).toHaveCount(
+    1,
+  );
+  await expect(page.getByRole("button", { name: "Source view" }).locator("svg.icon")).toHaveCount(
+    1,
+  );
   await page.setViewportSize({ width: 700, height: 800 });
   const toolbarLayout = await page.locator(".toolbar").evaluate((element) => {
-    const view = element.querySelector(".viewtoggle")!.getBoundingClientRect();
-    const files = element.querySelector(".file-actions")!.getBoundingClientRect();
-    const theme = element.querySelector(".appearance")!.getBoundingClientRect();
+    const view = document.querySelector(".reader-controls .viewtoggle")!.getBoundingClientRect();
+    const toolbar = element.getBoundingClientRect();
     return {
       display: getComputedStyle(element).display,
-      viewCenter: view.top + view.height / 2,
-      themeCenter: theme.top + theme.height / 2,
-      firstRowBottom: Math.max(view.bottom, theme.bottom),
-      filesTop: files.top,
+      position: getComputedStyle(element).position,
+      toolbarBottom: toolbar.bottom,
+      viewTop: view.top,
     };
   });
-  expect(toolbarLayout.display).toBe("grid");
-  expect(toolbarLayout.viewCenter).toBeCloseTo(toolbarLayout.themeCenter, 0);
-  expect(toolbarLayout.filesTop).toBeGreaterThan(toolbarLayout.firstRowBottom);
+  expect(toolbarLayout.display).toBe("flex");
+  expect(toolbarLayout.position).toBe("sticky");
+  expect(toolbarLayout.viewTop).toBeGreaterThanOrEqual(toolbarLayout.toolbarBottom);
+  const modeBackgrounds = await page
+    .locator(".reader-controls .mode-toggle button")
+    .evaluateAll((buttons) =>
+      buttons.map((button) => ({
+        active: button.classList.contains("active"),
+        background: getComputedStyle(button).backgroundColor,
+      })),
+    );
+  expect(
+    modeBackgrounds.filter((button) => !button.active).map((button) => button.background),
+  ).toEqual(["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"]);
+  expect(modeBackgrounds.find((button) => button.active)?.background).not.toBe("rgba(0, 0, 0, 0)");
+  const pagesButton = page.getByRole("button", { name: "Open pages" });
+  await expect(pagesButton).toBeVisible();
+  await pagesButton.click();
+  await page.locator(".pages-popover-nav").getByRole("link", { name: "Notes notes.md" }).click();
+  await expect(page).toHaveURL(`${baseURL}/${currentDir}/notes.html`);
+  await expect(page.getByRole("heading", { level: 1, name: "Notes" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open raw markdown" })).toHaveAttribute(
+    "href",
+    "./notes.md",
+  );
+  await expect(page.getByRole("link", { name: "All changes" })).toHaveAttribute(
+    "href",
+    "./plan.html#airplan-all-changes",
+  );
+  const notesSource = await page.request.get(`${baseURL}/${currentDir}/notes.md`);
+  expect(notesSource.ok()).toBe(true);
+  expect(await notesSource.text()).toBe("# Notes\n\nSupporting revision fixture page.\n");
+  await page.goto(revisions[1].url);
   const changesButton = page.getByRole("button", { name: "Changes view" });
   await expect(changesButton).toBeVisible();
   await changesButton.click();
   await expect(page.locator("#changes")).toBeVisible();
   await expect(page.locator("#rendered")).toBeHidden();
-  await expect(page.locator("#changes")).toContainText("Changes from revision 1");
+  await expect(page.locator("#changes")).toContainText("Changes to plan.md from revision 1");
   await expect(page.locator("#changes")).toContainText("-Original");
   await expect(page.locator("#changes")).toContainText("+Revised");
   await expect(page.getByRole("link", { name: "Open raw diff" })).toHaveAttribute(
@@ -1120,6 +1964,28 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   await page.getByRole("button", { name: "Rendered view" }).click();
   await expect(page.locator("#rendered")).toBeVisible();
   await expect(page.locator("#changes")).toBeHidden();
+  await page.getByRole("link", { name: "All changes" }).click();
+  await expect(page).toHaveURL(/#airplan-all-changes$/);
+  await expect(page.locator("[data-airplan-all-changes]")).toBeVisible();
+  await expect(page.locator("#rendered")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Open pages" })).toBeHidden();
+  const allChangesActions = page.getByRole("navigation", { name: "All changes actions" });
+  await expect(allChangesActions.getByRole("link", { name: "Back to document" })).toBeVisible();
+  await expect(allChangesActions.getByRole("link", { name: "Open raw diff" })).toBeVisible();
+  const actionPlacement = await allChangesActions.evaluate((element) => {
+    const heading = element.parentElement!.querySelector("h1")!;
+    const diff = element.parentElement!.querySelector("pre")!;
+    return {
+      beforeHeading: element.getBoundingClientRect().bottom <= heading.getBoundingClientRect().top,
+      beforeDiff: element.getBoundingClientRect().bottom <= diff.getBoundingClientRect().top,
+    };
+  });
+  expect(actionPlacement).toEqual({ beforeHeading: true, beforeDiff: true });
+  await page.reload();
+  await expect(page.locator("[data-airplan-all-changes]")).toBeVisible();
+  await page.goBack();
+  await expect(page).not.toHaveURL(/#airplan-all-changes$/);
+  await expect(page.locator("#rendered")).toBeVisible();
 });
 
 test("rendered page controls work", async ({ context, page }, testInfo) => {
@@ -1132,22 +1998,22 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
   await expect(page.locator("#rendered").getByText("This fixture verifies")).toBeVisible();
   const toolbar = page.getByRole("navigation", { name: "Document controls" });
   const narrow = testInfo.project.name.startsWith("narrow-");
-  await expect(toolbar).toHaveCSS("justify-content", narrow ? "stretch" : "flex-end");
+  await expect(toolbar).toHaveCSS("justify-content", "flex-end");
   await expect
     .poll(() =>
       toolbar.evaluate((element) =>
-        Array.from(
-          element.querySelectorAll(".viewtoggle, .copy-source, .download, .raw, .appearance"),
-        )
+        Array.from(element.querySelectorAll(".copy-source, .download, .raw, .appearance"))
           .filter((child) => !(child as HTMLElement).hidden)
           .map((child) =>
             Array.from(child.classList).find((name) =>
-              ["viewtoggle", "copy-source", "download", "raw", "appearance"].includes(name),
+              ["copy-source", "download", "raw", "appearance"].includes(name),
             ),
           ),
       ),
     )
-    .toEqual(["viewtoggle", "copy-source", "appearance"]);
+    .toEqual(["copy-source", "appearance"]);
+  await expect(page.locator(".reader-controls .viewtoggle")).toBeVisible();
+  await expect(toolbar.locator(".viewtoggle")).toHaveCount(0);
   const dividerDisplay = await page
     .locator(".appearance")
     .evaluate((element) => getComputedStyle(element, "::before").display);
@@ -1159,43 +2025,22 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
     const alignment = await toolbar.evaluate((element) => {
       const bounds = element.getBoundingClientRect();
       const styles = getComputedStyle(element);
-      const view = element.querySelector(".viewtoggle")!.getBoundingClientRect();
       const theme = element.querySelector(".appearance")!.getBoundingClientRect();
       const copy = element.querySelector(".copy-source")!.getBoundingClientRect();
       const fileActions = element.querySelector(".file-actions")!.getBoundingClientRect();
       return {
-        left: view.left - bounds.left,
-        leftPadding: Number.parseFloat(styles.paddingLeft),
         right: bounds.right - theme.right,
         rightPadding: Number.parseFloat(styles.paddingRight),
-        viewCenter: view.top + view.height / 2,
         themeCenter: theme.top + theme.height / 2,
-        firstRowBottom: Math.max(view.bottom, theme.bottom),
-        copyTop: copy.top,
-        actionsLeft: fileActions.left - bounds.left,
+        copyCenter: copy.top + copy.height / 2,
+        actionsRight: bounds.right - fileActions.right,
       };
     });
-    expect(alignment.left).toBeCloseTo(alignment.leftPadding, 0);
     expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
-    expect(alignment.viewCenter).toBeCloseTo(alignment.themeCenter, 0);
-    expect(alignment.copyTop).toBeGreaterThan(alignment.firstRowBottom);
-    expect(alignment.actionsLeft).toBeCloseTo(alignment.leftPadding, 0);
+    expect(alignment.copyCenter).toBeCloseTo(alignment.themeCenter, 0);
+    expect(alignment.actionsRight).toBeGreaterThanOrEqual(0);
     expect(dividerDisplay).toBe("none");
   } else {
-    const alignment = await toolbar.evaluate((element) => {
-      const bounds = element.getBoundingClientRect();
-      const styles = getComputedStyle(element);
-      const view = element.querySelector(".viewtoggle")!.getBoundingClientRect();
-      const theme = element.querySelector(".appearance")!.getBoundingClientRect();
-      return {
-        left: view.left - bounds.left,
-        leftPadding: Number.parseFloat(styles.paddingLeft),
-        right: bounds.right - theme.right,
-        rightPadding: Number.parseFloat(styles.paddingRight),
-      };
-    });
-    expect(alignment.left).toBeCloseTo(alignment.leftPadding, 0);
-    expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
     expect(dividerDisplay).not.toBe("none");
     const dividerSpacing = await page.locator(".appearance").evaluate((element) => {
       const bounds = element.getBoundingClientRect();
@@ -1268,15 +2113,8 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
   await expect(page.locator("html")).toHaveAttribute("data-airplan-mode", "system");
   await expect(systemTheme).toHaveAttribute("aria-pressed", "true");
 
-  const inlineToc = page.locator("#toc");
-  await inlineToc.getByRole("link", { name: "Details" }).click();
-  await expect(page).toHaveURL(/#details$/);
-  await expect(page.getByRole("heading", { name: "Details" })).toBeVisible();
-
   if (testInfo.project.name.startsWith("narrow-")) {
-    await expect
-      .poll(() => inlineToc.evaluate((element) => element.getBoundingClientRect().bottom))
-      .toBeLessThan(0);
+    await expect(page.locator("#toc")).toBeHidden();
     const openToc = page.getByRole("button", {
       name: "Open table of contents",
     });
@@ -1288,6 +2126,11 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
     await dialog.getByRole("link", { name: "Code sample" }).click();
     await expect(dialog).toBeHidden();
     await expect(page).toHaveURL(/#code-sample$/);
+  } else {
+    const inlineToc = page.locator("#toc");
+    await inlineToc.getByRole("link", { name: "Details" }).click();
+    await expect(page).toHaveURL(/#details$/);
+    await expect(page.getByRole("heading", { name: "Details" })).toBeVisible();
   }
 
   const renderedButton = page.getByRole("button", { name: "Rendered view" });
@@ -1798,15 +2641,12 @@ test("uploaded source controls share the first row on narrow screens", async ({
     const theme = element.querySelector(".appearance")!.getBoundingClientRect();
     return {
       actionsCenter: actions.top + actions.height / 2,
-      actionsLeft: actions.left - bounds.left,
-      leftPadding: Number.parseFloat(styles.paddingLeft),
       right: bounds.right - theme.right,
       rightPadding: Number.parseFloat(styles.paddingRight),
       themeCenter: theme.top + theme.height / 2,
     };
   });
   expect(alignment.actionsCenter).toBeCloseTo(alignment.themeCenter, 0);
-  expect(alignment.actionsLeft).toBeCloseTo(alignment.leftPadding, 0);
   expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
 });
 

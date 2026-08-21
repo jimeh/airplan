@@ -99,29 +99,22 @@ func (c *Client) UploadDocument(
 	metadata DocumentMetadata,
 	document io.Reader,
 ) (UploadResult, error) {
-	if document == nil {
-		return UploadResult{}, errors.New("airplan document reader is nil")
-	}
-	body, contentType := multipartBody(func(writer *multipart.Writer) error {
-		if err := writeMetadataPart(writer, metadata); err != nil {
-			return err
-		}
-		header := make(textproto.MIMEHeader)
-		header.Set(
-			"Content-Disposition",
-			mime.FormatMediaType("form-data", map[string]string{
-				"name":     "document",
-				"filename": metadata.Name,
-			}),
-		)
-		header.Set("Content-Type", "application/octet-stream")
-		part, err := writer.CreatePart(header)
-		if err != nil {
-			return err
-		}
-		_, err = io.Copy(part, document)
-		return err
+	return c.UploadDocumentBundle(ctx, DocumentUpload{
+		Metadata: metadata, Document: document,
 	})
+}
+
+// UploadDocumentBundle streams an ordered document multipart request.
+func (c *Client) UploadDocumentBundle(
+	ctx context.Context, upload DocumentUpload,
+) (UploadResult, error) {
+	body, contentType, err := encodeDocumentMultipart(
+		upload.Metadata, upload.Metadata.Name, upload.Document,
+		upload.Pages, upload.Assets,
+	)
+	if err != nil {
+		return UploadResult{}, err
+	}
 	response, err := c.generated.UploadDocumentWithBody(ctx, contentType, body)
 	if err != nil {
 		return UploadResult{}, err
@@ -132,30 +125,50 @@ func (c *Client) UploadDocument(
 func (c *Client) UpdateDocument(
 	ctx context.Context, metadata UpdateDocumentMetadata, document io.Reader,
 ) (UpdateDocumentResult, error) {
-	if document == nil {
-		return UpdateDocumentResult{}, errors.New("airplan document reader is nil")
-	}
-	body, contentType := multipartBody(func(writer *multipart.Writer) error {
-		if err := writeMetadataPart(writer, metadata); err != nil {
-			return err
-		}
-		header := make(textproto.MIMEHeader)
-		header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{
-			"name": "document", "filename": metadata.Name,
-		}))
-		header.Set("Content-Type", "application/octet-stream")
-		part, err := writer.CreatePart(header)
-		if err != nil {
-			return err
-		}
-		_, err = io.Copy(part, document)
-		return err
+	return c.UpdateDocumentBundle(ctx, CreateDocumentRevisionUpload{
+		Metadata: metadata, Document: document,
 	})
-	response, err := c.generated.UpdateDocumentWithBody(ctx, contentType, body)
+}
+
+// UpdateDocumentBundle sends revision data to the deprecated compatibility
+// route. Callers choose the route before opening this non-replayable body.
+func (c *Client) UpdateDocumentBundle(
+	ctx context.Context, upload CreateDocumentRevisionUpload,
+) (DocumentRevisionResult, error) {
+	body, contentType, err := encodeDocumentMultipart(
+		upload.Metadata, upload.Metadata.Name, upload.Document,
+		upload.Pages, upload.Assets,
+	)
 	if err != nil {
-		return UpdateDocumentResult{}, err
+		return DocumentRevisionResult{}, err
 	}
-	return decodeResponse[UpdateDocumentResult](response, http.StatusCreated)
+	response, err := c.generated.UpdateDocumentWithBody( //nolint:staticcheck // Deprecated route is the compatibility fallback.
+		ctx, contentType, body,
+	)
+	if err != nil {
+		return DocumentRevisionResult{}, err
+	}
+	return decodeResponse[DocumentRevisionResult](response, http.StatusCreated)
+}
+
+// CreateDocumentRevision sends revision data to the canonical route.
+func (c *Client) CreateDocumentRevision(
+	ctx context.Context, upload CreateDocumentRevisionUpload,
+) (DocumentRevisionResult, error) {
+	body, contentType, err := encodeDocumentMultipart(
+		upload.Metadata, upload.Metadata.Name, upload.Document,
+		upload.Pages, upload.Assets,
+	)
+	if err != nil {
+		return DocumentRevisionResult{}, err
+	}
+	response, err := c.generated.CreateDocumentRevisionWithBody(
+		ctx, contentType, body,
+	)
+	if err != nil {
+		return DocumentRevisionResult{}, err
+	}
+	return decodeResponse[DocumentRevisionResult](response, http.StatusCreated)
 }
 
 // UploadCollection streams collection members in caller order.
@@ -467,6 +480,123 @@ func responseProblem(response *http.Response) error {
 	return &ProblemError{Problem: problem}
 }
 
+func encodeDocumentMultipart(
+	metadata any, documentName string, document io.Reader,
+	pages []DocumentPage, assets []DocumentAsset,
+) (io.Reader, string, error) {
+	if document == nil {
+		return nil, "", errors.New("airplan document reader is nil")
+	}
+	for _, page := range pages {
+		if page.Reader == nil {
+			return nil, "", fmt.Errorf(
+				"airplan managed page reader %q is nil", page.Path,
+			)
+		}
+		if page.Size < 0 {
+			return nil, "", fmt.Errorf(
+				"airplan managed page %q has a negative size", page.Path,
+			)
+		}
+	}
+	for index := range assets {
+		asset := &assets[index]
+		if asset.Reader == nil {
+			return nil, "", fmt.Errorf("airplan asset reader %q is nil", asset.Path)
+		}
+		if asset.Size < 0 {
+			return nil, "", fmt.Errorf("airplan asset %q has a negative size", asset.Path)
+		}
+		if asset.Start < 0 {
+			return nil, "", fmt.Errorf("airplan asset %q has an invalid start offset", asset.Path)
+		}
+	}
+	encodedMetadata, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, "", fmt.Errorf("encode document metadata: %w", err)
+	}
+	encodedMetadata = append(encodedMetadata, '\n')
+	if int64(len(encodedMetadata)) > defaultMaxMetadataBytes {
+		return nil, "", fmt.Errorf(
+			"airplan document metadata exceeds the %d-byte limit",
+			defaultMaxMetadataBytes,
+		)
+	}
+	body, contentType := multipartBody(func(writer *multipart.Writer) error {
+		if err := writeEncodedMetadataPart(writer, encodedMetadata); err != nil {
+			return err
+		}
+		if err := writeStreamingPart(
+			writer, "document", documentName, "application/octet-stream", document,
+		); err != nil {
+			return err
+		}
+		for _, page := range pages {
+			header := multipartPartHeader(
+				"pages", page.Path, "text/plain; charset=utf-8",
+			)
+			part, err := writer.CreatePart(header)
+			if err != nil {
+				return err
+			}
+			if _, err = io.CopyN(part, page.Reader, page.Size); err != nil {
+				return fmt.Errorf("airplan managed page %q was truncated: %w", page.Path, err)
+			}
+			if _, err = io.CopyN(io.Discard, page.Reader, 1); err == nil {
+				return fmt.Errorf("airplan managed page %q exceeds its measured size", page.Path)
+			} else if !errors.Is(err, io.EOF) {
+				return fmt.Errorf("check managed page %q size: %w", page.Path, err)
+			}
+		}
+		for _, asset := range assets {
+			if _, err := asset.Reader.Seek(asset.Start, io.SeekStart); err != nil {
+				return fmt.Errorf("seek asset %q: %w", asset.Path, err)
+			}
+			contentType := asset.ContentType
+			if contentType == "" {
+				contentType = "application/octet-stream"
+			}
+			header := multipartPartHeader("assets", asset.Path, contentType)
+			part, err := writer.CreatePart(header)
+			if err != nil {
+				return err
+			}
+			if _, err = io.CopyN(part, asset.Reader, asset.Size); err != nil {
+				return fmt.Errorf("airplan asset %q was truncated: %w", asset.Path, err)
+			}
+			if _, err = io.CopyN(io.Discard, asset.Reader, 1); err == nil {
+				return fmt.Errorf("airplan asset %q exceeds its declared size", asset.Path)
+			} else if !errors.Is(err, io.EOF) {
+				return fmt.Errorf("check asset %q size: %w", asset.Path, err)
+			}
+		}
+		return nil
+	})
+	return body, contentType, nil
+}
+
+func multipartPartHeader(name, filename, contentType string) textproto.MIMEHeader {
+	header := make(textproto.MIMEHeader)
+	parameters := map[string]string{"name": name}
+	if filename != "" {
+		parameters["filename"] = filename
+	}
+	header.Set("Content-Disposition", mime.FormatMediaType("form-data", parameters))
+	header.Set("Content-Type", contentType)
+	return header
+}
+
+func writeStreamingPart(
+	writer *multipart.Writer, name, filename, contentType string, reader io.Reader,
+) error {
+	part, err := writer.CreatePart(multipartPartHeader(name, filename, contentType))
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(part, reader)
+	return err
+}
+
 func multipartBody(write func(*multipart.Writer) error) (io.Reader, string) {
 	reader, writer := io.Pipe()
 	multipartWriter := multipart.NewWriter(writer)
@@ -482,6 +612,14 @@ func multipartBody(write func(*multipart.Writer) error) (io.Reader, string) {
 }
 
 func writeMetadataPart(writer *multipart.Writer, metadata any) error {
+	encoded, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	return writeEncodedMetadataPart(writer, append(encoded, '\n'))
+}
+
+func writeEncodedMetadataPart(writer *multipart.Writer, encoded []byte) error {
 	header := make(textproto.MIMEHeader)
 	header.Set(
 		"Content-Disposition",
@@ -492,5 +630,6 @@ func writeMetadataPart(writer *multipart.Writer, metadata any) error {
 	if err != nil {
 		return err
 	}
-	return json.NewEncoder(part).Encode(metadata)
+	_, err = part.Write(encoded)
+	return err
 }

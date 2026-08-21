@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"path"
@@ -41,7 +42,8 @@ func (o *HTTPOperations) Capabilities(
 	return httpapi.Capabilities{
 		APIVersion: "v1", ServerVersion: version,
 		Operations: []string{
-			"upload_document", "upload_collection", "inspect_upload",
+			"upload_document", "create_document_revision",
+			"upload_collection", "inspect_upload",
 			"get_upload", "delete_upload", "protect_upload",
 			"unprotect_upload", "list_manifest",
 			"list_storage", "sync_manifest", "preview_purge",
@@ -55,6 +57,18 @@ func (o *HTTPOperations) Capabilities(
 			DocumentBytes:        DefaultMaxInputSize,
 			CollectionFileBytes:  DefaultMaxCollectionFileSize,
 			CollectionTotalBytes: DefaultMaxCollectionTotalSize,
+		},
+		DocumentBundle: &httpapi.DocumentBundleCapabilities{
+			ManagedPages: true, Assets: true, CanonicalRevisionRoute: true,
+			MaxItems:              MaxDocumentItems,
+			MaxPageBytes:          DefaultMaxInputSize,
+			MaxTotalPageBytes:     DefaultMaxTotalPageSize,
+			MaxGeneratedPageBytes: DefaultMaxGeneratedPageSize,
+			MaxAssetBytes:         DefaultMaxAssetSize,
+			MaxTotalAssetBytes:    DefaultMaxDocumentAssetTotalSize,
+			MaxMetadataBytes:      256 << 10,
+			MaxRequestBytes: DefaultMaxTotalPageSize +
+				DefaultMaxDocumentAssetTotalSize + 16<<20,
 		},
 		MarkerVersions: supportedMarkerVersions(),
 	}, nil
@@ -73,22 +87,43 @@ func supportedMarkerVersions() []int {
 func (o *HTTPOperations) UpdateDocument(
 	ctx context.Context, upload httpapi.UpdateDocumentUpload,
 ) (httpapi.UpdateDocumentResult, error) {
+	return o.CreateDocumentRevision(ctx, upload)
+}
+
+// CreateDocumentRevision invokes the canonical complete-document operation.
+func (o *HTTPOperations) CreateDocumentRevision(
+	ctx context.Context, upload httpapi.CreateDocumentRevisionUpload,
+) (httpapi.DocumentRevisionResult, error) {
 	client, err := o.client()
 	if err != nil {
-		return httpapi.UpdateDocumentResult{}, err
+		return httpapi.DocumentRevisionResult{}, err
 	}
-	result, err := client.UpdateDocument(ctx, UpdateDocumentInput{
-		Target: upload.Metadata.Target,
-		Input: Input{
-			Reader: upload.Document, Name: upload.Metadata.Name,
-			Format: "md", Title: upload.Metadata.Title,
-			MaxSize: upload.Metadata.MaxSize,
-		},
+	repositoryURL := ""
+	if upload.Metadata.RepositoryURL != "" {
+		repositoryURL, err = hostedRepositoryURL(upload.Metadata.RepositoryURL)
+		if err != nil {
+			return httpapi.DocumentRevisionResult{}, apiOperationError(err)
+		}
+	}
+	document := coreDocumentInput(
+		upload.Metadata.Name, string(upload.Metadata.Format),
+		upload.Metadata.Title, upload.Metadata.Slug, upload.Metadata.Lang,
+		repositoryURL,
+		upload.Metadata.MaxSize, //nolint:staticcheck // Protocol compatibility alias.
+		upload.Metadata.MaxPageSize,
+		upload.Metadata.MaxTotalPageSize, upload.Metadata.MaxAssetSize,
+		upload.Metadata.MaxTotalSize, upload.Document, upload.Pages,
+		upload.Assets,
+	)
+	document.maxGeneratedPageSize = httpapi.GeneratedPageLimit(ctx)
+	result, err := client.CreateDocumentRevision(ctx, CreateDocumentRevisionInput{
+		Target:   upload.Metadata.Target,
+		Document: document,
 	})
 	if err != nil {
-		return httpapi.UpdateDocumentResult{}, apiOperationError(err)
+		return httpapi.DocumentRevisionResult{}, apiOperationError(err)
 	}
-	return wireUpdateDocumentResult(result), nil
+	return wireDocumentRevisionResult(result), nil
 }
 
 // UploadDocument invokes the shared document operation.
@@ -103,17 +138,52 @@ func (o *HTTPOperations) UploadDocument(
 	if err != nil {
 		return httpapi.UploadResult{}, apiOperationError(err)
 	}
-	result, err := client.Upload(ctx, Input{
-		Reader: upload.Document, Name: upload.Metadata.Name,
-		Format: string(upload.Metadata.Format), Title: upload.Metadata.Title,
-		Slug: upload.Metadata.Slug, Lang: upload.Metadata.Lang,
-		RepositoryURL: repositoryURL,
-		MaxSize:       upload.Metadata.MaxSize,
-	})
+	document := coreDocumentInput(
+		upload.Metadata.Name, string(upload.Metadata.Format),
+		upload.Metadata.Title, upload.Metadata.Slug, upload.Metadata.Lang,
+		repositoryURL,
+		upload.Metadata.MaxSize, //nolint:staticcheck // Protocol compatibility alias.
+		upload.Metadata.MaxPageSize,
+		upload.Metadata.MaxTotalPageSize, upload.Metadata.MaxAssetSize,
+		upload.Metadata.MaxTotalSize, upload.Document, upload.Pages,
+		upload.Assets,
+	)
+	document.maxGeneratedPageSize = httpapi.GeneratedPageLimit(ctx)
+	result, err := client.UploadDocument(ctx, document)
 	if err != nil {
 		return httpapi.UploadResult{}, apiOperationError(err)
 	}
-	return wireUploadResult(result, nil), nil
+	return wireDocumentResult(result), nil
+}
+
+func coreDocumentInput(
+	name, format, title, slug, lang, repositoryURL string,
+	maxSize, maxPageSize, maxTotalPageSize, maxAssetSize, maxTotalSize int64,
+	document io.Reader, pages []httpapi.DocumentPage,
+	assets []httpapi.DocumentAsset,
+) DocumentInput {
+	if maxPageSize == 0 {
+		maxPageSize = maxSize
+	}
+	in := DocumentInput{
+		Entry: PageInput{Reader: document, Path: name, Format: format, Title: title, Lang: lang},
+		Slug:  slug, Title: title, RepositoryURL: repositoryURL,
+		MaxPageSize: maxPageSize, MaxTotalPageSize: maxTotalPageSize,
+		MaxAssetSize: maxAssetSize, MaxTotalSize: maxTotalSize,
+	}
+	for _, page := range pages {
+		in.Pages = append(in.Pages, PageInput{
+			Reader: page.Reader, Path: page.Path, Format: string(page.Format),
+			Title: page.Title, Lang: page.Lang,
+		})
+	}
+	for _, asset := range assets {
+		in.Assets = append(in.Assets, AssetInput{
+			Reader: asset.Reader, Path: asset.Path, Size: asset.Size,
+			ContentType: asset.ContentType,
+		})
+	}
+	return in
 }
 
 // UploadCollection invokes the shared collection operation.
@@ -239,7 +309,9 @@ func wireUpgradePlan(plan UpgradeDocumentPlan) httpapi.UpgradeDocumentPlan {
 		TargetProducerVersion:     plan.TargetProducerVersion,
 		TargetRendererGeneration:  plan.TargetRendererGeneration,
 		MarkerEtag:                plan.MarkerETag, PageEtag: plan.PageETag,
-		SourceEtag: plan.SourceETag, Force: plan.Force,
+		SourceEtag:  plan.SourceETag,
+		PageEtags:   cloneStringMap(plan.PageETags),
+		SourceEtags: cloneStringMap(plan.SourceETags), Force: plan.Force,
 	}
 }
 
@@ -255,8 +327,21 @@ func coreUpgradePlan(plan httpapi.UpgradeDocumentPlan) UpgradeDocumentPlan {
 		TargetProducerVersion:     plan.TargetProducerVersion,
 		TargetRendererGeneration:  plan.TargetRendererGeneration,
 		MarkerETag:                plan.MarkerEtag, PageETag: plan.PageEtag,
-		SourceETag: plan.SourceEtag, Force: plan.Force,
+		SourceETag:  plan.SourceEtag,
+		PageETags:   cloneStringMap(plan.PageEtags),
+		SourceETags: cloneStringMap(plan.SourceEtags), Force: plan.Force,
 	}
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if values == nil {
+		return nil
+	}
+	cloned := make(map[string]string, len(values))
+	for key, value := range values {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func wireUpgradeResult(result UpgradeDocumentResult) httpapi.UpgradeDocumentResult {
@@ -291,18 +376,43 @@ func wireUploadResult(
 	}
 }
 
-func wireUpdateDocumentResult(result *UpdateDocumentResult) httpapi.UpdateDocumentResult {
-	return httpapi.UpdateDocumentResult{
-		ID: result.ID, Kind: httpapi.UpdateDocumentResultKind(result.Kind),
-		URL: result.URL, Key: result.Key, SourceURL: result.SourceURL,
-		SourceKey: result.SourceKey, Bucket: result.Bucket, Bytes: result.Bytes,
-		ContentType: result.ContentType, Title: result.Title,
-		CreatedAt: result.CreatedAt, MarkerVersion: result.MarkerVersion,
-		MarkerKey: result.MarkerKey, Format: result.Format, Slug: result.Slug,
-		RepositoryURL: result.RepositoryURL, Warnings: serverSafeWarnings(result.Warnings),
-		RevisionChainID: result.RevisionChainID, Revision: result.Revision,
-		LatestRevision: result.LatestRevision, PreviousURL: result.PreviousURL,
-		DiffURL: result.DiffURL, Unchanged: result.Unchanged,
+func wireDocumentResult(result *DocumentResult) httpapi.UploadResult {
+	wire := wireUploadResult(&result.Result, nil)
+	for _, page := range result.Pages {
+		wire.Pages = append(wire.Pages, httpapi.PageResult{
+			Path: page.Path, Format: page.Format, Title: page.Title,
+			URL: page.URL, Key: page.Key, SourceURL: page.SourceURL,
+			SourceKey: page.SourceKey, Bytes: page.Bytes,
+			SourceBytes: page.SourceBytes,
+		})
+	}
+	for _, asset := range result.Assets {
+		wire.Assets = append(wire.Assets, httpapi.AssetResult{
+			Path: asset.Path, URL: asset.URL, Key: asset.Key,
+			Bytes: asset.Bytes, ContentType: asset.ContentType,
+		})
+	}
+	return wire
+}
+
+func wireDocumentRevisionResult(
+	result *DocumentRevisionResult,
+) httpapi.DocumentRevisionResult {
+	document := wireDocumentResult(&result.DocumentResult)
+	return httpapi.DocumentRevisionResult{
+		ID: document.ID, Kind: httpapi.DocumentRevisionResultKind(document.Kind),
+		URL: document.URL, Key: document.Key,
+		SourceURL: document.SourceURL, SourceKey: document.SourceKey,
+		Bucket: document.Bucket, Bytes: document.Bytes,
+		ContentType: document.ContentType, Title: document.Title,
+		CreatedAt: document.CreatedAt, MarkerVersion: document.MarkerVersion,
+		MarkerKey: document.MarkerKey, Format: document.Format,
+		Slug: document.Slug, RepositoryURL: document.RepositoryURL,
+		RevisionChainID: document.RevisionChainID, Revision: document.Revision,
+		LatestRevision: document.LatestRevision, Warnings: document.Warnings,
+		Pages: document.Pages, Assets: document.Assets,
+		PreviousURL: result.PreviousURL, DiffURL: result.DiffURL,
+		Unchanged: result.Unchanged,
 	}
 }
 
@@ -404,6 +514,22 @@ func wireInspection(result *UploadInspection) httpapi.UploadInspection {
 		wireFile := wireInspectedObject(file)
 		if wireFile != nil {
 			wire.Files = append(wire.Files, *wireFile)
+		}
+	}
+	for _, page := range result.Pages {
+		wirePage := httpapi.InspectedPage{
+			Path: page.Path, Format: page.Format, Title: page.Title,
+			Lang: page.Lang,
+		}
+		if object := wireInspectedObject(page.Page); object != nil {
+			wirePage.Page = *object
+		}
+		wirePage.Source = wireInspectedObject(page.Source)
+		wire.Pages = append(wire.Pages, wirePage)
+	}
+	for _, asset := range result.Assets {
+		if wireAsset := wireInspectedObject(asset); wireAsset != nil {
+			wire.Assets = append(wire.Assets, *wireAsset)
 		}
 	}
 	if wire.Files == nil {
@@ -831,6 +957,13 @@ func apiOperationError(err error) error {
 	if errors.Is(err, ErrBinaryInput) || errors.Is(err, ErrInvalidUTF8) ||
 		errors.Is(err, ErrEmptyInput) ||
 		errors.Is(err, errInvalidHostedRepository) {
+		return httpapi.NewProblemError(
+			http.StatusUnprocessableEntity, "invalid_upload",
+			"Invalid upload", "The request does not describe a valid Airplan upload.",
+		)
+	}
+	var invalidDocument *InvalidDocumentInputError
+	if errors.As(err, &invalidDocument) {
 		return httpapi.NewProblemError(
 			http.StatusUnprocessableEntity, "invalid_upload",
 			"Invalid upload", "The request does not describe a valid Airplan upload.",

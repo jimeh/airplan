@@ -57,7 +57,11 @@ type rootOptions struct {
 	mermaidURL         string
 	repository         string
 	maxSize            string
+	maxTotalPageSize   string
+	maxAssetSize       string
 	maxTotalSize       string
+	pages              []string
+	assets             []string
 	template           string
 	collectionTemplate string
 	files              bool
@@ -74,6 +78,17 @@ type rootOptions struct {
 	region        string
 	publicBaseURL string
 	keyPrefix     string
+}
+
+type countingReader struct {
+	reader io.Reader
+	bytes  int64
+}
+
+func (r *countingReader) Read(buffer []byte) (int, error) {
+	n, err := r.reader.Read(buffer)
+	r.bytes += int64(n)
+	return n, err
 }
 
 func newRootCmd() *cobra.Command {
@@ -109,8 +124,16 @@ func newRootCmd() *cobra.Command {
 		"page title (default: from content)")
 	f.StringVar(&opts.maxSize, "max-size", "10MiB",
 		"per-input limit (10MiB documents, 1GiB collections); 0 = no limit")
+	f.StringVar(&opts.maxTotalPageSize, "max-total-page-size", "100MiB",
+		"document managed-source total limit; 0 = no limit")
+	f.StringVar(&opts.maxAssetSize, "max-asset-size", "1GiB",
+		"document per-asset limit; 0 = no limit")
 	f.StringVar(&opts.maxTotalSize, "max-total-size", "2GiB",
-		"collection total size limit; 0 = no limit")
+		"document asset or collection total size limit; 0 = no limit")
+	f.StringArrayVar(&opts.pages, "page", nil,
+		"managed page file (repeatable; requires a named entry)")
+	f.StringArrayVar(&opts.assets, "asset", nil,
+		"supporting asset file (repeatable; requires a named entry)")
 	f.BoolVar(&opts.files, "files", false,
 		"upload named inputs as one file collection")
 	f.BoolVarP(&opts.json, "json", "j", false,
@@ -227,6 +250,18 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	if err := validateModeFlags(cmd, collection); err != nil {
 		return err
 	}
+	if !collection && len(opts.pages) == 0 && len(opts.assets) == 0 {
+		for _, name := range []string{"max-total-page-size", "max-asset-size", "max-total-size"} {
+			if !cmd.Flags().Changed(name) {
+				continue
+			}
+			scope := "document bundles"
+			if name == "max-total-size" {
+				scope += " or collections"
+			}
+			return fmt.Errorf("airplan: --%s is only valid for %s", name, scope)
+		}
+	}
 	if collection && !cmd.Flags().Changed("max-size") {
 		opts.maxSize = "1GiB"
 	}
@@ -246,6 +281,20 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	}
 	if maxTotalSize == 0 {
 		maxTotalSize = -1
+	}
+	maxTotalPageSize, err := airplan.ParseSize(opts.maxTotalPageSize)
+	if err != nil {
+		return fmt.Errorf("--max-total-page-size: %s", strings.TrimPrefix(err.Error(), "airplan: "))
+	}
+	if maxTotalPageSize == 0 {
+		maxTotalPageSize = -1
+	}
+	maxAssetSize, err := airplan.ParseSize(opts.maxAssetSize)
+	if err != nil {
+		return fmt.Errorf("--max-asset-size: %s", strings.TrimPrefix(err.Error(), "airplan: "))
+	}
+	if maxAssetSize == 0 {
+		maxAssetSize = -1
 	}
 
 	// The resolved timeout bounds the upload operation after config
@@ -269,6 +318,41 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	if collection {
 		return runCollection(cmd, ctx, client, args, opts, maxSize, maxTotalSize)
 	}
+	if len(opts.pages) != 0 || len(opts.assets) != 0 {
+		if len(args) != 1 {
+			return errors.New("airplan: --page and --asset require exactly one named entry file")
+		}
+		opened, openErr := openDocumentBundle(args[0], opts.pages, opts.assets)
+		if openErr != nil {
+			return openErr
+		}
+		defer opened.close()
+		opened.input.Entry.Format = opts.format
+		opened.input.Entry.Title = opts.title
+		opened.input.Entry.Lang = opts.lang
+		opened.input.Slug = opts.slug
+		opened.input.Title = opts.title
+		opened.input.MaxPageSize = maxSize
+		opened.input.MaxTotalPageSize = maxTotalPageSize
+		opened.input.MaxAssetSize = maxAssetSize
+		opened.input.MaxTotalSize = maxTotalSize
+		res, uploadErr := client.UploadDocument(ctx, opened.input)
+		if uploadErr != nil {
+			return uploadErr
+		}
+		for _, warning := range res.Warnings {
+			fmt.Fprintf(stderr, "airplan: warning: %s\n", warning)
+		}
+		if err := printDocumentResult(cmd.OutOrStdout(), res, opts.json); err != nil {
+			return err
+		}
+		if opts.open {
+			if err := openBrowser(res.URL); err != nil {
+				fmt.Fprintf(stderr, "airplan: warning: could not open browser: %s\n", err)
+			}
+		}
+		return nil
+	}
 
 	in := airplan.Input{
 		Format:  opts.format,
@@ -289,6 +373,8 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 		in.Name = args[0]
 	}
 
+	measured := &countingReader{reader: in.Reader}
+	in.Reader = measured
 	res, err := client.Upload(ctx, in)
 	if err != nil {
 		if errors.Is(err, airplan.ErrInputTooLarge) {
@@ -302,7 +388,9 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	for _, w := range res.Warnings {
 		fmt.Fprintf(stderr, "airplan: warning: %s\n", w)
 	}
-	if err := printResult(cmd.OutOrStdout(), res, opts.json); err != nil {
+	if err := printResult(
+		cmd.OutOrStdout(), res, in.Name, measured.bytes, opts.json,
+	); err != nil {
 		return err
 	}
 	if opts.open {
@@ -323,20 +411,52 @@ type jsonResult struct {
 	ContentType string `json:"content_type"`
 }
 
-func printResult(w io.Writer, res *airplan.Result, jsonOutput bool) error {
+func printResult(
+	w io.Writer, res *airplan.Result, logicalPath string, sourceBytes int64,
+	jsonOutput bool,
+) error {
 	if !jsonOutput {
 		_, err := fmt.Fprintln(w, res.URL)
 		return err
 	}
 
-	out := jsonResult{
+	out := struct {
+		jsonResult
+		Pages []airplan.PageResult `json:"pages"`
+	}{jsonResult: jsonResult{
 		URL:         res.URL,
 		Key:         res.Key,
 		SourceURL:   res.SourceURL,
 		Bucket:      res.Bucket,
 		Bytes:       res.Bytes,
 		ContentType: res.ContentType,
+	}}
+	if logicalPath == "" {
+		logicalPath = "document." + res.Format
+	} else {
+		logicalPath = filepath.Base(logicalPath)
 	}
+	out.Pages = []airplan.PageResult{{
+		Path: logicalPath, Format: res.Format, Title: res.Title,
+		URL: res.URL, Key: res.Key, SourceURL: res.SourceURL,
+		SourceKey: res.SourceKey, Bytes: res.Bytes,
+	}}
+	if res.SourceKey != "" {
+		out.Pages[0].SourceBytes = sourceBytes
+	}
+	return json.NewEncoder(w).Encode(out)
+}
+
+func printDocumentResult(w io.Writer, res *airplan.DocumentResult, jsonOutput bool) error {
+	if !jsonOutput {
+		_, err := fmt.Fprintln(w, res.URL)
+		return err
+	}
+	out := struct {
+		jsonResult
+		Pages  []airplan.PageResult  `json:"pages,omitempty"`
+		Assets []airplan.AssetResult `json:"assets,omitempty"`
+	}{jsonResult: jsonResult{URL: res.URL, Key: res.Key, SourceURL: res.SourceURL, Bucket: res.Bucket, Bytes: res.Bytes, ContentType: res.ContentType}, Pages: res.Pages, Assets: res.Assets}
 	return json.NewEncoder(w).Encode(out)
 }
 
@@ -398,6 +518,12 @@ func flagOverrides(cmd *cobra.Command, opts *rootOptions) airplan.Settings {
 }
 
 func selectCollectionMode(args []string, opts *rootOptions) (bool, error) {
+	if len(opts.pages) != 0 || len(opts.assets) != 0 {
+		if opts.files {
+			return false, errors.New("airplan: --page and --asset cannot be used with --files")
+		}
+		return false, nil
+	}
 	if opts.files {
 		if len(args) == 0 || (len(args) == 1 && args[0] == "-") {
 			return false, errors.New("airplan: --files requires one or more named files")
@@ -457,8 +583,8 @@ func sniffInputIsBinary(r io.Reader) (bool, error) {
 }
 
 func validateModeFlags(cmd *cobra.Command, collection bool) error {
-	docOnly := []string{"format", "lang", "slug", "template", "no-source", "no-external-assets", "mermaid-url"}
-	collectionOnly := []string{"files", "collection-template", "max-total-size"}
+	docOnly := []string{"format", "lang", "slug", "template", "no-source", "no-external-assets", "mermaid-url", "page", "asset", "max-total-page-size", "max-asset-size"}
+	collectionOnly := []string{"files", "collection-template"}
 	if collection {
 		for _, name := range docOnly {
 			if cmd.Flags().Changed(name) {

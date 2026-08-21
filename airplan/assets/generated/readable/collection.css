@@ -90,8 +90,16 @@ body {
 }
 
 .mode-toggle button {
+  display: inline-flex;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  background: none;
   border: 0;
   border-radius: 6px;
+  justify-content: center;
+  align-items:  center;
+  gap: .4rem;
   padding: .3rem .55rem;
 }
 
@@ -232,6 +240,13 @@ body {
 
 [hidden] {
   display: none !important;
+}
+
+@media (max-width: 48rem) {
+  .toolbar button, .toolbar a {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 @media (max-width: 36rem) {

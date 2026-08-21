@@ -3,6 +3,7 @@ package airplan
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -33,8 +36,8 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 		localFiles bool
 		wantTools  int
 	}{
-		{name: "stdio", localFiles: true, wantTools: 13},
-		{name: "hosted HTTP", localFiles: false, wantTools: 12},
+		{name: "stdio", localFiles: true, wantTools: 16},
+		{name: "hosted HTTP", localFiles: false, wantTools: 13},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -62,10 +65,16 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 				t.Fatalf("tools = %d, want %d", len(tools.Tools), test.wantTools)
 			}
 			hasUploadFiles := false
+			hasUploadDocumentFiles := false
+			hasRevisionFiles := false
+			hasNewRevision := false
 			hasUpdateDocument := false
 			uploadDocumentDescription := ""
 			for _, tool := range tools.Tools {
 				hasUploadFiles = hasUploadFiles || tool.Name == "upload_files"
+				hasUploadDocumentFiles = hasUploadDocumentFiles || tool.Name == "upload_document_files"
+				hasRevisionFiles = hasRevisionFiles || tool.Name == "new_document_revision_files"
+				hasNewRevision = hasNewRevision || tool.Name == "new_document_revision"
 				hasUpdateDocument = hasUpdateDocument || tool.Name == "update_document"
 				if tool.Name == "upload_document" {
 					uploadDocumentDescription = tool.Description
@@ -74,8 +83,11 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 			if hasUploadFiles != test.localFiles {
 				t.Fatalf("upload_files present = %t", hasUploadFiles)
 			}
-			if !hasUpdateDocument {
-				t.Fatal("update_document tool is missing")
+			if hasUploadDocumentFiles != test.localFiles || hasRevisionFiles != test.localFiles {
+				t.Fatalf("local document tools = upload %t revision %t", hasUploadDocumentFiles, hasRevisionFiles)
+			}
+			if !hasNewRevision || !hasUpdateDocument {
+				t.Fatalf("revision tools = canonical %t compatibility %t", hasNewRevision, hasUpdateDocument)
 			}
 			for _, feature := range []string{
 				"Mermaid fences", "GitHub alerts", "responsive columns",
@@ -150,17 +162,17 @@ func TestMCPUpgradeDocumentPreviewsByDefault(t *testing.T) {
 }
 
 func TestMCPUpdateDocumentInvokesRevisionOperation(t *testing.T) {
-	transport := &mcpTestTransport{updateResult: &UpdateDocumentResult{
-		Result: Result{
+	transport := &mcpTestTransport{revisionResult: &DocumentRevisionResult{
+		DocumentResult: DocumentResult{Result: Result{
 			ID: "bbbbbbbbbbbbbbbbbbbbbbbbbb", Kind: string(UploadKindDocument),
 			URL: "https://plans.example.com/bbbbbbbbbbbbbbbbbbbbbbbbbb/plan.html",
 			Key: "bbbbbbbbbbbbbbbbbbbbbbbbbb/plan.html",
-		},
+		}},
 		PreviousURL: "https://plans.example.com/aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html",
 		DiffURL:     "https://plans.example.com/bbbbbbbbbbbbbbbbbbbbbbbbbb/" + DiffFilename,
 	}}
-	transport.updateResult.Revision = 2
-	transport.updateResult.LatestRevision = 2
+	transport.revisionResult.Revision = 2
+	transport.revisionResult.LatestRevision = 2
 	client := &Client{cfg: &Config{}, remote: transport}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -188,26 +200,87 @@ func TestMCPUpdateDocumentInvokesRevisionOperation(t *testing.T) {
 	if err != nil || result.IsError {
 		t.Fatalf("result = %+v, err = %v", result, err)
 	}
-	if transport.updateCalls != 1 ||
-		transport.updateInput.Target != "aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html" ||
-		transport.updateContent != "# Revised\n" ||
-		transport.updateInput.Input.Name != "agent-plan.md" ||
-		transport.updateInput.Input.Title != "Revised plan" ||
-		transport.updateInput.Input.MaxSize != 4096 {
-		t.Fatalf("update invocation = %#v, content %q, calls %d",
-			transport.updateInput, transport.updateContent, transport.updateCalls)
+	if transport.revisionCalls != 1 ||
+		transport.revisionInput.Target != "aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html" ||
+		transport.revisionContent != "# Revised\n" ||
+		transport.revisionInput.Document.Entry.Path != "agent-plan.md" ||
+		transport.revisionInput.Document.Entry.Title != "Revised plan" ||
+		transport.revisionInput.Document.MaxPageSize != 4096 {
+		t.Fatalf("revision invocation = %#v, content %q, calls %d",
+			transport.revisionInput, transport.revisionContent, transport.revisionCalls)
 	}
 	encoded, err := json.Marshal(result.StructuredContent)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var output UpdateDocumentResult
+	var output DocumentRevisionResult
 	if err := json.Unmarshal(encoded, &output); err != nil {
 		t.Fatal(err)
 	}
-	if output.URL != transport.updateResult.URL || output.Revision != 2 ||
-		output.PreviousURL != transport.updateResult.PreviousURL {
+	if output.URL != transport.revisionResult.URL || output.Revision != 2 ||
+		output.PreviousURL != transport.revisionResult.PreviousURL {
 		t.Fatalf("structured result = %+v", output)
+	}
+}
+
+func TestMCPUploadDocumentAcceptsInlinePagesAndAssets(t *testing.T) {
+	transport := &mcpTestTransport{documentResult: &DocumentResult{Result: Result{
+		URL: "https://plans.example.com/bbbbbbbbbbbbbbbbbbbbbbbbbb/plan.html",
+		Key: "bbbbbbbbbbbbbbbbbbbbbbbbbb/plan.html", Kind: string(UploadKindDocument),
+	}}}
+	client := &Client{cfg: &Config{}, remote: transport}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", false)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "test"}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "upload_document", Arguments: map[string]any{
+			"content": "# Entry\n", "name": "plan.md",
+			"pages": []any{map[string]any{
+				"path": "docs/design.md", "content": "# Design\n", "lang": "md",
+			}},
+			"assets": []any{map[string]any{
+				"path": "images/flow.svg", "content_base64": "PHN2Zz5mbG93PC9zdmc+",
+				"content_type": "image/svg+xml",
+			}},
+		},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("result = %+v, error = %v", result, err)
+	}
+	if transport.documentCalls != 1 || len(transport.documentInput.Pages) != 1 ||
+		len(transport.documentInput.Assets) != 1 {
+		t.Fatalf("document input = %+v, calls = %d", transport.documentInput, transport.documentCalls)
+	}
+	assetBody, err := io.ReadAll(transport.documentInput.Assets[0].Reader)
+	if err != nil || string(assetBody) != "<svg>flow</svg>" {
+		t.Fatalf("asset = %q, error = %v", assetBody, err)
+	}
+
+	invalid, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "upload_document", Arguments: map[string]any{
+			"content": "# Entry\n", "assets": []any{map[string]any{
+				"path": "bad.bin", "content_base64": "not base64",
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !invalid.IsError || transport.documentCalls != 1 {
+		t.Fatalf("invalid result = %+v, calls = %d", invalid, transport.documentCalls)
 	}
 }
 
@@ -1087,6 +1160,30 @@ func TestMCPHostedDocumentLimitAndPerCallTimeout(t *testing.T) {
 				test.requested, test.hosted, got, test.want)
 		}
 	}
+	document, err := mcpInlineDocument(mcpUploadDocumentInput{
+		Content: "# Plan\n", MaxSize: -1, MaxTotalPageSize: -1,
+		MaxAssetSize: -1, MaxTotalSize: -1,
+	}, "none", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.MaxPageSize != DefaultMaxInputSize ||
+		document.MaxTotalPageSize != DefaultMaxTotalPageSize ||
+		document.MaxAssetSize != DefaultMaxAssetSize ||
+		document.MaxTotalSize != DefaultMaxDocumentAssetTotalSize {
+		t.Fatalf("hosted limits = %+v", document)
+	}
+	document, err = mcpInlineDocument(mcpUploadDocumentInput{
+		Content: "# Plan\n", MaxSize: 1, MaxTotalPageSize: 2,
+		MaxAssetSize: 3, MaxTotalSize: 4,
+	}, "none", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.MaxPageSize != 1 || document.MaxTotalPageSize != 2 ||
+		document.MaxAssetSize != 3 || document.MaxTotalSize != 4 {
+		t.Fatalf("lower hosted limits = %+v", document)
+	}
 
 	base := context.Background()
 	client := &Client{cfg: &Config{Timeout: time.Second}}
@@ -1100,10 +1197,62 @@ func TestMCPHostedDocumentLimitAndPerCallTimeout(t *testing.T) {
 	}
 }
 
+func TestMCPDocumentToolsHandleNilOperationResults(t *testing.T) {
+	entry := filepath.Join(t.TempDir(), "plan.md")
+	if err := os.WriteFile(entry, []byte("# Plan\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	transport := &mcpTestTransport{}
+	client := &Client{cfg: &Config{}, remote: transport}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", true)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{
+		Name: "test", Version: "test",
+	}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	for _, test := range []struct {
+		name      string
+		arguments map[string]any
+	}{
+		{name: "upload_document", arguments: map[string]any{"content": "# Plan\n"}},
+		{name: "upload_document_files", arguments: map[string]any{"entry_path": entry}},
+		{name: "new_document_revision_files", arguments: map[string]any{
+			"url_or_key": "old/plan.html", "entry_path": entry,
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, callErr := session.CallTool(ctx, &mcp.CallToolParams{
+				Name: test.name, Arguments: test.arguments,
+			})
+			if callErr != nil {
+				t.Fatal(callErr)
+			}
+			if !result.IsError {
+				t.Fatalf("result = %+v, want tool error", result)
+			}
+		})
+	}
+}
+
 type mcpTestTransport struct {
 	operationTransport
 	uploadResult     *Result
 	uploadErr        error
+	documentInput    DocumentInput
+	documentResult   *DocumentResult
+	documentCalls    int
 	syncResult       *SyncManifestResult
 	syncErr          error
 	purgeResult      *PurgeResult
@@ -1122,6 +1271,10 @@ type mcpTestTransport struct {
 	updateResult     *UpdateDocumentResult
 	updateErr        error
 	updateCalls      int
+	revisionInput    CreateDocumentRevisionInput
+	revisionContent  string
+	revisionResult   *DocumentRevisionResult
+	revisionCalls    int
 
 	// Protection call recording for the protect/unprotect/delete tools.
 	protectTarget   string
@@ -1129,6 +1282,33 @@ type mcpTestTransport struct {
 	unprotectTarget string
 	deleteTarget    string
 	deleteOptions   DeleteOptions
+}
+
+func (t *mcpTestTransport) UploadDocument(
+	_ context.Context, input DocumentInput,
+) (*DocumentResult, error) {
+	t.documentCalls++
+	t.documentInput = input
+	if t.documentResult != nil {
+		return t.documentResult, t.uploadErr
+	}
+	if t.uploadResult == nil {
+		return nil, t.uploadErr
+	}
+	return &DocumentResult{Result: *t.uploadResult}, t.uploadErr
+}
+
+func (t *mcpTestTransport) CreateDocumentRevision(
+	_ context.Context, input CreateDocumentRevisionInput,
+) (*DocumentRevisionResult, error) {
+	t.revisionCalls++
+	t.revisionInput = input
+	body, err := io.ReadAll(input.Document.Entry.Reader)
+	if err != nil {
+		return nil, err
+	}
+	t.revisionContent = string(body)
+	return t.revisionResult, t.updateErr
 }
 
 func (t *mcpTestTransport) UpdateDocument(
@@ -1264,4 +1444,73 @@ func (r bearerRoundTripper) RoundTrip(
 	clone := request.Clone(request.Context())
 	clone.Header.Set("Authorization", "Bearer "+r.token)
 	return r.base.RoundTrip(clone)
+}
+
+func TestMCPInlineAssetsRejectDecodedLimitBeforeAllocation(t *testing.T) {
+	encoded := strings.Repeat("A", base64.StdEncoding.EncodedLen(
+		int(maxMCPInlineAssetBytes)+1,
+	))
+	_, err := mcpInlineDocument(mcpUploadDocumentInput{
+		Content: "# Plan\n",
+		Assets: []mcpDocumentAssetInput{{
+			Path: "large.bin", ContentBase64: encoded,
+		}},
+	}, "none", false)
+	if err == nil || !strings.Contains(err.Error(), "decoded aggregate limit") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestOpenMCPDocumentFilesUsesDeclaredSymlinkEntryName(t *testing.T) {
+	root := t.TempDir()
+	realEntry := filepath.Join(root, "real.md")
+	declaredEntry := filepath.Join(root, "declared.md")
+	member := filepath.Join(root, "docs", "member.md")
+	if err := os.MkdirAll(filepath.Dir(member), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		realEntry: "# Entry\n", member: "# Member\n",
+	} {
+		if err := os.WriteFile(name, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(realEntry, declaredEntry); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	opened, err := openMCPDocumentFiles(mcpUploadDocumentFilesInput{
+		EntryPath: declaredEntry, PagePaths: []string{member},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.close()
+	if opened.input.Entry.Path != "declared.md" ||
+		len(opened.input.Pages) != 1 || opened.input.Pages[0].Path != "docs/member.md" {
+		t.Fatalf("document paths = %+v", opened.input)
+	}
+}
+
+func TestOpenMCPDocumentFilesRejectsResolvedMemberEscape(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	entry := filepath.Join(root, "plan.md")
+	target := filepath.Join(outside, "member.md")
+	link := filepath.Join(root, "member.md")
+	if err := os.WriteFile(entry, []byte("# Entry\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("# Outside\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	_, err := openMCPDocumentFiles(mcpUploadDocumentFilesInput{
+		EntryPath: entry, PagePaths: []string{link},
+	})
+	if err == nil || !strings.Contains(err.Error(), "resolves outside") {
+		t.Fatalf("error = %v", err)
+	}
 }

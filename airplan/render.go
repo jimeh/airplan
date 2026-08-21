@@ -5,6 +5,8 @@ import (
 	_ "embed"
 	"fmt"
 	"html/template"
+	"net/url"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 
@@ -174,6 +176,21 @@ type RenderOptions struct {
 	VersionsPath     string
 	DiffPath         string
 	DiffText         string
+	RevisionChainID  string
+	PageChanged      bool
+	PageDiffText     string
+	CompleteDiffText string
+	HasCompleteDiff  bool
+	AllChangesPath   string
+	structuredDiff   bool
+
+	Pages               []DocumentTemplatePage
+	CurrentPage         DocumentTemplatePage
+	Entrypoint          string
+	Assets              []DocumentTemplateAsset
+	ManagedPagePaths    map[string]string
+	CurrentLogicalPath  string
+	CurrentRenderedPath string
 }
 
 // newMarkdown builds the goldmark instance implementing the dialect of
@@ -290,6 +307,9 @@ func renderMarkdown(
 	bodySource := frontMatter.body
 	md := newMarkdownWithRepository(opts.RepositoryURL, bodySource)
 	doc := md.Parser().Parse(text.NewReader(bodySource))
+	if err := rewriteManagedPageLinks(doc, opts); err != nil {
+		return nil, err
+	}
 	headings := extractHeadings(doc, bodySource)
 
 	var body bytes.Buffer
@@ -312,35 +332,60 @@ func renderMarkdown(
 			return nil, err
 		}
 	}
-	var highlightedDiff template.HTML
-	if opts.DiffText != "" {
-		highlightedDiff, _, err = highlightSource([]byte(opts.DiffText), DiffFilename, "diff")
+	pageDiffText := opts.PageDiffText
+	completeDiffText := opts.CompleteDiffText
+	pageChanged := opts.PageChanged
+	if !opts.structuredDiff && opts.Revision > 1 && opts.DiffPath != "" {
+		pageChanged = true
+	}
+	if pageDiffText == "" && opts.DiffText != "" {
+		pageDiffText = opts.DiffText
+		completeDiffText = opts.DiffText
+		pageChanged = true
+	}
+	var highlightedPageDiff template.HTML
+	if pageDiffText != "" {
+		highlightedPageDiff, _, err = highlightSource([]byte(pageDiffText), DiffFilename, "diff")
+		if err != nil {
+			return nil, err
+		}
+	}
+	var highlightedCompleteDiff template.HTML
+	if completeDiffText != "" {
+		highlightedCompleteDiff, _, err = highlightSource([]byte(completeDiffText), DiffFilename, "diff")
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	return renderPage(TemplateData{
-		RenderedHTML:               template.HTML(body.String()),
-		SourceText:                 string(src),
-		HighlightedSourceHTML:      sourceHTML,
-		Headings:                   headings,
-		TOC:                        tocHeadings(headings),
-		Format:                     FormatMarkdown.String(),
-		Language:                   language,
-		HasMermaid:                 hasMermaid(doc, bodySource),
-		FrontMatterText:            string(frontMatter.text),
-		FrontMatterFormat:          frontMatter.format,
-		FrontMatterTitle:           frontMatter.title,
-		HighlightedFrontMatterHTML: highlightedFrontMatter,
-		RepositoryURL:              opts.RepositoryURL,
-		Revision:                   opts.Revision,
-		RevisionCount:              opts.RevisionCount,
-		PreviousRevision:           opts.PreviousRevision,
-		VersionsPath:               opts.VersionsPath,
-		DiffPath:                   opts.DiffPath,
-		DiffText:                   opts.DiffText,
-		HighlightedDiffHTML:        highlightedDiff,
+		RenderedHTML:                template.HTML(body.String()),
+		SourceText:                  string(src),
+		HighlightedSourceHTML:       sourceHTML,
+		Headings:                    headings,
+		TOC:                         tocHeadings(headings),
+		Format:                      FormatMarkdown.String(),
+		Language:                    language,
+		HasMermaid:                  hasMermaid(doc, bodySource),
+		FrontMatterText:             string(frontMatter.text),
+		FrontMatterFormat:           frontMatter.format,
+		FrontMatterTitle:            frontMatter.title,
+		HighlightedFrontMatterHTML:  highlightedFrontMatter,
+		RepositoryURL:               opts.RepositoryURL,
+		Revision:                    opts.Revision,
+		RevisionCount:               opts.RevisionCount,
+		PreviousRevision:            opts.PreviousRevision,
+		VersionsPath:                opts.VersionsPath,
+		DiffPath:                    opts.DiffPath,
+		DiffText:                    opts.DiffText,
+		RevisionChainID:             opts.RevisionChainID,
+		PageChanged:                 pageChanged,
+		PageDiffText:                pageDiffText,
+		HighlightedPageDiffHTML:     highlightedPageDiff,
+		CompleteDiffText:            completeDiffText,
+		HasCompleteDiff:             opts.HasCompleteDiff,
+		HighlightedCompleteDiffHTML: highlightedCompleteDiff,
+		AllChangesPath:              opts.AllChangesPath,
 	}, opts)
 }
 
@@ -366,6 +411,17 @@ func RenderText(src []byte, name string, opts RenderOptions) ([]byte, error) {
 		Format:                FormatText.String(),
 		Language:              language,
 		SourceName:            fileName,
+		Revision:              opts.Revision,
+		RevisionCount:         opts.RevisionCount,
+		PreviousRevision:      opts.PreviousRevision,
+		VersionsPath:          opts.VersionsPath,
+		DiffPath:              opts.DiffPath,
+		RevisionChainID:       opts.RevisionChainID,
+		PageChanged:           opts.PageChanged,
+		PageDiffText:          opts.PageDiffText,
+		CompleteDiffText:      opts.CompleteDiffText,
+		HasCompleteDiff:       opts.HasCompleteDiff,
+		AllChangesPath:        opts.AllChangesPath,
 	}, opts)
 }
 
@@ -394,6 +450,81 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 	data.VersionsPath = opts.VersionsPath
 	data.DiffPath = opts.DiffPath
 	data.DiffText = opts.DiffText
+	data.RevisionChainID = opts.RevisionChainID
+	data.PageChanged = opts.PageChanged || data.PageChanged
+	if data.PageDiffText == "" && opts.DiffText != "" {
+		data.PageDiffText = opts.DiffText
+		data.CompleteDiffText = opts.DiffText
+		data.PageChanged = true
+	}
+	if !opts.structuredDiff && opts.Revision > 1 && opts.DiffPath != "" {
+		data.PageChanged = true
+	}
+	if data.PageDiffText == "" {
+		data.PageDiffText = opts.PageDiffText
+	}
+	if data.CompleteDiffText == "" {
+		data.CompleteDiffText = opts.CompleteDiffText
+	}
+	data.AllChangesPath = opts.AllChangesPath
+	data.HasCompleteDiff = opts.HasCompleteDiff || data.HasCompleteDiff
+	if data.DiffText != "" && data.HighlightedDiffHTML == "" {
+		highlighted, _, highlightErr := highlightSource(
+			[]byte(data.DiffText), DiffFilename, "diff",
+		)
+		if highlightErr != nil {
+			return nil, highlightErr
+		}
+		data.HighlightedDiffHTML = highlighted
+	}
+	if data.PageDiffText != "" && data.HighlightedPageDiffHTML == "" {
+		highlighted, _, highlightErr := highlightSource(
+			[]byte(data.PageDiffText), DiffFilename, "diff",
+		)
+		if highlightErr != nil {
+			return nil, highlightErr
+		}
+		data.HighlightedPageDiffHTML = highlighted
+	}
+	if data.CompleteDiffText != "" && data.HighlightedCompleteDiffHTML == "" {
+		highlighted, _, highlightErr := highlightSource(
+			[]byte(data.CompleteDiffText), DiffFilename, "diff",
+		)
+		if highlightErr != nil {
+			return nil, highlightErr
+		}
+		data.HighlightedCompleteDiffHTML = highlighted
+	}
+	if len(opts.Pages) == 0 {
+		logical := opts.CurrentLogicalPath
+		if logical == "" {
+			logical = opts.SourceName
+		}
+		if logical == "" {
+			logical = "document." + data.Format
+		}
+		entrypoint := opts.CurrentRenderedPath
+		if entrypoint == "" {
+			entrypoint = opts.Slug + ".html"
+		}
+		current := DocumentTemplatePage{
+			Path: logical, Title: opts.Title, URL: entrypoint, Current: true,
+		}
+		data.Pages = []DocumentTemplatePage{current}
+		data.CurrentPage = current
+		data.Entrypoint = entrypoint
+	} else {
+		data.Pages = opts.Pages
+		data.CurrentPage = opts.CurrentPage
+		data.Entrypoint = opts.Entrypoint
+	}
+	if data.AllChangesPath == "" && data.Revision > 1 && data.DiffPath != "" {
+		data.AllChangesPath = data.Entrypoint + "#airplan-all-changes"
+	}
+	if !opts.structuredDiff && data.Revision > 1 && data.DiffPath != "" {
+		data.HasCompleteDiff = true
+	}
+	data.Assets = opts.Assets
 	if data.SourceName == "" {
 		data.SourceName = opts.SourceName
 	}
@@ -418,6 +549,45 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 		return nil, fmt.Errorf("execute %s: %w", label, err)
 	}
 	return out.Bytes(), nil
+}
+
+func rewriteManagedPageLinks(doc ast.Node, opts RenderOptions) error {
+	if len(opts.ManagedPagePaths) == 0 || opts.CurrentLogicalPath == "" ||
+		opts.CurrentRenderedPath == "" {
+		return nil
+	}
+	return ast.Walk(doc, func(node ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		link, ok := node.(*ast.Link)
+		if !ok || len(link.Destination) == 0 {
+			return ast.WalkContinue, nil
+		}
+		parsed, err := url.Parse(string(link.Destination))
+		if err != nil || parsed.IsAbs() || parsed.Host != "" ||
+			strings.HasPrefix(string(link.Destination), "//") ||
+			strings.HasPrefix(parsed.Path, "/") || parsed.Path == "" {
+			return ast.WalkContinue, nil
+		}
+		logical := pathpkg.Clean(pathpkg.Join(pathpkg.Dir(opts.CurrentLogicalPath), parsed.Path))
+		if logical == "." || logical == ".." || strings.HasPrefix(logical, "../") ||
+			!validMarkerObjectPath(logical) {
+			return ast.WalkContinue, nil
+		}
+		target, exists := opts.ManagedPagePaths[logical]
+		if !exists {
+			return ast.WalkContinue, nil
+		}
+		relative, err := urlPathRelative(pathpkg.Dir(opts.CurrentRenderedPath), target)
+		if err != nil {
+			return ast.WalkStop, err
+		}
+		parsed.Path = relative
+		parsed.RawPath = ""
+		link.Destination = []byte(parsed.String())
+		return ast.WalkContinue, nil
+	})
 }
 
 // highlightSource renders source bytes as one chroma-highlighted,

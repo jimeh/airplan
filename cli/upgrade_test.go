@@ -94,7 +94,7 @@ func TestUpdatePrintsOnlyNewRevisionURLAndJSONDescribesChain(t *testing.T) {
 		"url": true, "key": true, "source_url": true, "bucket": true,
 		"bytes": true, "content_type": true, "revision": true,
 		"latest_revision": true, "previous_url": true, "diff_url": true,
-		"unchanged": true,
+		"unchanged": true, "pages": true,
 	}
 	if len(fields) != len(wantFields) {
 		t.Fatalf("JSON fields = %v, want %v", fields, wantFields)
@@ -104,7 +104,7 @@ func TestUpdatePrintsOnlyNewRevisionURLAndJSONDescribesChain(t *testing.T) {
 			t.Fatalf("unexpected update JSON field %q", name)
 		}
 	}
-	var result airplan.UpdateDocumentResult
+	var result airplan.DocumentRevisionResult
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("stdout = %q: %v", stdout, err)
 	}
@@ -436,6 +436,11 @@ func seedCLICurrentDocument(
 			MermaidURL: airplan.DefaultMermaidURL,
 			Themes:     &airplan.ThemeRecipe{DefaultLight: bundle.DefaultLight, DefaultDark: bundle.DefaultDark, CatalogSHA256: bundle.CatalogSHA256},
 		},
+		Entrypoint: "plan.html",
+		Pages: []airplan.MarkerPage{{
+			Path: "plan.md", Page: "plan.html", Source: "plan.md",
+			Format: "md", Lang: "",
+		}},
 		Objects: []airplan.MarkerObject{
 			{
 				Name: "plan.html", Role: airplan.MarkerRolePage, Bytes: int64(len(page)),
@@ -443,7 +448,7 @@ func seedCLICurrentDocument(
 			},
 			{
 				Name: "plan.md", Role: airplan.MarkerRoleSource, Bytes: int64(len(source)),
-				ContentType: "text/markdown; charset=utf-8",
+				ContentType: "text/markdown; charset=utf-8", SHA256: sha256Hex(source),
 			},
 		},
 	})
@@ -496,7 +501,7 @@ func newBulkUpgradeBackend(t *testing.T, succeed bool) *httptest.Server {
 		switch r.URL.Path {
 		case "/api/v1/upgrades/preview":
 			_, _ = fmt.Fprintf(w, `{"items":[{"target":%q,"state":"upgradeable",`+
-				`"target_marker_version":5,"target_producer_version":"0.8.0",`+
+				`"target_marker_version":6,"target_producer_version":"0.8.0",`+
 				`"target_renderer_generation":1,"marker_etag":"m",`+
 				`"page_etag":"p","source_etag":"s"}],`+
 				`"counts":{"upgradeable":1}}`, dir+"/plan.html")

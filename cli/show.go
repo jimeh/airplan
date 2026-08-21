@@ -65,11 +65,24 @@ func runShow(cmd *cobra.Command, opts *showOptions, target string) error {
 }
 
 type showJSONObject struct {
-	Key           string `json:"key"`
-	URL           string `json:"url"`
-	Exists        bool   `json:"exists"`
-	Bytes         *int64 `json:"bytes,omitempty"`
-	ExpectedBytes *int64 `json:"expected_bytes,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Role           string `json:"role,omitempty"`
+	Key            string `json:"key"`
+	URL            string `json:"url"`
+	Exists         bool   `json:"exists"`
+	Bytes          *int64 `json:"bytes,omitempty"`
+	ExpectedBytes  *int64 `json:"expected_bytes,omitempty"`
+	SHA256         string `json:"sha256,omitempty"`
+	ExpectedSHA256 string `json:"expected_sha256,omitempty"`
+}
+
+type showJSONPage struct {
+	Path   string          `json:"path"`
+	Format string          `json:"format"`
+	Title  string          `json:"title,omitempty"`
+	Lang   string          `json:"lang"`
+	Page   *showJSONObject `json:"page"`
+	Source *showJSONObject `json:"source,omitempty"`
 }
 
 type showJSONRecord struct {
@@ -93,6 +106,8 @@ type showJSONRecord struct {
 	Source          *showJSONObject           `json:"source,omitempty"`
 	Diff            *showJSONObject           `json:"diff,omitempty"`
 	Files           []*showJSONObject         `json:"files,omitempty"`
+	Pages           []showJSONPage            `json:"pages,omitempty"`
+	Assets          []*showJSONObject         `json:"assets,omitempty"`
 	RevisionChainID string                    `json:"revision_chain_id,omitempty"`
 	Revision        int                       `json:"revision,omitempty"`
 	LatestRevision  int                       `json:"latest_revision,omitempty"`
@@ -135,6 +150,15 @@ func showJSONFromInspection(in *airplan.UploadInspection) showJSONRecord {
 		for _, file := range in.Files {
 			out.Files = append(out.Files, showJSONFromObject(file))
 		}
+		for _, page := range in.Pages {
+			out.Pages = append(out.Pages, showJSONPage{
+				Path: page.Path, Format: page.Format, Title: page.Title, Lang: page.Lang,
+				Page: showJSONFromObject(page.Page), Source: showJSONFromObject(page.Source),
+			})
+		}
+		for _, asset := range in.Assets {
+			out.Assets = append(out.Assets, showJSONFromObject(asset))
+		}
 	}
 	return out
 }
@@ -144,7 +168,9 @@ func showJSONFromObject(in *airplan.InspectedObject) *showJSONObject {
 		return nil
 	}
 	out := &showJSONObject{
-		Key: in.Key, URL: in.URL, Exists: in.Exists,
+		Name: in.Name, Role: string(in.Role), Key: in.Key, URL: in.URL,
+		Exists: in.Exists, SHA256: in.SHA256,
+		ExpectedSHA256: in.ExpectedSHA256,
 	}
 	if in.ExpectedKnown {
 		expected := in.ExpectedBytes
@@ -254,8 +280,10 @@ func printInspection(w io.Writer, in *airplan.UploadInspection) error {
 	if err := write("PROTECTED", protected); err != nil {
 		return err
 	}
-	if err := printInspectedObject(tw, "PAGE", in.Page); err != nil {
-		return err
+	if in.Page != nil {
+		if err := printInspectedObject(tw, "PAGE", in.Page); err != nil {
+			return err
+		}
 	}
 	if in.Source != nil {
 		if err := printInspectedObject(tw, "SOURCE", in.Source); err != nil {
@@ -269,6 +297,26 @@ func printInspection(w io.Writer, in *airplan.UploadInspection) error {
 	}
 	for i, file := range in.Files {
 		if err := printInspectedObject(tw, fmt.Sprintf("FILE %d", i+1), file); err != nil {
+			return err
+		}
+	}
+	for i, page := range in.Pages {
+		if page.Page != nil {
+			if err := printInspectedObject(tw, fmt.Sprintf("MANAGED PAGE %d", i+1), page.Page); err != nil {
+				return err
+			}
+		}
+		if page.Source != nil {
+			if err := printInspectedObject(tw, fmt.Sprintf("MANAGED SOURCE %d", i+1), page.Source); err != nil {
+				return err
+			}
+		}
+	}
+	for i, asset := range in.Assets {
+		if asset == nil {
+			continue
+		}
+		if err := printInspectedObject(tw, fmt.Sprintf("ASSET %d", i+1), asset); err != nil {
 			return err
 		}
 	}

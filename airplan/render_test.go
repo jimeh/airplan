@@ -87,7 +87,7 @@ func TestPageRevisionNavigationUsesValidatedInMemoryURL(t *testing.T) {
 	if strings.Contains(readablePageJS, "window.location.assign(select.value)") {
 		t.Fatal("revision navigation rereads an attacker-mutable URL from the DOM")
 	}
-	if !strings.Contains(readablePageJS, "[selected].safeURL") {
+	if !strings.Contains(readablePageJS, "target.safeURL") {
 		t.Fatal("revision navigation does not use the validated in-memory URL")
 	}
 }
@@ -244,11 +244,11 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 
 		last := -1
 		for _, fragment := range []string{
-			`class="viewtoggle`,
 			`class="copy-source`,
 			`class="download`,
 			`class="raw`,
 			`class="appearance`,
+			`class="viewtoggle`,
 		} {
 			position := strings.Index(out, fragment)
 			if position <= last {
@@ -650,5 +650,54 @@ func TestRenderCustomTemplate(t *testing.T) {
 	}
 	if strings.Contains(got, `<div class="viewtoggle`) {
 		t.Error("custom template output contains built-in markup")
+	}
+}
+
+func TestRenderCustomTemplateReceivesPageAwareRevisionData(t *testing.T) {
+	tmpl := template.Must(template.New("revision").Parse(
+		`{{.RevisionChainID}}|{{.CurrentPage.Path}}|{{.PageChanged}}|` +
+			`{{.PageDiffText}}|{{if .HighlightedPageDiffHTML}}page-html{{end}}|` +
+			`{{.CompleteDiffText}}|{{if .HighlightedCompleteDiffHTML}}all-html{{end}}|` +
+			`{{.HasCompleteDiff}}|{{.AllChangesPath}}`,
+	))
+	out, err := RenderMarkdown([]byte("# X\n"), RenderOptions{
+		Title: "X", Slug: "x", Template: tmpl,
+		Revision: 2, PreviousRevision: 1, RevisionChainID: strings.Repeat("a", 26),
+		CurrentLogicalPath: "README.md", CurrentRenderedPath: "x.html",
+		Entrypoint: "x.html", DiffPath: "./" + DiffFilename,
+		PageChanged: true, PageDiffText: "page diff", CompleteDiffText: "all diff",
+		HasCompleteDiff: true, AllChangesPath: "x.html#airplan-all-changes",
+		structuredDiff: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		strings.Repeat("a", 26), "README.md|true|page diff|page-html",
+		"all diff|all-html|true|x.html#airplan-all-changes",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("custom revision output lacks %q: %s", want, out)
+		}
+	}
+}
+
+func TestRenderCustomTemplateReceivesHighlightedLegacyDiff(t *testing.T) {
+	tmpl := template.Must(template.New("legacy-diff").Parse(
+		`{{.DiffText}}|{{if .HighlightedDiffHTML}}legacy-html{{end}}|` +
+			`{{if .HighlightedPageDiffHTML}}page-html{{end}}|` +
+			`{{if .HighlightedCompleteDiffHTML}}all-html{{end}}`,
+	))
+	diff := "--- revision-1/plan.md\n+++ revision-2/plan.md\n@@ -1 +1 @@\n-old\n+new\n"
+	out, err := RenderMarkdown([]byte("# X\n"), RenderOptions{
+		Title: "X", Slug: "x", Template: tmpl, DiffText: diff,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"revision-1/plan.md", "legacy-html|page-html|all-html"} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("custom legacy diff output lacks %q: %s", want, out)
+		}
 	}
 }

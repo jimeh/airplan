@@ -1,11 +1,12 @@
 ---
 name: airplan
 description: >-
-  Upload agent-produced documents or file collections with airplan and return
-  shareable links. Use when the user explicitly asks for a link to a document,
-  screenshot, recording, or other produced file, or when authorized pull
-  request or issue work explicitly calls for linkable visual evidence. Do not
-  upload merely because an artifact exists or might be convenient.
+  Upload agent-produced documents, document bundles, or file collections with
+  airplan and return shareable links. Use when the user explicitly asks for a
+  link to a document, screenshot, recording, or other produced file, or when
+  authorized pull request or issue work explicitly calls for linkable visual
+  evidence. Do not upload merely because an artifact exists or might be
+  convenient.
 ---
 
 # airplan
@@ -54,13 +55,40 @@ first; use these features when they materially improve clarity:
 Airplan adds light/dark themes, heading navigation, rendered/source views, and
 copy controls automatically.
 
+### Document bundles
+
+Use a document bundle when one entry document provides the primary narrative
+and supporting Markdown, source-code pages, images, recordings, or downloads
+belong with it:
+
+```sh
+airplan --json README.md \
+  --page docs/design.md \
+  --page examples/server.go \
+  --asset images/flow.svg \
+  --asset recordings/demo.webm
+```
+
+Run the command from the entry file's project. Every page and asset must remain
+beneath the entry directory, including after resolving symlinks. Airplan adds
+declared pages to built-in navigation and uploads assets unchanged. Read `.url`
+for the entry, `.pages[].url` for managed pages, and `.assets[].url` for assets.
+Do not use a bundle for peer evidence files with no primary narrative; use a
+collection instead.
+
+With MCP, use inline `upload_document` for generated text and small assets. Use
+`upload_document_files` when the local tool is available for screenshots,
+recordings, or other files that should not be base64-buffered. Hosted MCP does
+not expose local-file tools. Inline MCP assets have a 32 MiB decoded aggregate
+limit; use the local-file tool or REST for larger assets.
+
 ### Revise an existing document
 
 When the user asks to revise an existing Airplan plan, use the existing link
-as the update target instead of creating an unrelated upload:
+as the revision target instead of creating an unrelated upload:
 
 ```sh
-airplan update --json <airplan-url> plan.md
+airplan new-revision --json <airplan-url> plan.md
 ```
 
 Any surviving URL in the chain is valid; Airplan resolves the latest live
@@ -72,9 +100,13 @@ the resulting revision URL. Byte-identical content is a successful no-op and
 does not consume a revision number. Linked pages expose
 one compact revision selector above the rendered content and server-generated
 adjacent changes. Older pages are visibly labeled with their revision while
-the latest is labeled `(Latest)`. Anyone
+the latest is labeled `(Latest)`. A bundle revision is complete replacement:
+resupply every page and asset that should remain. Anyone
 who can read one linked URL learns the capability URLs for the surviving
-revision history. With MCP, use `update_document`.
+revision history. With MCP, use `new_document_revision` for inline input or
+`new_document_revision_files` when local files are available. The CLI
+`update` name and MCP `update_document` tool remain compatibility names, but
+new workflows should use the revision-named interfaces.
 
 ### Upgrade rendered documents
 
@@ -106,8 +138,10 @@ when uploading a temporary file.
 
 ## Screenshots, recordings, and other files
 
-Upload related evidence in one invocation so it becomes one collection and one
-cleanup unit:
+When a document is the primary narrative, declare its supporting evidence with
+`--asset` as described above. When the files are peers with no primary
+document, upload related evidence in one invocation so it becomes one
+collection and one cleanup unit:
 
 1. Identify the exact intended files.
 2. Review every screenshot for tokens, usernames, private messages, browser

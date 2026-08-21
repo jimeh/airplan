@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.40.0.
+may contradict it. Targets spec version 0.41.0.
 
 ---
 
@@ -100,7 +100,8 @@ cli/                    cobra command constructors (root, list, …);
 airplan/                core library (public Go API): config
                         load/merge/validate, input reading + format
                         detection + noindex splice, markdown
-                        rendering, ownership markers, key/slug
+                        rendering, document-bundle graph validation,
+                        link rewriting, ownership markers, key/slug
                         generation, collection preflight/rendering,
                         streaming S3 upload/get, list/show/delete,
                         manifest history, URL assembly; embeds assets
@@ -144,12 +145,31 @@ res, err := client.Upload(ctx, airplan.Input{
 // res.URL, res.Key, res.SourceURL, res.Bytes, res.ContentType,
 // res.MarkerKey, res.Format, res.RepositoryURL
 
+document, err := client.UploadDocument(ctx, airplan.DocumentInput{
+    Entry: airplan.PageInput{Reader: readme, Path: "README.md"},
+    Pages: []airplan.PageInput{{
+        Reader: design, Path: "docs/design.md",
+    }},
+    Assets: []airplan.AssetInput{{
+        Reader: diagram, Path: "images/flow.svg", Size: diagramSize,
+        ContentType: "image/svg+xml",
+    }},
+})
+// document.Result remains the entry summary.
+// document.Pages and document.Assets expose the ordered bundle result.
+
 files, err := client.UploadFiles(ctx, airplan.FilesInput{
     Files: []airplan.FileInput{{
         Name: "demo.webm", Reader: recording, Size: recordingSize,
     }},
 })
 // files.Files[0].URL is direct; files.URL is the overview.
+
+revision, err := client.CreateDocumentRevision(ctx,
+    airplan.CreateDocumentRevisionInput{
+        Target: existingURL, Document: replacement,
+    })
+// UpdateDocument remains the deprecated one-entry compatibility wrapper.
 
 skill := airplan.AgentSkill() // exact canonical skills/airplan/SKILL.md
 
@@ -233,13 +253,37 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   `airplan template [document|collection]` and minified assets for executable
   built-ins. Both commands therefore emit complete, standalone, reusable
   templates without exposing internal bake markers.
+- Built-in multi-page navigation remains server-rendered. Every item is a
+  normal anchor to a standalone document. CSS opts same-origin navigations into
+  cross-document View Transitions under the no-reduced-motion media query;
+  there is no click interception, fetch/replace controller, or client-side
+  history. Each destination runs the existing one-shot initializer. Linked
+  pages add page-local diff projection, entry-only complete reports, and
+  marker-validated same-logical-page revision selection. Collapsed Pages uses
+  a native top-anchored popover while Contents retains its bottom-sheet dialog;
+  the document toolbar becomes sticky when the rails collapse, with Pages
+  pinned left. Wide rail headings sit outside their scrollable lists, and the
+  complete-diff view moves its document/raw links above the report while hiding
+  compact Pages navigation. This page structure increments
+  `RendererGeneration` to 5.
 - Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, safe theme CSS/catalog metadata, structured headings/ToC
   entries, format metadata,
-  title, slug, indexing intent, frontmatter, repository context, and source
-  names/paths. Document-specific CSS and JS cover the page grid, prose, source
-  view, table of contents, copy controls, and Mermaid integration.
+  title, slug, indexing intent, frontmatter, repository context, source
+  names/paths, ordered bundle pages, current-page identity, entrypoint, and
+  assets. Document-specific CSS and JS cover the page grid, Pages and On this
+  page rails, narrow navigation dialog, previous/next controls, prose, source
+  view, table of contents, copy controls, and Mermaid integration. Custom
+  templates receive the additive bundle data but no injected navigation or
+  transition assets.
+- Document bundles: `bundle.go` owns the public `PageInput`, `AssetInput`,
+  `DocumentInput`, result, and rendering types plus portable logical-path and
+  generated-object collision checks. One preflight resolves every format and
+  page name before rendering. A Goldmark AST transformer rewrites only ordinary
+  links whose normalized target exactly matches the managed-source map. Relative
+  URLs are calculated from each rendered page, so local output-directory
+  previews and hosted pages use the same navigation model.
 - Collection rendering uses a separate embedded `html/template` and stable
   `CollectionTemplateData` / `CollectionTemplateFile` surface. Preflight
   validates names and limits, resolves deterministic MIME/media kinds, creates
@@ -249,7 +293,22 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   their direct members, and uses the document toolbar's canonical shared
   geometry and interaction styling. Custom document and collection templates
   remain independently configurable.
-- Local rendering: `RenderInput` owns read limits, binary and invalid
+- Local rendering: `RenderDocument` owns bundle path, count, aggregate-source,
+  and aggregate-generated-HTML limits, renders every page against one page map,
+  and returns `RenderedDocumentBundle`. `MaterializeDocument` and the direct
+  upload, revision, and upgrade paths use one private mode-0600 payload spool;
+  output-directory preview publishes from that spool through a private sibling
+  staging directory. Platform-specific no-replace rename primitives publish
+  that mode-0755 root only when the destination is still absent; published files
+  are mode 0644. Filesystems that do not support the required no-replace rename
+  operation reject publication rather than using a check-then-rename fallback.
+  Both temporary layers are removed on success or failure, so the
+  full allowed bundle need not remain in memory.
+  Upgrade planning itself streams remote page and source bodies through bounded
+  hashing and retains only size, digest, and ETag metadata. Execution replans,
+  streams the exact generation into its private spool, and re-hashes sources
+  immediately before the first conditional mutation.
+  `RenderInput` remains the one-entry wrapper and owns read limits, binary and invalid
   UTF-8 rejection,
   format detection, title/slug resolution, template execution, and
   noindex handling. `RenderCollection` owns the equivalent collection
@@ -257,8 +316,9 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   `x/net/html`; raw token
   lengths locate the original head boundary while normalized tokens identify
   in-head robots metadata. Injection splices only the original byte slice and
-  never serializes the token stream. `Client.Upload` adds source/page storage,
-  URLs, and manifest recording; `airplan preview` stops after `RenderInput`.
+  never serializes the token stream. `Client.UploadDocument` adds source, asset,
+  and page storage, URLs, and manifest recording; `Client.Upload` wraps it.
+  `airplan preview` stops after the applicable render or materialization path.
   Preview and get file output rename a same-directory temporary file on Unix
   and use Windows `ReplaceFileW` (falling back to `MoveFileEx` for a new
   destination) so replacement matches the spec's atomicity contract on both
@@ -273,20 +333,24 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   CSPRNG).
 - Public URL assembly percent-encodes each object-key path segment;
   delete parsing uses `net/url` to recover the original UTF-8 key.
-- Ownership markers: writers emit one v5 schema for all uploads. Documents use
+- Ownership markers: writers emit one v6 schema for all uploads. Documents use
   `.airplan.json`; collections use `.airplan-collection.json`. `kind` plus a
-  normalized declared-object array describes pages, sources, and files;
-  document slug/format fields remain conditional. Every v4+ marker records
+  normalized declared-object array describes pages, sources, assets, diffs, and
+  files; document slug/format fields remain conditional. V6 adds the entrypoint
+  and ordered managed-page descriptors, permits validated nested object paths,
+  requires exact SHA-256 for every payload, and raises the marker ceiling to
+  256 KiB. Every v4+ marker records
   producer provenance. Generated document and collection pages additionally
   record the renderer generation and either the built-in template identity or
   a SHA-256 digest of the custom template; the digest is computed from the same
-  single file read that is parsed for rendering. Version 5 recipes also record
-  the two default IDs and canonical catalog SHA-256; the full custom source is
-  intentionally not duplicated. Every v4+ page object records the SHA-256 of
-  its exact uploaded bytes. Authored HTML omits render provenance.
-  Version-specific decoding normalizes v1-v3 into the internal object model
-  and preserves complete v4 provenance; the version bump makes older readers
-  reject v5 before rewriting it. Authored object names beginning `.airplan-` are
+  single file read that is parsed for rendering. Version 5 and 6 recipes also
+  record the two default IDs and canonical catalog SHA-256; the full custom
+  source is intentionally not duplicated. Every v4/v5 page object records the SHA-256 of
+  its exact uploaded bytes; v6 records it for all payloads. Authored HTML omits
+  render provenance. Version-specific decoding normalizes v1-v3 into the
+  internal object model and preserves v4/v5 provenance; the version bump makes
+  older readers reject v6 before rewriting it. Authored object path segments
+  beginning `.airplan-` are
   reserved for Airplan control objects and rejected before upload. A centralized
   concurrent two-key resolver proves exactly one marker exists without adding
   LIST permission to targeted reads. Kind/name mismatches and dual markers
@@ -298,7 +362,15 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   case. Ordinary uploads therefore gain revision readiness without uploading a
   versions object; revision linkage can add that object later without replacing
   the page.
-- `versions.go`, `diff.go`, and `update.go` implement linked Markdown history.
+- `versions.go`, `diff.go`, and the revision operation implement linked
+  Markdown history. `CreateDocumentRevision` is the bundle-aware public entry;
+  the CLI, REST, and MCP update aliases delegate to it, while the deprecated Go
+  `UpdateDocument` method retains its established one-entry engine. A canonical
+  revision input is always the complete replacement bundle. Both engines share
+  one prerequisite state machine for upgrades, interrupted promotion and page
+  repair, latest traversal, and chain validation. Descriptor order, metadata,
+  and v6 digests drive canonical no-op comparison before large unchanged assets
+  are rendered or uploaded when possible.
   Markers carry immutable chain descriptors and diff inventory, while the
   separately versioned 64 KiB metadata index is conditionally replicated to
   each live member. Capacity is preflighted before candidate upload and exposed
@@ -313,12 +385,26 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   invalid transition reservation to exclude new and stale appenders. The
   deleted member's control body remains as a markerless durable receipt for
   marker-last recovery, including when local history missed the first-link
-  projection and must recover chain identity from the receipt. Adjacent
-  exact source bytes are diffed with pure-Go go-difflib and Chroma renders the
-  immutable diff into the built-in page's Changes view.
+  projection and must recover chain identity from the receipt. Adjacent exact
+  source bytes are diffed with pure-Go go-difflib into one structured canonical
+  report. Its versioned envelope uses explicit JSON-encoded page and asset
+  section paths, avoiding collisions between logical paths and Airplan-owned
+  bundle headings. Deterministic bundle-level, page-descriptor, page-source,
+  order, and asset sections serialize the immutable stored bytes; the in-memory
+  model projects one page-local section into each changed page and the complete
+  report into the entry only. Chroma highlights each eligible projection once.
+  Upgrade parses that envelope strictly before mutation, binds nested unified
+  headers to the section path and envelope revisions, accepts the earlier
+  unversioned structured form, and maps legacy one-page diffs wholly to the
+  entry. Binary asset changes remain deterministic metadata summaries.
+  Replicated revision indexes continue to store entry URLs only; the browser
+  resolves child targets by fetching and validating the selected revision's v6
+  marker, with its validated entry URL as the failure fallback.
 - Collection storage: `UploadFiles` accepts known-size `io.ReadSeeker` members,
-  keeps inputs stable through preflight and sequential retryable PUTs, limits
-  each reader to its declaration, and uploads the overview last. `GetUploadTo`
+  hashes each member during preflight, rewinds it, hashes the transmitted bytes
+  again, and fails before publishing the overview when a caller changes a
+  reader. It limits each reader to its declaration and uploads the overview
+  last. `GetUploadTo`
   streams large payloads to CLI stdout or atomic file output; the older
   `GetUpload` wrapper remains available for in-memory callers.
 - Remote discovery: `ListRemote` recognizes both exact marker names, exposes
@@ -326,8 +412,11 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   dual-name groups as conflicts without fetching markers or heading payloads.
   Its LIST snapshot retains per-key sizes for batch inspection.
   `InspectUpload` validates the selected marker and exact sizes for every
-  normalized declared object. Targeted get and delete probe both markers and
-  authorize only pages, document sources, collection files, or the existing
+  normalized declared object, then downloads and hashes v6 payloads against
+  their marker digests. LIST-backed inspection used by sync and purge, plus
+  purge execution's revision guard, stays existence-and-size based and never
+  expands into payload downloads. Targeted get and delete probe both markers
+  and authorize only pages, document sources, collection files, or the existing
   marker.
 - Manifest sync: `SyncManifest` reduces local history chronologically, compares
   the scoped active view to one remote LIST snapshot, and uses a shared bounded
@@ -394,10 +483,13 @@ JSON Schema all fall out of one struct definition.
 ## 6. Repo Deliverables (beyond the binary)
 
 - Agent skill (`skills/airplan/SKILL.md`): teaches agent harnesses
-  to use Airplan for explicitly requested document/file sharing and for visual
+  to use Airplan for explicitly requested document, document-bundle, or file
+  sharing and for visual
   evidence explicitly called for by authorized PR or issue work. It reviews
   captures for sensitive material, uploads related evidence in one JSON-mode
-  collection, distinguishes `files[].url` from the overview `url`, and never
+  collection, distinguishes bundle pages/assets from peer-file collections,
+  selects inline versus local-file MCP tools by payload shape and size,
+  distinguishes `files[].url` from the overview `url`, and never
   invents or reuses partial results. It briefly identifies optional Markdown
   rendering features without encouraging decorative overuse, and still
   prohibits opportunistic uploads. This file remains the single canonical
@@ -531,15 +623,21 @@ outside the project's signing and notarization pipeline.
 
 1. Select document or collection mode and validate mode-specific flags before
    config-dependent storage work.
-2. Render a document in memory, or preflight every open collection file and
-   render its overview, before generating a random directory.
-3. Resolve repository context, build the complete normalized v5 object set with
-   producer and applicable render provenance, including the resolved theme
-   recipe for rendered pages, and encode the kind-specific marker.
-4. Put the marker first. Documents then put optional source and page;
-   collections stream files in argument order and put `index.html` last.
+2. Preflight the complete document graph or every open collection file before
+   generating a random directory. Hash and spool managed sources, validate and
+   rewind assets, resolve generated names, then render and spool every managed
+   page with separate aggregate limits.
+3. Resolve repository context, build the complete normalized v6 object set with
+   a SHA-256 for every payload plus producer and applicable render provenance,
+   including the resolved theme recipe, and encode the kind-specific marker.
+4. Put the marker first. Documents put sources and assets, non-entry pages, and
+   the entry page last. Collections stream files in argument order and put
+   `index.html` last. Hash seekable payloads again while transmitting and reject
+   a mismatch before publishing the entry or overview. A bounded worker pool
+   uploads independent objects; the entry and collection overview remain final
+   barriers.
 5. Print no URL until all declared PUTs succeed. Then emit the document URL or
-   ordered direct collection URLs plus overview, and best-effort append one v5
+   ordered direct collection URLs plus overview, and best-effort append one v6
    manifest record.
 6. Discover both marker names through one LIST snapshot. The basename supplies
    only a kind hint; `show` validates content and every declared size.
@@ -549,12 +647,15 @@ outside the project's signing and notarization pipeline.
    marker, then appends a tombstone. Protect/unprotect resolve the marker the
    same way, then PUT or DELETE the sentinel and append the matching manifest
    record.
-8. Upgrade source-backed Markdown pages with marker-first/page-last conditional
-   writes. Planning records the observed marker and page entity tags plus the
-   declared v4-or-newer page digest without rendering. Execution replans live
-   state even for a submitted current plan, fails on drift, verifies the new
-   marker and page bytes, and appends an `upgrade` manifest event while leaving
-   source, protection, and revision control objects untouched.
+8. Upgrade every source-backed managed page with marker-first/entry-last
+   conditional writes. Planning records the observed marker and all page/source
+   entity tags. Execution replans live state, claims one desired v6 marker,
+   skips digest-matching pages, repairs non-entry mismatches, verifies them, and
+   repairs the entry last. A failed run may leave a marker-owned mixed renderer
+   generation; inspection reports mismatches and retry converges without
+   rewriting matching pages or the already-desired marker. Success appends an
+   `upgrade` manifest event while leaving source, asset, protection, and revision
+   control objects untouched.
 9. Sync complete normalized uploads into compact local history. Confirm every
    LIST-absent active marker with a targeted GET before local tombstoning.
 
@@ -574,21 +675,28 @@ deletion has succeeded.
 
 ## 9. Testing Strategy
 
-- Unit: config/template precedence, mode selection, collection filename/MIME
-  preflight, size limits, slug sanitization, format sniffing, key
-  entropy/encoding properties, URL assembly, strict version-specific marker
-  validation through v5,
+- Unit: config/template precedence, mode selection, bundle logical paths,
+  generated-page naming and collisions, managed-link rewriting, document item
+  and aggregate limits, collection filename/MIME preflight, slug sanitization,
+  format sniffing, key entropy/encoding properties, URL assembly, strict
+  version-specific marker validation through v6, complete payload digests,
   dual-marker resolution, LIST-only kind grouping, inspection states and exact
   sizes, streaming get selection, delete request ordering, purge-protection
   sentinel detection and forced-delete ordering, manifest reduction
   and lock cancellation, sync reconciliation, and document-only slug filters.
-- Golden files: markdown fixtures → rendered HTML snapshots
+- Golden files: single and multi-page Markdown fixtures → rendered HTML
+  snapshots plus v6 simple document, bundle, HTML-with-assets, no-source,
+  collection, and revision markers
   (`testdata/`, `GOLDEN_UPDATE=1` convention).
 - Web: strict TypeScript compiler projects cover browser and Playwright code;
   Oxlint runs ordinary and type-aware rules; Stylelint checks authored CSS;
   Bun unit tests cover pure tooling policy; and generation checks rebuild into
   a temporary directory and byte-compare the committed asset set.
-- Browser: Chromium collection fixtures cover image/video/audio and generic
+- Browser: Chromium document-bundle fixtures cover page rails, active state,
+  native full-document lifecycle, ordinary and no-JavaScript navigation,
+  back/forward/fragments, narrow fallback navigation, reduced-motion transition
+  opt-out, destination Mermaid initialization, source/changes controls, and
+  printing. Collection fixtures cover image/video/audio and generic
   cards, direct and copy links, no-JavaScript behavior, hostile-looking names,
   narrow/wide layouts, all eleven built-ins, arbitrary cross-variant slot
   assignments, custom/no-JavaScript themes, storage migration, Mermaid
@@ -596,7 +704,8 @@ deletion has succeeded.
   enforce shared toolbar geometry and transition-free theme changes across
   built-in document and collection pages.
 - Integration: MinIO in a container (CI service / testcontainers);
-  document and mixed collection round trips, byte/header preservation,
+  document-bundle and mixed collection round trips, byte/header preservation,
+  native checksum comparison where supported, changed-reader rejection,
   marker bytes, remote kind discovery and conflicts, complete / incomplete /
   invalid inspection states, large streaming fetches, markerless invisibility,
   invalid delete rejection, cross-manifest sync, confirmed-absence tombstones,
@@ -625,7 +734,8 @@ Client
 └── backend=airplan → HTTP transport  → REST adapter ──────┘
 ```
 
-The operation boundary is upload, inspect, get, delete, protect/unprotect,
+The operation boundary is document and collection upload, document revision
+creation, inspect, get, delete, protect/unprotect,
 manifest list, storage
 list, purge planning/execution, document-upgrade planning/execution, bulk
 upgrade preview/execution, and sync—not S3 object primitives. The local
@@ -659,7 +769,7 @@ are rejected before any remote mutation. Its planning timeout ends before
 confirmation and execution receives a fresh timeout context afterward.
 
 Upgrade planning compares reproducible v4+ template recipes without parsing or
-rendering. V5 additionally compares theme identity. A forced template or theme
+rendering. V5 and v6 additionally compare theme identity. A forced template or theme
 mismatch records the currently configured recipe;
 execution surfaces deferred template load/parse errors before its marker-first
 write. Raw manifest upgrade events retain their append time, while reduction
@@ -675,12 +785,13 @@ invoked by `go generate` and checked by the repository generated-file gate.
 Authentication and request validation are explicit layers because generated
 strict handlers do not enforce either policy by themselves.
 
-The OpenAPI validator checks every route. For the two multipart upload routes,
+The OpenAPI validator checks every route. For multipart upload and revision routes,
 only generic request-body validation is disabled because kin-openapi would
 buffer the complete body; method, path, authentication, and media type remain
 validated before the generated strict handler. The bounded streaming adapter
-then validates part names/counts, JSON metadata shape and enums, filenames, and
-all requested/server size limits while spooling.
+then validates ordered metadata/document/pages/assets parts, names/counts, JSON
+metadata shape and enums, logical paths, and all requested/server size limits
+while spooling.
 
 The REST adapter:
 
@@ -690,12 +801,13 @@ The REST adapter:
   code-selected detail, and request IDs;
 - replaces internal warning and per-item error detail with stable hosted
   messages before serialization;
-- bounds total bodies, multipart parts, per-file bytes, and aggregate bytes;
-- streams document uploads through multipart readers and object downloads
+- bounds total bodies, the 256 KiB metadata part, multipart parts, per-page and
+  per-asset bytes, aggregate source/HTML/asset bytes, and complete requests;
+- streams document uploads and revisions through multipart readers and object downloads
   through response writers;
-- spools collection members to temporary files, mode 0600 where POSIX
-  permission bits exist, because the core collection API needs exact sizes and
-  seekable readers;
+- spools managed pages, assets, and collection members to temporary files, mode
+  0600 where POSIX permission bits exist, because core asset and collection APIs
+  need exact sizes and seekable readers;
 - removes all spooled files on completion, failure, cancellation, or shutdown;
 - resolves request targets against server-side storage configuration so the
   HTTP client never reconstructs capability keys with incomplete knowledge;
@@ -703,8 +815,16 @@ The REST adapter:
 - implements purge as a stateless preview followed by explicit upload-ID
   execution with fresh ownership-marker validation; and
 - implements upgrade as an entity-tag-bound plan followed by marker-first and
-  page-last conditional execution, plus a bulk preview whose apply request must
+  entry-last conditional execution, plus a bulk preview whose apply request must
   contain the exact reviewed plan items.
+
+The canonical `/api/v1/uploads/documents/revisions` operation and deprecated
+`/api/v1/uploads/documents/update` operation use the same generated canonical
+schemas and one adapter. Frozen legacy metadata retains `max_size`; the
+canonical model adds `max_page_size`, aggregate page, asset, and total limits,
+and ordered descriptors. Conflicting old and new per-page limit spellings fail.
+Capabilities advertise bundle support, canonical revision-route support, every
+logical limit, the metadata limit, and the complete request envelope.
 
 `airplan serve` constructs one operation service, readiness-checks storage,
 mounts REST and hosted MCP on one `net/http.Server`, and handles SIGINT/SIGTERM
@@ -747,6 +867,12 @@ explicit flag and ignores `AIRPLAN_MANIFEST`. Client-supplied filesystem
 templates and other server-owned local policy overrides are likewise rejected
 before input is opened.
 
+Before streaming a bundle, the transport requires the advertised bundle
+capability. Before a revision, it chooses the canonical route only when the
+server advertises it; otherwise an existing one-entry request uses the legacy
+route. It never probes with a body and retries after 404 because input streams
+are not generally replayable.
+
 ### MCP adapters
 
 `github.com/modelcontextprotocol/go-sdk` provides both transports.
@@ -755,9 +881,16 @@ so its selected backend may be local S3 or HTTP. Protocol frames are the only
 stdout output. The server uses the SDK Streamable HTTP handler at `/mcp` and
 passes the operation service directly.
 
-Tool registration and handlers are shared. HTTP omits `upload_files` because
-server-local paths are not a portable file-transfer mechanism; stdio includes
-it because client and tool process share a filesystem. Tool result structs
+Tool registration and handlers are shared. Inline `upload_document`,
+`new_document_revision`, and compatibility `update_document` accept UTF-8 page
+content plus strict-base64 assets. The compatibility and canonical revision
+tools share one schema and handler. Decoding enforces a 32 MiB aggregate asset
+limit independently of the Streamable HTTP body ceiling.
+
+With `LocalFiles`, stdio also registers `upload_document_files`,
+`new_document_revision_files`, and collection `upload_files` because client and
+tool process share a filesystem. HTTP omits all local-file tools because
+server-local paths are not a portable file-transfer mechanism. Tool result structs
 provide the generated JSON Schemas and keep warnings inside structured output.
 Partial sync, purge, and bulk-upgrade errors set `IsError` without returning a
 Go handler error so the SDK retains the structured progress result. Sync defaults to dry-run,

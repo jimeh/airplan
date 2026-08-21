@@ -156,6 +156,9 @@ coverage has no equivalent local task on non-Windows hosts.
   `globalSetup` builds `bin/airplan-browser` once for the whole run, because
   hooks carry a 30s timeout that a cold Go cache overruns and every project
   would otherwise repeat the build. Global setup has no such deadline.
+- **Top-level browser and handoff checks are not worktree-concurrent**: run
+  `mise run check` and `mise run test:browser` sequentially. Browser result
+  cleanup can remove `test-results/` while the formatter is scanning it.
 - **Print disclosures**: Chromium hides closed `details` content through its
   `::details-content` box. Forced child display can expose hidden, script, or
   style content; use the pseudo-element fallback plus `beforeprint`/`afterprint`

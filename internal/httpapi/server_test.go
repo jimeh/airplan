@@ -38,6 +38,17 @@ func (s *stubOperations) UpdateDocument(
 	return s.updateDocument(ctx, request)
 }
 
+func (s *stubOperations) CreateDocumentRevision(
+	ctx context.Context, request CreateDocumentRevisionUpload,
+) (DocumentRevisionResult, error) {
+	if s.updateDocument == nil {
+		return DocumentRevisionResult{}, errors.New(
+			"unexpected CreateDocumentRevision call",
+		)
+	}
+	return s.updateDocument(ctx, request)
+}
+
 func (s *stubOperations) Capabilities(ctx context.Context) (Capabilities, error) {
 	if s.capabilities != nil {
 		return s.capabilities(ctx)
@@ -198,6 +209,151 @@ func TestCapabilitiesUseEffectiveServerLimits(t *testing.T) {
 		capabilities.Limits.CollectionFileBytes != 202 ||
 		capabilities.Limits.CollectionTotalBytes != 303 {
 		t.Fatalf("limits = %+v", capabilities.Limits)
+	}
+	if capabilities.DocumentBundle == nil ||
+		!capabilities.DocumentBundle.CanonicalRevisionRoute ||
+		capabilities.DocumentBundle.MaxPageBytes != 101 ||
+		capabilities.DocumentBundle.MaxMetadataBytes != 256<<10 {
+		t.Fatalf("document bundle capability = %+v", capabilities.DocumentBundle)
+	}
+}
+
+func TestTypedClientStreamsOrderedDocumentBundleAndCleansTempFiles(t *testing.T) {
+	tempDir := t.TempDir()
+	operations := &stubOperations{uploadDocument: func(
+		_ context.Context, request DocumentUpload,
+	) (UploadResult, error) {
+		entry, _ := io.ReadAll(request.Document)
+		page, _ := io.ReadAll(request.Pages[0].Reader)
+		asset, _ := io.ReadAll(request.Assets[0].Reader)
+		if string(entry) != "# Entry\n" || string(page) != "package main\n" ||
+			string(asset) != "asset" || request.Pages[0].Path != "src/main.go" ||
+			request.Assets[0].Path != "images/flow.svg" {
+			t.Errorf("unexpected bundle: %+v %q %q %q", request, entry, page, asset)
+		}
+		return UploadResult{
+			ID: "bundle", Kind: "document", URL: "https://example/bundle",
+			Key: "bundle/entry.html", Warnings: []string{},
+		}, nil
+	}}
+	handler := newTestHandler(t, operations, Options{TempDir: tempDir})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	client := newTestClient(t, server.URL)
+	result, err := client.UploadDocumentBundle(context.Background(), DocumentUpload{
+		Metadata: DocumentMetadata{
+			Name:   "README.md",
+			Pages:  []DocumentPageDescriptor{{Path: "src/main.go", Format: "txt"}},
+			Assets: []DocumentAssetDescriptor{{Path: "images/flow.svg", Size: 5}},
+		},
+		Document: strings.NewReader("# Entry\n"), DocumentSize: 8,
+		Pages: []DocumentPage{{
+			DocumentPageDescriptor: DocumentPageDescriptor{Path: "src/main.go", Format: "txt"},
+			Reader:                 strings.NewReader("package main\n"), Size: 13,
+		}},
+		Assets: []DocumentAsset{{
+			DocumentAssetDescriptor: DocumentAssetDescriptor{Path: "images/flow.svg", Size: 5},
+			Reader:                  strings.NewReader("asset"),
+		}},
+	})
+	if err != nil || result.ID != "bundle" {
+		t.Fatalf("result = %+v, error = %v", result, err)
+	}
+	assertDirEmpty(t, tempDir)
+}
+
+func TestDocumentUploadPassesLowerGeneratedPageLimit(t *testing.T) {
+	const generatedLimit = int64(1)
+	operations := &stubOperations{uploadDocument: func(
+		ctx context.Context, _ DocumentUpload,
+	) (UploadResult, error) {
+		if got := GeneratedPageLimit(ctx); got != generatedLimit {
+			t.Errorf("generated page limit = %d, want %d", got, generatedLimit)
+		}
+		return UploadResult{ID: "document", Kind: "document", URL: "https://example/document"}, nil
+	}}
+	handler := newTestHandler(t, operations, Options{MaxGeneratedPageBytes: generatedLimit})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	if _, err := newTestClient(t, server.URL).UploadDocument(
+		context.Background(), DocumentMetadata{Name: "plan.md"},
+		strings.NewReader("# Plan\n"),
+	); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestDocumentMultipartPreflightsDeclaredAssetsBeforeSpooling(t *testing.T) {
+	tempDir := t.TempDir()
+	called := false
+	operations := &stubOperations{uploadDocument: func(
+		context.Context, DocumentUpload,
+	) (UploadResult, error) {
+		called = true
+		return UploadResult{}, nil
+	}}
+	handler := newTestHandler(t, operations, Options{
+		TempDir: tempDir, MaxAssetBytes: 3,
+	})
+	body := new(bytes.Buffer)
+	writer := multipart.NewWriter(body)
+	if err := writeMetadataPart(writer, DocumentMetadata{
+		Name:   "plan.md",
+		Assets: []DocumentAssetDescriptor{{Path: "asset.bin", Size: 4}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	document, err := writer.CreateFormFile("document", "plan.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.WriteString(document, "# Plan\n")
+	asset, err := writer.CreateFormFile("assets", "asset.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.WriteString(asset, "four")
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	request := authorizedRequest(http.MethodPost, "/api/v1/uploads/documents", body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want 413: %s", recorder.Code, recorder.Body.String())
+	}
+	if called {
+		t.Fatal("operation called for oversized declared asset")
+	}
+	assertDirEmpty(t, tempDir)
+}
+
+func TestDocumentMultipartRejectsConflictingPageLimitAliases(t *testing.T) {
+	called := false
+	operations := &stubOperations{uploadDocument: func(
+		context.Context, DocumentUpload,
+	) (UploadResult, error) {
+		called = true
+		return UploadResult{}, nil
+	}}
+	handler := newTestHandler(t, operations, Options{})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	_, err := newTestClient(t, server.URL).UploadDocumentBundle(
+		context.Background(), DocumentUpload{
+			Metadata: DocumentMetadata{Name: "plan.md", MaxSize: 10, MaxPageSize: 11},
+			Document: strings.NewReader("body"),
+		},
+	)
+	var problem *ProblemError
+	if !errors.As(err, &problem) || problem.Problem.Status != http.StatusBadRequest {
+		t.Fatalf("error = %v, want 400 problem", err)
+	}
+	if called {
+		t.Fatal("operation called for conflicting aliases")
 	}
 }
 

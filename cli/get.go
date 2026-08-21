@@ -14,6 +14,8 @@ type getOptions struct {
 	output  string
 	source  bool
 	diff    bool
+	page    string
+	asset   string
 }
 
 func newGetCmd() *cobra.Command {
@@ -36,7 +38,10 @@ func newGetCmd() *cobra.Command {
 		"fetch the marker-declared source instead of the page")
 	f.BoolVar(&opts.diff, "diff", false,
 		"fetch the marker-declared adjacent revision diff")
-	cmd.MarkFlagsMutuallyExclusive("source", "diff")
+	f.StringVar(&opts.page, "page", "", "fetch a managed page by logical path")
+	f.StringVar(&opts.asset, "asset", "", "fetch an asset by logical path")
+	cmd.MarkFlagsMutuallyExclusive("diff", "page", "asset")
+	cmd.MarkFlagsMutuallyExclusive("source", "diff", "asset")
 	f.StringVar(&opts.config, "config", "",
 		"config file path (default: XDG config dir)")
 	f.StringVarP(&opts.profile, "profile", "p", "",
@@ -55,13 +60,13 @@ func runGet(cmd *cobra.Command, opts *getOptions, target string) error {
 
 	if opts.output == "" || opts.output == "-" {
 		_, err = client.GetUploadTo(ctx, target, airplan.GetOptions{
-			Source: opts.source, Diff: opts.diff,
+			Source: opts.source, Diff: opts.diff, Page: opts.page, Asset: opts.asset,
 		}, cmd.OutOrStdout())
 		return err
 	}
 	if err := writeFileAtomicWith(opts.output, 0o600, func(w io.Writer) error {
 		_, streamErr := client.GetUploadTo(ctx, target, airplan.GetOptions{
-			Source: opts.source, Diff: opts.diff,
+			Source: opts.source, Diff: opts.diff, Page: opts.page, Asset: opts.asset,
 		}, w)
 		return streamErr
 	}); err != nil {

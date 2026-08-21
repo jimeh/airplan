@@ -16,6 +16,10 @@ type GetOptions struct {
 	// Diff selects the marker-declared adjacent diff. It is valid only for a
 	// linked revision greater than one and is mutually exclusive with Source.
 	Diff bool
+	// Page selects a managed page by logical path.
+	Page string
+	// Asset selects an asset by logical path.
+	Asset string
 }
 
 // GetResult is one fetched marker-managed object (SPEC.md §9).
@@ -169,8 +173,21 @@ func resolveGetTarget(
 	marker *UploadMarker,
 	opts GetOptions,
 ) (string, error) {
-	if opts.Source && opts.Diff {
-		return "", invalidTargetf("airplan: --source and --diff are mutually exclusive")
+	selectors := 0
+	if opts.Source {
+		selectors++
+	}
+	if opts.Diff {
+		selectors++
+	}
+	if opts.Page != "" {
+		selectors++
+	}
+	if opts.Asset != "" {
+		selectors++
+	}
+	if selectors > 1 && (!opts.Source || opts.Page == "" || selectors != 2) {
+		return "", invalidTargetf("airplan: get selectors are mutually exclusive except --page with --source")
 	}
 	dirKey := strings.TrimSuffix(dirPrefix, "/")
 	pageKey := dirPrefix + marker.Page
@@ -179,9 +196,39 @@ func resolveGetTarget(
 		sourceKey = dirPrefix + marker.Source
 	}
 
+	if key == markerKey {
+		if selectors != 0 {
+			return "", invalidTargetf(
+				"airplan: selectors cannot be used with an explicit child target",
+			)
+		}
+		return markerKey, nil
+	}
 	if key == dirKey {
-		if !opts.Source && !opts.Diff {
+		if selectors == 0 {
 			return pageKey, nil
+		}
+		if opts.Page != "" {
+			for _, page := range marker.Pages {
+				if page.Path == opts.Page {
+					if opts.Source {
+						if page.Source == "" {
+							return "", invalidTargetf("airplan: page %q declares no source object", opts.Page)
+						}
+						return dirPrefix + page.Source, nil
+					}
+					return dirPrefix + page.Page, nil
+				}
+			}
+			return "", invalidTargetf("airplan: upload declares no page %q", opts.Page)
+		}
+		if opts.Asset != "" {
+			for _, object := range marker.Objects {
+				if object.Role == MarkerRoleAsset && object.Name == opts.Asset {
+					return dirPrefix + object.Name, nil
+				}
+			}
+			return "", invalidTargetf("airplan: upload declares no asset %q", opts.Asset)
 		}
 		if opts.Diff {
 			for _, object := range marker.Objects {
@@ -198,21 +245,23 @@ func resolveGetTarget(
 		}
 		return sourceKey, nil
 	}
-	if key == markerKey || key == pageKey ||
+	if key == pageKey ||
 		(sourceKey != "" && key == sourceKey) {
-		if opts.Source || opts.Diff {
+		if selectors != 0 {
 			return "", invalidTargetf(
-				"airplan: --source or --diff cannot be used with an explicit child target",
+				"airplan: selectors cannot be used with an explicit child target",
 			)
 		}
 		return key, nil
 	}
 	for _, object := range marker.Objects {
-		if (object.Role == MarkerRoleFile || object.Role == MarkerRoleDiff) &&
+		if (object.Role == MarkerRoleFile || object.Role == MarkerRoleDiff ||
+			object.Role == MarkerRolePage || object.Role == MarkerRoleSource ||
+			object.Role == MarkerRoleAsset) &&
 			key == dirPrefix+object.Name {
-			if opts.Source || opts.Diff {
+			if selectors != 0 {
 				return "", invalidTargetf(
-					"airplan: --source or --diff cannot be used with an explicit child target",
+					"airplan: selectors cannot be used with an explicit child target",
 				)
 			}
 			return key, nil

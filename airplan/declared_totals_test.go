@@ -199,8 +199,8 @@ func TestMarkerDeclaredTotalsVersionEligibility(t *testing.T) {
 			wantOK: true, wantObjects: 2, wantBytes: 120,
 		},
 		{
-			name: "unsupported v6",
-			marker: UploadMarker{Version: 6, Objects: []MarkerObject{
+			name: "unsupported v7",
+			marker: UploadMarker{Version: MarkerVersion + 1, Objects: []MarkerObject{
 				{Name: "page.html", Role: MarkerRolePage, Bytes: 20},
 			}},
 		},
@@ -318,7 +318,7 @@ func TestManifestRecordNeedsTotalsVersionEligibility(t *testing.T) {
 		{"v3", ManifestRecord{MarkerVersion: 3}, true},
 		{"v4", ManifestRecord{MarkerVersion: 4}, true},
 		{"v5", ManifestRecord{MarkerVersion: 5}, true},
-		{"unsupported v6", ManifestRecord{MarkerVersion: 6}, false},
+		{"unsupported v7", ManifestRecord{MarkerVersion: MarkerVersion + 1}, false},
 		{"already complete", ManifestRecord{MarkerVersion: MarkerVersion, Objects: 2, TotalBytes: 120}, false},
 	}
 	for _, test := range tests {
@@ -342,7 +342,7 @@ func TestManifestRecordNeedsRevisionProjectionForV4AndV5(t *testing.T) {
 		}
 	}
 	unsupported := base
-	unsupported.MarkerVersion = 6
+	unsupported.MarkerVersion = MarkerVersion + 1
 	if manifestRecordNeedsRevisionProjection(unsupported) {
 		t.Fatal("unsupported marker requests projection enrichment")
 	}
@@ -1324,7 +1324,7 @@ func TestManifestRecordDeclaredTotalsJSON(t *testing.T) {
 		`"url":"https://plans.example.com/aaaaaaaaaaaaaaaaaaaaaaaaaa/plan.html",` +
 		`"bucket":"plans","profile":"work","format":"md","kind":"document",` +
 		`"slug":"plan","title":"Plan","bytes":18432,"objects":3,` +
-		`"total_bytes":19000,"marker_version":5}`
+		`"total_bytes":19000,"marker_version":6}`
 	if string(encoded) != want {
 		t.Fatalf("encoded =\n%s\nwant\n%s", encoded, want)
 	}

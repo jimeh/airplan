@@ -2,8 +2,11 @@ package airplan
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 	"strings"
 	"time"
@@ -21,12 +24,27 @@ const (
 
 // InspectedObject describes one marker-declared payload object.
 type InspectedObject struct {
-	Key           string `json:"key"`
-	URL           string `json:"url"`
-	Exists        bool   `json:"exists"`
-	Bytes         int64  `json:"bytes"`
-	ExpectedBytes int64  `json:"expected_bytes,omitempty"`
-	ExpectedKnown bool   `json:"expected_known,omitempty"`
+	Name           string     `json:"name,omitempty"`
+	Role           MarkerRole `json:"role,omitempty"`
+	Key            string     `json:"key"`
+	URL            string     `json:"url"`
+	Exists         bool       `json:"exists"`
+	Bytes          int64      `json:"bytes"`
+	ExpectedBytes  int64      `json:"expected_bytes,omitempty"`
+	ExpectedKnown  bool       `json:"expected_known,omitempty"`
+	SHA256         string     `json:"sha256,omitempty"`
+	ExpectedSHA256 string     `json:"expected_sha256,omitempty"`
+}
+
+// InspectedPage pairs one logical page path with its rendered and source
+// objects.
+type InspectedPage struct {
+	Path   string           `json:"path"`
+	Format string           `json:"format"`
+	Title  string           `json:"title,omitempty"`
+	Lang   string           `json:"lang"`
+	Page   *InspectedObject `json:"page"`
+	Source *InspectedObject `json:"source,omitempty"`
 }
 
 // UploadInspection is the result of targeted remote marker inspection.
@@ -50,6 +68,8 @@ type UploadInspection struct {
 	Page               *InspectedObject   `json:"page,omitempty"`
 	Source             *InspectedObject   `json:"source,omitempty"`
 	Files              []*InspectedObject `json:"files,omitempty"`
+	Pages              []InspectedPage    `json:"pages,omitempty"`
+	Assets             []*InspectedObject `json:"assets,omitempty"`
 	Diff               *InspectedObject   `json:"diff,omitempty"`
 	RevisionChainID    string             `json:"revision_chain_id,omitempty"`
 	Revision           int                `json:"revision,omitempty"`
@@ -108,6 +128,15 @@ func (c *Client) InspectUpload(
 	if c.remote != nil {
 		return c.remote.InspectUpload(ctx, urlOrKey)
 	}
+	return c.inspectUploadLocal(ctx, urlOrKey, true)
+}
+
+// inspectUploadLocal performs a targeted marker inspection. Lifecycle callers
+// that only need marker identity pass verifyDigests=false so they do not
+// download otherwise healthy payload bodies.
+func (c *Client) inspectUploadLocal(
+	ctx context.Context, urlOrKey string, verifyDigests bool,
+) (*UploadInspection, error) {
 	if err := c.ensureStorage(ctx); err != nil {
 		return nil, err
 	}
@@ -163,13 +192,20 @@ func (c *Client) InspectUpload(
 	resolved := &resolvedMarker{
 		Key: markerKey, Basename: path.Base(markerKey), Body: markerBody,
 	}
+	if marker, decodeErr := DecodeUploadMarkerForName(
+		markerBody, dir, resolved.Basename,
+	); decodeErr == nil {
+		if err := validateManagedTarget("show", key, dirPrefix, marker); err != nil {
+			return nil, err
+		}
+	}
 
 	return c.inspectUploadSnapshot(ctx, RemoteUpload{
 		Dir:       dir,
 		MarkerKey: resolved.Key,
 		Objects:   len(objects),
 		objects:   byObjectKey(objects),
-	}, resolved.Body)
+	}, resolved.Body, verifyDigests)
 }
 
 func byObjectKey(objects []objectInfo) map[string]objectInfo {
@@ -206,11 +242,12 @@ func (c *Client) inspectListedUpload(
 		}
 		return nil, err
 	}
-	return c.inspectUploadSnapshot(ctx, upload, markerBody)
+	return c.inspectUploadSnapshot(ctx, upload, markerBody, false)
 }
 
 func (c *Client) inspectUploadSnapshot(
 	ctx context.Context, upload RemoteUpload, markerBody []byte,
+	verifyDigests bool,
 ) (*UploadInspection, error) {
 	inspection := &UploadInspection{
 		Dir: upload.Dir, MarkerKey: upload.MarkerKey,
@@ -259,39 +296,39 @@ func (c *Client) inspectUploadSnapshot(
 	}
 	dirPrefix := strings.TrimSuffix(upload.MarkerKey, path.Base(upload.MarkerKey))
 	var fallback bool
-	inspection.Page, fallback = c.inspectedObject(dirPrefix+marker.Page, byKey)
-	inspection.Page.ExpectedBytes = marker.PageBytes
-	inspection.Page.ExpectedKnown = marker.Version >= 2
-	if marker.Source != "" {
-		var sourceFallback bool
-		inspection.Source, sourceFallback = c.inspectedObject(
-			dirPrefix+marker.Source, byKey,
-		)
-		for _, object := range marker.Objects {
-			if object.Role == MarkerRoleSource {
-				inspection.Source.ExpectedBytes = object.Bytes
-				inspection.Source.ExpectedKnown = marker.Version >= 3
+	declared := make(map[string]*InspectedObject, len(marker.Objects))
+	for _, object := range marker.Objects {
+		inspected, objectFallback := c.inspectedObject(dirPrefix+object.Name, byKey)
+		inspected.Name = object.Name
+		inspected.Role = object.Role
+		inspected.ExpectedBytes = object.Bytes
+		inspected.ExpectedKnown = marker.Version >= 3
+		inspected.ExpectedSHA256 = object.SHA256
+		if verifyDigests && inspected.Exists && inspected.Bytes == object.Bytes &&
+			object.SHA256 != "" {
+			inspected.SHA256, err = c.hashInspectedObject(ctx, inspected.Key, object.Bytes)
+			if err != nil {
+				return nil, err
 			}
 		}
-		fallback = fallback || sourceFallback
+		declared[object.Name] = inspected
+		fallback = fallback || objectFallback
+		switch object.Role {
+		case MarkerRoleFile:
+			inspection.Files = append(inspection.Files, inspected)
+		case MarkerRoleAsset:
+			inspection.Assets = append(inspection.Assets, inspected)
+		case MarkerRoleDiff:
+			inspection.Diff = inspected
+		}
 	}
-	for _, object := range marker.Objects {
-		if object.Role == MarkerRoleDiff {
-			var diffFallback bool
-			inspection.Diff, diffFallback = c.inspectedObject(dirPrefix+object.Name, byKey)
-			inspection.Diff.ExpectedBytes = object.Bytes
-			inspection.Diff.ExpectedKnown = true
-			fallback = fallback || diffFallback
-			continue
-		}
-		if object.Role != MarkerRoleFile {
-			continue
-		}
-		file, fileFallback := c.inspectedObject(dirPrefix+object.Name, byKey)
-		file.ExpectedBytes = object.Bytes
-		file.ExpectedKnown = true
-		inspection.Files = append(inspection.Files, file)
-		fallback = fallback || fileFallback
+	inspection.Page = declared[marker.Page]
+	inspection.Source = declared[marker.Source]
+	for _, page := range marker.Pages {
+		inspection.Pages = append(inspection.Pages, InspectedPage{
+			Path: page.Path, Format: page.Format, Title: page.Title, Lang: page.Lang,
+			Page: declared[page.Page], Source: declared[page.Source],
+		})
 	}
 	if marker.Revision != nil {
 		body, metadataErr := c.st.getBytes(ctx, dirPrefix+VersionsFilename,
@@ -321,25 +358,62 @@ func (c *Client) inspectUploadSnapshot(
 			PublicURLFallbackWarning)
 	}
 	inspection.State = UploadComplete
-	if !inspection.Page.Exists ||
+	if inspection.Page == nil || !inspection.Page.Exists ||
 		(inspection.Source != nil && !inspection.Source.Exists) ||
 		(marker.Version >= 2 && inspection.Page.Bytes != marker.PageBytes) {
 		inspection.State = UploadIncomplete
 	}
-	if inspection.Source != nil && inspection.Source.ExpectedKnown &&
-		inspection.Source.Bytes != inspection.Source.ExpectedBytes {
+	if inspection.Source != nil &&
+		!inspectedObjectMatches(inspection.Source, verifyDigests) {
 		inspection.State = UploadIncomplete
 	}
 	if inspection.Diff != nil &&
-		(!inspection.Diff.Exists || inspection.Diff.Bytes != inspection.Diff.ExpectedBytes) {
+		!inspectedObjectMatches(inspection.Diff, verifyDigests) {
 		inspection.State = UploadIncomplete
 	}
 	for _, file := range inspection.Files {
-		if !file.Exists || file.Bytes != file.ExpectedBytes {
+		if !inspectedObjectMatches(file, verifyDigests) {
+			inspection.State = UploadIncomplete
+		}
+	}
+	for _, page := range inspection.Pages {
+		if !inspectedObjectMatches(page.Page, verifyDigests) ||
+			(page.Source != nil && !inspectedObjectMatches(page.Source, verifyDigests)) {
+			inspection.State = UploadIncomplete
+		}
+	}
+	for _, asset := range inspection.Assets {
+		if !inspectedObjectMatches(asset, verifyDigests) {
 			inspection.State = UploadIncomplete
 		}
 	}
 	return inspection, nil
+}
+
+func inspectedObjectMatches(object *InspectedObject, verifyDigest bool) bool {
+	if object == nil || !object.Exists ||
+		(object.ExpectedKnown && object.Bytes != object.ExpectedBytes) {
+		return false
+	}
+	return !verifyDigest || object.ExpectedSHA256 == "" ||
+		object.SHA256 == object.ExpectedSHA256
+}
+
+func (c *Client) hashInspectedObject(ctx context.Context, key string, size int64) (string, error) {
+	body, _, err := c.st.open(ctx, key)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = body.Close() }()
+	hash := sha256.New()
+	written, err := io.Copy(hash, io.LimitReader(body, size+1))
+	if err != nil {
+		return "", fmt.Errorf("airplan: hash upload object %q: %w", key, err)
+	}
+	if written != size {
+		return "", fmt.Errorf("airplan: hash upload object %q: expected %d bytes, read %d", key, size, written)
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 // inspectProtection derives protection state from the same listing snapshot
@@ -390,9 +464,9 @@ func validateInspectionTarget(key, dirPrefix string) error {
 		return nil
 	}
 	rel := strings.TrimPrefix(key, dirPrefix)
-	if rel == key || rel == "" || strings.Contains(rel, "/") {
+	if rel == key || rel == "" {
 		return invalidTargetf(
-			"airplan: show target %q must be the random directory or a direct child",
+			"airplan: show target %q must be the random directory or a declared child",
 			key,
 		)
 	}
