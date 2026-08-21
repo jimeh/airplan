@@ -114,6 +114,7 @@ let fixedCollectionHTML = Buffer.alloc(0);
 let subsetHTML = Buffer.alloc(0);
 let revisionHTML = Buffer.alloc(0);
 let revisionNotesHTML = Buffer.alloc(0);
+let revisionNotesSource = Buffer.alloc(0);
 let bundleMembers = new Map<string, Buffer>();
 const versionRequests: Array<{
   headers: import("node:http").IncomingHttpHeaders;
@@ -370,6 +371,7 @@ syntax = "derived"
   subsetHTML = await readFile(subsetOutputPath);
   revisionHTML = await readFile(revisionOutputPath);
   revisionNotesHTML = await readFile(join(tempRoot, "notes.html"));
+  revisionNotesSource = await readFile(join(tempRoot, "notes.md"));
   bundleMembers = new Map([
     ["/bundle/index.html", await readFile(join(bundleOutputPath, "index.html"))],
     ["/bundle/docs/design.html", await readFile(join(bundleOutputPath, "docs", "design.html"))],
@@ -398,6 +400,10 @@ syntax = "derived"
       body = revisionHTML;
     } else if (request.url === `/${"r".repeat(26)}/notes.html`) {
       body = revisionNotesHTML;
+    } else if (request.url === `/${"r".repeat(26)}/notes.md`) {
+      response.writeHead(200, { "Content-Type": "text/markdown; charset=utf-8" });
+      response.end(revisionNotesSource);
+      return;
     } else if (request.url === `/${"r".repeat(26)}/.airplan-changes.diff`) {
       response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       response.end("--- revision-1/plan.md\n+++ revision-2/plan.md\n");
@@ -1927,6 +1933,17 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   await page.locator(".pages-popover-nav").getByRole("link", { name: "Notes notes.md" }).click();
   await expect(page).toHaveURL(`${baseURL}/${currentDir}/notes.html`);
   await expect(page.getByRole("heading", { level: 1, name: "Notes" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open raw markdown" })).toHaveAttribute(
+    "href",
+    "./notes.md",
+  );
+  await expect(page.getByRole("link", { name: "All changes" })).toHaveAttribute(
+    "href",
+    "./plan.html#airplan-all-changes",
+  );
+  const notesSource = await page.request.get(`${baseURL}/${currentDir}/notes.md`);
+  expect(notesSource.ok()).toBe(true);
+  expect(await notesSource.text()).toBe("# Notes\n\nSupporting revision fixture page.\n");
   await page.goto(revisions[1].url);
   const changesButton = page.getByRole("button", { name: "Changes view" });
   await expect(changesButton).toBeVisible();

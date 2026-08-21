@@ -42,12 +42,14 @@ func main() {
 		{Path: "plan.md", Title: "Browser revision", URL: entryURL},
 		{Path: "notes.md", Title: "Notes", URL: "notes.html", Current: true},
 	}
-	notes, err := airplan.RenderMarkdown([]byte("# Notes\n\nSupporting revision fixture page.\n"), airplan.RenderOptions{
+	notesSource := []byte("# Notes\n\nSupporting revision fixture page.\n")
+	notes, err := airplan.RenderMarkdown(notesSource, airplan.RenderOptions{
 		Title: "Notes", Slug: "notes", SourceName: "notes.md",
 		SourcePath: "./notes.md", NoExternalAssets: true,
 		Revision: 2, RevisionCount: 2, PreviousRevision: 1,
 		RevisionChainID: "ssssssssssssssssssssssssss",
 		VersionsPath:    airplan.VersionsFilename,
+		AllChangesPath:  "./plan.html#airplan-all-changes",
 		Pages:           notesPages,
 		CurrentPage:     notesPages[1],
 		Entrypoint:      entryURL,
@@ -61,6 +63,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err := os.WriteFile(filepath.Join(filepath.Dir(outputPath), "notes.html"), notes, 0o644); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(outputPath), "notes.md"), notesSource, 0o644); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
