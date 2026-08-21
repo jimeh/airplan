@@ -90,8 +90,15 @@ body {
 }
 
 .mode-toggle button {
+  display: inline-flex;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  background: none;
   border: 0;
   border-radius: 6px;
+  justify-content: center;
+  align-items:  center;
   padding: .3rem .55rem;
 }
 
@@ -319,8 +326,10 @@ html {
   grid-column: 1;
   grid-row: 3;
   position: sticky;
+  display: flex;
   width: min(var(--toc-width), calc(100% - 2rem));
-  overflow-y: auto;
+  overflow: hidden;
+  flex-direction: column;
   place-self:  start end;
   max-height: calc(100vh - 3rem);
   margin: 1.5rem 1.25rem 0 0;
@@ -349,8 +358,10 @@ html {
   grid-column: 1;
   grid-row: 3;
   position: sticky;
+  display: flex;
   width: min(var(--toc-width), calc(100% - 2rem));
-  overflow-y: auto;
+  overflow: hidden;
+  flex-direction: column;
   place-self:  start end;
   max-height: calc(100vh - 3rem);
   margin: 1.5rem 1.25rem 0 0;
@@ -359,7 +370,10 @@ html {
 }
 
 .pages-list {
+  overflow-y: auto;
+  overscroll-behavior: contain;
   list-style: none;
+  min-height: 0;
   margin: 0;
   padding: 0;
 }
@@ -420,7 +434,10 @@ html {
 }
 
 .toc-list {
+  overflow-y: auto;
+  overscroll-behavior: contain;
   list-style: none;
+  min-height: 0;
   margin: 0;
   padding: 0;
 }
@@ -736,8 +753,16 @@ body.toc-dialog-open {
   overflow-x: auto;
 }
 
-body.all-changes-active .pages-nav, body.all-changes-active .toc, body.all-changes-active .reader-controls .mode-toggle {
+body.all-changes-active .pages-nav, body.all-changes-active .toc, body.all-changes-active .reader-controls .mode-toggle, body.all-changes-active .toolbar .pages-trigger {
   display: none !important;
+}
+
+.all-changes-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .35rem .55rem;
+  margin: 0 0 1rem;
+  font-size: .85rem;
 }
 
 .file-actions {
@@ -1431,8 +1456,19 @@ mark {
     margin-inline-end: auto;
   }
 
+  .toolbar {
+    position: sticky;
+    z-index: 15;
+    min-height: calc(44px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    top: 0;
+  }
+
   .toc, .pages-nav {
     position: static;
+    display: block;
     overflow: visible;
     max-height: none;
     padding: 1.25rem 1.5rem 0;
@@ -1442,7 +1478,16 @@ mark {
     display: none;
   }
 
-  .bundle-page .toolbar .pages-trigger, .toc-trigger {
+  .bundle-page .toolbar .pages-trigger {
+    display: inline-flex;
+    margin-right: auto;
+  }
+
+  .pages-list, .toc-list {
+    overflow: visible;
+  }
+
+  .toc-trigger {
     display: inline-flex;
   }
 
@@ -1452,17 +1497,6 @@ mark {
 }
 
 @media (max-width: 48rem) {
-  .toolbar {
-    position: sticky;
-    z-index: 15;
-    display: flex;
-    min-height: calc(44px + env(safe-area-inset-top));
-    padding-top: env(safe-area-inset-top);
-    background: var(--bg);
-    border-bottom: 1px solid var(--border);
-    top: 0;
-  }
-
   .toolbar .appearance {
     margin-left: 0;
   }

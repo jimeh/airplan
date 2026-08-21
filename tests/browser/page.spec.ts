@@ -578,6 +578,71 @@ test("bundle pages use ordinary navigation and update both rails", async ({
   await expect(page).toHaveURL(`${baseURL}/bundle/docs/design.html`);
 });
 
+test("collapsed bundle navigation stays sticky with Pages on the left", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers the medium breakpoint");
+
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await page.goto(`${baseURL}/bundle/docs/design.html`);
+
+  const toolbar = page.getByRole("navigation", { name: "Document controls" });
+  const pages = page.getByRole("button", { name: "Open pages" });
+  await expect(page.locator(".page-shell > .pages-nav")).toBeHidden();
+  await expect(pages).toBeVisible();
+  const layout = await toolbar.evaluate((element) => {
+    const styles = getComputedStyle(element);
+    const trigger = element.querySelector(".pages-trigger")!.getBoundingClientRect();
+    const bounds = element.getBoundingClientRect();
+    return {
+      position: styles.position,
+      left: trigger.left - bounds.left,
+      leftPadding: Number.parseFloat(styles.paddingLeft),
+    };
+  });
+  expect(layout.position).toBe("sticky");
+  expect(layout.left).toBeCloseTo(layout.leftPadding, 0);
+
+  await page.evaluate(() => window.scrollTo(0, 320));
+  await expect
+    .poll(() => toolbar.evaluate((element) => element.getBoundingClientRect().top))
+    .toBeCloseTo(0, 0);
+  const stickyHeight = await page
+    .locator("html")
+    .evaluate((element) =>
+      Number.parseFloat(getComputedStyle(element).getPropertyValue("--airplan-sticky-height")),
+    );
+  expect(stickyHeight).toBeCloseTo(
+    await toolbar.evaluate((element) => (element as HTMLElement).offsetHeight),
+    0,
+  );
+});
+
+test("wide rail headings remain outside their scroll areas", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one wide project covers rail structure");
+
+  await page.setViewportSize({ width: 1400, height: 240 });
+  await page.goto(`${baseURL}/bundle/docs/design.html`);
+  for (const selector of [".pages-nav", ".toc"]) {
+    const rail = page.locator(selector);
+    const result = await rail.evaluate((element) => {
+      const title = element.querySelector<HTMLElement>(".rail-title")!;
+      const list = element.querySelector<HTMLOListElement>("ol")!;
+      const before = title.getBoundingClientRect().top;
+      list.scrollTop = 48;
+      return {
+        railOverflow: getComputedStyle(element).overflowY,
+        listOverflow: getComputedStyle(list).overflowY,
+        titleTopBefore: before,
+        titleTopAfter: title.getBoundingClientRect().top,
+      };
+    });
+    expect(result.railOverflow).toBe("hidden");
+    expect(result.listOverflow).toBe("auto");
+    expect(result.titleTopAfter).toBeCloseTo(result.titleTopBefore, 0);
+  }
+});
+
 test("bundle navigation keeps its narrow no-JavaScript fallback", async ({ browser }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-light", "one project covers the no-JS fallback");
   const context = await browser.newContext({
@@ -1810,6 +1875,19 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   expect(toolbarLayout.display).toBe("flex");
   expect(toolbarLayout.position).toBe("sticky");
   expect(toolbarLayout.viewTop).toBeGreaterThanOrEqual(toolbarLayout.toolbarBottom);
+  const modeBackgrounds = await page
+    .locator(".reader-controls .mode-toggle button")
+    .evaluateAll((buttons) =>
+      buttons.map((button) => ({
+        active: button.classList.contains("active"),
+        background: getComputedStyle(button).backgroundColor,
+      })),
+    );
+  expect(
+    modeBackgrounds.filter((button) => !button.active).map((button) => button.background),
+  ).toEqual(["rgba(0, 0, 0, 0)", "rgba(0, 0, 0, 0)"]);
+  expect(modeBackgrounds.find((button) => button.active)?.background).not.toBe("rgba(0, 0, 0, 0)");
+  await expect(page.getByRole("button", { name: "Open pages" })).toBeVisible();
   const changesButton = page.getByRole("button", { name: "Changes view" });
   await expect(changesButton).toBeVisible();
   await changesButton.click();
@@ -1833,7 +1911,19 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   await expect(page).toHaveURL(/#airplan-all-changes$/);
   await expect(page.locator("[data-airplan-all-changes]")).toBeVisible();
   await expect(page.locator("#rendered")).toBeHidden();
-  await expect(page.getByRole("link", { name: "Back to document" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open pages" })).toBeHidden();
+  const allChangesActions = page.getByRole("navigation", { name: "All changes actions" });
+  await expect(allChangesActions.getByRole("link", { name: "Back to document" })).toBeVisible();
+  await expect(allChangesActions.getByRole("link", { name: "Open raw diff" })).toBeVisible();
+  const actionPlacement = await allChangesActions.evaluate((element) => {
+    const heading = element.parentElement!.querySelector("h1")!;
+    const diff = element.parentElement!.querySelector("pre")!;
+    return {
+      beforeHeading: element.getBoundingClientRect().bottom <= heading.getBoundingClientRect().top,
+      beforeDiff: element.getBoundingClientRect().bottom <= diff.getBoundingClientRect().top,
+    };
+  });
+  expect(actionPlacement).toEqual({ beforeHeading: true, beforeDiff: true });
   await page.reload();
   await expect(page.locator("[data-airplan-all-changes]")).toBeVisible();
   await page.goBack();

@@ -1177,7 +1177,7 @@ interface DocumentMarker {
   var toolbar = d.querySelector<HTMLElement>(".toolbar");
   function publishToolbarHeight() {
     var height =
-      toolbar && window.matchMedia("(max-width: 48rem)").matches
+      toolbar && window.matchMedia("(max-width: 78rem)").matches
         ? toolbar.getBoundingClientRect().height
         : 0;
     d.documentElement.style.setProperty("--airplan-sticky-height", height + "px");

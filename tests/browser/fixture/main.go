@@ -21,6 +21,14 @@ func main() {
 		VersionsPath:    airplan.VersionsFilename,
 		DiffPath:        "./" + airplan.DiffFilename,
 		DiffText:        diff,
+		Pages: []airplan.DocumentTemplatePage{
+			{Path: "plan.md", Title: "Browser revision", URL: "plan.html", Current: true},
+			{Path: "notes.md", Title: "Notes", URL: "notes.html"},
+		},
+		CurrentPage: airplan.DocumentTemplatePage{
+			Path: "plan.md", Title: "Browser revision", URL: "plan.html", Current: true,
+		},
+		Entrypoint: "plan.html",
 	})
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)

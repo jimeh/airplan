@@ -329,7 +329,8 @@ described below.
     the only heading omitted from the built-in table of contents. Later
     H1 headings remain top-level entries.
   - Heading links and hierarchy work without JavaScript. On wide screens the
-    table of contents occupies a sticky rail beside the centered document. At
+    table of contents occupies a sticky rail beside the centered document. Its
+    rail heading remains fixed while only the heading list scrolls. At
     the rail-collapse breakpoint, progressive enhancement replaces the inline
     list with a permanent bottom-right Contents trigger throughout the rendered
     view. The trigger is hidden in Source, Code, Changes, and All changes views
@@ -365,7 +366,9 @@ described below.
     Source, Code, and Changes are content modes in the reader controls below
     revision information. Toolbar and reader controls update immediately
     without color or background transitions when their active state or the
-    page theme changes. Reader state uses `airplan-color-mode`,
+    page theme changes. Inactive content-mode buttons have transparent
+    backgrounds; only the active mode uses the selected theme's control
+    background. Reader state uses `airplan-color-mode`,
     `airplan-light-theme`, and `airplan-dark-theme`. When the new mode key is
     absent, `airplan-theme=light|dark` seeds it. The complete appearance
     trigger and panel are omitted when the resolved selectable catalog has one
@@ -425,7 +428,8 @@ reserved control object.
 Every built-in page in a multi-page document receives the same ordered page
 inventory, its current logical identity, and the entry link. Wide layouts use
 the left rail for **Pages**, the center for the current document, and the right
-rail for **On this page**. Single-page documents retain the existing table of
+rail for **On this page**. Each rail keeps its heading outside the independently
+scrollable item list. Single-page documents retain the existing table of
 contents placement. The active page has a non-color indicator and
 `aria-current="page"`. Assets do not appear in the Pages rail. Compact previous
 and next links follow the page content. At narrow widths, an accessible toolbar
@@ -1346,14 +1350,17 @@ Page reorder alone appears only in the complete report. Changes is page-local;
 the entry page does not absorb child changes. `All changes` is the complete
 adjacent report and opens only on the entry page through
 `#airplan-all-changes`, with Back to document and raw-diff links. It hides the
-page rails and content modes while active. These are normal anchors and
+page rails, the collapsed Pages trigger, and content modes while active. The
+Back to document and raw-diff links precede the report so they remain practical
+for long diffs. These are normal anchors and
 navigations; the runtime does not replace document HTML or manage history.
 
-At the mobile toolbar breakpoint the document toolbar is sticky, opaque, and
-safe-area aware. It retains Pages, applicable Copy/Download/Raw actions as
-icon-only 44px targets, and Appearance. Revision controls and content modes
-remain with the document below it, and fragment offsets include its measured
-height. At collapsed-rail widths Pages progressively enhances into a native
+At the collapsed-rail breakpoint the document toolbar becomes sticky, opaque,
+and safe-area aware, and Pages stays aligned to its left edge. It retains Pages,
+applicable Copy/Download/Raw actions, and Appearance. At the mobile action
+breakpoint the file actions become icon-only 44px targets. Revision controls
+and content modes remain with the document below the toolbar, and fragment
+offsets include its measured height. Pages progressively enhances into a native
 top-anchored popover below its trigger, with ordinary navigation links, light
 dismiss, Escape handling, and focus restoration. It is visually and
 behaviorally distinct from the bottom-sheet Contents dialog, and only one may

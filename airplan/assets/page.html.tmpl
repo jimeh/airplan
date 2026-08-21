@@ -181,13 +181,13 @@
 {{- end}}
 {{- if .HasCompleteDiff}}
 <main class="content all-changes-view" data-airplan-all-changes hidden>
+<nav class="all-changes-actions" aria-label="All changes actions"><a href="{{.Entrypoint}}">Back to document</a><span aria-hidden="true">·</span><a class="raw-diff" href="{{.DiffPath}}">Open raw diff</a></nav>
 <h1 tabindex="-1">All changes from revision {{.PreviousRevision}}</h1>
 {{- if .HighlightedCompleteDiffHTML}}
 {{.HighlightedCompleteDiffHTML}}
 {{- else}}
 <p>This diff is too large to display inline.</p>
 {{- end}}
-<p class="all-changes-actions"><a href="{{.Entrypoint}}">Back to document</a> · <a class="raw-diff" href="{{.DiffPath}}">Open raw diff</a></p>
 </main>
 {{- end}}
 </div>

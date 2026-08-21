@@ -261,7 +261,10 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   pages add page-local diff projection, entry-only complete reports, and
   marker-validated same-logical-page revision selection. Collapsed Pages uses
   a native top-anchored popover while Contents retains its bottom-sheet dialog;
-  the mobile document toolbar is sticky. This page structure increments
+  the document toolbar becomes sticky when the rails collapse, with Pages
+  pinned left. Wide rail headings sit outside their scrollable lists, and the
+  complete-diff view moves its document/raw links above the report while hiding
+  compact Pages navigation. This page structure increments
   `RendererGeneration` to 5.
 - Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's

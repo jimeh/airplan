@@ -42,13 +42,15 @@ html {
   grid-column: 1;
   grid-row: 3;
   position: sticky;
+  display: flex;
+  flex-direction: column;
   top: 1.5rem;
   align-self: start;
   justify-self: end;
   width: min(var(--toc-width), calc(100% - 2rem));
   max-height: calc(100vh - 3rem);
   margin: 1.5rem 1.25rem 0 0;
-  overflow-y: auto;
+  overflow: hidden;
   font-size: 0.85rem;
 }
 
@@ -74,19 +76,24 @@ html {
   grid-column: 1;
   grid-row: 3;
   position: sticky;
+  display: flex;
+  flex-direction: column;
   top: 1.5rem;
   align-self: start;
   justify-self: end;
   width: min(var(--toc-width), calc(100% - 2rem));
   max-height: calc(100vh - 3rem);
   margin: 1.5rem 1.25rem 0 0;
-  overflow-y: auto;
+  overflow: hidden;
   font-size: 0.85rem;
 }
 
 .pages-list {
+  min-height: 0;
   margin: 0;
   padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   list-style: none;
 }
 
@@ -142,8 +149,11 @@ html {
 }
 
 .toc-list {
+  min-height: 0;
   margin: 0;
   padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   list-style: none;
 }
 
@@ -463,8 +473,17 @@ body.toc-dialog-open {
 
 body.all-changes-active .pages-nav,
 body.all-changes-active .toc,
-body.all-changes-active .reader-controls .mode-toggle {
+body.all-changes-active .reader-controls .mode-toggle,
+body.all-changes-active .toolbar .pages-trigger {
   display: none !important;
+}
+
+.all-changes-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.55rem;
+  margin: 0 0 1rem;
+  font-size: 0.85rem;
 }
 
 .file-actions {
@@ -1172,8 +1191,19 @@ mark {
     margin-inline: auto;
   }
 
+  .toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 15;
+    min-height: calc(44px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+
   .toc {
     position: static;
+    display: block;
     max-height: none;
     padding: 1.25rem 1.5rem 0;
     overflow: visible;
@@ -1181,6 +1211,7 @@ mark {
 
   .pages-nav {
     position: static;
+    display: block;
     max-height: none;
     padding: 1.25rem 1.5rem 0;
     overflow: visible;
@@ -1193,6 +1224,12 @@ mark {
 
   .bundle-page .toolbar .pages-trigger {
     display: inline-flex;
+    margin-right: auto;
+  }
+
+  .pages-list,
+  .toc-list {
+    overflow: visible;
   }
 
   .toc-trigger {
@@ -1205,17 +1242,6 @@ mark {
 }
 
 @media (max-width: 48rem) {
-  .toolbar {
-    position: sticky;
-    top: 0;
-    z-index: 15;
-    display: flex;
-    min-height: calc(44px + env(safe-area-inset-top));
-    padding-top: env(safe-area-inset-top);
-    background: var(--bg);
-    border-bottom: 1px solid var(--border);
-  }
-
   .toolbar .appearance {
     margin-left: 0;
   }

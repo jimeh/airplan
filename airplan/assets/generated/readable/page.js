@@ -1030,7 +1030,7 @@
     }
     var toolbar = d.querySelector(".toolbar");
     function publishToolbarHeight() {
-      var height = toolbar && window.matchMedia("(max-width: 48rem)").matches ? toolbar.getBoundingClientRect().height : 0;
+      var height = toolbar && window.matchMedia("(max-width: 78rem)").matches ? toolbar.getBoundingClientRect().height : 0;
       d.documentElement.style.setProperty("--airplan-sticky-height", height + "px");
     }
     if (toolbar) {

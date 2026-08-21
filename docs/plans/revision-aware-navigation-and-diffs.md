@@ -168,9 +168,11 @@ than 512 KiB and always links to `.airplan-changes.diff`. Larger reports show
 the existing inline-size message and raw link.
 
 While active, the complete view replaces the page content modes and hides the
-Pages and On this page rails. The toolbar and revision controls remain visible.
-The view provides `Back to document` as an ordinary link to the entry URL
-without the reserved fragment, plus `Open raw diff`.
+Pages and On this page rails. The toolbar and revision controls remain visible,
+but the collapsed Pages trigger is hidden because the complete report is not a
+page-navigation context. The view places `Back to document` and `Open raw diff`
+before its heading and report. `Back to document` is an ordinary link to the
+entry URL without the reserved fragment.
 
 The complete report is not part of the entry page's `Rendered`, `Source`, and
 `Changes` toggle. It is revision-level state with its own URL. On the entry
@@ -193,9 +195,10 @@ Use two breakpoints for two different layout changes:
 
 - At the existing rail-collapse breakpoint, currently `78rem`, remove the
   inline table of contents from the enhanced page flow. Show its floating
-  bottom-right trigger whenever the rendered Markdown view has headings.
-- At the existing mobile toolbar breakpoint, currently `48rem`, make the top
-  document bar sticky.
+  bottom-right trigger whenever the rendered Markdown view has headings. Make
+  the top document bar sticky here as well, and pin Pages to its left edge.
+- At the existing mobile action breakpoint, currently `48rem`, compact the
+  applicable file actions and Appearance to icon-only 44px targets.
 
 The mobile page should read like this:
 
@@ -229,10 +232,16 @@ This is document chrome, not an overlay. Set document `scroll-padding-top` and
 heading `scroll-margin-top` from the measured bar height so fragment navigation
 does not hide headings behind it.
 
+On wide layouts, keep the Pages and On this page headings outside their rail
+scroll containers. Only the item lists scroll, so readers retain the rail's
+identity while moving through a long page or bundle.
+
 Move the one semantic content-mode control out of the sticky bar. On mobile it
 sits after revision controls and immediately before the active content. Do not
 duplicate the toggle for different breakpoints. Desktop may place the same
-element in its current toolbar position through the page grid.
+element in its current toolbar position through the page grid. Reset those
+buttons independently of toolbar styles: inactive modes are transparent, while
+the active mode alone uses the theme's control background.
 
 The revision selector and `All changes` remain non-sticky. They describe the
 revision being read, so they belong with the page content rather than the

@@ -749,7 +749,7 @@
     }
     var YE = q.querySelector(".toolbar");
     function WE() {
-      var E = YE && window.matchMedia("(max-width: 48rem)").matches ? YE.getBoundingClientRect().height : 0;
+      var E = YE && window.matchMedia("(max-width: 78rem)").matches ? YE.getBoundingClientRect().height : 0;
       q.documentElement.style.setProperty("--airplan-sticky-height", E + "px");
     }
     if (YE) {
