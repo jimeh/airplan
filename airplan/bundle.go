@@ -98,6 +98,18 @@ type DocumentTemplatePage struct {
 	Current bool
 }
 
+// DocumentTemplateNavigationItem is one page or directory in the managed-page
+// navigation tree exposed to document templates.
+type DocumentTemplateNavigationItem struct {
+	Name        string
+	Path        string
+	Title       string
+	URL         string
+	Current     bool
+	IsDirectory bool
+	Children    []DocumentTemplateNavigationItem
+}
+
 // DocumentTemplateAsset exposes an asset inventory item to custom templates.
 type DocumentTemplateAsset struct {
 	Path        string

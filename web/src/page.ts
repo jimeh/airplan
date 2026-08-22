@@ -882,8 +882,10 @@ interface DocumentMarker {
         function positionPagesPopover() {
           if (!pagesTrigger || !pagesPopover) return;
           var rect = pagesTrigger.getBoundingClientRect();
+          var toolbar = pagesTrigger.closest(".toolbar");
+          var toolbarBottom = toolbar ? toolbar.getBoundingClientRect().bottom : rect.bottom;
           pagesPopover.style.setProperty("--pages-left", Math.max(16, rect.left) + "px");
-          pagesPopover.style.setProperty("--pages-top", rect.bottom + "px");
+          pagesPopover.style.setProperty("--pages-top", toolbarBottom + "px");
           pagesPopover.style.setProperty(
             "--pages-width",
             Math.min(480, window.innerWidth - Math.max(16, rect.left) - 16) + "px",

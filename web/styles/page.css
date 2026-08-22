@@ -122,8 +122,45 @@ html {
   list-style: none;
 }
 
-.pages-list li + li {
+.pages-list > li + li,
+.pages-list-nested > li + li {
   margin-top: 0.2rem;
+}
+
+.pages-list-nested {
+  margin: 0.1rem 0 0.4rem 0.75rem;
+  padding: 0 0 0 0.45rem;
+  border-left: 1px solid var(--border);
+  list-style: none;
+}
+
+.pages-directory-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.4rem 0.5rem 0.25rem 0.75rem;
+  color: var(--muted);
+  font-family:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.35;
+  list-style: none;
+  overflow-wrap: anywhere;
+}
+
+.pages-directory-label .icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+.pages-directory.is-current > .pages-directory-label {
+  color: var(--fg);
+}
+
+.pages-directory.is-current > .pages-directory-label .icon {
+  color: var(--link);
 }
 
 .pages-list a {
@@ -372,6 +409,10 @@ body.toc-dialog-open {
 
 .pages-popover .pages-list a {
   padding-block: 0.65rem;
+}
+
+.pages-popover .pages-directory-label {
+  padding-block: 0.55rem 0.35rem;
 }
 
 @media (prefers-reduced-motion: no-preference) {

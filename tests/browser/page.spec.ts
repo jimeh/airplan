@@ -508,6 +508,9 @@ test("bundle pages use ordinary navigation and update both rails", async ({
   }
 
   await expect(inlinePages.locator('a[aria-current="page"]')).toContainText("README.md");
+  await expect(inlinePages.locator(".pages-directory-label")).toHaveText(["docs", "examples"]);
+  await expect(inlinePages.locator(".pages-directory-label .icon")).toHaveCount(2);
+  await expect(inlinePages.locator("details, summary")).toHaveCount(0);
   await expect(page.locator("#toc .rail-title")).toHaveText("On this page");
   await expect(page.locator(".page-sequence-next")).toContainText("Design notes");
   const entryLifetime = await page.evaluate(
@@ -520,6 +523,8 @@ test("bundle pages use ordinary navigation and update both rails", async ({
     const popover = page.locator("#pages-popover");
     await expect(popover).toBeVisible();
     await expect(popover.locator('a[aria-current="page"]')).toContainText("README.md");
+    await expect(popover.locator(".pages-directory-label")).toHaveText(["docs", "examples"]);
+    await expect(popover.locator("details, summary")).toHaveCount(0);
     await expect(openPages).toHaveAttribute("aria-expanded", "true");
     await openPages.click();
     await expect(popover).toBeHidden();
@@ -557,9 +562,12 @@ test("bundle pages use ordinary navigation and update both rails", async ({
   await expect
     .poll(() => page.evaluate(() => sessionStorage.getItem("airplan-bundle-authored-runs")))
     .toBe("2");
-  await expect(page.locator(".page-shell > .pages-nav a[aria-current=page]")).toContainText(
-    "docs/design.md",
+  await expect(page.locator(".page-shell > .pages-nav a[aria-current=page] .page-path")).toHaveText(
+    "design.md",
   );
+  await expect(
+    page.locator(".page-shell > .pages-nav .pages-directory.is-current > .pages-directory-label"),
+  ).toHaveText("docs");
   await expect(page.locator("pre.mermaid > svg")).toHaveCount(1);
   await expect(page.locator(".page-sequence-previous")).toContainText("Bundle overview");
   await expect(page.locator(".page-sequence-next")).toContainText("server.go");
@@ -612,6 +620,25 @@ test("collapsed bundle navigation stays sticky with Pages on the left", async ({
   });
   expect(layout.position).toBe("sticky");
   expect(layout.left).toBeCloseTo(layout.leftPadding, 0);
+
+  await pages.click();
+  const popover = page.locator("#pages-popover");
+  await expect(popover).toBeVisible();
+  for (const width of [1000, 520]) {
+    await page.setViewportSize({ width, height: 640 });
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const toolbarBounds = document.querySelector(".toolbar")!.getBoundingClientRect();
+          const popoverBounds = document.querySelector("#pages-popover")!.getBoundingClientRect();
+          return popoverBounds.top - toolbarBounds.bottom;
+        }),
+      )
+      .toBeCloseTo(0, 0);
+  }
+  await page.setViewportSize({ width: 1000, height: 640 });
+  await pages.click();
+  await expect(popover).toBeHidden();
 
   await page.evaluate(() => window.scrollTo(0, 320));
   await expect
@@ -674,9 +701,9 @@ test("bundle navigation keeps its narrow no-JavaScript fallback", async ({ brows
     await expect(pages.locator('a[aria-current="page"]')).toContainText("README.md");
     await pages.getByRole("link", { name: /Design notes/ }).click();
     await expect(page).toHaveURL(`${baseURL}/bundle/docs/design.html`);
-    await expect(page.locator(".page-shell > .pages-nav a[aria-current=page]")).toContainText(
-      "docs/design.md",
-    );
+    await expect(
+      page.locator(".page-shell > .pages-nav a[aria-current=page] .page-path"),
+    ).toHaveText("design.md");
   } finally {
     await context.close();
   }

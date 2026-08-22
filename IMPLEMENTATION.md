@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.41.0.
+may contradict it. Targets spec version 0.44.0.
 
 ---
 
@@ -256,8 +256,11 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   `airplan template [document|collection]` and minified assets for executable
   built-ins. Both commands therefore emit complete, standalone, reusable
   templates without exposing internal bake markers.
-- Built-in multi-page navigation remains server-rendered. Every item is a
-  normal anchor to a standalone document. CSS opts same-origin navigations into
+- Built-in multi-page navigation remains server-rendered. Rendering derives a
+  directory tree from the ordered page list while preserving that flat list for
+  previous/next sequencing. Directories are static visual groups, and every page
+  item is a normal anchor to a standalone document. CSS opts same-origin
+  navigations into
   cross-document View Transitions under the no-reduced-motion media query;
   there is no click interception, fetch/replace controller, or client-side
   history. Each destination runs the existing one-shot initializer. Linked
@@ -267,15 +270,16 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   the document toolbar becomes sticky when the rails collapse, with Pages
   pinned left. Wide rail headings sit outside their scrollable lists, and the
   complete-diff view moves its document/raw links above the report while hiding
-  compact Pages navigation. This page structure increments
-  `RendererGeneration` to 5.
+  compact Pages navigation. This page structure uses
+  `RendererGeneration` 14.
 - Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, safe theme CSS/catalog metadata, structured headings/ToC
   entries, format metadata,
   title, slug, indexing intent, frontmatter, repository context, source
-  names/paths, ordered bundle pages, current-page identity, entrypoint, and
-  assets. Document-specific CSS and JS cover the page grid, Pages and On this
+  names/paths, ordered bundle pages, directory-grouped page navigation,
+  current-page identity, entrypoint, and assets. Document-specific CSS and JS
+  cover the page grid, Pages and On this
   page rails, narrow navigation dialog, previous/next controls, prose, source
   view, table of contents, copy controls, and Mermaid integration. Custom
   templates receive the additive bundle data but no injected navigation or

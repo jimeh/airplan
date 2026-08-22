@@ -65,6 +65,8 @@ coverage has no equivalent local task on non-Windows hosts.
   contract-sensitive, including deletions and moves out of those paths. Local
   policy findings fail; PR CI reports them as warnings while signal quality
   matures. Git and parsing errors always fail.
+  The checker reads the current contract from `HEAD`, not the working tree or
+  index, so run it after committing the contract change.
 - **CLI tests must clear `AIRPLAN_*` selectors**: worktree-local
   `mise.local.toml` commonly exports `AIRPLAN_PROFILE`, so `mise run check`
   runs `go test` with it set while a bare `go test` may not. Local listing

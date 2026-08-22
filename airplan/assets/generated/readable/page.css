@@ -404,8 +404,43 @@ html {
   padding: 0;
 }
 
-.pages-list li + li {
+.pages-list > li + li, .pages-list-nested > li + li {
   margin-top: .2rem;
+}
+
+.pages-list-nested {
+  border-left: 1px solid var(--border);
+  list-style: none;
+  margin: .1rem 0 .4rem .75rem;
+  padding: 0 0 0 .45rem;
+}
+
+.pages-directory-label {
+  display: flex;
+  color: var(--muted);
+  list-style: none;
+  overflow-wrap: anywhere;
+  align-items:  center;
+  gap: .4rem;
+  padding: .4rem .5rem .25rem .75rem;
+  font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+  font-size: .76rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.pages-directory-label .icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.pages-directory.is-current > .pages-directory-label {
+  color: var(--fg);
+}
+
+.pages-directory.is-current > .pages-directory-label .icon {
+  color: var(--link);
 }
 
 .pages-list a {
@@ -662,6 +697,11 @@ body.toc-dialog-open {
 .pages-popover .pages-list a {
   padding-block-start: .65rem;
   padding-block-end: .65rem;
+}
+
+.pages-popover .pages-directory-label {
+  padding-block-start: .55rem;
+  padding-block-end: .35rem;
 }
 
 @media (prefers-reduced-motion: no-preference) {

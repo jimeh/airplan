@@ -1,4 +1,24 @@
-<!-- airplan:icon-templates --><!doctype html>
+<!-- airplan:icon-templates -->
+{{- define "airplan-page-navigation-items" -}}
+{{- range .}}
+  {{- if .IsDirectory}}
+    <li class="pages-directory{{if .Current}} is-current{{end}}">
+      <div class="pages-directory-label" title="{{.Path}}">{{template "airplan-icon-directory"}}<span>{{.Name}}</span></div>
+      <ol class="pages-list-nested">
+        {{- template "airplan-page-navigation-items" .Children}}
+      </ol>
+    </li>
+  {{- else}}
+    <li class="pages-page{{if .Current}} is-current{{end}}">
+      <a href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>
+        <span class="page-title">{{.Title}}</span>
+        <code class="page-path">{{.Name}}</code>
+      </a>
+    </li>
+  {{- end}}
+{{- end}}
+{{- end -}}
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -77,14 +97,7 @@
 <nav class="pages-nav" id="pages" aria-label="Pages">
   <p class="rail-title">Pages</p>
   <ol class="pages-list">
-  {{- range .Pages}}
-    <li{{if .Current}} class="is-current"{{end}}>
-      <a href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>
-        <span class="page-title">{{.Title}}</span>
-        <code class="page-path">{{.Path}}</code>
-      </a>
-    </li>
-  {{- end}}
+    {{- template "airplan-page-navigation-items" .PageNavigation}}
   </ol>
 </nav>
 {{- end}}

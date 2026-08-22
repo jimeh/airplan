@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.43.0**
+**Spec version: 0.44.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -466,9 +466,9 @@ resets; existing persistent theme preferences continue across pages. Print
 includes only the loaded page. Custom templates receive bundle data but no
 built-in navigation, transition CSS, or JavaScript.
 
-The bundle page structure, revision-aware content modes, transition CSS, and
-built-in control icon set define renderer generation 10. Single-page output
-also uses generation 10 because
+The bundle page structure, directory-grouped managed-page navigation,
+revision-aware content modes, transition CSS, and built-in control icon set
+define renderer generation 14. Single-page output also uses generation 14 because
 the current writer has one renderer generation for all generated pages.
 
 ### Plain-text input
@@ -555,6 +555,7 @@ against):
 | `.DefaultDarkTheme`            | string    | configured dark-slot theme ID          |
 | `.AppearanceEnabled`           | boolean   | catalog has more than one theme        |
 | `.Pages`                       | page[]    | ordered managed-page navigation        |
+| `.PageNavigation`              | nav[]     | directory-grouped managed-page tree    |
 | `.CurrentPage`                 | page      | current managed page                   |
 | `.Entrypoint`                  | string    | relative URL to the entry page         |
 | `.Assets`                      | asset[]   | ordered declared asset inventory       |
@@ -573,6 +574,17 @@ URL values are already escaped relative URLs for the current page, so templates
 must not reconstruct them from logical paths. For a simple document, `.Pages`
 contains its managed entry, `.CurrentPage` is that entry, and `.Assets` is
 empty. An authored HTML entry does not execute a document template.
+
+`.PageNavigation` derives a directory tree from `.Pages` without changing the
+ordered page sequence. Each navigation item has `.Name`, `.Path`, `.Title`,
+`.URL`, `.Current`, `.IsDirectory`, and `.Children`. Directory items have empty
+title and URL values, contain their ordered child items, and are current when a
+descendant page is current. Page items have no children. Names are path
+basenames or directory segments, while paths remain complete logical paths.
+Root items and children retain their first-appearance order from `.Pages`.
+The built-in page renders directories as static visual groups. Directory labels
+are not controls, and every managed page remains visible without JavaScript or
+stored client state.
 
 A custom template takes full responsibility for the page: page styles,
 noindex meta, theme UI/runtime, and any interactivity. Theme fields are safe

@@ -525,6 +525,7 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 		data.CurrentPage = opts.CurrentPage
 		data.Entrypoint = opts.Entrypoint
 	}
+	data.PageNavigation = buildDocumentPageNavigation(data.Pages)
 	if data.AllChangesPath == "" && data.Revision > 1 && data.DiffPath != "" {
 		data.AllChangesPath = data.Entrypoint + "#airplan-all-changes"
 	}
@@ -556,6 +557,52 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 		return nil, fmt.Errorf("execute %s: %w", label, err)
 	}
 	return out.Bytes(), nil
+}
+
+func buildDocumentPageNavigation(
+	pages []DocumentTemplatePage,
+) []DocumentTemplateNavigationItem {
+	var navigation []DocumentTemplateNavigationItem
+	for _, page := range pages {
+		segments := strings.Split(page.Path, "/")
+		items := &navigation
+		directoryPath := ""
+		for _, segment := range segments[:len(segments)-1] {
+			if directoryPath == "" {
+				directoryPath = segment
+			} else {
+				directoryPath += "/" + segment
+			}
+			index := navigationDirectoryIndex(*items, directoryPath)
+			if index < 0 {
+				*items = append(*items, DocumentTemplateNavigationItem{
+					Name: segment, Path: directoryPath, IsDirectory: true,
+				})
+				index = len(*items) - 1
+			}
+			if page.Current {
+				(*items)[index].Current = true
+			}
+			items = &(*items)[index].Children
+		}
+		*items = append(*items, DocumentTemplateNavigationItem{
+			Name: pathpkg.Base(page.Path), Path: page.Path, Title: page.Title,
+			URL: page.URL, Current: page.Current,
+		})
+	}
+	return navigation
+}
+
+func navigationDirectoryIndex(
+	items []DocumentTemplateNavigationItem,
+	path string,
+) int {
+	for index := range items {
+		if items[index].IsDirectory && items[index].Path == path {
+			return index
+		}
+	}
+	return -1
 }
 
 func rewriteManagedPageLinks(doc ast.Node, opts RenderOptions) error {
