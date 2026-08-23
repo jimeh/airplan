@@ -1150,17 +1150,14 @@ interface DocumentMarker {
     updateToc();
   }
 
-  var toolbar = d.querySelector<HTMLElement>(".toolbar");
+  var topControls = d.querySelector<HTMLElement>(".top-controls");
   function publishToolbarHeight() {
-    var height =
-      toolbar && window.matchMedia("(max-width: 78rem)").matches
-        ? toolbar.getBoundingClientRect().height
-        : 0;
+    var height = topControls ? topControls.getBoundingClientRect().height : 0;
     d.documentElement.style.setProperty("--airplan-sticky-height", height + "px");
   }
-  if (toolbar) {
+  if (topControls) {
     if (typeof ResizeObserver === "function") {
-      new ResizeObserver(publishToolbarHeight).observe(toolbar);
+      new ResizeObserver(publishToolbarHeight).observe(topControls);
     }
     window.addEventListener("resize", publishToolbarHeight);
     publishToolbarHeight();

@@ -1,6 +1,7 @@
 :root {
   color-scheme: light dark;
   --page-width: 54rem;
+  --compact-control-height: 2.3rem;
   --floating-panel-bg: color-mix(in srgb, var(--bg) 96%, var(--surface-subtle));
   --floating-panel-radius: 12px;
   --floating-panel-shadow: 0 12px 32px color-mix(in srgb, var(--fg) 16%, transparent);
@@ -72,11 +73,21 @@ body {
   gap: 0.5rem;
 }
 
+.toolbar > button,
+.toolbar > a,
+.toolbar > .toolbar-actions > button,
+.toolbar > .toolbar-actions > a,
+.toolbar > .appearance > .appearance-trigger {
+  min-width: 44px;
+  min-height: 44px;
+}
+
 /* Mode controls, not action buttons: quiet inset tracks whose active
    segments sit as raised pills. */
 .mode-toggle {
   display: inline-flex;
   gap: 2px;
+  height: var(--compact-control-height);
   padding: 2px;
   background: var(--control-track);
   border: 0;
@@ -239,17 +250,6 @@ body {
 
 [hidden] {
   display: none !important;
-}
-
-@media (max-width: 48rem) {
-  .toolbar > button,
-  .toolbar > a,
-  .toolbar > .toolbar-actions > button,
-  .toolbar > .toolbar-actions > a,
-  .toolbar > .appearance > .appearance-trigger {
-    min-width: 44px;
-    min-height: 44px;
-  }
 }
 
 @media (max-width: 36rem) {

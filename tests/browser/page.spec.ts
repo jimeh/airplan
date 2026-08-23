@@ -519,6 +519,15 @@ test("bundle pages use ordinary navigation and update both rails", async ({
   expect(entryLifetime).toBeTruthy();
 
   if (testInfo.project.name.startsWith("narrow-")) {
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    const sequenceClearance = await page.locator("#rendered").evaluate(() => {
+      const sequence = document.querySelector<HTMLElement>(".page-sequence")!;
+      const trigger = document.querySelector<HTMLElement>(".toc-trigger")!;
+      return trigger.getBoundingClientRect().top - sequence.getBoundingClientRect().bottom;
+    });
+    expect(sequenceClearance).toBeGreaterThanOrEqual(24);
+    await page.evaluate(() => window.scrollTo(0, 0));
+
     await openPages.click();
     const popover = page.locator("#pages-popover");
     await expect(popover).toBeVisible();
@@ -602,7 +611,7 @@ test("bundle pages use ordinary navigation and update both rails", async ({
   await expect(page).toHaveURL(`${baseURL}/bundle/docs/design.html`);
 });
 
-test("collapsed bundle navigation stays sticky with Pages on the left", async ({
+test("bundle toolbar stays sticky and keeps Pages left when rails collapse", async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-light", "one project covers the medium breakpoint");
@@ -610,20 +619,22 @@ test("collapsed bundle navigation stays sticky with Pages on the left", async ({
   await page.setViewportSize({ width: 1000, height: 640 });
   await page.goto(`${baseURL}/bundle/docs/design.html`);
 
-  const toolbar = page.getByRole("navigation", { name: "Document controls" });
+  const topControls = page.locator(".top-controls");
   const pages = page.getByRole("button", { name: "Open pages" });
   await expect(page.locator(".page-shell > .pages-nav")).toBeHidden();
   await expect(pages).toBeVisible();
-  const layout = await toolbar.evaluate((element) => {
+  const layout = await topControls.evaluate((element) => {
     const styles = getComputedStyle(element);
+    const toolbar = element.querySelector<HTMLElement>(".toolbar")!;
+    const toolbarStyles = getComputedStyle(toolbar);
     const trigger = element.querySelector(".pages-trigger")!.getBoundingClientRect();
-    const bounds = element.getBoundingClientRect();
+    const bounds = toolbar.getBoundingClientRect();
     return {
       backdropFilter: styles.backdropFilter,
       borderBottomWidth: styles.borderBottomWidth,
       position: styles.position,
       left: trigger.left - bounds.left,
-      leftPadding: Number.parseFloat(styles.paddingLeft),
+      leftPadding: Number.parseFloat(toolbarStyles.paddingLeft),
     };
   });
   expect(layout.position).toBe("sticky");
@@ -681,21 +692,22 @@ test("collapsed bundle navigation stays sticky with Pages on the left", async ({
   expect(pagesPanelStyle.right).toBeCloseTo(panelStyles.right, 0);
   await appearanceTrigger.click();
 
-  await page.setViewportSize({ width: 1000, height: 640 });
-
-  await page.evaluate(() => window.scrollTo(0, 320));
-  await expect
-    .poll(() => toolbar.evaluate((element) => element.getBoundingClientRect().top))
-    .toBeCloseTo(0, 0);
-  const stickyHeight = await page
-    .locator("html")
-    .evaluate((element) =>
-      Number.parseFloat(getComputedStyle(element).getPropertyValue("--airplan-sticky-height")),
+  for (const width of [1400, 1000]) {
+    await page.setViewportSize({ width, height: 640 });
+    await page.evaluate(() => window.scrollTo(0, 320));
+    await expect
+      .poll(() => topControls.evaluate((element) => element.getBoundingClientRect().top))
+      .toBeCloseTo(0, 0);
+    const stickyHeight = await page
+      .locator("html")
+      .evaluate((element) =>
+        Number.parseFloat(getComputedStyle(element).getPropertyValue("--airplan-sticky-height")),
+      );
+    expect(stickyHeight).toBeCloseTo(
+      await topControls.evaluate((element) => (element as HTMLElement).offsetHeight),
+      0,
     );
-  expect(stickyHeight).toBeCloseTo(
-    await toolbar.evaluate((element) => (element as HTMLElement).offsetHeight),
-    0,
-  );
+  }
 });
 
 test("wide rail headings remain outside their scroll areas", async ({ page }, testInfo) => {
@@ -1082,7 +1094,7 @@ test("collapsed toolbar and appearance controls keep stable heights", async ({
           .querySelector('select[data-airplan-theme-slot="light"]')!
           .getBoundingClientRect();
         const toolbarBackground = getComputedStyle(
-          document.querySelector(".toolbar")!,
+          document.querySelector(".top-controls")!,
         ).backgroundColor;
         return {
           toolbarHeight: toolbar.height,
@@ -2005,25 +2017,71 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   await page.goto(revisions[1].url);
   await page.setViewportSize({ width: 1400, height: 800 });
   const wideControlLayout = await page.locator(".page-shell").evaluate((element) => {
-    const toolbar = element.querySelector<HTMLElement>(".toolbar")!.getBoundingClientRect();
+    const topControlsElement = element.querySelector<HTMLElement>(".top-controls")!;
+    const topControls = topControlsElement.getBoundingClientRect();
+    const toolbar = element
+      .querySelector<HTMLElement>(".top-controls .toolbar")!
+      .getBoundingClientRect();
     const actionElement = element.querySelector<HTMLElement>(".toolbar .file-actions button")!;
+    const trailingAction = element.querySelector<HTMLElement>(".appearance-trigger")!;
     const action = actionElement.getBoundingClientRect();
     const actionStyle = getComputedStyle(actionElement);
-    const heading = element
+    const headingRow = element
       .querySelector<HTMLElement>(".document-heading-row")!
       .getBoundingClientRect();
+    const heading = element.querySelector<HTMLElement>(".document-heading-row h1")!;
+    const headingBounds = heading.getBoundingClientRect();
+    const headingStyle = getComputedStyle(heading);
     const viewElement = element.querySelector<HTMLElement>(".viewtoggle button")!;
     const view = viewElement.getBoundingClientRect();
     const viewStyle = getComputedStyle(viewElement);
+    const modeToggle = element.querySelector<HTMLElement>(".mode-toggle")!.getBoundingClientRect();
+    const activeMode = element
+      .querySelector<HTMLElement>(".mode-toggle button.active")!
+      .getBoundingClientRect();
+    const revisionControls = element
+      .querySelector<HTMLElement>(".revision-controls")!
+      .getBoundingClientRect();
+    const revisionPickerElement = element.querySelector<HTMLElement>(
+      ".revision-heading.is-picker",
+    )!;
+    const revisionPicker = element
+      .querySelector<HTMLElement>(".revision-heading.is-picker")!
+      .getBoundingClientRect();
+    const allChangesElement = element.querySelector<HTMLElement>(".all-changes-link")!;
+    const allChanges = allChangesElement.getBoundingClientRect();
     const viewControlsStyle = getComputedStyle(
       element.querySelector<HTMLElement>(".view-controls")!,
     );
     return {
       actionCenter: action.top + action.height / 2,
+      actionColor: actionStyle.color,
       actionFontSize: actionStyle.fontSize,
       actionLineHeight: actionStyle.lineHeight,
-      headingBottom: heading.bottom,
-      toolbarBottom: toolbar.bottom,
+      actionRightInset: toolbar.right - trailingAction.getBoundingClientRect().right,
+      frostedLeft: topControls.left,
+      frostedRight: topControls.right,
+      frostedWidth: topControls.width,
+      headingMaxWidth: headingStyle.maxWidth,
+      headingWidth: headingBounds.width,
+      headingRowWidth: headingRow.width,
+      modeTrackHeight: modeToggle.height,
+      modeButtonHeight: activeMode.height,
+      revisionHeight: revisionPicker.height,
+      allChangesHeight: allChanges.height,
+      controlsAligned:
+        Math.abs(
+          modeToggle.top + modeToggle.height / 2 - (revisionPicker.top + revisionPicker.height / 2),
+        ) < 1,
+      revisionRightAligned: Math.abs(revisionControls.right - revisionPicker.right) < 1,
+      allChangesBeforeRevision: allChanges.right <= revisionPicker.left,
+      revisionBackground: getComputedStyle(revisionPickerElement).backgroundColor,
+      allChangesBackground: getComputedStyle(allChangesElement).backgroundColor,
+      allChangesColor: getComputedStyle(allChangesElement).color,
+      topControlsPosition: getComputedStyle(topControlsElement).position,
+      toolbarLeft: toolbar.left,
+      toolbarRight: toolbar.right,
+      toolbarBottom: topControls.bottom,
       viewFontSize: viewStyle.fontSize,
       viewLineHeight: viewStyle.lineHeight,
       viewTop: view.top,
@@ -2033,14 +2091,56 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   expect(wideControlLayout.viewFontSize).toBe(wideControlLayout.actionFontSize);
   expect(wideControlLayout.viewLineHeight).toBe(wideControlLayout.actionLineHeight);
   expect(wideControlLayout.viewBorderBottomWidth).toBe("0px");
+  expect(wideControlLayout.headingMaxWidth).toBe("none");
+  expect(wideControlLayout.headingWidth).toBeCloseTo(wideControlLayout.headingRowWidth, 0);
+  expect(wideControlLayout.modeTrackHeight).toBeGreaterThan(wideControlLayout.revisionHeight);
+  expect(wideControlLayout.modeButtonHeight).toBeCloseTo(wideControlLayout.revisionHeight, 0);
+  expect(wideControlLayout.modeButtonHeight).toBeCloseTo(wideControlLayout.allChangesHeight, 0);
+  expect(wideControlLayout.controlsAligned).toBe(true);
+  expect(wideControlLayout.revisionRightAligned).toBe(true);
+  expect(wideControlLayout.allChangesBeforeRevision).toBe(true);
+  expect(wideControlLayout.revisionBackground).toBe("rgba(0, 0, 0, 0)");
+  expect(wideControlLayout.allChangesBackground).toBe("rgba(0, 0, 0, 0)");
+  expect(wideControlLayout.allChangesColor).toBe(wideControlLayout.actionColor);
+  expect(wideControlLayout.topControlsPosition).toBe("sticky");
+  expect(wideControlLayout.frostedLeft).toBeCloseTo(0, 0);
+  expect(wideControlLayout.frostedRight).toBeCloseTo(1400, 0);
+  expect(wideControlLayout.frostedWidth).toBeCloseTo(1400, 0);
+  expect(wideControlLayout.toolbarLeft).toBeCloseTo(268, 0);
+  expect(wideControlLayout.toolbarRight).toBeCloseTo(1132, 0);
   expect(wideControlLayout.viewTop).toBeGreaterThan(wideControlLayout.toolbarBottom);
-  expect(wideControlLayout.viewTop).toBeGreaterThanOrEqual(wideControlLayout.headingBottom);
   await expect(page.locator(".toolbar-context-document")).toHaveText("plan.md");
   await expect(page.locator(".document-header").getByRole("heading", { level: 1 })).toHaveText(
     "Browser revision",
   );
   await expect(page.locator(".document-breadcrumb-revision")).toHaveText("Revision 2");
-  await expect(page.locator(".document-breadcrumb-revision")).toHaveCSS("border-radius", "999px");
+  await expect(page.locator(".document-breadcrumb-revision-separator")).toHaveText("·");
+  await expect(page.locator(".document-breadcrumb-revision")).toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
+  await expect(page.locator(".document-breadcrumb-revision")).toHaveCSS("border-top-width", "0px");
+
+  await page.setViewportSize({ width: 1000, height: 800 });
+  const mediumControlLayout = await page.locator(".top-controls").evaluate((element) => {
+    const frosted = element.getBoundingClientRect();
+    const controls = element.querySelector<HTMLElement>(".toolbar")!.getBoundingClientRect();
+    const action = element.querySelector<HTMLElement>(".appearance-trigger")!;
+    return {
+      actionRightInset: controls.right - action.getBoundingClientRect().right,
+      frostedLeft: frosted.left,
+      frostedRight: frosted.right,
+      frostedWidth: frosted.width,
+      toolbarLeft: controls.left,
+      toolbarRight: controls.right,
+    };
+  });
+  expect(mediumControlLayout.actionRightInset).toBeCloseTo(wideControlLayout.actionRightInset, 0);
+  expect(mediumControlLayout.frostedLeft).toBeCloseTo(0, 0);
+  expect(mediumControlLayout.frostedRight).toBeCloseTo(1000, 0);
+  expect(mediumControlLayout.frostedWidth).toBeCloseTo(1000, 0);
+  expect(mediumControlLayout.toolbarLeft).toBeCloseTo(68, 0);
+  expect(mediumControlLayout.toolbarRight).toBeCloseTo(932, 0);
 
   const pageShell = page.locator(".page-shell");
   for (const width of [700]) {
@@ -2048,36 +2148,47 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
     await expect
       .poll(() =>
         pageShell.evaluate((element) => {
-          const view = element.querySelector(".view-controls")!;
+          const view = element.querySelector(".view-controls .viewtoggle")!;
           const revision = element.querySelector(".revision-controls")!;
           return {
             domOrder: Boolean(
-              view.compareDocumentPosition(revision) & Node.DOCUMENT_POSITION_FOLLOWING,
+              revision.compareDocumentPosition(view) & Node.DOCUMENT_POSITION_FOLLOWING,
             ),
             visualOrder:
               revision.getBoundingClientRect().bottom <= view.getBoundingClientRect().top,
           };
         }),
       )
-      .toEqual({ domOrder: false, visualOrder: true });
+      .toEqual({ domOrder: true, visualOrder: true });
   }
   await expect(page.getByRole("button", { name: "Read view" }).locator("svg.icon")).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Source view" }).locator("svg.icon")).toHaveCount(
     1,
   );
   await page.setViewportSize({ width: 700, height: 800 });
-  const toolbarLayout = await page.locator(".toolbar").evaluate((element) => {
+  const toolbarLayout = await page.locator(".top-controls").evaluate((element) => {
     const view = document.querySelector(".view-controls .viewtoggle")!.getBoundingClientRect();
-    const toolbar = element.getBoundingClientRect();
+    const frosted = element.getBoundingClientRect();
+    const toolbar = element.querySelector<HTMLElement>(".toolbar")!.getBoundingClientRect();
     return {
       display: getComputedStyle(element).display,
+      frostedLeft: frosted.left,
+      frostedRight: frosted.right,
+      frostedWidth: frosted.width,
       position: getComputedStyle(element).position,
-      toolbarBottom: toolbar.bottom,
+      toolbarBottom: frosted.bottom,
+      toolbarLeft: toolbar.left,
+      toolbarRight: toolbar.right,
       viewTop: view.top,
     };
   });
   expect(toolbarLayout.display).toBe("flex");
+  expect(toolbarLayout.frostedLeft).toBeCloseTo(0, 0);
+  expect(toolbarLayout.frostedRight).toBeCloseTo(700, 0);
+  expect(toolbarLayout.frostedWidth).toBeCloseTo(700, 0);
   expect(toolbarLayout.position).toBe("sticky");
+  expect(toolbarLayout.toolbarLeft).toBeCloseTo(0, 0);
+  expect(toolbarLayout.toolbarRight).toBeCloseTo(700, 0);
   expect(toolbarLayout.viewTop).toBeGreaterThanOrEqual(toolbarLayout.toolbarBottom);
   const collapsedToolbarHeights = [];
   for (const width of [1000, 700, 520]) {

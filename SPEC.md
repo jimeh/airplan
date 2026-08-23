@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.47.0**
+**Spec version: 0.50.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -370,12 +370,21 @@ described below.
     current logical page path at the left on wide layouts and keeps file actions
     and Appearance at the right. A document header below it owns the resolved
     title, revision controls, All changes, and the Read, Source, and Changes
-    modes. Its breadcrumb represents each logical path segment separately and
-    uses a stack icon for a bundle root. Its revision is a separate status
-    badge rather than another path segment. At collapsed-rail widths, the
-    toolbar uses a 60% theme-background tint with blur and contains file actions,
-    Appearance, and the Pages trigger while the complete document header stays
-    with the content. The content-mode
+    modes. The title always owns the full header width. A compact control rail
+    below it places content modes at the left and quiet, secondary revision
+    actions at the right. All changes precedes the revision selector, which
+    anchors the control rail's right edge. Both actions match the inset height
+    of a content-mode button rather than the taller outer mode track. On mobile,
+    revision actions occupy the first row and content modes the second. Its
+    breadcrumb represents each logical path segment
+    separately and uses a stack icon for a bundle root. Revision identity
+    follows a distinct centered-dot separator as subtly colored text rather
+    than appearing as another path segment or a badge. At every viewport width,
+    the frosted toolbar layer spans the full viewport while its control row
+    stays centered at the document width. The layer uses a 60% theme-background
+    tint with blur and contains file actions and Appearance; it additionally
+    contains the Pages trigger when the rails collapse, while the complete
+    document header stays with the content. The content-mode
     eye, code, and diff icons remain visible beside the labels. Content-mode
     labels use the same 0.85rem type scale as the file actions. Toolbar
     and reader controls update immediately
@@ -446,7 +455,9 @@ rail for **On this page**. Each rail keeps its heading outside the independently
 scrollable item list. Single-page documents retain the existing table of
 contents placement. The active page has a non-color indicator and
 `aria-current="page"`. Assets do not appear in the Pages rail. Compact previous
-and next links follow the page content. At narrow widths, an accessible toolbar
+and next links follow the page content. Narrow layouts reserve additional
+bottom clearance between these links and the floating Contents trigger. At
+narrow widths, an accessible toolbar
 control opens the Pages list. A normal no-JavaScript list remains above the
 document until the enhanced controller initializes successfully.
 
@@ -478,8 +489,8 @@ built-in navigation, transition CSS, or JavaScript.
 
 The title-led page structure, segmented path breadcrumb, directory-grouped
 managed-page navigation, revision-aware content modes, transition CSS, and
-built-in control icon set define renderer generation 17. Single-page output
-also uses generation 17 because
+built-in control icon set define renderer generation 20. Single-page output
+also uses generation 20 because
 the current writer has one renderer generation for all generated pages.
 
 ### Plain-text input
@@ -1388,16 +1399,21 @@ raw-diff actions precede the report so they remain practical for long diffs.
 These are normal anchors and
 navigations; the runtime does not replace document HTML or manage history.
 
-At the collapsed-rail breakpoint the document toolbar becomes sticky,
-translucent, blurred, and safe-area aware, and Pages stays aligned to its left
-edge. It has no bottom rule. Its content row
-remains 3.5rem tall across collapsed viewport sizes, plus any safe-area inset.
-It retains Pages, applicable Copy/Download/Raw actions, and Appearance. These
-toolbar actions remain 44px targets across collapsed widths. At the mobile
+The document toolbar is sticky, translucent, blurred, and safe-area aware at
+every viewport width. Its frosted layer spans the full viewport and has no
+bottom rule. A centered inner row keeps a consistent document width so trailing
+file and Appearance actions do not shift when the page rails collapse. At the
+collapsed-rail breakpoint, Pages stays aligned to its left edge. The toolbar's
+content row remains 3.5rem tall across viewport
+sizes, plus any safe-area inset. It retains applicable Copy/Download/Raw actions
+and Appearance, plus Pages when the rails are collapsed. These toolbar actions
+remain 44px targets across widths. At the mobile
 action breakpoint the file-action labels become visually hidden. The
 title, content modes, and revision actions remain together in the document
-header below the toolbar, and
-fragment offsets include its measured height. Pages progressively enhances into a native
+header below the toolbar. Revision actions render above content modes on
+mobile, and extra bottom content padding separates the previous/next links from
+the fixed Contents trigger. Fragment offsets include the toolbar's measured
+height. Pages progressively enhances into a native
 floating popover below its trigger, with the same border, radius, background,
 and shadow language as Appearance, ordinary navigation links, light
 dismiss, Escape handling, and focus restoration. It is visually and

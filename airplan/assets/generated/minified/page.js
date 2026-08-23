@@ -308,14 +308,14 @@
       if (!f(Z))
         throw Error("marker is invalid");
       var B = Z, C = E.pathname.split("/").filter(Boolean), V = C[C.length - 1] || "";
-      if (B.schema !== "airplan-upload" || B.version !== 6 || B.kind !== "document" || B.directory !== V || !/^[a-z2-7]{26}$/.test(B.directory) || !c0(B.created_at) || B.format !== "md" || !l0(B.slug) || B.entrypoint !== B.slug + ".html" || !f(B.producer) || B.producer.name !== "airplan" || typeof B.producer.version !== "string" || B.producer.version.trim() !== B.producer.version || B.producer.version === "" || !x(B.render) || !f(B.revision) || B.revision.number !== h.number || B.revision.chain_id !== M || (B.revision.number === 1 ? B.revision.previous_url !== void 0 : typeof B.revision.previous_url !== "string" || !g0(B.revision.previous_url)) || !Array.isArray(B.objects) || !Array.isArray(B.pages) || B.pages.length === 0)
+      if (B.schema !== "airplan-upload" || B.version !== 6 || B.kind !== "document" || B.directory !== V || !/^[a-z2-7]{26}$/.test(B.directory) || !c0(B.created_at) || B.format !== "md" || !l0(B.slug) || B.entrypoint !== B.slug + ".html" || !f(B.producer) || B.producer.name !== "airplan" || typeof B.producer.version !== "string" || B.producer.version.trim() !== B.producer.version || B.producer.version === "" || !x(B.render) || !f(B.revision) || B.revision.number !== h.number || B.revision.chain_id !== M || (B.revision.number === 1 ? B.revision.previous_url !== void 0 : typeof B.revision.previous_url !== "string" || !p0(B.revision.previous_url)) || !Array.isArray(B.objects) || !Array.isArray(B.pages) || B.pages.length === 0)
         throw Error("marker identity is invalid");
       var S = l(E, B.entrypoint);
       if (S !== h.safeURL)
         throw Error("marker entrypoint is invalid");
       if (B.title !== void 0 && typeof B.title !== "string" || B.repo !== void 0 && !i0(B.repo) || B.objects.length === 0 || B.pages.length > 100)
         throw Error("marker shape is invalid");
-      var I = o0(B), T = new Set, i = new Set, k = new Set, p = new Map;
+      var I = o0(B), T = new Set, i = new Set, k = new Set, g = new Map;
       if (B.pages.forEach(function(q, G) {
         if (!f(q) || !v(q.path) || T.has(q.path) || i.has(q.path.toLowerCase()) || q.format !== "md" && q.format !== "txt" || typeof q.lang !== "string" || q.title !== void 0 && typeof q.title !== "string" || !v(q.page) || !v(q.source))
           throw Error("marker page descriptor is invalid");
@@ -333,21 +333,21 @@
           throw Error("marker source object is invalid");
         if (I.get(q.page) !== "page" || I.get(q.source) !== "source")
           throw Error("marker page object relationship is invalid");
-        var j = B.objects.find(function(g) {
-          return g.name === q.source;
+        var j = B.objects.find(function(p) {
+          return p.name === q.source;
         }).content_type;
         if (q.format === "md" && j !== "text/markdown; charset=utf-8" || q.format === "txt" && j !== "text/plain; charset=utf-8")
           throw Error("marker source content type is invalid");
-        T.add(q.path), i.add(q.path.toLowerCase()), k.add(N), p.set(q.path, N);
+        T.add(q.path), i.add(q.path.toLowerCase()), k.add(N), g.set(q.path, N);
       }), L(i))
         throw Error("marker page paths conflict");
-      if (!T.has(B.pages[0].path) || p.get(B.pages[0].path) !== S)
+      if (!T.has(B.pages[0].path) || g.get(B.pages[0].path) !== S)
         throw Error("marker entry page is invalid");
       if (k.size !== B.pages.length || Array.from(I.values()).filter(function(q) {
         return q === "source";
       }).length !== B.pages.length)
         throw Error("marker page inventory is invalid");
-      return p;
+      return g;
     }
     function _(Z, E) {
       if (E !== "md")
@@ -412,10 +412,10 @@
         return !1;
       }
     }
-    function p0(Z) {
+    function g0(Z) {
       return typeof Z === "string" && /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+(?:; [a-z0-9!#$&^_.+-]+=(?:[a-z0-9!#$&^_.+-]+|"(?:[^"\\\r\n]|\\.)*"))*$/.test(Z);
     }
-    function g0(Z) {
+    function p0(Z) {
       try {
         var E = new URL(Z);
         return (E.protocol === "https:" || E.protocol === "http:") && !E.username && !E.password && !E.search && !E.hash && E.pathname.endsWith(".html");
@@ -436,7 +436,7 @@
     function o0(Z) {
       var E = new Map, h = new Set, M = 0, B = 0, C = 0, V = 0;
       if (Z.objects.forEach(function(S) {
-        if (!f(S) || !v(S.name) && S.name !== ".airplan-changes.diff" || E.has(S.name) || h.has(S.name.toLowerCase()) || !Number.isSafeInteger(S.bytes) || S.bytes < 0 || !u(S.sha256) || !p0(S.content_type))
+        if (!f(S) || !v(S.name) && S.name !== ".airplan-changes.diff" || E.has(S.name) || h.has(S.name.toLowerCase()) || !Number.isSafeInteger(S.bytes) || S.bytes < 0 || !u(S.sha256) || !g0(S.content_type))
           throw Error("marker object inventory is invalid");
         if (S.role === "page") {
           if (B += 1, S.bytes <= 0 || S.content_type !== "text/html; charset=utf-8")
@@ -508,7 +508,7 @@
       T.forEach(function(G) {
         G.hidden = !1;
       });
-      var p = h < I, q = p ? "Revision " + h + " of " + I : "Revision " + h + " (Latest)";
+      var g = h < I, q = g ? "Revision " + h + " of " + I : "Revision " + h + " (Latest)";
       i.forEach(function(G) {
         var y = A.createElement("span");
         y.className = "revision-picker-label", y.textContent = q, y.setAttribute("aria-hidden", "true");
@@ -520,26 +520,26 @@
           var N = P.selectedIndex;
           if (N < 0 || N >= C.length)
             return;
-          var j = C[N], g = j.safeURL || "";
+          var j = C[N], p = j.safeURL || "";
           if (window.location.hash === "#airplan-all-changes") {
-            window.location.assign(g + (j.number > 1 ? "#airplan-all-changes" : ""));
+            window.location.assign(p + (j.number > 1 ? "#airplan-all-changes" : ""));
             return;
           }
           var Z1 = K ? new URL(K.content, window.location.href).href : "";
           if (!$ || S.href === Z1 || !O) {
-            window.location.assign(g);
+            window.location.assign(p);
             return;
           }
           G.setAttribute("aria-busy", "true"), P.disabled = !0;
-          var T0 = new URL("./", g), u0 = new URL(".airplan.json", T0);
+          var T0 = new URL("./", p), u0 = new URL(".airplan.json", T0);
           u0.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2)), fetch(u0, { cache: "no-store", credentials: "same-origin" }).then(r).then(function(E1) {
             var h1 = B0(E1, T0, j, O.content);
-            window.location.assign(s0(g, h1.get($.content) || null));
+            window.location.assign(s0(p, h1.get($.content) || null));
           }).catch(function() {
-            console.warn("airplan: selected revision page map is unavailable or invalid"), window.location.assign(g);
+            console.warn("airplan: selected revision page map is unavailable or invalid"), window.location.assign(p);
           });
-        }), G.replaceChildren(y, P), G.classList.add("is-picker"), G.classList.toggle("is-stale", p);
-      }), A.body.classList.toggle("airplan-stale-revision", p);
+        }), G.replaceChildren(y, P), G.classList.add("is-picker"), G.classList.toggle("is-stale", g);
+      }), A.body.classList.toggle("airplan-stale-revision", g);
     }
     if (U) {
       var O0 = new URL(U.content, window.location.href);
@@ -772,9 +772,9 @@
       }), X0 = !1;
       A.addEventListener("scroll", E, { passive: !0 }), window.addEventListener("resize", Z), Z();
     }
-    var G0 = A.querySelector(".toolbar");
+    var G0 = A.querySelector(".top-controls");
     function Y0() {
-      var Z = G0 && window.matchMedia("(max-width: 78rem)").matches ? G0.getBoundingClientRect().height : 0;
+      var Z = G0 ? G0.getBoundingClientRect().height : 0;
       A.documentElement.style.setProperty("--airplan-sticky-height", Z + "px");
     }
     if (G0) {

@@ -807,8 +807,8 @@
             if (!pagesTrigger || !pagesPopover)
               return;
             var rect = pagesTrigger.getBoundingClientRect();
-            var toolbar2 = pagesTrigger.closest(".toolbar");
-            var toolbarBottom = toolbar2 ? toolbar2.getBoundingClientRect().bottom : rect.bottom;
+            var toolbar = pagesTrigger.closest(".toolbar");
+            var toolbarBottom = toolbar ? toolbar.getBoundingClientRect().bottom : rect.bottom;
             pagesPopover.style.setProperty("--pages-left", Math.max(16, rect.left) + "px");
             pagesPopover.style.setProperty("--pages-top", toolbarBottom + "px");
             pagesPopover.style.setProperty("--pages-width", Math.min(480, window.innerWidth - Math.max(16, rect.left) - 16) + "px");
@@ -1061,14 +1061,14 @@
       window.addEventListener("resize", updateToc);
       updateToc();
     }
-    var toolbar = d.querySelector(".toolbar");
+    var topControls = d.querySelector(".top-controls");
     function publishToolbarHeight() {
-      var height = toolbar && window.matchMedia("(max-width: 78rem)").matches ? toolbar.getBoundingClientRect().height : 0;
+      var height = topControls ? topControls.getBoundingClientRect().height : 0;
       d.documentElement.style.setProperty("--airplan-sticky-height", height + "px");
     }
-    if (toolbar) {
+    if (topControls) {
       if (typeof ResizeObserver === "function") {
-        new ResizeObserver(publishToolbarHeight).observe(toolbar);
+        new ResizeObserver(publishToolbarHeight).observe(topControls);
       }
       window.addEventListener("resize", publishToolbarHeight);
       publishToolbarHeight();
