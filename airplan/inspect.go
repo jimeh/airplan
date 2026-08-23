@@ -302,7 +302,8 @@ func (c *Client) inspectUploadSnapshot(
 		inspected.Name = object.Name
 		inspected.Role = object.Role
 		inspected.ExpectedBytes = object.Bytes
-		inspected.ExpectedKnown = marker.Version >= 3
+		inspected.ExpectedKnown = marker.Version >= 3 ||
+			(marker.Version == 2 && object.Role == MarkerRolePage)
 		inspected.ExpectedSHA256 = object.SHA256
 		if verifyDigests && inspected.Exists && inspected.Bytes == object.Bytes &&
 			object.SHA256 != "" {

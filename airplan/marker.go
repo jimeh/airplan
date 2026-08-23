@@ -13,6 +13,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/jimeh/airplan/internal/pathrules"
 )
 
 // MarkerFilename is the ownership marker basename (SPEC.md §5).
@@ -678,7 +680,17 @@ func validateModernMarker(
 		object := &marker.Objects[i]
 		validName := validMarkerObjectName(object.Name)
 		if marker.Version >= 6 {
-			validName = validMarkerObjectPath(object.Name) || object.Name == DiffFilename
+			switch marker.Kind {
+			case UploadKindCollection:
+				validName = object.Role == MarkerRolePage &&
+					validMarkerObjectName(object.Name)
+				if object.Role == MarkerRoleFile {
+					validName = validateCollectionName(object.Name) == nil
+				}
+			default:
+				validName = validMarkerObjectPath(object.Name) ||
+					object.Name == DiffFilename
+			}
 		}
 		if !validName {
 			return invalid("object name %q is not a safe relative path",
@@ -786,6 +798,9 @@ func validateModernMarker(
 		}
 		return validateDocumentMarkerV3(marker, page, source, diff, files, invalid)
 	case UploadKindCollection:
+		if pages != 1 {
+			return invalid("collection markers must contain exactly one page")
+		}
 		if marker.Version >= 6 && (marker.Entrypoint != "" || len(marker.Pages) != 0) {
 			return invalid("collection markers must not declare entrypoint or pages")
 		}
@@ -1272,7 +1287,7 @@ func validMarkerObjectPath(name string) bool {
 		if segment == "" || segment == "." || segment == ".." ||
 			strings.HasPrefix(lowerSegment, ".airplan-") || lowerSegment == MarkerFilename ||
 			lowerSegment == CollectionMarkerFilename || lowerSegment == ProtectedFilename ||
-			!validPortablePathSegment(segment) {
+			!pathrules.PortableSegment(segment) {
 			return false
 		}
 		for _, r := range segment {
@@ -1282,24 +1297,6 @@ func validMarkerObjectPath(name string) bool {
 		}
 	}
 	return true
-}
-
-func validPortablePathSegment(segment string) bool {
-	if strings.HasSuffix(segment, ".") || strings.HasSuffix(segment, " ") {
-		return false
-	}
-	base := segment
-	if dot := strings.IndexByte(base, '.'); dot >= 0 {
-		base = base[:dot]
-	}
-	switch strings.ToUpper(base) {
-	case "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4",
-		"COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3",
-		"LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9":
-		return false
-	default:
-		return true
-	}
 }
 
 func validNormalizedContentType(value string) bool {

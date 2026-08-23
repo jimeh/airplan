@@ -172,6 +172,51 @@ func TestRenderDocumentNamesLinksAndAssets(t *testing.T) {
 	}
 }
 
+func TestAssetContentTypesUseDeterministicExtensionMapping(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		path string
+		want string
+	}{
+		{path: "audio/sample.wav", want: "audio/wav"},
+		{path: "audio/sample.m4a", want: "audio/mp4"},
+		{path: "notes/readme.md", want: "text/markdown; charset=utf-8"},
+	} {
+		t.Run(test.path, func(t *testing.T) {
+			body := []byte("plain bytes")
+			got, err := normalizeAssetContentType(AssetInput{
+				Reader: bytes.NewReader(body), Path: test.path,
+				Size: int64(len(body)),
+			}, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != test.want {
+				t.Fatalf("content type = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestRenderDocumentDoesNotMutateCallerAssets(t *testing.T) {
+	body := []byte("asset")
+	input := DocumentInput{
+		Entry: PageInput{Reader: strings.NewReader("# Plan\n"), Path: "README.md"},
+		Assets: []AssetInput{{
+			Reader: bytes.NewReader(body), Path: "sample.wav", Size: int64(len(body)),
+		}},
+		RepositoryURL: "none",
+	}
+	if _, err := RenderDocument(
+		context.Background(), input, DocumentRenderOptions{},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if input.Assets[0].ContentType != "" {
+		t.Fatalf("caller asset content type mutated to %q", input.Assets[0].ContentType)
+	}
+}
+
 func TestRenderDocumentProjectsRevisionChangesPerPage(t *testing.T) {
 	report := "# airplan revisions: 2 -> 3\n# README.md\n--- revision-2/README.md\n+++ revision-3/README.md\n@@ -1 +1 @@\n-old\n+new\n# server.go\n--- revision-2/server.go\n+++ revision-3/server.go\n@@ -1 +1 @@\n-old\n+new\n"
 	bundle, err := RenderDocument(context.Background(), DocumentInput{

@@ -213,6 +213,68 @@ func TestAirplanBackendForwardsDiffDownloadSelection(t *testing.T) {
 	}
 }
 
+func TestAirplanBackendForwardsBundleDownloadSelectors(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		opts GetOptions
+	}{
+		{name: "page source", opts: GetOptions{Page: "guides/start.md", Source: true}},
+		{name: "asset", opts: GetOptions{Asset: "images/flow.svg"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(
+				func(w http.ResponseWriter, r *http.Request) {
+					var request httpapi.GetUploadRequest
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+						t.Fatal(err)
+					}
+					if request.URLOrKey != "bundle" || request.Page != test.opts.Page ||
+						request.Asset != test.opts.Asset || request.Source != test.opts.Source {
+						t.Fatalf("request = %+v", request)
+					}
+					w.Header().Set("X-Airplan-Object-Key", "bundle/object")
+					_, _ = io.WriteString(w, "body")
+				},
+			))
+			t.Cleanup(server.Close)
+			client, err := New(context.Background(), &Config{
+				Backend: BackendAirplan, APIURL: server.URL,
+				APIToken: "01234567890123456789012345678901", Repository: "none",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.GetUpload(
+				context.Background(), "bundle", test.opts,
+			); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestHTTPInspectionPreservesObjectIdentityAndDigests(t *testing.T) {
+	wire := wireInspectedObject(&InspectedObject{
+		Name: "guide.html", Role: MarkerRolePage, Key: "dir/guide.html",
+		Exists: true, SHA256: strings.Repeat("a", 64),
+		ExpectedSHA256: strings.Repeat("b", 64),
+	})
+	body, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded httpapi.InspectedObject
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	got := coreInspectedObject(&decoded)
+	if got.Name != "guide.html" || got.Role != MarkerRolePage ||
+		got.SHA256 != strings.Repeat("a", 64) ||
+		got.ExpectedSHA256 != strings.Repeat("b", 64) {
+		t.Fatalf("inspection object = %+v", got)
+	}
+}
+
 func TestAirplanBackendDropsInvalidProtectionReasons(t *testing.T) {
 	const invalid = "keep\n\x1b[31mPROTECTED no"
 	inspection := coreInspection(httpapi.UploadInspection{

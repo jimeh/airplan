@@ -37,6 +37,7 @@ type (
 	VersionsMetadataSchema    = generated.VersionsMetadataSchema
 	VersionsMetadataVersion   = generated.VersionsMetadataVersion
 	InspectedObject           = generated.InspectedObject
+	InspectedObjectRole       = generated.InspectedObjectRole
 	InspectedPage             = generated.InspectedPage
 	UploadInspection          = generated.UploadInspection
 	DeleteResult              = generated.DeleteResult

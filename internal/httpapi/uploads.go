@@ -13,6 +13,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/jimeh/airplan/internal/pathrules"
 )
 
 const defaultMaxMetadataBytes = int64(256 << 10)
@@ -642,7 +644,8 @@ func validateLogicalPath(value string) error {
 	}
 	for _, segment := range strings.Split(value, "/") {
 		if segment == "" || segment == "." || segment == ".." ||
-			strings.HasPrefix(strings.ToLower(segment), ".airplan-") {
+			strings.HasPrefix(strings.ToLower(segment), ".airplan-") ||
+			!pathrules.PortableSegment(segment) {
 			return invalidRequest(fmt.Sprintf("bundle path %q is invalid", value))
 		}
 	}

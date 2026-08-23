@@ -210,6 +210,7 @@ func RenderDocument(
 	if opts.Template != nil && opts.TemplatePath != "" {
 		return nil, errors.New("airplan: render document: template and template path are mutually exclusive")
 	}
+	in.Assets = append([]AssetInput(nil), in.Assets...)
 	assets, err := prepareAssets(ctx, in)
 	if err != nil {
 		return nil, err
@@ -740,7 +741,7 @@ func normalizeAssetContentType(asset AssetInput, start int64) (string, error) {
 		}
 		return mime.FormatMediaType(strings.ToLower(mediaType), params), nil
 	}
-	if mediaType := mime.TypeByExtension(strings.ToLower(pathpkg.Ext(asset.Path))); mediaType != "" {
+	if mediaType := collectionTypeByExtension(strings.ToLower(pathpkg.Ext(asset.Path))); mediaType != "" {
 		parsed, params, err := mime.ParseMediaType(mediaType)
 		if err == nil {
 			return mime.FormatMediaType(strings.ToLower(parsed), params), nil
@@ -808,6 +809,7 @@ func (c *Client) UploadDocument(ctx context.Context, in DocumentInput) (*Documen
 	if err := c.ensureStorage(ctx); err != nil {
 		return nil, err
 	}
+	in.Assets = append([]AssetInput(nil), in.Assets...)
 	assets, err := prepareAssets(ctx, in)
 	if err != nil {
 		return nil, err
@@ -981,4 +983,23 @@ func (c *Client) putDocumentPayloadConditional(
 		Key: key, Body: file, Size: payload.size,
 		ContentType: contentType, Metadata: metadata,
 	}, ifMatch)
+}
+
+func (c *Client) putUpgradePage(
+	ctx context.Context, key string, payload spooledPayload,
+	contentType string, metadata map[string]string, ifMatch string,
+) error {
+	file, err := payload.verify()
+	if err != nil {
+		return fmt.Errorf("airplan: verify payload %q: %w", key, err)
+	}
+	defer func() { _ = file.Close() }()
+	object := streamObject{
+		Key: key, Body: file, Size: payload.size,
+		ContentType: contentType, Metadata: metadata,
+	}
+	if ifMatch == "" {
+		return c.st.putStreamIfAbsent(ctx, object)
+	}
+	return c.st.putStreamConditional(ctx, object, ifMatch)
 }

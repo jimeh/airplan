@@ -91,6 +91,51 @@ func TestUploadMarkerV6CollectionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestUploadMarkerV6CollectionPreservesLegacyValidFilenames(t *testing.T) {
+	t.Parallel()
+	for _, name := range []string{"CON", "aux.txt", "notes.", "trailing "} {
+		t.Run(name, func(t *testing.T) {
+			marker := validCollectionMarker()
+			marker.Objects[1].Name = name
+			body, err := EncodeUploadMarker(marker)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeUploadMarkerForName(
+				body, markerTestDir, CollectionMarkerFilename,
+			); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestUploadMarkerV6CollectionRequiresExactlyOnePage(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		objects []MarkerObject
+	}{
+		{name: "none", objects: validCollectionMarker().Objects[1:]},
+		{name: "multiple", objects: append(
+			append([]MarkerObject(nil), validCollectionMarker().Objects...),
+			MarkerObject{
+				Name: "other.html", Role: MarkerRolePage, Bytes: 1,
+				ContentType: pageContentType, SHA256: strings.Repeat("d", 64),
+			},
+		)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			marker := validCollectionMarker()
+			marker.Objects = test.objects
+			if _, err := EncodeUploadMarker(marker); err == nil ||
+				!strings.Contains(err.Error(), "exactly one page") {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
 func TestUploadMarkerV5CollectionRoundTrip(t *testing.T) {
 	t.Parallel()
 

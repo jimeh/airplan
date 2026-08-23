@@ -136,6 +136,83 @@ func TestGenerateBundleRevisionDiffRejectsExactAggregateExhaustionBeforeDiff(t *
 	}
 }
 
+func TestGenerateBundleRevisionDiffPreservesPageAssetRoleTransitions(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		oldPage  bool
+		oldAsset bool
+		newPage  bool
+		newAsset bool
+	}{
+		{name: "page to asset", oldPage: true, newAsset: true},
+		{name: "asset to page", oldAsset: true, newPage: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := newUpgradeStore(t)
+			client := store.client(t, "")
+			if err := client.ensureStorage(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			dir := strings.Repeat("r", 26)
+			previous := &revisionDocument{
+				marker: &UploadMarker{}, dirPrefix: dir + "/",
+			}
+			next := &RenderedDocumentBundle{}
+			if test.oldPage {
+				body := []byte("old page\n")
+				previous.marker.Pages = []MarkerPage{{
+					Path: "shared.txt", Source: "shared.txt", Format: "txt", Lang: "text",
+				}}
+				previous.marker.Objects = append(previous.marker.Objects, MarkerObject{
+					Name: "shared.txt", Role: MarkerRoleSource, Bytes: int64(len(body)),
+				})
+				store.set(dir+"/shared.txt", body)
+			}
+			if test.oldAsset {
+				previous.marker.Objects = append(previous.marker.Objects, MarkerObject{
+					Name: "shared.txt", Role: MarkerRoleAsset, Bytes: 3,
+					ContentType: "text/plain; charset=utf-8",
+					SHA256:      contentSHA256([]byte("old")),
+				})
+			}
+			if test.newPage {
+				next.Pages = []RenderedBundlePage{{
+					Path: "shared.txt", SourcePath: "shared.txt", Format: "txt",
+					Source: []byte("new page\n"), Lang: "text",
+				}}
+			}
+			assets := []preparedAsset(nil)
+			if test.newAsset {
+				assets = []preparedAsset{{
+					AssetInput: AssetInput{
+						Path: "shared.txt", Size: 3,
+						ContentType: "text/plain; charset=utf-8",
+					},
+					digest: contentSHA256([]byte("new")),
+				}}
+			}
+			body, err := client.generateBundleRevisionDiff(
+				context.Background(), previous, next, assets, 1, 2, MaxDiffSize,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			report, err := parseRevisionDiffReport(body, "shared.txt")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if report.PageSections["shared.txt"] == nil ||
+				report.AssetSections["shared.txt"] == nil {
+				t.Fatalf("role-transition report = %s", body)
+			}
+			if bytes.Index(body, []byte("# airplan page:")) >
+				bytes.Index(body, []byte("# airplan asset:")) {
+				t.Fatalf("role-transition order = %s", body)
+			}
+		})
+	}
+}
+
 func TestUpdateDocumentRejectsNameThatChangesExistingSlugBeforeMutation(t *testing.T) {
 	store := newUpgradeStore(t)
 	client := store.client(t, "")
@@ -2624,6 +2701,88 @@ func TestLoadRevisionDocumentUsesDeclaredSourceSizeAndRejectsTruncation(t *testi
 		context.Background(), dir+"/plan.html",
 	); err == nil || !strings.Contains(err.Error(), "source size") {
 		t.Fatalf("truncated source error = %v", err)
+	}
+}
+
+func TestDeprecatedUpdateDocumentPreservesUnnamedEntryLogicalPath(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{
+			Reader: strings.NewReader("# Original\n"), Path: "INDEX.md",
+		},
+		RepositoryURL: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL,
+		Input:  Input{Reader: strings.NewReader("# Revised\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerBody, ok := store.get(second.MarkerKey)
+	if !ok {
+		t.Fatal("revision marker is missing")
+	}
+	marker, err := DecodeUploadMarker(markerBody, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(marker.Pages) != 1 || marker.Pages[0].Path != "INDEX.md" {
+		t.Fatalf("revision pages = %+v", marker.Pages)
+	}
+}
+
+func TestCreateDocumentRevisionRepairsMissingNonEntryPageBeforeNoop(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	document := func() DocumentInput {
+		return DocumentInput{
+			Entry: PageInput{
+				Reader: strings.NewReader("# Entry\n"), Path: "README.md",
+			},
+			Pages: []PageInput{{
+				Reader: strings.NewReader("# Guide\n"), Path: "guides/start.md",
+			}},
+			RepositoryURL: "none",
+		}
+	}
+	first, err := client.UploadDocument(context.Background(), document())
+	if err != nil {
+		t.Fatal(err)
+	}
+	childKey := first.Pages[1].Key
+	store.mu.Lock()
+	delete(store.objects, childKey)
+	delete(store.etags, childKey)
+	store.mu.Unlock()
+	result, err := client.CreateDocumentRevision(
+		context.Background(), CreateDocumentRevisionInput{
+			Target: first.URL, Document: document(),
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Unchanged {
+		t.Fatalf("revision result = %+v", result)
+	}
+	markerBody, _ := store.get(first.MarkerKey)
+	marker, err := DecodeUploadMarker(markerBody, first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	object, ok := markerObjectNamed(marker, marker.Pages[1].Page)
+	if !ok {
+		t.Fatalf("child page object missing from marker: %+v", marker.Objects)
+	}
+	repaired, ok := store.get(childKey)
+	if !ok || int64(len(repaired)) != object.Bytes ||
+		contentSHA256(repaired) != object.SHA256 {
+		t.Fatal("missing non-entry page was not repaired")
 	}
 }
 

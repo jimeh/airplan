@@ -855,9 +855,11 @@ func coreInspectedObject(object *httpapi.InspectedObject) *InspectedObject {
 		return nil
 	}
 	return &InspectedObject{
+		Name: object.Name, Role: MarkerRole(object.Role),
 		Key: object.Key, URL: object.URL, Exists: object.Exists,
 		Bytes: object.Bytes, ExpectedBytes: object.ExpectedBytes,
 		ExpectedKnown: object.ExpectedKnown,
+		SHA256:        object.Sha256, ExpectedSHA256: object.ExpectedSha256,
 	}
 }
 
@@ -905,6 +907,7 @@ func (t *httpTransport) GetUploadTo(
 ) (string, error) {
 	download, err := t.client.GetUpload(ctx, httpapi.GetUploadRequest{
 		URLOrKey: target, Source: opts.Source, Diff: opts.Diff,
+		Page: opts.Page, Asset: opts.Asset,
 	})
 	if err != nil {
 		return "", transportError(err)

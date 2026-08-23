@@ -119,6 +119,7 @@ func TestUpgradeDocumentRepairsBundlePagesEntryLastWithoutIdentityMarkerPut(t *t
 	store.puts = 0
 	store.putKeys = nil
 	store.putAttempts = 0
+	store.events = nil
 	store.mu.Unlock()
 
 	plan, err := client.PlanUpgradeDocument(context.Background(), result.URL, UpgradeDocumentOptions{})
@@ -184,6 +185,7 @@ func TestUpgradeDocumentReprojectsStructuredBundleDiff(t *testing.T) {
 	store.puts = 0
 	store.putKeys = nil
 	store.putAttempts = 0
+	store.events = nil
 	store.mu.Unlock()
 
 	plan, err := client.PlanUpgradeDocument(context.Background(), second.URL, UpgradeDocumentOptions{})
@@ -210,9 +212,30 @@ func TestUpgradeDocumentReprojectsStructuredBundleDiff(t *testing.T) {
 	}
 	store.mu.Lock()
 	putKeys := append([]string(nil), store.putKeys...)
+	events := append([]string(nil), store.events...)
 	store.mu.Unlock()
 	if len(putKeys) == 0 || putKeys[len(putKeys)-1] != second.Key {
 		t.Fatalf("upgrade put order = %q, want entry last", putKeys)
+	}
+	childPut, markerGet, childVerify, entryPut := -1, -1, -1, -1
+	for index, event := range events {
+		switch {
+		case event == "PUT "+second.Pages[1].Key && childPut < 0:
+			childPut = index
+		case event == "GET "+second.MarkerKey && childPut >= 0:
+			markerGet = index
+		case event == "GET "+second.Pages[1].Key && markerGet >= 0:
+			childVerify = index
+		case event == "PUT "+second.Key:
+			entryPut = index
+		}
+	}
+	if childPut < 0 || markerGet <= childPut || childVerify <= markerGet ||
+		entryPut <= childVerify {
+		t.Fatalf(
+			"upgrade events = %q, want child PUT, marker GET, child GET, entry PUT",
+			events,
+		)
 	}
 
 	validDiff, ok := store.get(second.ID + "/" + DiffFilename)
@@ -429,6 +452,102 @@ func TestUpgradeSourceReadLimitUsesDefaultForLegacyUndeclaredSize(t *testing.T) 
 	marker.Objects[0].Bytes = 123
 	if got := upgradeSourceReadLimit(marker); got != 123 {
 		t.Fatalf("declared source read limit = %d, want 123", got)
+	}
+}
+
+func TestPlanUpgradeAllowsLargeV6SourceWithinAggregateLimit(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	result, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerBody, _ := store.get(result.MarkerKey)
+	marker, err := DecodeUploadMarker(markerBody, result.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := bytes.Repeat([]byte("x"), int(DefaultMaxInputSize)+1)
+	for index := range marker.Objects {
+		if marker.Objects[index].Role == MarkerRoleSource {
+			marker.Objects[index].Bytes = int64(len(source))
+			marker.Objects[index].SHA256 = contentSHA256(source)
+		}
+	}
+	markerBody, err = EncodeUploadMarker(*marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(result.MarkerKey, markerBody)
+	store.set(result.SourceKey, source)
+	plan, err := client.PlanUpgradeDocument(
+		context.Background(), result.URL, UpgradeDocumentOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := plan.sourceSizes[marker.Source]; got != int64(len(source)) {
+		t.Fatalf("planned source size = %d, want %d", got, len(source))
+	}
+
+	marker.Objects = append(marker.Objects, MarkerObject{
+		Role: MarkerRoleSource, Bytes: DefaultMaxTotalPageSize,
+	})
+	if err := validateUpgradeDeclaredPayloadSizes(marker); err == nil ||
+		!strings.Contains(err.Error(), "maximum total source size") {
+		t.Fatalf("aggregate error = %v", err)
+	}
+}
+
+func TestPlanUpgradeRejectsOversizedDeclaredRevisionDiffBeforeRead(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerBody, _ := store.get(second.MarkerKey)
+	marker, err := DecodeUploadMarker(markerBody, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range marker.Objects {
+		if marker.Objects[index].Role == MarkerRoleDiff {
+			marker.Objects[index].Bytes = MaxDiffSize + 1
+		}
+	}
+	markerBody, err = EncodeUploadMarker(*marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(second.MarkerKey, markerBody)
+	store.mu.Lock()
+	store.getKeyAttempts[second.ID+"/"+DiffFilename] = 0
+	store.mu.Unlock()
+	plan, err := client.PlanUpgradeDocument(
+		context.Background(), second.URL, UpgradeDocumentOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.State != UpgradeStateInvalid ||
+		!strings.Contains(plan.Reason, "diff is missing or invalid") {
+		t.Fatalf("plan = %+v", plan)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if got := store.getKeyAttempts[second.ID+"/"+DiffFilename]; got != 0 {
+		t.Fatalf("oversized diff GET attempts = %d, want 0", got)
 	}
 }
 
@@ -1229,6 +1348,7 @@ type upgradeStore struct {
 	etags                   map[string]int
 	puts                    int
 	putKeys                 []string
+	events                  []string
 	putAttempts             int
 	failPutAttempt          int
 	failPutKey              string
@@ -1412,6 +1532,10 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if (r.Method == http.MethodGet && r.URL.Query().Get("list-type") != "2") ||
+		r.Method == http.MethodPut {
+		s.events = append(s.events, r.Method+" "+key)
+	}
 	switch r.Method {
 	case http.MethodGet:
 		if r.URL.Query().Get("list-type") == "2" {

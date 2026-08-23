@@ -393,7 +393,15 @@ func normalizeCollectionContentType(
 }
 
 func collectionTypeByExtension(ext string) string {
-	return map[string]string{".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif", ".svg": "image/svg+xml", ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime", ".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".ogg": "audio/ogg", ".wav": "audio/wav", ".pdf": "application/pdf", ".zip": "application/zip", ".gz": "application/gzip", ".tar": "application/x-tar"}[ext]
+	return map[string]string{
+		".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+		".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif",
+		".svg": "image/svg+xml", ".mp4": "video/mp4", ".webm": "video/webm",
+		".mov": "video/quicktime", ".mp3": "audio/mpeg", ".m4a": "audio/mp4",
+		".ogg": "audio/ogg", ".wav": "audio/wav", ".pdf": "application/pdf",
+		".zip": "application/zip", ".gz": "application/gzip", ".tar": "application/x-tar",
+		".md": "text/markdown; charset=utf-8",
+	}[ext]
 }
 
 func mediaKind(ct string) string {

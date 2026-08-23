@@ -154,6 +154,7 @@ func parseRevisionDiffReport(body []byte, entryPath string) (*revisionDiffReport
 	seenGlobals := make(map[string]struct{})
 	lastGlobalRank := 0
 	lastPath := ""
+	lastPathKindRank := 0
 	seenPath := false
 	sectionCount := 0
 	noChanges := false
@@ -214,19 +215,23 @@ func parseRevisionDiffReport(body []byte, entryPath string) (*revisionDiffReport
 			if _, exists := report.PageSections[logical]; exists {
 				return nil, fmt.Errorf("airplan: duplicate revision diff page section %q", logical)
 			}
-			if explicit && seenPath && logical <= lastPath {
+			kindRank := revisionPathSectionKindRank(kind)
+			if explicit && seenPath && (logical < lastPath ||
+				(logical == lastPath && kindRank <= lastPathKindRank)) {
 				return nil, fmt.Errorf("airplan: revision diff path section %q is out of order", logical)
 			}
 			if err := validateRevisionPageSection(section, logical, previous, current, true, explicit, !explicit); err != nil {
 				return nil, err
 			}
 			report.PageSections[logical] = section
-			seenPath, lastPath = true, logical
+			seenPath, lastPath, lastPathKindRank = true, logical, kindRank
 		case "asset":
 			if _, exists := report.AssetSections[logical]; exists {
 				return nil, fmt.Errorf("airplan: duplicate revision diff asset section %q", logical)
 			}
-			if explicit && seenPath && logical <= lastPath {
+			kindRank := revisionPathSectionKindRank(kind)
+			if explicit && seenPath && (logical < lastPath ||
+				(logical == lastPath && kindRank <= lastPathKindRank)) {
 				return nil, fmt.Errorf("airplan: revision diff path section %q is out of order", logical)
 			}
 			if explicit {
@@ -235,7 +240,7 @@ func parseRevisionDiffReport(body []byte, entryPath string) (*revisionDiffReport
 				}
 			}
 			report.AssetSections[logical] = section
-			seenPath, lastPath = true, logical
+			seenPath, lastPath, lastPathKindRank = true, logical, kindRank
 		}
 		sectionCount++
 		rest = rest[sectionEnd:]
@@ -244,6 +249,17 @@ func parseRevisionDiffReport(body []byte, entryPath string) (*revisionDiffReport
 		return nil, errors.New("airplan: revision diff has no sections")
 	}
 	return report, nil
+}
+
+func revisionPathSectionKindRank(kind string) int {
+	switch kind {
+	case "page":
+		return 1
+	case "asset":
+		return 2
+	default:
+		return 0
+	}
 }
 
 func revisionSectionPayload(section []byte, kind, logical string) ([]byte, error) {

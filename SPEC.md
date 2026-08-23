@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.57.0**
+**Spec version: 0.58.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -170,7 +170,9 @@ rejected because it has no local bundle root. Additional managed pages require
 a Markdown entry and may contain Markdown or UTF-8 text/source. Airplan renders
 source code through the text renderer. Assets are opaque byte-for-byte objects
 that Airplan neither renders nor inspects internally. CLI adapters detect their
-content types; structured callers may provide an explicit content type.
+content types with the same project-owned deterministic extension table and
+conservative sniff fallback used for collection members; structured callers
+may provide an explicit content type.
 
 For CLI operations, the entry file's directory is the bundle root. Every page
 and asset must be a regular file whose fully resolved path remains beneath the
@@ -222,7 +224,10 @@ Member names are direct basenames, never paths. Empty names, `.`, `..`,
 `.airplan.json`, `.airplan-collection.json`, `index.html`, names containing
 slashes, backslashes, NUL, or control characters, and duplicate names are
 rejected. A collection may contain up to 100 files. Zero-byte members are
-valid.
+valid. Collection basenames deliberately retain these rules in every marker
+generation: document-only portability restrictions do not reject otherwise
+valid collection names such as `CON`, `aux.txt`, `notes.`, or names ending in a
+space.
 
 `--title` sets the overview title. Without it, a one-file collection uses the
 member basename; multiple files use `<first basename> and <N> more`.
@@ -236,7 +241,7 @@ append undeclared bytes; unexpected truncation fails the upload.
 
 Content types use a deterministic extension mapping for common browser media,
 including PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV, MP3, M4A, Ogg, WAV,
-and PDF. Unknown extensions use conservative content sniffing, then
+PDF, and Markdown. Unknown extensions use conservative content sniffing, then
 `application/octet-stream`. The original bytes are never sanitized, rewritten,
 transcoded, expanded, or otherwise interpreted.
 
@@ -959,12 +964,12 @@ already is the original file.
   digest already live in `objects`. The legacy in-memory page/source view and
   top-level title, slug, and format continue to describe the entry.
 
-  A v6 collection omits `slug`, `format`, `entrypoint`, and `pages`; uses
-  `index.html` as its sole page; declares no source or asset objects; and has one
-  through 100 `file` objects. File and asset sizes may be zero, while pages and
-  sources remain positive. Unknown roles or kinds are invalid. V4 and v5 retain
-  their original direct-basename and single-page rules. Their page object alone
-  requires `sha256`; older object roles omit it.
+  A v6 collection omits `slug`, `format`, `entrypoint`, and `pages`; has exactly
+  one page object named `index.html`; declares no source or asset objects; and
+  has one through 100 `file` objects. File and asset sizes may be zero, while
+  pages and sources remain positive. Unknown roles or kinds are invalid. V4 and
+  v5 retain their original direct-basename and single-page rules. Their page
+  object alone requires `sha256`; older object roles omit it.
 
 - Unknown marker fields are ignored for forward-compatible extensions.
   Duplicate field names, invalid UTF-8, malformed JSON, unsupported versions,
@@ -1210,18 +1215,23 @@ cannot establish an object's digest. Planning streams page and source bodies
 through bounded hashing and retains only their sizes, digests, and ETags; it
 does not create payload spools. V6 planning accepts generated pages within the
 separate 100 MiB aggregate generated-HTML ceiling, including an entry larger
-than the legacy single-page upgrade bound. Execution streams the exact planned
-page and source generation into a private mode-`0700` directory containing
-mode-`0600` payload files, removes it on success or failure, creates no spool
-for a fresh no-op, and re-hashes every source immediately before the first
-marker or page mutation.
+than the legacy single-page upgrade bound. A v6 source read is bounded by its
+marker-declared size and the 100 MiB aggregate managed-source ceiling rather
+than the legacy 10 MiB per-source fallback. A marker-declared adjacent diff
+larger than 32 MiB is rejected before its body is fetched; accepted diff reads
+remain bounded to that limit. Execution streams the exact planned page and
+source generation into a private mode-`0700` directory containing mode-`0600`
+payload files, removes it on success or failure, creates no spool for a fresh
+no-op, and re-hashes every source immediately before the first marker or page
+mutation.
 
 Execution renders every managed page and calculates the desired v6 marker. It
 conditionally writes that marker once when it differs. A retry that finds the
 exact desired marker does not perform an identity PUT. Airplan then compares
 each non-entry page's actual digest, using a native full-object SHA-256 when
 available and otherwise downloading and hashing it. It skips matching pages and
-conditionally replaces mismatches against the ETags observed during planning.
+conditionally replaces mismatches against the ETags observed during planning;
+a missing declared page is recreated with an absence condition.
 After rechecking the marker and non-entry pages, it applies the same comparison
 to the entry and writes that page last. Storage HTTP 409/412 is
 a conflict that requires a new plan. The REST
@@ -1277,14 +1287,18 @@ a new random directory. Named inputs use the same entry and role inference as
 new uploads. Positional paths plus `--entrypoint`, `--page`, and `--asset`
 resupply the complete bundle;
 omitted pages and assets are removals, never inherited state. A named entry must
-resolve to the existing document slug. Stdin or an omitted name preserves it
-implicitly and remains valid only for a one-entry replacement.
+resolve to the existing document slug. Stdin or an omitted name preserves the
+predecessor entry's exact logical path and remains valid only for a one-entry
+replacement.
 
 Local path, size, count, emptiness, UTF-8, binary, and collision validation
-completes before an eligible predecessor is upgraded or repaired. Revision
-creation may then apply the same in-place upgrade machinery to an eligible
-older marker or renderer generation. This prerequisite maintenance is part of
-the requested operation and remains independently recoverable. It fails closed
+completes before an eligible predecessor is upgraded or repaired. Before
+deciding that an identical document is a no-op or allocating a revision,
+Airplan verifies every marker-declared rendered page needed by the complete
+document and repairs missing or mismatched pages through the same in-place
+upgrade machinery. Revision creation may likewise upgrade an eligible older
+marker or renderer generation. This prerequisite maintenance is part of the
+requested operation and remains independently recoverable. It fails closed
 when the target or latest live revision's v5/v6 theme recipe does not match the
 active catalog and defaults. The explicit remedy is
 `airplan upgrade --force <url|key>` followed by retrying `new-revision`.
@@ -1360,7 +1374,9 @@ sorted page and asset path sections. Each current report begins with
 `# airplan revisions: N -> M` and `# airplan diff format: 2`. Page and asset
 section headings are respectively `# airplan page: <json-string>` and
 `# airplan asset: <json-string>`, where the JSON string is the exact logical
-path. Page sections contain fixed-prefix JSON descriptor summaries for
+path. A role transition at one logical path emits both typed sections in page,
+then asset order, so page-to-asset and asset-to-page transitions remain
+unambiguous. Page sections contain fixed-prefix JSON descriptor summaries for
 additions, removals, or format/title/language changes and unified diffs with
 three context lines for changed UTF-8 sources. Renames appear as remove plus
 add. Binary asset sections use fixed-prefix canonical JSON descriptors to
@@ -1659,7 +1675,8 @@ bundle at the requested path.
 inputs use the same local kind and role inference as upload. Collection preview
 supports `--title`, `--collection-template`, `--indexable`, `--repo`,
 `--max-size`, and `--max-total-size`, performs the same collection preflight,
-and accesses neither storage nor the manifest. The output uses the same
+and rejects the document-only `--max-total-page-size` and `--max-asset-size`.
+It accesses neither storage nor the manifest. The output uses the same
 relative member paths as an upload. Airplan does not copy or inline member
 files for preview, so media resolves locally when the output is saved beside
 the inputs; callers may stage files together when inputs came from different
@@ -2512,9 +2529,11 @@ machine) and must be safe:
   `protect_reason` from a best-effort sentinel body read — an unreadable or
   malformed body leaves the upload protected with the listing timestamp and
   no reason. The human detail block reports the same state as a `PROTECTED`
-  row, `no` or `yes (reason: ...)`. Declared object
-  entries contain `key`, `url`, `exists`, `expected_bytes`, and `bytes`, with
-  `bytes` omitted when missing. An invalid result
+  row, `no` or `yes (reason: ...)`. Declared object entries contain `key`,
+  `url`, `name`, `role`, `exists`, `bytes`, `expected_bytes`, `expected_known`,
+  `sha256`, and `expected_sha256`. Empty digest values indicate that the
+  observed or legacy-declared digest is unavailable. Version 2 page
+  declarations derive known expected bytes from `page_bytes`. An invalid result
   additionally contains `error`, a stable coarse code:
   `oversized`, `malformed_json`, `unsupported_version`, `invalid_fields`, or
   `conflicting_markers`; it never exposes untrusted marker fields. Human
@@ -3172,9 +3191,11 @@ body.
 
 Inspect, get, delete, protect, and unprotect take `url_or_key` in a JSON
 request body. The server resolves it against its complete S3 configuration and
-permits only objects
-declared by exactly one valid Airplan ownership marker. Get streams its
-response with the stored object's content type. Capability URLs are not placed
+permits only objects declared by exactly one valid Airplan ownership marker.
+Get streams its
+response with the stored object's content type. Get accepts the same optional
+`source`, `diff`, `page`, and `asset` selectors and fail-closed mutual
+exclusivity rules as the Go and CLI operation. Capability URLs are not placed
 in query strings. Upload, list,
 inspection, and purge-preview results expose the randomized directory as an
 opaque `upload_id`. `GET /api/v1/uploads` returns service-scoped manifest

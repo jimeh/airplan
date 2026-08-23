@@ -166,11 +166,23 @@ func (s *storage) putConditionalHeaders(
 }
 
 func (s *storage) putStream(ctx context.Context, obj streamObject) error {
-	return s.putStreamConditional(ctx, obj, "")
+	return s.putStreamConditionalHeaders(ctx, obj, "", false)
 }
 
 func (s *storage) putStreamConditional(
 	ctx context.Context, obj streamObject, ifMatch string,
+) error {
+	return s.putStreamConditionalHeaders(ctx, obj, ifMatch, false)
+}
+
+func (s *storage) putStreamIfAbsent(
+	ctx context.Context, obj streamObject,
+) error {
+	return s.putStreamConditionalHeaders(ctx, obj, "", true)
+}
+
+func (s *storage) putStreamConditionalHeaders(
+	ctx context.Context, obj streamObject, ifMatch string, ifNoneMatch bool,
 ) error {
 	if obj.Body == nil {
 		return fmt.Errorf("airplan: put object %q: nil reader", obj.Key)
@@ -191,6 +203,9 @@ func (s *storage) putStreamConditional(
 	}
 	if ifMatch != "" {
 		input.IfMatch = aws.String(ifMatch)
+	}
+	if ifNoneMatch {
+		input.IfNoneMatch = aws.String("*")
 	}
 	_, err = s.client.PutObject(ctx, input)
 	if err != nil {

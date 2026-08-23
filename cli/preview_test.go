@@ -394,6 +394,28 @@ func TestPreviewExternalAssetFlagExplicitFalseOverridesEnvironment(t *testing.T)
 	}
 }
 
+func TestCollectionPreviewRejectsDocumentBundleSizeFlags(t *testing.T) {
+	for _, flag := range []string{
+		"--max-total-page-size=1MiB", "--max-asset-size=1MiB",
+	} {
+		t.Run(flag, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "file.txt")
+			if err := os.WriteFile(file, []byte("body"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			isolateEnv(t)
+			cmd := newRootCmd()
+			cmd.SetArgs([]string{"preview", "--collection", flag, file})
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(
+				err.Error(), "only valid for document previews",
+			) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
 func TestPreviewEmptyMermaidURLFlagResetsEnvironment(t *testing.T) {
 	isolateEnv(t)
 	customURL := "https://assets.example.test/custom-mermaid.mjs"

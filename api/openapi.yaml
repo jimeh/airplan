@@ -841,6 +841,10 @@ components:
         diff:
           type: boolean
           default: false
+        page:
+          type: string
+        asset:
+          type: string
     DeleteRequest:
       type: object
       additionalProperties: false
@@ -1155,8 +1159,13 @@ components:
     InspectedObject:
       type: object
       additionalProperties: false
-      required: [key, exists, bytes, expected_bytes, expected_known]
+      required: [name, role, key, exists, bytes, expected_bytes, expected_known, sha256, expected_sha256]
       properties:
+        name:
+          type: string
+        role:
+          type: string
+          enum: [page, source, file, diff, asset]
         key:
           type: string
         url:
@@ -1174,6 +1183,10 @@ components:
           minimum: 0
         expected_known:
           type: boolean
+        sha256:
+          type: string
+        expected_sha256:
+          type: string
     UploadInspection:
       type: object
       additionalProperties: false

@@ -290,6 +290,10 @@ func (c *Client) updateDocument(
 	if err != nil {
 		return nil, err
 	}
+	logicalPath := docInputLogicalPath(input.Input.Name, FormatMarkdown)
+	if input.Input.Name == "" && len(latest.marker.Pages) > 0 {
+		logicalPath = latest.marker.Pages[0].Path
+	}
 	marker := UploadMarker{
 		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
 		CreatedAt: createdAt, Kind: UploadKindDocument,
@@ -299,7 +303,7 @@ func (c *Client) updateDocument(
 		Render:     recipe,
 		Entrypoint: pageName,
 		Pages: []MarkerPage{{
-			Path: docInputLogicalPath(input.Input.Name, FormatMarkdown),
+			Path: logicalPath,
 			Page: pageName, Source: sourceName, Format: "md", Title: title,
 			Lang: "",
 		}},
@@ -927,6 +931,28 @@ func (c *Client) loadRevisionDocument(ctx context.Context, target string) (*revi
 	}
 	doc.needsPageRepair = marker.PageBytes != int64(len(pageBody)) ||
 		marker.PageSHA256 != contentSHA256(pageBody)
+	for _, descriptor := range marker.Pages {
+		if descriptor.Page == marker.Page {
+			continue
+		}
+		object, declared := markerObjectNamed(marker, descriptor.Page)
+		if !declared || object.Role != MarkerRolePage {
+			return nil, errors.New("airplan: revision marker page graph is incomplete")
+		}
+		state, inspectErr := c.inspectUpgradePayload(
+			ctx, dirPrefix+descriptor.Page, object.Bytes,
+		)
+		if errors.Is(inspectErr, errObjectNotFound) {
+			doc.needsPageRepair = true
+			continue
+		}
+		if inspectErr != nil {
+			return nil, inspectErr
+		}
+		if state.size != object.Bytes || state.digest != object.SHA256 {
+			doc.needsPageRepair = true
+		}
+	}
 	versionsBody, versionsETag, _, versionsErr := c.st.getBytesWithETag(
 		ctx, dirPrefix+VersionsFilename, MaxVersionsMetadataSize,
 	)

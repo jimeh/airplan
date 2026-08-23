@@ -115,6 +115,31 @@ func TestInspectUploadConflictReportsDeterministicOccupancy(t *testing.T) {
 	}
 }
 
+func TestInspectUploadV2RestoresKnownPageSize(t *testing.T) {
+	dir := "abcdefghijklmnopqrstuvwxyz"
+	markerBody, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: 2, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second),
+		Format:    "md", Page: "plan.html", PageBytes: 20,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := newInspectServer(t, dir, markerBody, []objectInfo{
+		{Key: dir + "/" + MarkerFilename, Size: int64(len(markerBody))},
+		{Key: dir + "/plan.html", Size: 20},
+	}, http.StatusOK)
+	got, err := newInspectTestClient(t, server.URL).InspectUpload(
+		context.Background(), dir,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Page == nil || !got.Page.ExpectedKnown || got.Page.ExpectedBytes != 20 {
+		t.Fatalf("v2 page inspection = %+v", got.Page)
+	}
+}
+
 func TestInspectUploadRequestFailures(t *testing.T) {
 	t.Setenv("AWS_MAX_ATTEMPTS", "1")
 	dir := "abcdefghijklmnopqrstuvwxyz"

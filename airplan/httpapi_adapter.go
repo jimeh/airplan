@@ -569,9 +569,11 @@ func wireInspectedObject(object *InspectedObject) *httpapi.InspectedObject {
 		return nil
 	}
 	return &httpapi.InspectedObject{
+		Name: object.Name, Role: httpapi.InspectedObjectRole(object.Role),
 		Key: object.Key, URL: object.URL, Exists: object.Exists,
 		Bytes: object.Bytes, ExpectedBytes: object.ExpectedBytes,
 		ExpectedKnown: object.ExpectedKnown,
+		Sha256:        object.SHA256, ExpectedSha256: object.ExpectedSHA256,
 	}
 }
 
@@ -586,6 +588,7 @@ func (o *HTTPOperations) GetUpload(
 	key, body, contentType, err := client.openUpload(
 		ctx, request.URLOrKey, GetOptions{
 			Source: request.Source, Diff: request.Diff,
+			Page: request.Page, Asset: request.Asset,
 		},
 	)
 	if err != nil {

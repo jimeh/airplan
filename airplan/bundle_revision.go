@@ -32,6 +32,7 @@ func (c *Client) createBundleRevision(
 	if err := c.ensureStorage(ctx); err != nil {
 		return nil, err
 	}
+	input.Document.Assets = append([]AssetInput(nil), input.Document.Assets...)
 	assets, err := prepareAssets(ctx, input.Document)
 	if err != nil {
 		return nil, err
@@ -629,116 +630,23 @@ func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revis
 	for _, logical := range ordered {
 		oldPage, oldOK := oldSources[logical]
 		newPage, newOK := newSources[logical]
-		if !oldOK && !newOK {
-			oldAsset, oldAssetOK := oldAssets[logical]
-			newAsset, newAssetOK := newAssets[logical]
-			if oldAssetOK && newAssetOK && oldAsset.Bytes == newAsset.Size &&
-				oldAsset.ContentType == newAsset.ContentType && oldAsset.SHA256 == newAsset.digest {
-				continue
-			}
-			switch {
-			case !oldAssetOK:
-				writeRevisionDiffSectionHeader(&out, "asset", logical)
-				fmt.Fprintf(&out, "asset added: %s\n", revisionAssetDescriptorJSON(newAsset.ContentType, newAsset.Size, newAsset.digest))
-			case !newAssetOK:
-				writeRevisionDiffSectionHeader(&out, "asset", logical)
-				fmt.Fprintf(&out, "asset removed: %s\n", revisionAssetDescriptorJSON(oldAsset.ContentType, oldAsset.Bytes, oldAsset.SHA256))
-			default:
-				writeRevisionDiffSectionHeader(&out, "asset", logical)
-				encoded, _ := json.Marshal(revisionAssetChange{
-					Before: revisionAssetDescriptor{ContentType: oldAsset.ContentType, Bytes: oldAsset.Bytes, SHA256: oldAsset.SHA256},
-					After:  revisionAssetDescriptor{ContentType: newAsset.ContentType, Bytes: newAsset.Size, SHA256: newAsset.digest},
-				})
-				fmt.Fprintf(&out, "asset changed: %s\n", encoded)
-			}
-			if err := checkSize(); err != nil {
-				return nil, err
-			}
-			continue
-		}
-		var oldBody, newBody []byte
-		if oldOK {
-			object, ok := markerObjectNamed(previous.marker, oldPage.Source)
-			if !ok {
-				return nil, fmt.Errorf("airplan: previous page %q source is missing", oldPage.Path)
-			}
-			var err error
-			oldBody, err = c.st.getBytes(
-				ctx, previous.dirPrefix+oldPage.Source, object.Bytes,
-			)
-			if err != nil {
+		if oldOK || newOK {
+			if err := c.appendBundlePageRevisionDiff(
+				ctx, &out, previous, oldPage, oldOK, newPage, newOK,
+				logical, previousRevision, newRevision, maxSize,
+			); err != nil {
 				return nil, err
 			}
 		}
-		if newOK {
-			var err error
-			newBody, err = newPage.sourceBody(ctx)
-			if err != nil {
+		oldAsset, oldAssetOK := oldAssets[logical]
+		newAsset, newAssetOK := newAssets[logical]
+		if oldAssetOK || newAssetOK {
+			if err := appendBundleAssetRevisionDiff(
+				&out, logical, oldAsset, oldAssetOK, newAsset, newAssetOK,
+				maxSize,
+			); err != nil {
 				return nil, err
 			}
-		}
-		metadataLine := ""
-		switch {
-		case !oldOK:
-			metadataLine = "page added: " + pageDescriptorJSON(newPage.Format, newPage.Title, newPage.Lang)
-		case !newOK:
-			metadataLine = "page removed: " + pageDescriptorJSON(oldPage.Format, oldPage.Title, oldPage.Lang)
-		default:
-			type changedValue struct {
-				Before string `json:"before"`
-				After  string `json:"after"`
-			}
-			changes := struct {
-				Format *changedValue `json:"format,omitempty"`
-				Title  *changedValue `json:"title,omitempty"`
-				Lang   *changedValue `json:"lang,omitempty"`
-			}{}
-			if oldPage.Format != newPage.Format {
-				changes.Format = &changedValue{oldPage.Format, newPage.Format}
-			}
-			if oldPage.Title != newPage.Title {
-				changes.Title = &changedValue{oldPage.Title, newPage.Title}
-			}
-			if oldPage.Lang != newPage.Lang {
-				changes.Lang = &changedValue{oldPage.Lang, newPage.Lang}
-			}
-			if changes.Format != nil || changes.Title != nil || changes.Lang != nil {
-				encoded, _ := json.Marshal(changes)
-				metadataLine = "page metadata changed: " + string(encoded)
-			}
-		}
-		sourceChanged := !oldOK || !newOK || !bytes.Equal(oldBody, newBody)
-		if !sourceChanged && metadataLine == "" {
-			continue
-		}
-		writeRevisionDiffSectionHeader(&out, "page", logical)
-		if metadataLine != "" {
-			fmt.Fprintln(&out, metadataLine)
-		}
-		if err := checkSize(); err != nil {
-			return nil, err
-		}
-		sectionLimit := maxSize
-		if maxSize > 0 {
-			sectionLimit = maxSize - out.Len()
-			if sectionLimit <= 0 {
-				return nil, sizeError()
-			}
-		}
-		if sourceChanged {
-			section, err := generateRevisionDiffForPath(
-				oldBody, newBody, previousRevision, newRevision, logical, sectionLimit,
-			)
-			if err != nil {
-				return nil, err
-			}
-			out.Write(section)
-			if len(section) == 0 || section[len(section)-1] != '\n' {
-				out.WriteByte('\n')
-			}
-		}
-		if err := checkSize(); err != nil {
-			return nil, err
 		}
 	}
 	if out.Len() == baseSize {
@@ -748,6 +656,143 @@ func (c *Client) generateBundleRevisionDiff(ctx context.Context, previous *revis
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+func (c *Client) appendBundlePageRevisionDiff(
+	ctx context.Context, out *bytes.Buffer, previous *revisionDocument,
+	oldPage MarkerPage, oldOK bool, newPage *RenderedBundlePage, newOK bool,
+	logical string, previousRevision, newRevision, maxSize int,
+) error {
+	var oldBody, newBody []byte
+	if oldOK {
+		object, ok := markerObjectNamed(previous.marker, oldPage.Source)
+		if !ok {
+			return fmt.Errorf("airplan: previous page %q source is missing", oldPage.Path)
+		}
+		var err error
+		oldBody, err = c.st.getBytes(
+			ctx, previous.dirPrefix+oldPage.Source, object.Bytes,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	if newOK {
+		var err error
+		newBody, err = newPage.sourceBody(ctx)
+		if err != nil {
+			return err
+		}
+	}
+	metadataLine := ""
+	switch {
+	case !oldOK:
+		metadataLine = "page added: " +
+			pageDescriptorJSON(newPage.Format, newPage.Title, newPage.Lang)
+	case !newOK:
+		metadataLine = "page removed: " +
+			pageDescriptorJSON(oldPage.Format, oldPage.Title, oldPage.Lang)
+	default:
+		type changedValue struct {
+			Before string `json:"before"`
+			After  string `json:"after"`
+		}
+		changes := struct {
+			Format *changedValue `json:"format,omitempty"`
+			Title  *changedValue `json:"title,omitempty"`
+			Lang   *changedValue `json:"lang,omitempty"`
+		}{}
+		if oldPage.Format != newPage.Format {
+			changes.Format = &changedValue{oldPage.Format, newPage.Format}
+		}
+		if oldPage.Title != newPage.Title {
+			changes.Title = &changedValue{oldPage.Title, newPage.Title}
+		}
+		if oldPage.Lang != newPage.Lang {
+			changes.Lang = &changedValue{oldPage.Lang, newPage.Lang}
+		}
+		if changes.Format != nil || changes.Title != nil || changes.Lang != nil {
+			encoded, _ := json.Marshal(changes)
+			metadataLine = "page metadata changed: " + string(encoded)
+		}
+	}
+	sourceChanged := !oldOK || !newOK || !bytes.Equal(oldBody, newBody)
+	if !sourceChanged && metadataLine == "" {
+		return nil
+	}
+	writeRevisionDiffSectionHeader(out, "page", logical)
+	if metadataLine != "" {
+		fmt.Fprintln(out, metadataLine)
+	}
+	if sourceChanged {
+		sectionLimit := maxSize
+		if maxSize > 0 {
+			sectionLimit = maxSize - out.Len()
+			if sectionLimit <= 0 {
+				return bundleRevisionDiffSizeError(maxSize)
+			}
+		}
+		section, err := generateRevisionDiffForPath(
+			oldBody, newBody, previousRevision, newRevision, logical, sectionLimit,
+		)
+		if err != nil {
+			return err
+		}
+		out.Write(section)
+		if len(section) == 0 || section[len(section)-1] != '\n' {
+			out.WriteByte('\n')
+		}
+	}
+	if maxSize > 0 && out.Len() > maxSize {
+		return bundleRevisionDiffSizeError(maxSize)
+	}
+	return nil
+}
+
+func appendBundleAssetRevisionDiff(
+	out *bytes.Buffer, logical string,
+	oldAsset MarkerObject, oldOK bool, newAsset preparedAsset, newOK bool,
+	maxSize int,
+) error {
+	if oldOK && newOK && oldAsset.Bytes == newAsset.Size &&
+		oldAsset.ContentType == newAsset.ContentType &&
+		oldAsset.SHA256 == newAsset.digest {
+		return nil
+	}
+	writeRevisionDiffSectionHeader(out, "asset", logical)
+	switch {
+	case !oldOK:
+		fmt.Fprintf(out, "asset added: %s\n", revisionAssetDescriptorJSON(
+			newAsset.ContentType, newAsset.Size, newAsset.digest,
+		))
+	case !newOK:
+		fmt.Fprintf(out, "asset removed: %s\n", revisionAssetDescriptorJSON(
+			oldAsset.ContentType, oldAsset.Bytes, oldAsset.SHA256,
+		))
+	default:
+		encoded, _ := json.Marshal(revisionAssetChange{
+			Before: revisionAssetDescriptor{
+				ContentType: oldAsset.ContentType,
+				Bytes:       oldAsset.Bytes, SHA256: oldAsset.SHA256,
+			},
+			After: revisionAssetDescriptor{
+				ContentType: newAsset.ContentType,
+				Bytes:       newAsset.Size, SHA256: newAsset.digest,
+			},
+		})
+		fmt.Fprintf(out, "asset changed: %s\n", encoded)
+	}
+	if maxSize > 0 && out.Len() > maxSize {
+		return bundleRevisionDiffSizeError(maxSize)
+	}
+	return nil
+}
+
+func bundleRevisionDiffSizeError(maxSize int) error {
+	return fmt.Errorf(
+		"airplan: revision diff exceeds maximum size of %s",
+		formatSize(int64(maxSize)),
+	)
 }
 
 func writeRevisionDiffSectionHeader(out *bytes.Buffer, kind, logical string) {

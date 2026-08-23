@@ -121,6 +121,11 @@ func runPreview(
 		if opts.outputDir != "" {
 			return errors.New("--output-dir is only valid for document previews")
 		}
+		for _, name := range []string{"max-total-page-size", "max-asset-size"} {
+			if cmd.Flags().Changed(name) {
+				return fmt.Errorf("--%s is only valid for document previews", name)
+			}
+		}
 		return runCollectionPreview(cmd, plan.CollectionPaths, opts)
 	}
 	if bundled || opts.outputDir != "" {

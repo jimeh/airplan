@@ -331,6 +331,21 @@ func TestDocumentMultipartPreflightsDeclaredAssetsBeforeSpooling(t *testing.T) {
 	assertDirEmpty(t, tempDir)
 }
 
+func TestDocumentDescriptorPathsUsePortableBundleRules(t *testing.T) {
+	for _, value := range []string{
+		"CON.txt", "folder/aux", "folder/trailing.", "folder/trailing ",
+	} {
+		t.Run(value, func(t *testing.T) {
+			if err := validateLogicalPath(value); err == nil {
+				t.Fatalf("path %q was accepted", value)
+			}
+		})
+	}
+	if err := validateLogicalPath("guides/getting-started.md"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestDocumentMultipartRejectsConflictingPageLimitAliases(t *testing.T) {
 	called := false
 	operations := &stubOperations{uploadDocument: func(
@@ -890,7 +905,8 @@ func TestTypedClientStreamsDownload(t *testing.T) {
 			_ context.Context,
 			request GetUploadRequest,
 		) (Download, error) {
-			if request.URLOrKey != "upload-id" || request.Source {
+			if request.URLOrKey != "upload-id" || !request.Source ||
+				request.Page != "guides/start.md" || request.Asset != "" {
 				t.Fatalf("unexpected get request: %+v", request)
 			}
 			return Download{
@@ -908,7 +924,9 @@ func TestTypedClientStreamsDownload(t *testing.T) {
 
 	download, err := client.GetUpload(
 		context.Background(),
-		GetUploadRequest{URLOrKey: "upload-id"},
+		GetUploadRequest{
+			URLOrKey: "upload-id", Source: true, Page: "guides/start.md",
+		},
 	)
 	if err != nil {
 		t.Fatal(err)

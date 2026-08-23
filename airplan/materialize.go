@@ -25,6 +25,7 @@ func MaterializeDocument(
 	if err := validateDocumentItemCount(in); err != nil {
 		return nil, err
 	}
+	in.Assets = append([]AssetInput(nil), in.Assets...)
 	assets, err := prepareAssets(ctx, in)
 	if err != nil {
 		return nil, err
