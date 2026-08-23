@@ -239,9 +239,10 @@ above. Collection files are uploaded from seekable readers with their known
 sizes instead of being buffered wholly in memory. Growth after preflight cannot
 append undeclared bytes; unexpected truncation fails the upload.
 
-Content types use a deterministic extension mapping for common browser media,
-including PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV, MP3, M4A, Ogg, WAV,
-PDF, and Markdown. Unknown extensions use conservative content sniffing, then
+Content types use a deterministic extension mapping for common browser media
+and resources, including HTML, CSS, JavaScript, JSON, XML, Markdown, browser
+fonts, WebAssembly, PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV, MP3, M4A,
+Ogg, WAV, and PDF. Unknown extensions use conservative content sniffing, then
 `application/octet-stream`. The original bytes are never sanitized, rewritten,
 transcoded, expanded, or otherwise interpreted.
 

@@ -181,6 +181,21 @@ func TestAssetContentTypesUseDeterministicExtensionMapping(t *testing.T) {
 		{path: "audio/sample.wav", want: "audio/wav"},
 		{path: "audio/sample.m4a", want: "audio/mp4"},
 		{path: "notes/readme.md", want: "text/markdown; charset=utf-8"},
+		{path: "notes/readme.markdown", want: "text/markdown; charset=utf-8"},
+		{path: "site/styles.css", want: "text/css; charset=utf-8"},
+		{path: "site/app.js", want: "text/javascript; charset=utf-8"},
+		{path: "site/app.mjs", want: "text/javascript; charset=utf-8"},
+		{path: "data/status.json", want: "application/json"},
+		{path: "data/feed.xml", want: "text/xml; charset=utf-8"},
+		{path: "site/index.htm", want: "text/html; charset=utf-8"},
+		{path: "site/index.html", want: "text/html; charset=utf-8"},
+		{path: "notes/readme.txt", want: "text/plain; charset=utf-8"},
+		{path: "site/favicon.ico", want: "image/vnd.microsoft.icon"},
+		{path: "fonts/body.ttf", want: "font/ttf"},
+		{path: "fonts/body.otf", want: "font/otf"},
+		{path: "fonts/body.woff", want: "font/woff"},
+		{path: "fonts/body.woff2", want: "font/woff2"},
+		{path: "runtime/module.wasm", want: "application/wasm"},
 	} {
 		t.Run(test.path, func(t *testing.T) {
 			body := []byte("plain bytes")

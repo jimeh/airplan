@@ -2063,7 +2063,7 @@ func TestDeleteRecreatesMissingSiblingMetadata(t *testing.T) {
 	}
 }
 
-func TestRevisionValidationReadsDiffMetadataWithoutFetchingBody(t *testing.T) {
+func TestGenericRevisionLoadReadsDiffMetadataWithoutFetchingBody(t *testing.T) {
 	t.Setenv("AWS_MAX_ATTEMPTS", "1")
 	store := newUpgradeStore(t)
 	client := store.client(t, "")
@@ -2082,11 +2082,9 @@ func TestRevisionValidationReadsDiffMetadataWithoutFetchingBody(t *testing.T) {
 	store.mu.Lock()
 	store.failGetKey = second.ID + "/" + DiffFilename
 	store.mu.Unlock()
-	result, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
-		Target: second.URL, Input: Input{Reader: strings.NewReader("two\n")},
-	})
-	if err != nil || !result.Unchanged {
-		t.Fatalf("metadata-only diff validation result = %+v, %v", result, err)
+	doc, err := client.loadRevisionDocument(context.Background(), second.URL)
+	if err != nil || doc.marker.Revision == nil || doc.marker.Revision.Number != 2 {
+		t.Fatalf("metadata-only diff validation result = %+v, %v", doc, err)
 	}
 }
 
@@ -2699,7 +2697,7 @@ func TestLoadRevisionDocumentUsesDeclaredSourceSizeAndRejectsTruncation(t *testi
 	store.set(dir+"/plan.md", source[:len(source)-1])
 	if _, err := client.loadRevisionDocument(
 		context.Background(), dir+"/plan.html",
-	); err == nil || !strings.Contains(err.Error(), "source size") {
+	); err == nil || !strings.Contains(err.Error(), "revision document is incomplete") {
 		t.Fatalf("truncated source error = %v", err)
 	}
 }
@@ -2783,6 +2781,155 @@ func TestCreateDocumentRevisionRepairsMissingNonEntryPageBeforeNoop(t *testing.T
 	if !ok || int64(len(repaired)) != object.Bytes ||
 		contentSHA256(repaired) != object.SHA256 {
 		t.Fatal("missing non-entry page was not repaired")
+	}
+}
+
+func TestGenericRevisionLoadDoesNotFetchSupportingObjects(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	asset := []byte("asset")
+	result, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{Reader: strings.NewReader("# Entry\n"), Path: "README.md"},
+		Pages: []PageInput{{
+			Reader: strings.NewReader("# Guide\n"), Path: "guides/start.md",
+		}},
+		Assets: []AssetInput{{
+			Reader: bytes.NewReader(asset), Path: "images/flow.bin",
+			Size: int64(len(asset)),
+		}},
+		RepositoryURL: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.getKeyAttempts = map[string]int{}
+	store.mu.Unlock()
+	if _, err := client.loadRevisionDocument(context.Background(), result.URL); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		result.Pages[1].Key, result.Pages[1].SourceKey, result.Assets[0].Key,
+	} {
+		store.mu.Lock()
+		attempts := store.getKeyAttempts[key]
+		store.mu.Unlock()
+		if attempts != 0 {
+			t.Fatalf("generic revision load fetched %q %d times", key, attempts)
+		}
+	}
+}
+
+func TestCreateDocumentRevisionRejectsIncompleteManagedObjects(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		objectName string
+		mutate     func(*upgradeStore, *DocumentResult)
+	}{
+		{
+			name: "entry source digest", objectName: "readme.md",
+			mutate: func(store *upgradeStore, result *DocumentResult) {
+				body, _ := store.get(result.Pages[0].SourceKey)
+				body[0] ^= 0x01
+				store.set(result.Pages[0].SourceKey, body)
+			},
+		},
+		{
+			name: "missing supporting source", objectName: "guides/start.md",
+			mutate: func(store *upgradeStore, result *DocumentResult) {
+				store.mu.Lock()
+				delete(store.objects, result.Pages[1].SourceKey)
+				delete(store.etags, result.Pages[1].SourceKey)
+				store.mu.Unlock()
+			},
+		},
+		{
+			name: "asset digest", objectName: "images/flow.bin",
+			mutate: func(store *upgradeStore, result *DocumentResult) {
+				body, _ := store.get(result.Assets[0].Key)
+				body[0] ^= 0x01
+				store.set(result.Assets[0].Key, body)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := newUpgradeStore(t)
+			client := store.client(t, "")
+			asset := []byte("asset")
+			document := func() DocumentInput {
+				return DocumentInput{
+					Entry: PageInput{
+						Reader: strings.NewReader("# Entry\n"), Path: "README.md",
+					},
+					Pages: []PageInput{{
+						Reader: strings.NewReader("# Guide\n"), Path: "guides/start.md",
+					}},
+					Assets: []AssetInput{{
+						Reader: bytes.NewReader(asset), Path: "images/flow.bin",
+						Size: int64(len(asset)),
+					}},
+					RepositoryURL: "none",
+				}
+			}
+			first, err := client.UploadDocument(context.Background(), document())
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(store, first)
+			store.mu.Lock()
+			putAttempts := store.putAttempts
+			store.mu.Unlock()
+			_, err = client.CreateDocumentRevision(
+				context.Background(), CreateDocumentRevisionInput{
+					Target: first.URL, Document: document(),
+				},
+			)
+			if err == nil || !strings.Contains(err.Error(), "revision document is incomplete") ||
+				!strings.Contains(err.Error(), test.objectName) {
+				t.Fatalf("incomplete object error = %v", err)
+			}
+			store.mu.Lock()
+			defer store.mu.Unlock()
+			if store.putAttempts != putAttempts {
+				t.Fatalf("incomplete document performed %d writes", store.putAttempts-putAttempts)
+			}
+		})
+	}
+}
+
+func TestUpdateDocumentRejectsSameSizeDiffDigestMismatch(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	diffKey := BuildKey("", second.ID, DiffFilename)
+	diff, _ := store.get(diffKey)
+	diff[0] ^= 0x01
+	store.set(diffKey, diff)
+	store.mu.Lock()
+	putAttempts := store.putAttempts
+	store.mu.Unlock()
+	_, err = client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: second.URL, Input: Input{Reader: strings.NewReader("three\n")},
+	})
+	if err == nil || !strings.Contains(err.Error(), "revision document is incomplete") ||
+		!strings.Contains(err.Error(), DiffFilename) {
+		t.Fatalf("diff digest error = %v", err)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.putAttempts != putAttempts {
+		t.Fatalf("incomplete diff performed %d writes", store.putAttempts-putAttempts)
 	}
 }
 

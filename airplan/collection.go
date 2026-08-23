@@ -394,13 +394,21 @@ func normalizeCollectionContentType(
 
 func collectionTypeByExtension(ext string) string {
 	return map[string]string{
+		".css": "text/css; charset=utf-8",
+		".js":  "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
+		".json": "application/json", ".xml": "text/xml; charset=utf-8",
+		".htm": "text/html; charset=utf-8", ".html": "text/html; charset=utf-8",
+		".txt": "text/plain; charset=utf-8",
 		".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
 		".gif": "image/gif", ".webp": "image/webp", ".avif": "image/avif",
+		".ico": "image/vnd.microsoft.icon",
 		".svg": "image/svg+xml", ".mp4": "video/mp4", ".webm": "video/webm",
 		".mov": "video/quicktime", ".mp3": "audio/mpeg", ".m4a": "audio/mp4",
 		".ogg": "audio/ogg", ".wav": "audio/wav", ".pdf": "application/pdf",
 		".zip": "application/zip", ".gz": "application/gzip", ".tar": "application/x-tar",
-		".md": "text/markdown; charset=utf-8",
+		".md": "text/markdown; charset=utf-8", ".markdown": "text/markdown; charset=utf-8",
+		".ttf": "font/ttf", ".otf": "font/otf", ".woff": "font/woff",
+		".woff2": "font/woff2", ".wasm": "application/wasm",
 	}[ext]
 }
 

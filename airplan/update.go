@@ -893,10 +893,15 @@ func (c *Client) loadRevisionDocument(ctx context.Context, target string) (*revi
 		ctx, sourceKey, sourceObject.Bytes,
 	)
 	if err != nil {
+		if errors.Is(err, errObjectNotFound) {
+			return nil, incompleteRevisionObjectError(sourceObject, "is missing")
+		}
 		return nil, err
 	}
 	if int64(len(sourceBody)) != sourceObject.Bytes {
-		return nil, errors.New("airplan: revision source size does not match its marker")
+		return nil, incompleteRevisionObjectError(
+			sourceObject, "does not match its marker",
+		)
 	}
 	if marker.Revision != nil && marker.Revision.Number > 1 {
 		diffObject, declared := markerObjectForRole(marker, MarkerRoleDiff)
@@ -931,28 +936,6 @@ func (c *Client) loadRevisionDocument(ctx context.Context, target string) (*revi
 	}
 	doc.needsPageRepair = marker.PageBytes != int64(len(pageBody)) ||
 		marker.PageSHA256 != contentSHA256(pageBody)
-	for _, descriptor := range marker.Pages {
-		if descriptor.Page == marker.Page {
-			continue
-		}
-		object, declared := markerObjectNamed(marker, descriptor.Page)
-		if !declared || object.Role != MarkerRolePage {
-			return nil, errors.New("airplan: revision marker page graph is incomplete")
-		}
-		state, inspectErr := c.inspectUpgradePayload(
-			ctx, dirPrefix+descriptor.Page, object.Bytes,
-		)
-		if errors.Is(inspectErr, errObjectNotFound) {
-			doc.needsPageRepair = true
-			continue
-		}
-		if inspectErr != nil {
-			return nil, inspectErr
-		}
-		if state.size != object.Bytes || state.digest != object.SHA256 {
-			doc.needsPageRepair = true
-		}
-	}
 	versionsBody, versionsETag, _, versionsErr := c.st.getBytesWithETag(
 		ctx, dirPrefix+VersionsFilename, MaxVersionsMetadataSize,
 	)
@@ -1008,7 +991,64 @@ func (c *Client) loadRevisionDocumentForUpdate(
 			),
 		}
 	}
+	if err := c.verifyRevisionDocumentCompleteness(ctx, doc); err != nil {
+		return nil, err
+	}
 	return doc, nil
+}
+
+func (c *Client) verifyRevisionDocumentCompleteness(
+	ctx context.Context, doc *revisionDocument,
+) error {
+	if doc == nil || doc.marker == nil || doc.marker.Version < 6 {
+		return nil
+	}
+	for _, object := range doc.marker.Objects {
+		var size int64
+		var digest string
+		switch {
+		case object.Role == MarkerRolePage && object.Name == doc.marker.Page:
+			size = int64(len(doc.pageBody))
+			digest = contentSHA256(doc.pageBody)
+		case object.Role == MarkerRoleSource && object.Name == doc.marker.Source:
+			size = int64(len(doc.sourceBody))
+			digest = contentSHA256(doc.sourceBody)
+		default:
+			state, err := c.inspectUpgradePayload(
+				ctx, doc.dirPrefix+object.Name, object.Bytes,
+			)
+			if errors.Is(err, errObjectNotFound) {
+				if object.Role == MarkerRolePage {
+					doc.needsPageRepair = true
+					continue
+				}
+				return incompleteRevisionObjectError(object, "is missing")
+			}
+			if err != nil {
+				return err
+			}
+			size, digest = state.size, state.digest
+		}
+		if size == object.Bytes && digest == object.SHA256 {
+			continue
+		}
+		if object.Role == MarkerRolePage {
+			doc.needsPageRepair = true
+			continue
+		}
+		return incompleteRevisionObjectError(object, "does not match its marker")
+	}
+	return nil
+}
+
+func incompleteRevisionObjectError(object MarkerObject, reason string) error {
+	return &updateRefusalError{
+		kind: updateRefusalInvalidUpload,
+		err: fmt.Errorf(
+			"airplan: revision document is incomplete: %s object %q %s",
+			object.Role, object.Name, reason,
+		),
+	}
 }
 
 func (c *Client) repairMissingRevisionMetadata(
