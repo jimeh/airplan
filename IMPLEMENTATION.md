@@ -269,9 +269,11 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   a native top-anchored popover while Contents retains its bottom-sheet dialog;
   the document toolbar becomes sticky when the rails collapse, with Pages
   pinned left. Wide rail headings sit outside their scrollable lists, and the
-  complete-diff view moves its document/raw links above the report while hiding
-  compact Pages navigation. This page structure uses
-  `RendererGeneration` 14.
+  title-led document header owns page identity, content modes, revision state,
+  and complete-diff entry while the global toolbar keeps file operations. The
+  complete-diff header keeps its return and raw links above the report while
+  hiding compact Pages navigation. This page structure uses
+  `RendererGeneration` 15.
 - Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, safe theme CSS/catalog metadata, structured headings/ToC

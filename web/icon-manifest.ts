@@ -7,6 +7,7 @@ export interface IconDefinition {
 // Semantic names keep template and browser code independent of upstream names.
 // Updating an Octicon mapping remains an explicit, reviewable source change.
 export const iconManifest = {
+  back: { octicon: "arrow-left" },
   pages: { octicon: "list-unordered" },
   directory: { octicon: "file-directory" },
   copy: { octicon: "copy", classes: ["icon-copy"] },

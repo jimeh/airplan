@@ -55,6 +55,8 @@
   <button type="button" class="pages-trigger js-only" hidden
     aria-label="Open pages" aria-controls="pages-popover">{{template "airplan-icon-pages"}}<span>Pages</span></button>
 {{- end}}
+  <span class="toolbar-context toolbar-context-document" title="{{.CurrentPage.Path}}">{{.CurrentPage.Path}}</span>
+  <span class="toolbar-context toolbar-context-history">Bundle history</span>
 {{- if or (and (eq .Format "md") .HighlightedSourceHTML) .SourcePath}}
   <div class="file-actions toolbar-actions{{if not .SourcePath}} js-only{{end}}"{{if not .SourcePath}} hidden{{end}}>
 {{- if and (eq .Format "md") .HighlightedSourceHTML}}
@@ -75,23 +77,6 @@
 <!-- airplan:theme-toggle -->
 {{- end}}
 </nav>
-{{- if or (and (eq .Format "md") .HighlightedSourceHTML) (and (eq .Format "txt") .Revision)}}
-<section class="view-controls" aria-label="Content view">
-  <div class="viewtoggle mode-toggle js-only" hidden>
-    <button type="button" class="active" data-view="rendered"
-      aria-pressed="true" aria-label="{{if eq .Format "md"}}Rendered{{else}}Source{{end}} view"
-      title="{{if eq .Format "md"}}Rendered{{else}}Source{{end}} view">{{if eq .Format "md"}}{{template "airplan-icon-rendered"}}{{else}}{{template "airplan-icon-source"}}{{end}}<span>{{if eq .Format "md"}}Rendered{{else}}Source{{end}}</span></button>
-    {{- if eq .Format "md"}}
-    <button type="button" data-view="source" aria-pressed="false"
-      aria-label="Source view" title="Source view">{{template "airplan-icon-source"}}<span>Source</span></button>
-    {{- end}}
-    {{- if .PageChanged}}
-    <button type="button" data-view="changes" aria-pressed="false"
-      aria-label="Changes view" title="Changes from revision {{.PreviousRevision}}">{{template "airplan-icon-changes"}}<span>Changes</span></button>
-    {{- end}}
-  </div>
-</section>
-{{- end}}
 </div>
 {{- if gt (len .Pages) 1}}
 <nav class="pages-nav" id="pages" aria-label="Pages">
@@ -111,17 +96,44 @@
   </ol>
 </nav>
 {{- end}}
-{{- if .Revision}}
-<section class="reader-controls" aria-label="Revision controls">
-  <div class="revision-controls">
+<header class="document-header">
+  <p class="document-breadcrumb">
+    {{- if gt (len .Pages) 1}}
+    <span>Document bundle</span><span aria-hidden="true">/</span>
+    {{- end}}
+    <span class="document-breadcrumb-current">{{.CurrentPage.Path}}</span>
+    {{- if .Revision}}<span aria-hidden="true">/</span><span>Revision {{.Revision}}</span>{{end}}
+  </p>
+  <div class="document-heading-row">
+    <h1>{{.Title}}</h1>
+    <div class="revision-controls{{if not .Revision}} js-only{{end}}" data-revision-controls role="group" aria-label="Revision controls"{{if not .Revision}} hidden{{end}}>
+    {{- if .Revision}}
     <p class="revision-heading" data-revision-heading>Revision {{.Revision}}{{if .RevisionCount}} of {{.RevisionCount}}{{end}}</p>
     {{- if gt .Revision 1}}
-    <a class="all-changes-link" href="{{.AllChangesPath}}">All changes</a>
+    <a class="all-changes-link" href="{{.AllChangesPath}}">{{template "airplan-icon-changes"}}<span>All changes</span></a>
     {{- end}}
+    {{- end}}
+    </div>
   </div>
-</section>
+{{- if or (and (eq .Format "md") .HighlightedSourceHTML) (and (eq .Format "txt") .Revision)}}
+  <section class="view-controls" aria-label="Content view">
+    <div class="viewtoggle mode-toggle js-only" hidden>
+      <button type="button" class="active" data-view="rendered"
+        aria-pressed="true" aria-label="{{if eq .Format "md"}}Rendered{{else}}Source{{end}} view"
+        title="{{if eq .Format "md"}}Rendered{{else}}Source{{end}} view">{{if eq .Format "md"}}{{template "airplan-icon-rendered"}}{{else}}{{template "airplan-icon-source"}}{{end}}<span>{{if eq .Format "md"}}Rendered{{else}}Source{{end}}</span></button>
+      {{- if eq .Format "md"}}
+      <button type="button" data-view="source" aria-pressed="false"
+        aria-label="Source view" title="Source view">{{template "airplan-icon-source"}}<span>Source</span></button>
+      {{- end}}
+      {{- if .PageChanged}}
+      <button type="button" data-view="changes" aria-pressed="false"
+        aria-label="Changes view" title="Changes from revision {{.PreviousRevision}}">{{template "airplan-icon-changes"}}<span>Changes</span></button>
+      {{- end}}
+    </div>
+  </section>
 {{- end}}
-<main class="content" id="rendered">
+</header>
+<main class="content{{if .Headings}}{{with index .Headings 0}}{{if and .IsTitle (eq $.Title .Text)}} has-leading-title{{end}}{{end}}{{end}}" id="rendered">
 {{- if and (eq .Format "txt") .SourceName}}
 <div class="filehead"><code>{{.SourceName}}</code></div>
 {{- end}}
@@ -166,13 +178,15 @@
 </main>
 {{- if .PageChanged}}
 <main class="content changes-view" id="changes" hidden>
-<h1 class="changes-heading">Changes to {{.CurrentPage.Path}} from revision {{.PreviousRevision}}</h1>
+<header class="diff-view-header">
+  <h1 class="changes-heading">Changes to {{.CurrentPage.Path}} from revision {{.PreviousRevision}}</h1>
+  <a class="raw-diff diff-action" href="{{.DiffPath}}">{{template "airplan-icon-source"}}<span>Open raw diff</span></a>
+</header>
 {{- if .HighlightedPageDiffHTML}}
 {{.HighlightedPageDiffHTML}}
 {{- else}}
 <p>This diff is too large to display inline.</p>
 {{- end}}
-<p><a class="raw-diff" href="{{.DiffPath}}">Open raw diff</a></p>
 </main>
 {{- end}}
 {{- if and (eq .Format "md") .HighlightedSourceHTML}}
@@ -183,8 +197,16 @@
 {{- end}}
 {{- if .HasCompleteDiff}}
 <main class="content all-changes-view" data-airplan-all-changes hidden>
-<nav class="all-changes-actions" aria-label="All changes actions"><a href="{{.Entrypoint}}">Back to document</a><span aria-hidden="true">·</span><a class="raw-diff" href="{{.DiffPath}}">Open raw diff</a></nav>
-<h1 tabindex="-1">All changes from revision {{.PreviousRevision}}</h1>
+<header class="complete-diff-header">
+  <nav class="complete-diff-navigation" aria-label="All changes actions">
+    <p class="complete-diff-breadcrumb"><a class="all-changes-back" href="{{.Entrypoint}}">{{template "airplan-icon-back"}}<span>Back to {{.CurrentPage.Path}}</span></a><span aria-hidden="true">/</span><span>Revision {{.PreviousRevision}} to {{.Revision}}</span></p>
+    <div class="diff-view-header">
+      <h1 tabindex="-1">All changes from revision {{.PreviousRevision}}</h1>
+      <a class="raw-diff diff-action" href="{{.DiffPath}}">{{template "airplan-icon-source"}}<span>Open raw diff</span></a>
+    </div>
+  </nav>
+  <div class="complete-diff-meta"><span>Complete bundle report</span><span>Revision {{.Revision}}</span></div>
+</header>
 {{- if .HighlightedCompleteDiffHTML}}
 {{.HighlightedCompleteDiffHTML}}
 {{- else}}

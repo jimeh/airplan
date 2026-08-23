@@ -589,6 +589,38 @@ func TestRenderMarkdownTableOfContents(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownTitleLedHeader(t *testing.T) {
+	t.Run("matching leading heading is suppressed in the body", func(t *testing.T) {
+		out := render(t, []byte("# Document title\n\nBody.\n"),
+			RenderOptions{Title: "Document title"})
+		for _, fragment := range []string{
+			`<header class="document-header">`,
+			`<h1>Document title</h1>`,
+			`<main class="content has-leading-title" id="rendered">`,
+		} {
+			if !strings.Contains(out, fragment) {
+				t.Errorf("title-led page missing %q", fragment)
+			}
+		}
+	})
+
+	t.Run("explicit title preserves a different authored heading", func(t *testing.T) {
+		out := render(t, []byte("# Authored heading\n\nBody.\n"),
+			RenderOptions{Title: "Explicit title"})
+		if strings.Contains(out, `class="content has-leading-title"`) {
+			t.Error("explicit title unexpectedly suppressed the authored heading")
+		}
+		for _, fragment := range []string{
+			`<h1>Explicit title</h1>`,
+			`<h1 id="authored-heading">Authored heading</h1>`,
+		} {
+			if !strings.Contains(out, fragment) {
+				t.Errorf("explicit-title page missing %q", fragment)
+			}
+		}
+	})
+}
+
 func TestRenderMarkdownIncludesNonLeadingH1InTableOfContents(t *testing.T) {
 	src := []byte("Intro first.\n\n# First section\n\n## Child\n")
 	out := render(t, src, RenderOptions{Title: "First section"})

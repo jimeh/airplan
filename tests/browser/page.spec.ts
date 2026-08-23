@@ -1905,6 +1905,9 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
     const actionElement = element.querySelector<HTMLElement>(".toolbar .file-actions button")!;
     const action = actionElement.getBoundingClientRect();
     const actionStyle = getComputedStyle(actionElement);
+    const heading = element
+      .querySelector<HTMLElement>(".document-heading-row")!
+      .getBoundingClientRect();
     const viewElement = element.querySelector<HTMLElement>(".viewtoggle button")!;
     const view = viewElement.getBoundingClientRect();
     const viewStyle = getComputedStyle(viewElement);
@@ -1912,20 +1915,21 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
       actionCenter: action.top + action.height / 2,
       actionFontSize: actionStyle.fontSize,
       actionLineHeight: actionStyle.lineHeight,
+      headingBottom: heading.bottom,
       toolbarBottom: toolbar.bottom,
-      toolbarTop: toolbar.top,
-      viewBottom: view.bottom,
-      viewCenter: view.top + view.height / 2,
       viewFontSize: viewStyle.fontSize,
       viewLineHeight: viewStyle.lineHeight,
       viewTop: view.top,
     };
   });
-  expect(wideControlLayout.viewCenter).toBeCloseTo(wideControlLayout.actionCenter, 0);
   expect(wideControlLayout.viewFontSize).toBe(wideControlLayout.actionFontSize);
   expect(wideControlLayout.viewLineHeight).toBe(wideControlLayout.actionLineHeight);
-  expect(wideControlLayout.viewTop).toBeGreaterThanOrEqual(wideControlLayout.toolbarTop);
-  expect(wideControlLayout.viewBottom).toBeLessThanOrEqual(wideControlLayout.toolbarBottom);
+  expect(wideControlLayout.viewTop).toBeGreaterThan(wideControlLayout.toolbarBottom);
+  expect(wideControlLayout.viewTop).toBeGreaterThanOrEqual(wideControlLayout.headingBottom);
+  await expect(page.locator(".toolbar-context-document")).toHaveText("plan.md");
+  await expect(page.locator(".document-header").getByRole("heading", { level: 1 })).toHaveText(
+    "Browser revision",
+  );
 
   const pageShell = page.locator(".page-shell");
   for (const width of [700]) {
@@ -1934,17 +1938,17 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
       .poll(() =>
         pageShell.evaluate((element) => {
           const view = element.querySelector(".view-controls")!;
-          const revision = element.querySelector(".reader-controls")!;
+          const revision = element.querySelector(".revision-controls")!;
           return {
             domOrder: Boolean(
               view.compareDocumentPosition(revision) & Node.DOCUMENT_POSITION_FOLLOWING,
             ),
             visualOrder:
-              view.getBoundingClientRect().bottom <= revision.getBoundingClientRect().top,
+              revision.getBoundingClientRect().bottom <= view.getBoundingClientRect().top,
           };
         }),
       )
-      .toEqual({ domOrder: true, visualOrder: true });
+      .toEqual({ domOrder: false, visualOrder: true });
   }
   await expect(page.getByRole("button", { name: "Rendered view" }).locator("svg.icon")).toHaveCount(
     1,
@@ -2030,17 +2034,27 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   await expect(page.locator("#rendered")).toBeHidden();
   await expect(page.getByRole("button", { name: "Open pages" })).toBeHidden();
   const allChangesActions = page.getByRole("navigation", { name: "All changes actions" });
-  await expect(allChangesActions.getByRole("link", { name: "Back to document" })).toBeVisible();
+  await expect(allChangesActions.getByRole("link", { name: "Back to plan.md" })).toBeVisible();
   await expect(allChangesActions.getByRole("link", { name: "Open raw diff" })).toBeVisible();
+  await expect(page.locator(".toolbar-context-history")).toHaveText("Bundle history");
+  await expect(page.locator(".toolbar-context-history")).toBeVisible();
+  await expect(page.locator(".document-header")).toBeHidden();
   const actionPlacement = await allChangesActions.evaluate((element) => {
-    const heading = element.parentElement!.querySelector("h1")!;
-    const diff = element.parentElement!.querySelector("pre")!;
+    const back = element.querySelector(".all-changes-back")!;
+    const raw = element.querySelector(".raw-diff")!;
+    const heading = element.querySelector("h1")!;
+    const diff = element.parentElement!.parentElement!.querySelector("pre")!;
     return {
-      beforeHeading: element.getBoundingClientRect().bottom <= heading.getBoundingClientRect().top,
-      beforeDiff: element.getBoundingClientRect().bottom <= diff.getBoundingClientRect().top,
+      backBeforeHeading: back.getBoundingClientRect().bottom <= heading.getBoundingClientRect().top,
+      backBeforeDiff: back.getBoundingClientRect().bottom <= diff.getBoundingClientRect().top,
+      rawBeforeDiff: raw.getBoundingClientRect().bottom <= diff.getBoundingClientRect().top,
     };
   });
-  expect(actionPlacement).toEqual({ beforeHeading: true, beforeDiff: true });
+  expect(actionPlacement).toEqual({
+    backBeforeHeading: true,
+    backBeforeDiff: true,
+    rawBeforeDiff: true,
+  });
   await page.reload();
   await expect(page.locator("[data-airplan-all-changes]")).toBeVisible();
   await page.goBack();

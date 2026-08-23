@@ -621,16 +621,18 @@
       }));
       if (latest !== metadata.latest_revision)
         throw new Error("latest is invalid");
+      var revisionControls = d.querySelector("[data-revision-controls]");
       var heading = d.querySelector("[data-revision-heading]");
       if (!heading) {
+        if (!revisionControls)
+          throw new Error("revision controls are unavailable");
         heading = d.createElement("p");
         heading.className = "revision-heading";
         heading.setAttribute("data-revision-heading", "");
-        var renderedView = d.getElementById("rendered");
-        if (!renderedView)
-          throw new Error("rendered view is unavailable");
-        renderedView.prepend(heading);
+        revisionControls.appendChild(heading);
       }
+      if (revisionControls)
+        revisionControls.hidden = false;
       var stale = embedded < latest;
       var label = stale ? "Revision " + embedded + " of " + latest : "Revision " + embedded + " (Latest)";
       var visualLabel = d.createElement("span");
