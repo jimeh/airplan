@@ -58,7 +58,7 @@
 
 </script>
 <style>
-:root{--buncss-light:initial;--buncss-dark: ;color-scheme:light dark;--page-width:54rem;--compact-control-height:2.3rem;--floating-panel-bg:color-mix(in srgb,var(--bg)96%,var(--surface-subtle));--floating-panel-radius:12px;--floating-panel-shadow:0 12px 32px color-mix(in srgb,var(--fg)16%,transparent)}@media (prefers-color-scheme:dark){:root{--buncss-light: ;--buncss-dark:initial} }*{box-sizing:border-box}body{background:var(--bg);color:var(--fg);-webkit-text-size-adjust:100%;margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif,Apple Color Emoji,Segoe UI Emoji;font-size:16px;line-height:1.7}.toolbar{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items: center;gap:.5rem;width:100%;padding:.75rem 1.25rem 0;font-size:.85rem}.toolbar:not(:has(>:not([hidden]))){display:none}.toolbar a,.toolbar button{display:inline-flex;white-space:nowrap;font:inherit;color:var(--muted);text-decoration:none;cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;gap:.4rem;padding:.4rem .65rem}.toolbar a:hover,.toolbar button:hover{color:var(--fg);background:var(--control-hover)}.toolbar a:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar button:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar-actions{display:inline-flex;align-items: center;gap:.5rem}.toolbar>button,.toolbar>a,.toolbar>.toolbar-actions>button,.toolbar>.toolbar-actions>a,.toolbar>.appearance>.appearance-trigger{min-width:44px;min-height:44px}.mode-toggle{display:inline-flex;height:var(--compact-control-height);background:var(--control-track);border:0;border-radius:8px;gap:2px;padding:2px}.mode-toggle button{display:inline-flex;color:var(--muted);font:inherit;cursor:pointer;background:0 0;border:0;border-radius:6px;justify-content:center;align-items: center;gap:.4rem;padding:.3rem .55rem}.mode-toggle button:hover{color:var(--fg)}.mode-toggle button.active{color:var(--fg);background:var(--control-active);box-shadow:0 1px 2px #0003}.appearance-trigger{width:1.85rem;padding-inline-start:0;padding-inline-end:0}.appearance-resolved-icon{display:none}:root[data-airplan-resolved-mode=light] .appearance-resolved-icon[data-airplan-resolved-icon=light],:root[data-airplan-resolved-mode=dark] .appearance-resolved-icon[data-airplan-resolved-icon=dark]{display:block}.appearance{position:relative}.appearance:not(:first-child){margin-left:.5rem}.appearance:not(:first-child):before{content:"";position:absolute;background:var(--control-divider);width:1px;height:1rem;top:50%;left:-.825rem;transform:translateY(-50%)}.appearance-panel{position:fixed;z-index:30;top:var(--airplan-appearance-top,4rem);right:var(--airplan-appearance-right,1rem);color:var(--fg);background:var(--floating-panel-bg);border:1px solid var(--border);border-radius:var(--floating-panel-radius);box-shadow:var(--floating-panel-shadow);width:min(19rem,100vw - 2rem);padding:.85rem;font-size:.85rem}.appearance-heading{color:var(--heading);margin-bottom:.75rem;font-weight:600}.appearance-field{display:grid;gap:.35rem}.appearance-field+.appearance-field{margin-top:.75rem}.appearance-label{color:var(--muted);font-size:.78rem;font-weight:600}.appearance-modes{width:100%}.appearance-modes button{flex:1;min-width:0}.appearance-select{position:relative;display:grid}.appearance-panel select{appearance:none;-webkit-appearance:none;color:var(--fg);background:var(--surface-subtle);border:1px solid var(--border);font:inherit;border-radius:7px;width:100%;min-height:2.5rem;padding:.3rem 2.25rem .3rem .5rem}.appearance-panel select:focus-visible{outline:2px solid var(--link);outline-offset:2px}.appearance-select .appearance-select-icon{position:absolute;color:var(--muted);pointer-events:none;width:.875rem;height:.875rem;top:50%;right:.7rem;transform:translateY(-50%)}.icon{flex:none;width:16px;height:16px}.sr-status{position:absolute;overflow:hidden;clip-path:inset(50%);white-space:nowrap;width:1px;height:1px}[hidden]{display:none!important}@media (max-width:36rem){.toolbar{padding-inline-start:1rem;padding-inline-end:1rem}.appearance:not(:first-child){margin-left:0}.appearance:not(:first-child):before{display:none}.appearance-panel{width:auto;left:1rem;right:1rem} }@media print{:root,:root[data-airplan-theme]{--buncss-light:initial;--buncss-dark: ;color-scheme:light}.toolbar{display:none!important} }:root{--mark-bg:var(--alert-warning-bg);--alert-note:var(--info);--alert-note-bg:var(--alert-info-bg);--alert-tip:var(--success);--alert-tip-bg:var(--alert-success-bg);--alert-important:var(--important);--alert-warning:var(--warning);--alert-caution:var(--danger);--alert-caution-bg:var(--alert-danger-bg);--prose-width:78ch;--toc-width:14rem;--airplan-toolbar-height:3.5rem;--airplan-sticky-height:0px}html{scroll-behavior:smooth;scroll-padding-top:var(--airplan-sticky-height)}@media (prefers-reduced-motion:no-preference){@view-transition{navigation: auto;} }.page-shell{display:grid;grid-template-columns:minmax(12rem,1fr)minmax(0,var(--page-width))minmax(12rem,1fr);grid-template-rows:auto auto 1fr;min-height:100vh}.top-controls{grid-column:1/-1;grid-row:1;position:sticky;z-index:15;display:flex;height:calc(var(--airplan-toolbar-height) + env(safe-area-inset-top));min-height:calc(var(--airplan-toolbar-height) + env(safe-area-inset-top));background:color-mix(in srgb,var(--bg)60%,transparent);backdrop-filter:blur(18px)saturate(1.15);-webkit-backdrop-filter:blur(18px)saturate(1.15);border-bottom:0;align-items: center;gap:.5rem;width:100%;max-width:none;margin-inline-start:0;margin-inline-end:0;padding:0;top:0}.top-controls:not(:has(>.view-controls)):has(>.toolbar:not(:has(>:not([hidden])))){display:none}.top-controls .toolbar{max-width:var(--page-width);padding:env(safe-area-inset-top)1.5rem 0;flex-wrap:nowrap;flex:1;width:100%;height:100%;margin-inline-start:auto;margin-inline-end:auto}.toolbar-context{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;margin-right:auto;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.75rem;font-weight:600}.toolbar-context-history,body.all-changes-active .toolbar-context-document{display:none}body.all-changes-active .toolbar-context-history{display:inline}.toc{grid-column:1;grid-row:3;position:sticky;display:flex;top:calc(var(--airplan-sticky-height) + 1.5rem);width:min(var(--toc-width),calc(100% - 2rem));max-height:calc(100vh - var(--airplan-sticky-height) - 3rem);overflow:hidden;flex-direction:column;place-self: start end;margin:1.5rem 1.25rem 0 0;font-size:.85rem}.bundle-page .toc{grid-column:3;justify-self:start;margin-left:1.25rem;margin-right:0}.rail-title{color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin:0 0 .75rem;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.7rem;font-weight:600}.pages-nav{grid-column:1;grid-row:3;position:sticky;display:flex;top:calc(var(--airplan-sticky-height) + 1.5rem);width:min(var(--toc-width),calc(100% - 2rem));max-height:calc(100vh - var(--airplan-sticky-height) - 3rem);overflow:hidden;flex-direction:column;place-self: start end;margin:1.5rem 1.25rem 0 0;font-size:.85rem}.pages-list{overflow-y:auto;overscroll-behavior:contain;list-style:none;min-height:0;margin:0;padding:0}.pages-list>li+li,.pages-list-nested>li+li{margin-top:.2rem}.pages-list-nested{border-left:1px solid var(--border);list-style:none;margin:.1rem 0 .4rem .75rem;padding:0 0 0 .45rem}.pages-directory-label{display:flex;color:var(--muted);list-style:none;overflow-wrap:anywhere;align-items: center;gap:.4rem;padding:.4rem .5rem .25rem .75rem;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.76rem;font-weight:600;line-height:1.35}.pages-directory-label .icon{flex:none;width:14px;height:14px}.pages-directory.is-current>.pages-directory-label{color:var(--fg)}.pages-directory.is-current>.pages-directory-label .icon{color:var(--link)}.pages-list a{position:relative;display:grid;color:var(--muted);text-decoration:none;border-left:3px solid #0000;border-radius:0 6px 6px 0;gap:.1rem;padding:.45rem .5rem .45rem .75rem;line-height:1.35}.pages-list a:hover{color:var(--fg);background:var(--control-hover)}.pages-list a:focus-visible{color:var(--fg);background:var(--control-hover)}.pages-list a:focus-visible{outline:2px solid var(--link);outline-offset:2px}.pages-list a[aria-current=page]{color:var(--fg);background:var(--surface-subtle);border-left-color:var(--link)}.page-title{overflow-wrap:anywhere;font-weight:600}.page-path{color:var(--muted);overflow-wrap:anywhere;background:0 0;border:0;padding:0;font-size:.72rem}.toolbar .pages-trigger{display:none}.toc-list{overflow-y:auto;overscroll-behavior:contain;list-style:none;min-height:0;margin:0;padding:0}.toc-list li+li{margin-top:.1rem}.toc-list a{display:block;color:var(--muted);text-decoration:none;overflow-wrap:anywhere;padding:.3rem 0;line-height:1.35}.toc-list a:hover{color:var(--fg)}.toc-list a:focus-visible{color:var(--fg)}.toc-list a.active{color:var(--link)}.toc-level-1{margin-top:.65rem;font-weight:650}.toc-level-1:first-child{margin-top:0}.toc-level-3 a{padding-left:1rem;font-size:.8rem}.toc-trigger{display:none;position:fixed;right:1.25rem;bottom:calc(1.25rem + env(safe-area-inset-bottom));z-index:20;color:var(--on-link);background:var(--link);cursor:pointer;opacity:0;visibility:hidden;pointer-events:none;border:0;border-radius:50%;justify-content:center;align-items: center;width:3rem;height:3rem;padding:0;transition:opacity .15s ease-in-out,visibility .15s ease-in-out,transform .15s ease-in-out,box-shadow .15s ease-in-out;transform:translateY(.5rem);box-shadow:0 4px 16px #0003}.toc-trigger.is-visible{opacity:1;visibility:visible;transform:translateY(0)}.toc-trigger:hover{box-shadow:0 6px 20px #00000047}.toc-trigger .icon{width:20px;height:20px}.toc-trigger:focus-visible{outline:2px solid var(--link);outline-offset:3px}.toc-dialog-close:focus-visible{outline:2px solid var(--link);outline-offset:3px}.toc-dialog{position:fixed;width:min(100%,42rem);max-width:none;max-height:70vh;color:var(--fg);background:var(--bg);overflow:hidden;border:0;border-radius:16px 16px 0 0;max-height:70svh;margin:0 auto;padding:0;inset:auto 0 0;box-shadow:0 -8px 32px #0003}.toc-dialog::backdrop{background:var(--dialog-backdrop)}.toc-dialog-panel{display:flex;max-height:inherit;flex-direction:column}.toc-dialog-header{display:flex;flex:none;justify-content:space-between;align-items: center;padding:1.25rem 1.25rem .75rem}.toc-dialog-title{color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin:0;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.75rem;font-weight:600}.toc-dialog-close{display:inline-flex;color:var(--muted);cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;width:2.25rem;height:2.25rem;padding:0}.toc-dialog-close:hover{color:var(--fg);background:var(--control-hover)}.toc-dialog-nav{padding:.25rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain;min-height:0}.toc-dialog .toc-list a{padding-block-start:.55rem;padding-block-end:.55rem}body.toc-dialog-open{overflow:hidden}.pages-popover{position:fixed;inset:calc(var(--pages-top) + .5rem)auto auto var(--pages-left);width:var(--pages-width);max-height:calc(100svh - var(--pages-top) - 1.5rem);color:var(--fg);background:var(--floating-panel-bg);border:1px solid var(--border);border-radius:var(--floating-panel-radius);box-shadow:var(--floating-panel-shadow);overflow:hidden;max-width:calc(100vw - 2rem);margin:0;padding:.5rem}.pages-popover-nav{overflow-y:auto;overscroll-behavior:contain;min-height:0}.pages-popover .pages-list a{padding-block-start:.65rem;padding-block-end:.65rem}.pages-popover .pages-directory-label{padding-block-start:.55rem;padding-block-end:.35rem}@media (prefers-reduced-motion:no-preference){.pages-popover:popover-open{animation:pages-reveal .14s ease-out} }@keyframes pages-reveal{0%{opacity:0;transform:translateY(-.35rem)} }.icon-check,.icon-x,.is-copied .icon-copy,.is-failed .icon-copy{display:none}.is-copied .icon-check,.is-failed .icon-x{display:inline}.document-header{grid-column:2;grid-row:2;width:100%;padding:1.35rem 1.5rem 0}.document-breadcrumb,.complete-diff-breadcrumb{display:flex;color:var(--muted);flex-wrap:wrap;align-items: center;gap:.3rem .55rem;margin:0 0 .45rem;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.72rem;line-height:1.45}.document-breadcrumb-root{display:inline-flex;align-items: center}.document-breadcrumb-root .icon{width:14px;height:14px}.document-breadcrumb-path{display:contents}.document-breadcrumb-segment:last-child{color:var(--fg)}.document-breadcrumb-revision{color:color-mix(in srgb,var(--link)45%,var(--muted));font-size:.7rem;font-weight:600}.document-breadcrumb-revision-group{display:inline-flex;white-space:nowrap;align-items: center;gap:.55rem}.document-breadcrumb-revision-separator{color:color-mix(in srgb,var(--muted)65%,transparent);font-size:.85rem;line-height:1}.document-heading-row,.diff-view-header{display:flex;justify-content:space-between;align-items: flex-start;gap:1rem 1.5rem}.document-heading-row>h1,.diff-view-header>h1{min-width:0;margin:0}.document-heading-row>h1{width:100%;max-width:none}.revision-heading{color:var(--muted);margin:0;font-size:.8rem;font-weight:600}.revision-heading.is-picker{position:relative;display:inline-flex;height:calc(var(--compact-control-height) - .25rem);border:1px solid var(--border);cursor:pointer;background:0 0;border-radius:8px;align-items: center;gap:.4rem;padding:.3rem .55rem;font-weight:500}.revision-heading.is-picker:after{content:"";opacity:.75;border-bottom:1.5px solid;border-right:1.5px solid;flex:none;width:6px;height:6px;transform:translateY(-1px)rotate(45deg)}.revision-heading.is-picker:hover{color:var(--fg);background:var(--control-hover)}.revision-heading.is-picker:focus-within{outline:2px solid var(--link);outline-offset:3px}.revision-heading.is-picker select{position:absolute;opacity:0;cursor:pointer;width:100%;height:100%;inset:0}.revision-heading.is-stale{border-color:var(--alert-warning);color:var(--fg);background:var(--alert-warning-bg)}.revision-heading.is-stale select{width:calc(100% + 2px);height:calc(100% + 2px);inset:-1px}.revision-controls{display:flex;flex-wrap:wrap;flex:none;justify-content:flex-end;align-items: center;gap:.5rem}.revision-controls .revision-heading{margin:0}.all-changes-link{display:inline-flex;height:calc(var(--compact-control-height) - .25rem);color:var(--muted);border:1px solid var(--border);text-decoration:none;white-space:nowrap;background:0 0;border-radius:8px;align-items: center;gap:.4rem;padding:.3rem .55rem;font-size:.8rem;font-weight:500;line-height:1.2}.all-changes-link:hover{color:var(--fg);background:var(--control-hover)}.all-changes-link:focus-visible{color:var(--fg);background:var(--control-hover)}.all-changes-link:focus-visible{outline:2px solid var(--link);outline-offset:2px}.diff-action:focus-visible{outline:2px solid var(--link);outline-offset:2px}.all-changes-back:focus-visible{outline:2px solid var(--link);outline-offset:2px}.all-changes-link .icon,.diff-action .icon,.all-changes-back .icon{width:14px;height:14px}.document-header .view-controls{display:grid;grid-template-columns:minmax(0,1fr)auto;align-items: center;gap:.65rem 1rem;margin-top:1rem;font-size:.85rem}.document-header .mode-toggle{grid-column:1;grid-row:1;width:-moz-fit-content;width:fit-content}.document-header .revision-controls{grid-column:2;grid-row:1}#rendered.has-leading-title>h1:first-of-type{display:none}.changes-view pre,.all-changes-view pre{overflow-x:auto}body.all-changes-active .pages-nav,body.all-changes-active .toc,body.all-changes-active .document-header,body.all-changes-active .toolbar .pages-trigger{display:none!important}.diff-view-header{margin-bottom:1rem}.diff-action,.all-changes-back{display:inline-flex;color:var(--link);background:color-mix(in srgb,var(--link)8%,transparent);border:1px solid color-mix(in srgb,var(--link)35%,var(--border));text-decoration:none;border-radius:8px;flex:none;align-items: center;gap:.4rem;min-height:2rem;padding:.35rem .65rem;font-size:.8rem;font-weight:600;line-height:1.2}.diff-action:hover,.all-changes-back:hover{color:var(--fg);background:color-mix(in srgb,var(--link)14%,transparent)}.complete-diff-header{margin-bottom:1.5rem}.complete-diff-breadcrumb{margin-bottom:.6rem}.complete-diff-breadcrumb .all-changes-back{color:var(--fg);background:var(--surface-subtle);border-color:var(--border);padding-left:.55rem}.complete-diff-meta{display:flex;color:var(--muted);border-bottom:1px solid var(--border);flex-wrap:wrap;justify-content:space-between;align-items: center;gap:.35rem 1rem;margin-top:-.25rem;padding-bottom:.9rem;font-size:.75rem;font-weight:600}.complete-diff-meta .revision-controls{margin-left:auto}.file-actions{flex-wrap:wrap}.codewrap{position:relative;margin:0 0 1.5em}.codewrap pre{margin:0}.codecopy{position:absolute;display:inline-flex;font:inherit;color:var(--muted);background:var(--code-bg);cursor:pointer;opacity:0;border:1px solid #0000;border-radius:6px;justify-content:center;align-items: center;padding:.35rem;transition:opacity .15s ease-in-out;top:.5em;right:.5em}.codecopy .icon{width:14px;height:14px}.codewrap:hover .codecopy{opacity:1}.codecopy:focus-visible{opacity:1}.codecopy:hover{color:var(--fg);border-color:var(--muted)}@media (hover:none){.codecopy{opacity:1;pointer-events:auto} }@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.toc-trigger,.codecopy{transition:none} }.content{grid-column:2;grid-row:3;overflow-wrap:break-word;width:100%;min-width:0;padding:1.5rem 1.5rem 4rem}.content>p,.content>ul,.content>ol,.content>blockquote,.content>.footnotes{max-width:var(--prose-width)}.page-sequence{display:flex;border-top:1px solid var(--border);justify-content:space-between;gap:1rem;margin-top:3rem;padding-top:1.25rem}.page-sequence-link{display:grid;color:var(--fg);text-decoration:none;gap:.15rem;min-width:0;max-width:48%}.page-sequence-link:hover .page-sequence-title{color:var(--link);text-decoration:underline}.page-sequence-link:focus-visible .page-sequence-title{color:var(--link);text-decoration:underline}.page-sequence-link:focus-visible{outline:2px solid var(--link);outline-offset:4px}.page-sequence-next{text-align:right;margin-left:auto}.page-sequence-direction{color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.7rem;font-weight:600}.page-sequence-previous .page-sequence-direction:before{content:"← "}.page-sequence-next .page-sequence-direction:after{content:" →"}.page-sequence-title{overflow-wrap:anywhere;font-weight:600}h1,h2,h3,h4,h5,h6{color:var(--heading);letter-spacing:-.015em;scroll-margin-top:calc(var(--airplan-sticky-height) + .75em);margin:2em 0 .75em;font-weight:700;line-height:1.25}h1{letter-spacing:-.025em;margin-top:.35em;font-size:2em}h2{margin-top:2.25em;font-size:1.5em}h3{color:var(--subheading);font-size:1.2em}h4{font-size:1.05em}h5,h6{font-size:1em}h6{color:var(--muted)}p,ul,ol,blockquote,table,pre{margin:0 0 1.25em}dl{margin:1.25rem 0}dt{margin-top:.8rem;font-weight:650}dd{color:var(--muted);margin:.25rem 0 0 1.25rem}.frontmatter{border:1px solid var(--border);overflow:hidden;border-radius:.5rem;margin:0 0 1.75rem}.frontmatter summary{color:var(--muted);cursor:pointer;user-select:none;padding:.55rem .75rem;font-size:.82rem;font-weight:600}.frontmatter summary span{text-transform:uppercase;margin-left:.35rem;font-weight:400}.frontmatter .chroma{border:0;border-radius:0;margin:0}.columns{display:flex;gap:1.5rem;min-width:0;margin:1.5rem 0}.column{overflow-wrap:anywhere;flex:1 1 0;min-width:0}.column[style]{flex:0 1 var(--column-width)}.column>:first-child{margin-top:0}.column>:last-child{margin-bottom:0}a{color:var(--link)}ul,ol{padding-left:1.75em}li+li{margin-top:.2em}li>ul,li>ol{margin-bottom:0}ul:has(>li>input[type=checkbox]){list-style:none;padding-left:.5em}li>input[type=checkbox]{vertical-align:middle;margin:0 .4em .2em 0}blockquote{border-left:.25em solid var(--border);color:var(--muted);padding:0 1em}blockquote>:first-child{margin-top:0}blockquote>:last-child{margin-bottom:0}.markdown-alert{--alert-color:var(--alert-note);--alert-bg:var(--alert-note-bg);border-left:3px solid var(--alert-color);background:var(--alert-bg);color:var(--fg);border-radius:6px;margin:1.5em 0;padding:.85em 1em}.markdown-alert-title{display:flex;color:var(--alert-color);letter-spacing:.04em;text-transform:uppercase;align-items: center;gap:.5em;margin:0 0 .55em;font-size:.8rem;font-weight:700;line-height:1.4}.markdown-alert-icon{flex:none;width:1em;height:1em}.markdown-alert>:last-child{margin-bottom:0}.markdown-alert-tip{--alert-color:var(--alert-tip);--alert-bg:var(--alert-tip-bg)}.markdown-alert-important{--alert-color:var(--alert-important);--alert-bg:var(--alert-important-bg)}.markdown-alert-warning{--alert-color:var(--alert-warning);--alert-bg:var(--alert-warning-bg)}.markdown-alert-caution{--alert-color:var(--alert-caution);--alert-bg:var(--alert-caution-bg)}hr{border:0;border-top:1px solid var(--border);height:0;margin:2em 0}img{max-width:100%}table{border-collapse:collapse;border-spacing:0;display:block;overflow-x:auto;width:max-content;max-width:100%}th,td{border:1px solid var(--border);padding:.35em .8em}th{font-weight:600}thead tr,tbody tr:nth-child(2n){background:var(--code-bg)}code,pre,kbd,samp{font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace}code{background:var(--code-inline-bg);border:1px solid var(--code-border);border-radius:4px;padding:.15em .35em;font-size:.875em}pre{background:var(--code-bg);border:1px solid var(--code-border);overflow-x:auto;scrollbar-color:var(--border)transparent;scrollbar-width:thin;border-radius:8px;padding:1em 1.25em;line-height:1.6}pre::-webkit-scrollbar{height:6px}pre::-webkit-scrollbar-track{background:0 0}pre::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}pre code{background:0 0;border:0;padding:0;font-size:.875em}.chroma{background:var(--code-bg)!important}pre.mermaid{white-space:pre-wrap;max-width:100%}pre.mermaid.mermaid-rendered{position:relative;display:flex;justify-content:center}pre.mermaid.mermaid-rendered svg{max-width:100%;height:auto}pre.mermaid.mermaid-failed{display:block;color:var(--muted)}.mermaid-open{position:absolute;z-index:1;opacity:0;pointer-events:none;transition:opacity .15s ease-in-out;top:.5rem;right:.5rem}pre.mermaid:hover>.mermaid-open,pre.mermaid:focus-within>.mermaid-open{opacity:1;pointer-events:auto}.mermaid-open:focus-visible{opacity:1;pointer-events:auto}.mermaid-button{display:inline-flex;color:var(--fg);background:var(--control-active);border:1px solid var(--border);font:inherit;cursor:pointer;border-radius:6px;justify-content:center;align-items: center;min-width:2rem;height:2rem;padding:0 .55rem;font-size:.8rem;line-height:1}.mermaid-button:hover{color:var(--fg);background:var(--control-hover)}.mermaid-button:focus-visible{outline:2px solid var(--link);outline-offset:2px}.mermaid-canvas:focus-visible{outline:2px solid var(--link);outline-offset:2px}.mermaid-open .icon{width:15px;height:15px}body.mermaid-dialog-open{overflow:hidden}.mermaid-dialog{position:fixed;width:calc(100vw - 2rem);height:calc(100vh - 2rem);overflow:hidden;color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:none;height:calc(100svh - 2rem);max-height:none;margin:auto;padding:0;inset:0;box-shadow:0 12px 48px #00000047}.mermaid-dialog::backdrop{background:var(--dialog-backdrop)}.mermaid-dialog-shell{display:grid;grid-template-rows:auto minmax(0,1fr)auto;height:100%}.mermaid-dialog-header{display:flex;background:var(--bg);border-bottom:1px solid var(--border);justify-content:space-between;align-items: center;gap:1rem;min-width:0;padding:.65rem .75rem}.mermaid-dialog-header>strong{overflow:hidden;color:var(--muted);letter-spacing:.08em;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.75rem;font-weight:600}.mermaid-toolbar{display:flex;align-items: center;gap:.35rem}.mermaid-toolbar [data-airplan-mermaid-close]{margin-left:.35rem}.mermaid-zoom-value{color:var(--muted);font-variant-numeric:tabular-nums;text-align:center;min-width:3.5rem;font-size:.8rem}.mermaid-canvas{position:relative;overflow:hidden;touch-action:none;color:var(--fg);background-color:var(--surface-subtle);background-image:radial-gradient(circle,color-mix(in srgb,var(--muted)24%,transparent)1px,transparent 1px);cursor:grab;user-select:none;background-size:1.25rem 1.25rem;min-height:0}.mermaid-canvas-panning{cursor:grabbing}.mermaid-surface{position:absolute;will-change:transform;top:50%;left:50%}.mermaid-surface svg{display:block;transform-origin:center;will-change:transform}.mermaid-help{color:var(--muted);background:var(--bg);border-top:1px solid var(--border);text-align:center;margin:0;padding:.4rem .75rem;font-size:.75rem;line-height:1.4}@media (hover:none),(any-pointer:coarse){.mermaid-open{opacity:1;pointer-events:auto} }@media (prefers-reduced-motion:reduce){.mermaid-open{transition:none} }.filehead{color:var(--muted);background:var(--surface-subtle);border:1px solid var(--code-border);border-bottom:0;border-radius:8px 8px 0 0;padding:.6em 1em;font-size:.8rem}.filehead code{color:var(--fg);background:0 0;padding:0}.filehead+pre{border-radius:0 0 8px 8px;margin-top:0}.source-heading{display:flex;color:var(--muted);align-items: center;gap:.45rem;margin:0 0 .75rem;font-size:.8rem;font-weight:600}.source-heading .icon{width:14px;height:14px}mark{background:var(--mark-bg);color:inherit}.footnotes{border-top:1px solid var(--border);color:var(--muted);margin-top:3em;padding-top:1em;font-size:.9em}.footnotes hr{display:none}@media (max-width:78rem){.page-shell{display:block}.toolbar,.pages-nav,.toc,.document-header,.content{max-width:var(--page-width);width:100%;margin-inline-start:auto;margin-inline-end:auto}.toolbar-context-document{display:none}body.all-changes-active .toolbar-context-history{display:inline}.toc,.pages-nav{position:static;display:block;overflow:visible;max-height:none;padding:1.25rem 1.5rem 0}body.pages-popover-ready .bundle-page .pages-nav,body.toc-dialog-ready .toc{display:none}.bundle-page .toolbar .pages-trigger{display:inline-flex;margin-right:auto}.pages-list,.toc-list{overflow:visible}.toc-trigger{display:inline-flex}.toc-trigger.is-visible{pointer-events:auto} }@media (max-width:48rem){.top-controls .toolbar{padding-inline-start:1.25rem;padding-inline-end:1.25rem}.toolbar .appearance{margin-left:0}.toolbar .appearance:before{display:none}.toolbar .file-actions{flex-wrap:nowrap;margin-left:auto}.toolbar .file-actions span,.toolbar .appearance>span{position:absolute;overflow:hidden;clip-path:inset(50%);white-space:nowrap;width:1px;height:1px}.bundle-page .toolbar .pages-trigger{min-width:auto}.pages-nav,.toc,.document-header,.content{padding-inline-start:1.25rem;padding-inline-end:1.25rem}.content{padding-bottom:calc(6.5rem + env(safe-area-inset-bottom))}.document-heading-row,.diff-view-header{flex-direction:column;align-items:stretch}.document-header .view-controls{grid-template-columns:minmax(0,1fr)}.document-header .revision-controls{grid-column:1;grid-row:1;justify-content:flex-start}.document-header .mode-toggle{grid-column:1;grid-row:2}.diff-action{align-self: flex-start}.mermaid-dialog{width:calc(100vw - 1rem);height:calc(100vh - 1rem);height:calc(100svh - 1rem)}.mermaid-dialog-header{flex-direction:column;align-items: flex-start;gap:.5rem}.mermaid-toolbar{width:100%}.mermaid-toolbar [data-airplan-mermaid-close]{margin-left:auto} }@media (max-width:36rem){body>.appearance-panel{left:1rem;right:1rem}.pages-popover{inset:calc(var(--pages-top) + .5rem)1rem auto;width:auto;max-width:none} }@media (max-width:48rem),print{.columns{display:block}.column+.column{margin-top:1.5rem} }@media print{.top-controls,.pages-nav,.pages-trigger,.pages-popover,.page-sequence,.toc,.toc-trigger,.toc-dialog,.codecopy,.mermaid-open,.mermaid-dialog,.source-view,.changes-view,.all-changes-view{display:none!important}#rendered{display:block!important}body{color:#000;background:#fff;font-size:10.5pt;line-height:1.45}.content{padding:0}.document-header{padding:0 0 1rem;display:block!important}.document-breadcrumb,.document-header .revision-controls,.document-header .view-controls{display:none!important}.document-heading-row>h1{max-width:none}h1,h2,h3,h4,h5,h6{break-after:avoid-page;margin-top:1.4em;margin-bottom:.55em}h1{margin-top:.2em}h2{margin-top:1.65em}p,ul,ol,blockquote,table,pre{margin-bottom:.9em}p,li{orphans:3;widows:3}dl{margin-block-start:.9em;margin-block-end:.9em}.frontmatter{margin-bottom:1.2em}.markdown-alert,.columns{margin-block-start:1em;margin-block-end:1em}.column+.column{margin-top:1em}hr{margin-block-start:1.4em;margin-block-end:1.4em}details::details-content{content-visibility:visible!important} }
+:root{--buncss-light:initial;--buncss-dark: ;color-scheme:light dark;--page-width:54rem;--compact-control-height:2.3rem;--floating-panel-bg:color-mix(in srgb,var(--bg)96%,var(--surface-subtle));--floating-panel-radius:12px;--floating-panel-shadow:0 12px 32px color-mix(in srgb,var(--fg)16%,transparent)}@media (prefers-color-scheme:dark){:root{--buncss-light: ;--buncss-dark:initial} }*{box-sizing:border-box}body{background:var(--bg);color:var(--fg);-webkit-text-size-adjust:100%;margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif,Apple Color Emoji,Segoe UI Emoji;font-size:16px;line-height:1.7}.toolbar{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items: center;gap:.5rem;width:100%;padding:.75rem 1.25rem 0;font-size:.85rem}.toolbar:not(:has(>:not([hidden]))){display:none}.toolbar a,.toolbar button{display:inline-flex;white-space:nowrap;font:inherit;color:var(--muted);text-decoration:none;cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;gap:.4rem;padding:.4rem .65rem}.toolbar a:hover,.toolbar button:hover{color:var(--fg);background:var(--control-hover)}.toolbar a:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar button:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar-actions{display:inline-flex;align-items: center;gap:.5rem}.toolbar>button,.toolbar>a,.toolbar>.toolbar-actions>button,.toolbar>.toolbar-actions>a,.toolbar>.appearance>.appearance-trigger{min-width:44px;min-height:44px}.mode-toggle{display:inline-flex;height:var(--compact-control-height);background:var(--control-track);border:0;border-radius:8px;gap:2px;padding:2px}.mode-toggle button{display:inline-flex;color:var(--muted);font:inherit;cursor:pointer;background:0 0;border:0;border-radius:6px;justify-content:center;align-items: center;gap:.4rem;padding:.3rem .55rem}.mode-toggle button:hover{color:var(--fg)}.mode-toggle button.active{color:var(--fg);background:var(--control-active);box-shadow:0 1px 2px #0003}.appearance-trigger{width:1.85rem;padding-inline-start:0;padding-inline-end:0}.appearance-resolved-icon{display:none}:root[data-airplan-resolved-mode=light] .appearance-resolved-icon[data-airplan-resolved-icon=light],:root[data-airplan-resolved-mode=dark] .appearance-resolved-icon[data-airplan-resolved-icon=dark]{display:block}.appearance{position:relative}.appearance:not(:first-child){margin-left:.5rem}.appearance:not(:first-child):before{content:"";position:absolute;background:var(--control-divider);width:1px;height:1rem;top:50%;left:calc(-.5rem - .5px);transform:translateY(-50%)}.appearance-panel{position:fixed;z-index:30;top:var(--airplan-appearance-top,4rem);right:var(--airplan-appearance-right,1rem);color:var(--fg);background:var(--floating-panel-bg);border:1px solid var(--border);border-radius:var(--floating-panel-radius);box-shadow:var(--floating-panel-shadow);width:min(19rem,100vw - 2rem);padding:.85rem;font-size:.85rem}.appearance-heading{color:var(--heading);margin-bottom:.75rem;font-weight:600}.appearance-field{display:grid;gap:.35rem}.appearance-field+.appearance-field{margin-top:.75rem}.appearance-label{color:var(--muted);font-size:.78rem;font-weight:600}.appearance-modes{width:100%}.appearance-modes button{flex:1;min-width:0}.appearance-select{position:relative;display:grid}.appearance-panel select{appearance:none;-webkit-appearance:none;height:var(--compact-control-height);color:var(--fg);background:var(--surface-subtle);border:1px solid var(--border);font:inherit;border-radius:7px;width:100%;padding:.3rem 2.25rem .3rem .5rem}.appearance-panel select:focus-visible{outline:2px solid var(--link);outline-offset:2px}.appearance-select .appearance-select-icon{position:absolute;color:var(--muted);pointer-events:none;width:.875rem;height:.875rem;top:50%;right:.7rem;transform:translateY(-50%)}.icon{flex:none;width:16px;height:16px}.icon-check,.icon-x,.is-copied .icon-copy,.is-failed .icon-copy{display:none}.is-copied .icon-check,.is-failed .icon-x{display:inline}.sr-status{position:absolute;overflow:hidden;clip-path:inset(50%);white-space:nowrap;width:1px;height:1px}[hidden]{display:none!important}@media (max-width:36rem){.toolbar{padding-inline-start:1rem;padding-inline-end:1rem}.appearance:not(:first-child){margin-left:0}.appearance:not(:first-child):before{display:none}.appearance-panel{width:auto;left:1rem;right:1rem} }@media print{:root,:root[data-airplan-theme]{--buncss-light:initial;--buncss-dark: ;color-scheme:light}.toolbar{display:none!important} }:root{--mark-bg:var(--alert-warning-bg);--alert-note:var(--info);--alert-note-bg:var(--alert-info-bg);--alert-tip:var(--success);--alert-tip-bg:var(--alert-success-bg);--alert-important:var(--important);--alert-warning:var(--warning);--alert-caution:var(--danger);--alert-caution-bg:var(--alert-danger-bg);--prose-width:78ch;--toc-width:14rem;--airplan-toolbar-height:3.5rem;--airplan-sticky-height:0px}html{scroll-behavior:smooth;scroll-padding-top:var(--airplan-sticky-height)}@media (prefers-reduced-motion:no-preference){@view-transition{navigation: auto;} }.page-shell{display:grid;grid-template-columns:minmax(12rem,1fr)minmax(0,var(--page-width))minmax(12rem,1fr);grid-template-rows:auto auto 1fr;min-height:100vh}.top-controls{grid-column:1/-1;grid-row:1;position:sticky;z-index:15;display:flex;height:calc(var(--airplan-toolbar-height) + env(safe-area-inset-top));min-height:calc(var(--airplan-toolbar-height) + env(safe-area-inset-top));background:color-mix(in srgb,var(--bg)60%,transparent);backdrop-filter:blur(18px)saturate(1.15);-webkit-backdrop-filter:blur(18px)saturate(1.15);border-bottom:0;align-items: center;gap:.5rem;width:100%;max-width:none;margin-inline-start:0;margin-inline-end:0;padding:0;top:0}.top-controls:not(:has(>.view-controls)):has(>.toolbar:not(:has(>:not([hidden])))){display:none}.top-controls .toolbar{max-width:var(--page-width);padding:env(safe-area-inset-top)1.5rem 0;flex-wrap:nowrap;flex:1;width:100%;height:100%;margin-inline-start:auto;margin-inline-end:auto}.toolbar-context{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;margin-right:auto;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.75rem;font-weight:600}.toolbar-context-history{display:none}.document-breadcrumb.toolbar-breadcrumb{flex-wrap:nowrap;flex:auto;gap:.55rem;margin:0 auto 0 0;line-height:1.45}.toolbar-breadcrumb .document-breadcrumb-path{display:flex;overflow:hidden;align-items: center;gap:.55rem;min-width:0}.toolbar-breadcrumb .document-breadcrumb-segment,.toolbar-breadcrumb .document-breadcrumb-separator,.toolbar-breadcrumb .document-breadcrumb-root{flex:none}.toolbar-breadcrumb .document-breadcrumb-segment:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:0 auto;min-width:0}body.all-changes-active .toolbar-context-document{display:none}body.all-changes-active .toolbar-context-history{display:inline}.toc{grid-column:1;grid-row:3;position:sticky;display:flex;top:calc(var(--airplan-sticky-height) + 1.5rem);width:min(var(--toc-width),calc(100% - 2rem));max-height:calc(100vh - var(--airplan-sticky-height) - 3rem);overflow:hidden;flex-direction:column;place-self: start end;margin:1.5rem 1.25rem 0 0;font-size:.85rem}.bundle-page .toc{grid-column:3;justify-self:start;margin-left:1.25rem;margin-right:0}.rail-title{color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin:0 0 .75rem;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.7rem;font-weight:600}.pages-nav{grid-column:1;grid-row:3;position:sticky;display:flex;top:calc(var(--airplan-sticky-height) + 1.5rem);width:min(var(--toc-width),calc(100% - 2rem));max-height:calc(100vh - var(--airplan-sticky-height) - 3rem);overflow:hidden;flex-direction:column;place-self: start end;margin:1.5rem 1.25rem 0 0;font-size:.85rem}.pages-list{overflow-y:auto;overscroll-behavior:contain;list-style:none;min-height:0;margin:0;padding:0}.pages-list>li+li,.pages-list-nested>li+li{margin-top:.2rem}.pages-list-nested{border-left:1px solid var(--border);list-style:none;margin:.1rem 0 .4rem .75rem;padding:0 0 0 .45rem}.pages-directory-label{display:flex;color:var(--muted);list-style:none;overflow-wrap:anywhere;align-items: center;gap:.4rem;padding:.4rem .5rem .25rem .75rem;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.76rem;font-weight:600;line-height:1.35}.pages-directory-label .icon{flex:none;width:14px;height:14px}.pages-directory.is-current>.pages-directory-label{color:var(--fg)}.pages-directory.is-current>.pages-directory-label .icon{color:var(--link)}.pages-list a{position:relative;display:grid;color:var(--muted);text-decoration:none;border-left:3px solid #0000;border-radius:0 6px 6px 0;gap:.1rem;padding:.45rem .5rem .45rem .75rem;line-height:1.35}.pages-list a:hover{color:var(--fg);background:var(--control-hover)}.pages-list a:focus-visible{color:var(--fg);background:var(--control-hover)}.pages-list a:focus-visible{outline:2px solid var(--link);outline-offset:2px}.pages-list a[aria-current=page]{color:var(--fg);background:var(--surface-subtle);border-left-color:var(--link)}.page-title{overflow-wrap:anywhere;font-weight:600}.page-path{color:var(--muted);overflow-wrap:anywhere;background:0 0;border:0;padding:0;font-size:.72rem}.toolbar .pages-trigger{display:none}.toc-list{overflow-y:auto;overscroll-behavior:contain;list-style:none;min-height:0;margin:0;padding:0}.toc-list li+li{margin-top:.1rem}.toc-list a{display:block;color:var(--muted);text-decoration:none;overflow-wrap:anywhere;padding:.3rem 0;line-height:1.35}.toc-list a:hover{color:var(--fg)}.toc-list a:focus-visible{color:var(--fg)}.toc-list a.active{color:var(--link)}.toc-level-1{margin-top:.65rem;font-weight:650}.toc-level-1:first-child{margin-top:0}.toc-level-3 a{padding-left:1rem;font-size:.8rem}.toc-trigger{display:none;position:fixed;right:1.25rem;bottom:calc(1.25rem + env(safe-area-inset-bottom));z-index:20;color:var(--on-link);background:var(--link);cursor:pointer;opacity:0;visibility:hidden;pointer-events:none;border:0;border-radius:50%;justify-content:center;align-items: center;width:3rem;height:3rem;padding:0;transition:opacity .15s ease-in-out,visibility .15s ease-in-out,transform .15s ease-in-out,box-shadow .15s ease-in-out;transform:translateY(.5rem);box-shadow:0 4px 16px #0003}.toc-trigger.is-visible{opacity:1;visibility:visible;transform:translateY(0)}.toc-trigger:hover{box-shadow:0 6px 20px #00000047}.toc-trigger .icon{width:20px;height:20px}.toc-trigger:focus-visible{outline:2px solid var(--link);outline-offset:3px}.toc-dialog-close:focus-visible{outline:2px solid var(--link);outline-offset:3px}.toc-dialog{position:fixed;width:min(100%,42rem);max-width:none;max-height:70vh;color:var(--fg);background:var(--bg);overflow:hidden;border:0;border-radius:16px 16px 0 0;max-height:70svh;margin:0 auto;padding:0;inset:auto 0 0;box-shadow:0 -8px 32px #0003}.toc-dialog::backdrop{background:var(--dialog-backdrop)}.toc-dialog-panel{display:flex;max-height:inherit;flex-direction:column}.toc-dialog-header{display:flex;flex:none;justify-content:space-between;align-items: center;padding:1.25rem 1.25rem .75rem}.toc-dialog-title{color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin:0;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.75rem;font-weight:600}.toc-dialog-close{display:inline-flex;color:var(--muted);cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;width:2.25rem;height:2.25rem;padding:0}.toc-dialog-close:hover{color:var(--fg);background:var(--control-hover)}.toc-dialog-nav{padding:.25rem 1.25rem calc(1.5rem + env(safe-area-inset-bottom));overflow-y:auto;overscroll-behavior:contain;min-height:0}.toc-dialog .toc-list a{padding-block-start:.55rem;padding-block-end:.55rem}body.toc-dialog-open{overflow:hidden}.pages-popover{position:fixed;inset:calc(var(--pages-top) + .5rem)auto auto var(--pages-left);width:var(--pages-width);max-height:calc(100svh - var(--pages-top) - 1.5rem);color:var(--fg);background:var(--floating-panel-bg);border:1px solid var(--border);border-radius:var(--floating-panel-radius);box-shadow:var(--floating-panel-shadow);overflow:hidden;max-width:calc(100vw - 2rem);margin:0;padding:.5rem}.pages-popover-nav{overflow-y:auto;overscroll-behavior:contain;min-height:0}.pages-popover .pages-list a{padding-block-start:.65rem;padding-block-end:.65rem}.pages-popover .pages-directory-label{padding-block-start:.55rem;padding-block-end:.35rem}@media (prefers-reduced-motion:no-preference){.pages-popover:popover-open{animation:pages-reveal .14s ease-out} }@keyframes pages-reveal{0%{opacity:0;transform:translateY(-.35rem)} }.document-header{grid-column:2;grid-row:2;width:100%;padding:1.35rem 1.5rem 0}.document-breadcrumb,.complete-diff-breadcrumb{display:flex;color:var(--muted);flex-wrap:wrap;align-items: center;gap:.3rem .55rem;margin:0 0 .45rem;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.72rem;line-height:1.45}.document-breadcrumb-root{display:inline-flex;color:inherit;text-decoration:none;align-items: center}a.document-breadcrumb-root:hover{color:var(--fg)}.document-breadcrumb-root .icon{width:14px;height:14px}.document-breadcrumb-path{display:contents}.document-breadcrumb-segment:last-child{color:var(--fg)}.document-breadcrumb-header{display:none}.document-heading-row,.diff-view-header{display:flex;justify-content:space-between;align-items: flex-start;gap:1rem 1.5rem}.document-heading-row>h1,.diff-view-header>h1{min-width:0;margin:0}.document-heading-row>h1{width:100%;max-width:none}.revision-heading{color:var(--muted);margin:0;font-size:.8rem;font-weight:600}.revision-heading.is-picker{position:relative;display:inline-flex;height:calc(var(--compact-control-height) - .25rem);border:1px solid var(--border);cursor:pointer;background:0 0;border-radius:8px;align-items: center;gap:.4rem;padding:.3rem .55rem;font-weight:500}.revision-heading.is-picker:after{content:"";opacity:.75;border-bottom:1.5px solid;border-right:1.5px solid;flex:none;width:6px;height:6px;transform:translateY(-1px)rotate(45deg)}.revision-heading.is-picker:hover{color:var(--fg);background:var(--control-hover)}.revision-heading.is-picker:focus-within{outline:2px solid var(--link);outline-offset:3px}.revision-heading.is-picker select{position:absolute;opacity:0;cursor:pointer;width:100%;height:100%;inset:0}.revision-heading.is-stale{border-color:var(--alert-warning);color:var(--fg);background:var(--alert-warning-bg)}.revision-heading.is-stale select{width:calc(100% + 2px);height:calc(100% + 2px);inset:-1px}.revision-controls{display:flex;flex-wrap:wrap;flex:none;justify-content:flex-end;align-items: center;gap:.5rem}.revision-controls .revision-heading{margin:0}.all-changes-link{display:inline-flex;height:calc(var(--compact-control-height) - .25rem);color:var(--muted);border:1px solid var(--border);text-decoration:none;white-space:nowrap;background:0 0;border-radius:8px;align-items: center;gap:.4rem;padding:.3rem .55rem;font-size:.8rem;font-weight:500;line-height:1.2}.all-changes-link:hover{color:var(--fg);background:var(--control-hover)}.all-changes-link:focus-visible{color:var(--fg);background:var(--control-hover)}.all-changes-link:focus-visible{outline:2px solid var(--link);outline-offset:2px}.diff-action:focus-visible{outline:2px solid var(--link);outline-offset:2px}.all-changes-back:focus-visible{outline:2px solid var(--link);outline-offset:2px}.all-changes-link .icon,.diff-action .icon,.all-changes-back .icon{width:14px;height:14px}.document-header .view-controls{display:grid;grid-template-columns:minmax(0,1fr)auto;align-items: center;gap:.65rem 1rem;margin-top:1rem;font-size:.85rem}.document-header .mode-toggle{grid-column:1;grid-row:1;width:-moz-fit-content;width:fit-content}.document-header .revision-controls{grid-column:2;grid-row:1}#rendered.has-leading-title>h1:first-of-type{display:none}.changes-view pre,.all-changes-view pre{overflow-x:auto}body.all-changes-active .pages-nav,body.all-changes-active .toc,body.all-changes-active .document-header,body.all-changes-active .toolbar .pages-trigger{display:none!important}.diff-view-header{margin-bottom:1rem}.diff-action,.all-changes-back{display:inline-flex;color:var(--link);background:color-mix(in srgb,var(--link)8%,transparent);border:1px solid color-mix(in srgb,var(--link)35%,var(--border));text-decoration:none;border-radius:8px;flex:none;align-items: center;gap:.4rem;min-height:2rem;padding:.35rem .65rem;font-size:.8rem;font-weight:600;line-height:1.2}.diff-action:hover,.all-changes-back:hover{color:var(--fg);background:color-mix(in srgb,var(--link)14%,transparent)}.complete-diff-header{margin-bottom:1.5rem}.complete-diff-breadcrumb{margin-bottom:.6rem}.complete-diff-breadcrumb .all-changes-back{color:var(--fg);background:var(--surface-subtle);border-color:var(--border);padding-left:.55rem}.complete-diff-meta{display:flex;color:var(--muted);border-bottom:1px solid var(--border);flex-wrap:wrap;justify-content:space-between;align-items: center;gap:.35rem 1rem;margin-top:-.25rem;padding-bottom:.9rem;font-size:.75rem;font-weight:600}.complete-diff-meta .revision-controls{margin-left:auto}.file-actions{flex-wrap:wrap}.codewrap{position:relative;margin:0 0 1.5em}.codewrap pre{margin:0}.codecopy{position:absolute;display:inline-flex;font:inherit;color:var(--muted);background:var(--code-bg);cursor:pointer;opacity:0;border:1px solid #0000;border-radius:6px;justify-content:center;align-items: center;padding:.35rem;transition:opacity .15s ease-in-out;top:.5em;right:.5em}.codecopy .icon{width:14px;height:14px}.codewrap:hover .codecopy{opacity:1}.codecopy:focus-visible{opacity:1}.codecopy:hover{color:var(--fg);border-color:var(--muted)}@media (hover:none){.codecopy{opacity:1;pointer-events:auto} }@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.toc-trigger,.codecopy{transition:none} }.content{grid-column:2;grid-row:3;overflow-wrap:break-word;width:100%;min-width:0;padding:1.5rem 1.5rem 4rem}.content>p,.content>ul,.content>ol,.content>blockquote,.content>.footnotes{max-width:var(--prose-width)}.page-sequence{display:flex;border-top:1px solid var(--border);justify-content:space-between;gap:1rem;margin-top:3rem;padding-top:1.25rem}.page-sequence-link{display:grid;color:var(--fg);text-decoration:none;gap:.15rem;min-width:0;max-width:48%}.page-sequence-link:hover .page-sequence-title{color:var(--link);text-decoration:underline}.page-sequence-link:focus-visible .page-sequence-title{color:var(--link);text-decoration:underline}.page-sequence-link:focus-visible{outline:2px solid var(--link);outline-offset:4px}.page-sequence-next{text-align:right;margin-left:auto}.page-sequence-direction{color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.7rem;font-weight:600}.page-sequence-previous .page-sequence-direction:before{content:"← "}.page-sequence-next .page-sequence-direction:after{content:" →"}.page-sequence-title{overflow-wrap:anywhere;font-weight:600}h1,h2,h3,h4,h5,h6{color:var(--heading);letter-spacing:-.015em;scroll-margin-top:calc(var(--airplan-sticky-height) + .75em);margin:2em 0 .75em;font-weight:700;line-height:1.25}h1{letter-spacing:-.025em;margin-top:.35em;font-size:2em}h2{margin-top:2.25em;font-size:1.5em}h3{color:var(--subheading);font-size:1.2em}h4{font-size:1.05em}h5,h6{font-size:1em}h6{color:var(--muted)}p,ul,ol,blockquote,table,pre{margin:0 0 1.25em}dl{margin:1.25rem 0}dt{margin-top:.8rem;font-weight:650}dd{color:var(--muted);margin:.25rem 0 0 1.25rem}.frontmatter{border:1px solid var(--border);overflow:hidden;border-radius:.5rem;margin:0 0 1.75rem}.frontmatter summary{color:var(--muted);cursor:pointer;user-select:none;padding:.55rem .75rem;font-size:.82rem;font-weight:600}.frontmatter summary span{text-transform:uppercase;margin-left:.35rem;font-weight:400}.frontmatter .chroma{border:0;border-radius:0;margin:0}.columns{display:flex;gap:1.5rem;min-width:0;margin:1.5rem 0}.column{overflow-wrap:anywhere;flex:1 1 0;min-width:0}.column[style]{flex:0 1 var(--column-width)}.column>:first-child{margin-top:0}.column>:last-child{margin-bottom:0}a{color:var(--link)}ul,ol{padding-left:1.75em}li+li{margin-top:.2em}li>ul,li>ol{margin-bottom:0}ul:has(>li>input[type=checkbox]){list-style:none;padding-left:.5em}li>input[type=checkbox]{vertical-align:middle;margin:0 .4em .2em 0}blockquote{border-left:.25em solid var(--border);color:var(--muted);padding:0 1em}blockquote>:first-child{margin-top:0}blockquote>:last-child{margin-bottom:0}.markdown-alert{--alert-color:var(--alert-note);--alert-bg:var(--alert-note-bg);border-left:3px solid var(--alert-color);background:var(--alert-bg);color:var(--fg);border-radius:6px;margin:1.5em 0;padding:.85em 1em}.markdown-alert-title{display:flex;color:var(--alert-color);letter-spacing:.04em;text-transform:uppercase;align-items: center;gap:.5em;margin:0 0 .55em;font-size:.8rem;font-weight:700;line-height:1.4}.markdown-alert-icon{flex:none;width:1em;height:1em}.markdown-alert>:last-child{margin-bottom:0}.markdown-alert-tip{--alert-color:var(--alert-tip);--alert-bg:var(--alert-tip-bg)}.markdown-alert-important{--alert-color:var(--alert-important);--alert-bg:var(--alert-important-bg)}.markdown-alert-warning{--alert-color:var(--alert-warning);--alert-bg:var(--alert-warning-bg)}.markdown-alert-caution{--alert-color:var(--alert-caution);--alert-bg:var(--alert-caution-bg)}hr{border:0;border-top:1px solid var(--border);height:0;margin:2em 0}img{max-width:100%}table{border-collapse:collapse;border-spacing:0;display:block;overflow-x:auto;width:max-content;max-width:100%}th,td{border:1px solid var(--border);padding:.35em .8em}th{font-weight:600}thead tr,tbody tr:nth-child(2n){background:var(--code-bg)}code,pre,kbd,samp{font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace}code{background:var(--code-inline-bg);border:1px solid var(--code-border);border-radius:4px;padding:.15em .35em;font-size:.875em}pre{background:var(--code-bg);border:1px solid var(--code-border);overflow-x:auto;scrollbar-color:var(--border)transparent;scrollbar-width:thin;border-radius:8px;padding:1em 1.25em;line-height:1.6}pre::-webkit-scrollbar{height:6px}pre::-webkit-scrollbar-track{background:0 0}pre::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}pre code{background:0 0;border:0;padding:0;font-size:.875em}.chroma{background:var(--code-bg)!important}pre.mermaid{white-space:pre-wrap;max-width:100%}pre.mermaid.mermaid-rendered{position:relative;display:flex;justify-content:center}pre.mermaid.mermaid-rendered svg{max-width:100%;height:auto}pre.mermaid.mermaid-failed{display:block;color:var(--muted)}.mermaid-open{position:absolute;z-index:1;opacity:0;pointer-events:none;transition:opacity .15s ease-in-out;top:.5rem;right:.5rem}pre.mermaid:hover>.mermaid-open,pre.mermaid:focus-within>.mermaid-open{opacity:1;pointer-events:auto}.mermaid-open:focus-visible{opacity:1;pointer-events:auto}.mermaid-button{display:inline-flex;color:var(--fg);background:var(--control-active);border:1px solid var(--border);font:inherit;cursor:pointer;border-radius:6px;justify-content:center;align-items: center;min-width:2rem;height:2rem;padding:0 .55rem;font-size:.8rem;line-height:1}.mermaid-button:hover{color:var(--fg);background:var(--control-hover)}.mermaid-button:focus-visible{outline:2px solid var(--link);outline-offset:2px}.mermaid-canvas:focus-visible{outline:2px solid var(--link);outline-offset:2px}.mermaid-open .icon{width:15px;height:15px}body.mermaid-dialog-open{overflow:hidden}.mermaid-dialog{position:fixed;width:calc(100vw - 2rem);height:calc(100vh - 2rem);overflow:hidden;color:var(--fg);background:var(--bg);border:1px solid var(--border);border-radius:12px;max-width:none;height:calc(100svh - 2rem);max-height:none;margin:auto;padding:0;inset:0;box-shadow:0 12px 48px #00000047}.mermaid-dialog::backdrop{background:var(--dialog-backdrop)}.mermaid-dialog-shell{display:grid;grid-template-rows:auto minmax(0,1fr)auto;height:100%}.mermaid-dialog-header{display:flex;background:var(--bg);border-bottom:1px solid var(--border);justify-content:space-between;align-items: center;gap:1rem;min-width:0;padding:.65rem .75rem}.mermaid-dialog-header>strong{overflow:hidden;color:var(--muted);letter-spacing:.08em;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.75rem;font-weight:600}.mermaid-toolbar{display:flex;align-items: center;gap:.35rem}.mermaid-toolbar [data-airplan-mermaid-close]{margin-left:.35rem}.mermaid-zoom-value{color:var(--muted);font-variant-numeric:tabular-nums;text-align:center;min-width:3.5rem;font-size:.8rem}.mermaid-canvas{position:relative;overflow:hidden;touch-action:none;color:var(--fg);background-color:var(--surface-subtle);background-image:radial-gradient(circle,color-mix(in srgb,var(--muted)24%,transparent)1px,transparent 1px);cursor:grab;user-select:none;background-size:1.25rem 1.25rem;min-height:0}.mermaid-canvas-panning{cursor:grabbing}.mermaid-surface{position:absolute;will-change:transform;top:50%;left:50%}.mermaid-surface svg{display:block;transform-origin:center;will-change:transform}.mermaid-help{color:var(--muted);background:var(--bg);border-top:1px solid var(--border);text-align:center;margin:0;padding:.4rem .75rem;font-size:.75rem;line-height:1.4}@media (hover:none),(any-pointer:coarse){.mermaid-open{opacity:1;pointer-events:auto} }@media (prefers-reduced-motion:reduce){.mermaid-open{transition:none} }.filehead{color:var(--muted);background:var(--surface-subtle);border:1px solid var(--code-border);border-bottom:0;border-radius:8px 8px 0 0;padding:.6em 1em;font-size:.8rem}.filehead code{color:var(--fg);font-size:inherit;background:0 0;border:0;border-radius:0;padding:0}.filehead+pre,.filehead+.codewrap pre{border-radius:0 0 8px 8px;margin-top:0}.source-heading{display:flex;color:var(--muted);align-items: center;gap:.45rem;margin:0 0 .75rem;font-size:.8rem;font-weight:600}.source-heading .icon{width:14px;height:14px}mark{background:var(--mark-bg);color:inherit}.footnotes{border-top:1px solid var(--border);color:var(--muted);margin-top:3em;padding-top:1em;font-size:.9em}.footnotes hr{display:none}@media (max-width:78rem){.page-shell{display:block}.toolbar,.pages-nav,.toc,.document-header,.content{max-width:var(--page-width);width:100%;margin-inline-start:auto;margin-inline-end:auto}.bundle-page .toolbar-breadcrumb{display:none}.bundle-page .document-breadcrumb-header{display:flex}body.all-changes-active .toolbar-context-history{display:inline}.toc,.pages-nav{position:static;display:block;overflow:visible;max-height:none;padding:1.25rem 1.5rem 0}body.pages-popover-ready .bundle-page .pages-nav,body.toc-dialog-ready .toc{display:none}.bundle-page .toolbar .pages-trigger{display:inline-flex;margin-right:auto}.pages-list,.toc-list{overflow:visible}.toc-trigger{display:inline-flex}.toc-trigger.is-visible{pointer-events:auto} }@media (max-width:48rem){.top-controls .toolbar{padding-inline-start:1.25rem;padding-inline-end:1.25rem}.toolbar .appearance{margin-left:0}.toolbar .appearance:before{display:none}.toolbar .file-actions{flex-wrap:nowrap;margin-left:auto}.toolbar .file-actions span,.toolbar .appearance>span{position:absolute;overflow:hidden;clip-path:inset(50%);white-space:nowrap;width:1px;height:1px}.bundle-page .toolbar .pages-trigger{min-width:auto}.pages-nav,.toc,.document-header,.content{padding-inline-start:1.25rem;padding-inline-end:1.25rem}.content{padding-bottom:calc(6.5rem + env(safe-area-inset-bottom))}.document-heading-row,.diff-view-header{flex-direction:column;align-items:stretch}.document-header .view-controls{grid-template-columns:minmax(0,1fr)}.document-header .revision-controls{grid-column:1;grid-row:1;justify-content:flex-start}.document-header .mode-toggle{grid-column:1;grid-row:2}.diff-action{align-self: flex-start}.mermaid-dialog{width:calc(100vw - 1rem);height:calc(100vh - 1rem);height:calc(100svh - 1rem)}.mermaid-dialog-header{flex-direction:column;align-items: flex-start;gap:.5rem}.mermaid-toolbar{width:100%}.mermaid-toolbar [data-airplan-mermaid-close]{margin-left:auto} }@media (max-width:36rem){body>.appearance-panel{left:1rem;right:1rem}.pages-popover{inset:calc(var(--pages-top) + .5rem)1rem auto;width:auto;max-width:none} }@media (max-width:48rem),print{.columns{display:block}.column+.column{margin-top:1.5rem} }@media print{.top-controls,.pages-nav,.pages-trigger,.pages-popover,.page-sequence,.toc,.toc-trigger,.toc-dialog,.codecopy,.mermaid-open,.mermaid-dialog,.source-view,.changes-view,.all-changes-view{display:none!important}#rendered{display:block!important}body{color:#000;background:#fff;font-size:10.5pt;line-height:1.45}.content{padding:0}.document-header{padding:0 0 1rem;display:block!important}.document-breadcrumb,.document-header .revision-controls,.document-header .view-controls{display:none!important}.document-heading-row>h1{max-width:none}h1,h2,h3,h4,h5,h6{break-after:avoid-page;margin-top:1.4em;margin-bottom:.55em}h1{margin-top:.2em}h2{margin-top:1.65em}p,ul,ol,blockquote,table,pre{margin-bottom:.9em}p,li{orphans:3;widows:3}dl{margin-block-start:.9em;margin-block-end:.9em}.frontmatter{margin-bottom:1.2em}.markdown-alert,.columns{margin-block-start:1em;margin-block-end:1em}.column+.column{margin-top:1em}hr{margin-block-start:1.4em;margin-block-end:1.4em}details::details-content{content-visibility:visible!important} }
 
 :root{color-scheme:light;--bg:#ffffff;--fg:#1f2328;--heading:#1f2328;--subheading:#474b4f;--muted:#59636e;--link:#0969da;--border:#d1d9e0;--surface-subtle:#f6f8fa;--code-inline-bg:#fafbfc;--code-bg:#f6f8fa;--code-border:#dee4e9;--control-track:#f6f8fa;--control-active:#eff1f3;--control-hover:#f6f7f8;--control-divider:#dde3e8;--on-link:#ffffff;--info:#0969da;--success:#1a7f37;--important:#8250df;--warning:#9a6700;--danger:#cf222e;--alert-info-bg:#e1edfb;--alert-success-bg:#e4f0e7;--alert-important-bg:#f0eafb;--alert-warning-bg:#f3ede0;--alert-danger-bg:#f9e4e6;--dialog-backdrop:#00000080}
 @media screen and (prefers-color-scheme:dark){:root:not([data-airplan-theme]){color-scheme:dark;--bg:#0d1117;--fg:#e6edf3;--heading:#e6edf3;--subheading:#bfc5cb;--muted:#9198a1;--link:#4493f8;--border:#3d444d;--surface-subtle:#151b23;--code-inline-bg:#11171e;--code-bg:#151b23;--code-border:#2f363e;--control-track:#151b23;--control-active:#212830;--control-hover:#181e25;--control-divider:#313740;--on-link:#0d1117;--info:#58a6ff;--success:#3fb950;--important:#a371f7;--warning:#d29922;--danger:#f85149;--alert-info-bg:#162333;--alert-success-bg:#13251e;--alert-important-bg:#1f1d32;--alert-warning-bg:#252118;--alert-danger-bg:#29191d;--dialog-backdrop:#00000080}
@@ -84,7 +84,11 @@ body{background:#fff;color:#1f2328}}
 <div class="page-shell">
 <div class="top-controls">
 <nav class="toolbar" aria-label="Document controls">
-  <span class="toolbar-context toolbar-context-document" title="implementation-plan.md">implementation-plan.md</span>
+  <div class="document-breadcrumb toolbar-breadcrumb toolbar-context toolbar-context-document" title="implementation-plan.md">
+  <span class="document-breadcrumb-root" aria-label="Document" title="Document"><svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z"/></svg></span>
+  <span class="document-breadcrumb-path">
+    <span class="document-breadcrumb-segment">implementation-plan.md</span>
+  </span></div>
   <span class="toolbar-context toolbar-context-history">Bundle history</span>
   <div class="file-actions toolbar-actions">
   <button type="button" class="copy-source js-only" hidden
@@ -151,11 +155,11 @@ body{background:#fff;color:#1f2328}}
   </ol>
 </nav>
 <header class="document-header">
-  <p class="document-breadcrumb">
-    <span class="document-breadcrumb-path">
-      <span class="document-breadcrumb-segment">implementation-plan.md</span>
-    </span>
-  </p>
+  <p class="document-breadcrumb document-breadcrumb-header">
+  <span class="document-breadcrumb-root" aria-label="Document" title="Document"><svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z"/></svg></span>
+  <span class="document-breadcrumb-path">
+    <span class="document-breadcrumb-segment">implementation-plan.md</span>
+  </span></p>
   <div class="document-heading-row">
     <h1>Zero-downtime token migration</h1>
   </div>
@@ -545,48 +549,48 @@ supported client version older than the token-capable release.&#160;<a href="#fn
 </div>
 <script>
 (() => {
-  function A1(A) {
+  function A0(A) {
     return A === "system" || A === "light" || A === "dark";
   }
-  function $0(A, H) {
+  function V1(A, $) {
     try {
-      return A?.getItem(H) ?? null;
+      return A?.getItem($) ?? null;
     } catch {
       return null;
     }
   }
-  function t(A, H, Q) {
+  function t(A, $, Q) {
     try {
       if (Q === null)
-        A?.removeItem(H);
+        A?.removeItem($);
       else
-        A?.setItem(H, Q);
+        A?.setItem($, Q);
     } catch {}
   }
-  function D0(A, H, Q) {
-    let X = $0(Q, "airplan-color-mode");
+  function D1(A, $, Q) {
+    let X = V1(Q, "airplan-color-mode");
     if (X === null) {
-      let W = $0(Q, "airplan-theme");
+      let W = V1(Q, "airplan-theme");
       if (X = W === "light" || W === "dark" ? W : "system", X !== "system")
         t(Q, "airplan-color-mode", X);
     }
-    let U = A1(X) ? X : "system", O = new Set(A.themes.map((W) => W.id)), $ = $0(Q, "airplan-light-theme"), K = $0(Q, "airplan-dark-theme"), w = $ !== null && O.has($) ? $ : A.defaultLight, F = K !== null && O.has(K) ? K : A.defaultDark;
-    return I0(A, U, w, F, H);
+    let U = A0(X) ? X : "system", I = new Set(A.themes.map((W) => W.id)), V = V1(Q, "airplan-light-theme"), K = V1(Q, "airplan-dark-theme"), x = V !== null && I.has(V) ? V : A.defaultLight, F = K !== null && I.has(K) ? K : A.defaultDark;
+    return O1(A, U, x, F, $);
   }
-  function I0(A, H, Q, X, U) {
-    let O = new Map(A.themes.map((n) => [n.id, n])), $ = O.has(Q) ? Q : A.defaultLight, K = O.has(X) ? X : A.defaultDark, w = H === "system" ? U ? "dark" : "light" : H, F = w === "light" ? $ : K, W = O.get(F)?.variant ?? w;
-    return { mode: H, resolvedMode: w, lightTheme: $, darkTheme: K, theme: F, variant: W };
+  function O1(A, $, Q, X, U) {
+    let I = new Map(A.themes.map((v) => [v.id, v])), V = I.has(Q) ? Q : A.defaultLight, K = I.has(X) ? X : A.defaultDark, x = $ === "system" ? U ? "dark" : "light" : $, F = x === "light" ? V : K, W = I.get(F)?.variant ?? x;
+    return { mode: $, resolvedMode: x, lightTheme: V, darkTheme: K, theme: F, variant: W };
   }
-  function j0(A, H) {
-    if (H === "system")
+  function j1(A, $) {
+    if ($ === "system")
       t(A, "airplan-color-mode", null), t(A, "airplan-theme", null);
     else
-      t(A, "airplan-color-mode", H), t(A, "airplan-theme", H);
+      t(A, "airplan-color-mode", $), t(A, "airplan-theme", $);
   }
-  function y0(A, H, Q) {
-    t(A, H === "light" ? "airplan-light-theme" : "airplan-dark-theme", Q);
+  function y1(A, $, Q) {
+    t(A, $ === "light" ? "airplan-light-theme" : "airplan-dark-theme", Q);
   }
-  function m0(A) {
+  function m1(A) {
     return {
       mode: A.mode,
       resolvedMode: A.resolvedMode,
@@ -596,31 +600,31 @@ supported client version older than the token-capable release.&#160;<a href="#fn
   }
 
   (function() {
-    let A = document, H = A.documentElement;
+    let A = document, $ = A.documentElement;
     A.querySelectorAll(".js-only").forEach((_) => {
       _.hidden = !1;
     });
     let Q = window.__AIRPLAN_THEME_CATALOG__;
     if (!Q)
       return;
-    let X = Q, U = window.matchMedia("(prefers-color-scheme: dark)"), O;
+    let X = Q, U = window.matchMedia("(prefers-color-scheme: dark)"), I;
     try {
-      O = window.localStorage;
+      I = window.localStorage;
     } catch {}
-    let $ = window.__airplanThemeState ?? D0(X, U.matches, O), K = A.querySelector("[data-airplan-appearance-trigger]"), w = A.querySelector("[data-airplan-appearance-panel]"), F = A.querySelector('select[data-airplan-theme-slot="light"]'), W = A.querySelector('select[data-airplan-theme-slot="dark"]'), n = Array.from(A.querySelectorAll("[data-airplan-color-mode]"));
-    if (w)
-      A.body.appendChild(w);
+    let V = window.__airplanThemeState ?? D1(X, U.matches, I), K = A.querySelector("[data-airplan-appearance-trigger]"), x = A.querySelector("[data-airplan-appearance-panel]"), F = A.querySelector('select[data-airplan-theme-slot="light"]'), W = A.querySelector('select[data-airplan-theme-slot="dark"]'), v = Array.from(A.querySelectorAll("[data-airplan-color-mode]"));
+    if (x)
+      A.body.appendChild(x);
     function a(_) {
       if (!_ || _.options.length > 0)
         return;
-      for (let [x, R] of [
+      for (let [G, R] of [
         ["light", "Light themes"],
         ["dark", "Dark themes"]
       ]) {
         let L = A.createElement("optgroup");
         L.label = R;
         for (let u of X.themes) {
-          if (u.variant !== x)
+          if (u.variant !== G)
             continue;
           let f = A.createElement("option");
           f.value = u.id, f.textContent = u.name, L.append(f);
@@ -630,123 +634,123 @@ supported client version older than the token-capable release.&#160;<a href="#fn
       }
     }
     a(F), a(W);
-    function v(_, x = !0) {
-      if ($ = _, window.__airplanThemeState = $, H.dataset.airplanMode = $.mode, H.dataset.airplanResolvedMode = $.resolvedMode, H.dataset.airplanTheme = $.theme, H.dataset.airplanThemeVariant = $.variant, n.forEach((R) => {
-        let L = R.dataset.airplanColorMode === $.mode;
+    function n(_, G = !0) {
+      if (V = _, window.__airplanThemeState = V, $.dataset.airplanMode = V.mode, $.dataset.airplanResolvedMode = V.resolvedMode, $.dataset.airplanTheme = V.theme, $.dataset.airplanThemeVariant = V.variant, v.forEach((R) => {
+        let L = R.dataset.airplanColorMode === V.mode;
         R.classList.toggle("active", L), R.setAttribute("aria-pressed", String(L));
       }), F)
-        F.value = $.lightTheme;
+        F.value = V.lightTheme;
       if (W)
-        W.value = $.darkTheme;
-      if (x)
-        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: m0($) }));
+        W.value = V.darkTheme;
+      if (G)
+        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: m1(V) }));
     }
-    function l(_ = {}) {
-      v(I0(X, _.mode ?? $.mode, _.lightTheme ?? $.lightTheme, _.darkTheme ?? $.darkTheme, U.matches));
+    function k(_ = {}) {
+      n(O1(X, _.mode ?? V.mode, _.lightTheme ?? V.lightTheme, _.darkTheme ?? V.darkTheme, U.matches));
     }
-    function r(_, x = !1) {
-      if (!w || !K)
+    function r(_, G = !1) {
+      if (!x || !K)
         return;
       if (_)
         e();
-      if (w.hidden = !_, K.setAttribute("aria-expanded", String(_)), _)
-        w.querySelector("button,select")?.focus();
-      else if (x)
+      if (x.hidden = !_, K.setAttribute("aria-expanded", String(_)), _)
+        x.querySelector("button,select")?.focus();
+      else if (G)
         K.focus();
     }
     function e() {
-      if (!w || !K)
+      if (!x || !K)
         return;
-      let _ = K.getBoundingClientRect(), x = K.closest(".toolbar")?.getBoundingClientRect(), R = A.documentElement.clientWidth, L = Math.min(304, R - 32), u = Math.max(16, R - _.right);
-      w.style.setProperty("--airplan-appearance-top", `${(x?.bottom ?? _.bottom) + 8}px`), w.style.setProperty("--airplan-appearance-right", `${Math.min(u, Math.max(16, R - L - 16))}px`);
+      let _ = K.getBoundingClientRect(), G = K.closest(".toolbar")?.getBoundingClientRect(), R = A.documentElement.clientWidth, L = Math.min(304, R - 32), u = Math.max(16, R - _.right);
+      x.style.setProperty("--airplan-appearance-top", `${(G?.bottom ?? _.bottom) + 8}px`), x.style.setProperty("--airplan-appearance-right", `${Math.min(u, Math.max(16, R - L - 16))}px`);
     }
-    K?.addEventListener("click", () => r(Boolean(w?.hidden ?? !0))), n.forEach((_) => _.addEventListener("click", () => {
-      let x = _.dataset.airplanColorMode;
-      if (!x)
+    K?.addEventListener("click", () => r(Boolean(x?.hidden ?? !0))), v.forEach((_) => _.addEventListener("click", () => {
+      let G = _.dataset.airplanColorMode;
+      if (!G)
         return;
-      j0(O, x), l({ mode: x });
+      j1(I, G), k({ mode: G });
     }));
-    function B0(_, x) {
-      y0(O, _, x.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: x.value } })), l(_ === "light" ? { lightTheme: x.value } : { darkTheme: x.value });
+    function B1(_, G) {
+      y1(I, _, G.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: G.value } })), k(_ === "light" ? { lightTheme: G.value } : { darkTheme: G.value });
     }
-    F?.addEventListener("change", () => B0("light", F)), W?.addEventListener("change", () => B0("dark", W)), U.addEventListener("change", () => {
-      if ($.mode === "system")
-        l();
+    F?.addEventListener("change", () => B1("light", F)), W?.addEventListener("change", () => B1("dark", W)), U.addEventListener("change", () => {
+      if (V.mode === "system")
+        k();
     }), A.addEventListener("keydown", (_) => {
-      if (_.key === "Escape" && w && !w.hidden)
+      if (_.key === "Escape" && x && !x.hidden)
         _.preventDefault(), r(!1, !0);
     }), A.addEventListener("pointerdown", (_) => {
-      if (!w || w.hidden || !K)
+      if (!x || x.hidden || !K)
         return;
-      let x = _.target;
-      if (!(x instanceof Node) || w.contains(x) || K.contains(x))
+      let G = _.target;
+      if (!(G instanceof Node) || x.contains(G) || K.contains(G))
         return;
-      let L = (x instanceof Element ? x : x.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), u = w.contains(A.activeElement) && !L;
+      let L = (G instanceof Element ? G : G.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), u = x.contains(A.activeElement) && !L;
       if (r(!1), u)
         setTimeout(() => {
-          if (A.activeElement === A.body || w.contains(A.activeElement))
+          if (A.activeElement === A.body || x.contains(A.activeElement))
             K.focus();
         });
     }), window.addEventListener("resize", () => {
-      if (w && !w.hidden)
+      if (x && !x.hidden)
         e();
     }), window.addEventListener("scroll", () => {
-      if (w && !w.hidden)
+      if (x && !x.hidden)
         e();
-    }), v($, !1);
+    }), n(V, !1);
   })();
 
-  var P0 = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', n0 = '<svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>', v0 = '<svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
-  var b0 = '<svg class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>';
-  var k0 = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>';
+  var P1 = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', v1 = '<svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>', n1 = '<svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg>';
+  var b1 = '<svg class="icon icon-x" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>';
+  var l1 = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>';
 
   (function() {
-    var A = document, H = 262144;
+    var A = document, $ = 262144;
     let Q = A.getElementById("rendered");
     if (!Q)
       return;
     let X = Q;
-    var U = A.querySelector('meta[name="airplan-versions"]'), O = A.querySelector('meta[name="airplan-revision-chain"]'), $ = A.querySelector('meta[name="airplan-page-path"]'), K = A.querySelector('meta[name="airplan-entrypoint"]'), w = U ? new URL(U.content, window.location.href) : null, F = w ? new URL("./", w) : null, W = F ? F.pathname.split("/").filter(Boolean) : [], n = W.slice(0, -1);
-    function a(Z, E) {
+    var U = A.querySelector('meta[name="airplan-versions"]'), I = A.querySelector('meta[name="airplan-revision-chain"]'), V = A.querySelector('meta[name="airplan-page-path"]'), K = A.querySelector('meta[name="airplan-entrypoint"]'), x = U ? new URL(U.content, window.location.href) : null, F = x ? new URL("./", x) : null, W = F ? F.pathname.split("/").filter(Boolean) : [], v = W.slice(0, -1);
+    function a(Z, h) {
       if (typeof Z !== "string")
         return null;
       try {
-        var h = new URL(Z);
-        if (h.origin !== window.location.origin || h.username || h.password || h.search || h.hash)
+        var E = new URL(Z);
+        if (E.origin !== window.location.origin || E.username || E.password || E.search || E.hash)
           return null;
-        var M = h.pathname.split("/").filter(Boolean);
-        if (M.length !== n.length + 2 || !n.every(function(C, V) {
-          return M[V] === C;
+        var M = E.pathname.split("/").filter(Boolean);
+        if (M.length !== v.length + 2 || !v.every(function(C, H) {
+          return M[H] === C;
         }) || !/^[a-z2-7]{26}$/.test(M[M.length - 2]))
           return null;
         var B = M[M.length - 1];
-        if (E ? B !== ".airplan-changes.diff" : !B.endsWith(".html"))
+        if (h ? B !== ".airplan-changes.diff" : !B.endsWith(".html"))
           return null;
-        return h.href;
+        return E.href;
       } catch {
         return null;
       }
     }
-    function v(Z) {
+    function n(Z) {
       if (typeof Z !== "string" || Z === "" || Z.startsWith("/") || Z.includes("\\"))
         return !1;
-      var E = Z.split("/");
-      return E.every(function(h) {
-        var M = h.toLowerCase(), B = Array.from(h).some(function(C) {
-          var V = C.codePointAt(0) || 0;
-          return V < 32 || V === 127;
+      var h = Z.split("/");
+      return h.every(function(E) {
+        var M = E.toLowerCase(), B = Array.from(E).some(function(C) {
+          var H = C.codePointAt(0) || 0;
+          return H < 32 || H === 127;
         });
-        if (!h || h === "." || h === ".." || M.startsWith(".airplan-") || M === ".airplan.json" || B || /[. ]$/.test(h) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(h))
+        if (!E || E === "." || E === ".." || M.startsWith(".airplan-") || M === ".airplan.json" || B || /[. ]$/.test(E) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(E))
           return !1;
         return !0;
       });
     }
-    function l(Z, E) {
-      if (!v(E))
+    function k(Z, h) {
+      if (!n(h))
         return null;
-      var h = String(E).split("/").map(function(B) {
+      var E = String(h).split("/").map(function(B) {
         return encodeURIComponent(B);
-      }).join("/"), M = new URL(h, Z);
+      }).join("/"), M = new URL(E, Z);
       if (M.origin !== Z.origin || M.username || M.password || M.search || M.hash || !M.pathname.startsWith(Z.pathname))
         return null;
       return M.href;
@@ -754,155 +758,155 @@ supported client version older than the token-capable release.&#160;<a href="#fn
     async function r(Z) {
       if (!Z.ok)
         throw Error("marker request failed");
-      var E = Z.headers.get("content-length");
-      if (E && /^\d+$/.test(E) && Number(E) > H) {
+      var h = Z.headers.get("content-length");
+      if (h && /^\d+$/.test(h) && Number(h) > $) {
         if (Z.body)
           await Z.body.cancel("marker is too large");
         throw Error("marker is too large");
       }
       if (!Z.body || typeof Z.body.getReader !== "function")
         throw Error("bounded marker stream is unavailable");
-      var h = Z.body.getReader(), M = [], B = 0;
+      var E = Z.body.getReader(), M = [], B = 0;
       try {
         for (;; ) {
-          var C = await h.read();
+          var C = await E.read();
           if (C.done)
             break;
-          if (B += C.value.byteLength, B > H)
-            throw await h.cancel("marker is too large"), Error("marker is too large");
+          if (B += C.value.byteLength, B > $)
+            throw await E.cancel("marker is too large"), Error("marker is too large");
           M.push(C.value);
         }
       } finally {
-        h.releaseLock();
+        E.releaseLock();
       }
-      var V = new Uint8Array(B), S = 0;
+      var H = new Uint8Array(B), S = 0;
       M.forEach(function(T) {
-        V.set(T, S), S += T.byteLength;
+        H.set(T, S), S += T.byteLength;
       });
-      var I = new TextDecoder("utf-8", { fatal: !0 }).decode(V);
-      return e(I), JSON.parse(I);
+      var O = new TextDecoder("utf-8", { fatal: !0 }).decode(H);
+      return e(O), JSON.parse(O);
     }
     function e(Z) {
-      var E = 0;
-      function h() {
-        while (/\s/.test(Z[E] || ""))
-          E += 1;
+      var h = 0;
+      function E() {
+        while (/\s/.test(Z[h] || ""))
+          h += 1;
       }
       function M() {
-        if (Z[E] !== '"')
+        if (Z[h] !== '"')
           throw Error("JSON string is invalid");
-        var C = E++;
-        while (E < Z.length) {
-          var V = Z[E++];
-          if (V === '"')
-            return JSON.parse(Z.slice(C, E));
-          if (V === "\\")
-            E += 1;
+        var C = h++;
+        while (h < Z.length) {
+          var H = Z[h++];
+          if (H === '"')
+            return JSON.parse(Z.slice(C, h));
+          if (H === "\\")
+            h += 1;
         }
         throw Error("JSON string is incomplete");
       }
       function B() {
-        if (h(), Z[E] === "{") {
-          E += 1, h();
+        if (E(), Z[h] === "{") {
+          h += 1, E();
           var C = new Set;
-          if (Z[E] === "}") {
-            E += 1;
+          if (Z[h] === "}") {
+            h += 1;
             return;
           }
           for (;; ) {
-            h();
-            var V = M();
-            if (C.has(V))
+            E();
+            var H = M();
+            if (C.has(H))
               throw Error("JSON object has a duplicate field");
-            if (C.add(V), h(), Z[E++] !== ":")
+            if (C.add(H), E(), Z[h++] !== ":")
               throw Error("JSON object is invalid");
-            B(), h();
-            var S = Z[E++];
+            B(), E();
+            var S = Z[h++];
             if (S === "}")
               return;
             if (S !== ",")
               throw Error("JSON object is invalid");
           }
         }
-        if (Z[E] === "[") {
-          if (E += 1, h(), Z[E] === "]") {
-            E += 1;
+        if (Z[h] === "[") {
+          if (h += 1, E(), Z[h] === "]") {
+            h += 1;
             return;
           }
           for (;; ) {
-            B(), h();
-            var S = Z[E++];
+            B(), E();
+            var S = Z[h++];
             if (S === "]")
               return;
             if (S !== ",")
               throw Error("JSON array is invalid");
           }
         }
-        if (Z[E] === '"') {
+        if (Z[h] === '"') {
           M();
           return;
         }
-        var I = Z.slice(E).match(/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/);
-        if (!I)
+        var O = Z.slice(h).match(/^(?:true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?)/);
+        if (!O)
           throw Error("JSON value is invalid");
-        E += I[0].length;
+        h += O[0].length;
       }
-      if (B(), h(), E !== Z.length)
+      if (B(), E(), h !== Z.length)
         throw Error("JSON has trailing content");
     }
-    function B0(Z, E, h, M) {
+    function B1(Z, h, E, M) {
       if (!f(Z))
         throw Error("marker is invalid");
-      var B = Z, C = E.pathname.split("/").filter(Boolean), V = C[C.length - 1] || "";
-      if (B.schema !== "airplan-upload" || B.version !== 6 || B.kind !== "document" || B.directory !== V || !/^[a-z2-7]{26}$/.test(B.directory) || !c0(B.created_at) || B.format !== "md" || !l0(B.slug) || B.entrypoint !== B.slug + ".html" || !f(B.producer) || B.producer.name !== "airplan" || typeof B.producer.version !== "string" || B.producer.version.trim() !== B.producer.version || B.producer.version === "" || !x(B.render) || !f(B.revision) || B.revision.number !== h.number || B.revision.chain_id !== M || (B.revision.number === 1 ? B.revision.previous_url !== void 0 : typeof B.revision.previous_url !== "string" || !p0(B.revision.previous_url)) || !Array.isArray(B.objects) || !Array.isArray(B.pages) || B.pages.length === 0)
+      var B = Z, C = h.pathname.split("/").filter(Boolean), H = C[C.length - 1] || "";
+      if (B.schema !== "airplan-upload" || B.version !== 6 || B.kind !== "document" || B.directory !== H || !/^[a-z2-7]{26}$/.test(B.directory) || !c1(B.created_at) || B.format !== "md" || !k1(B.slug) || B.entrypoint !== B.slug + ".html" || !f(B.producer) || B.producer.name !== "airplan" || typeof B.producer.version !== "string" || B.producer.version.trim() !== B.producer.version || B.producer.version === "" || !G(B.render) || !f(B.revision) || B.revision.number !== E.number || B.revision.chain_id !== M || (B.revision.number === 1 ? B.revision.previous_url !== void 0 : typeof B.revision.previous_url !== "string" || !g1(B.revision.previous_url)) || !Array.isArray(B.objects) || !Array.isArray(B.pages) || B.pages.length === 0)
         throw Error("marker identity is invalid");
-      var S = l(E, B.entrypoint);
-      if (S !== h.safeURL)
+      var S = k(h, B.entrypoint);
+      if (S !== E.safeURL)
         throw Error("marker entrypoint is invalid");
-      if (B.title !== void 0 && typeof B.title !== "string" || B.repo !== void 0 && !i0(B.repo) || B.objects.length === 0 || B.pages.length > 100)
+      if (B.title !== void 0 && typeof B.title !== "string" || B.repo !== void 0 && !i1(B.repo) || B.objects.length === 0 || B.pages.length > 100)
         throw Error("marker shape is invalid");
-      var I = o0(B), T = new Set, i = new Set, k = new Set, g = new Map;
-      if (B.pages.forEach(function(q, G) {
-        if (!f(q) || !v(q.path) || T.has(q.path) || i.has(q.path.toLowerCase()) || q.format !== "md" && q.format !== "txt" || typeof q.lang !== "string" || q.title !== void 0 && typeof q.title !== "string" || !v(q.page) || !v(q.source))
+      var O = o1(B), T = new Set, i = new Set, l = new Set, p = new Map;
+      if (B.pages.forEach(function(w, q) {
+        if (!f(w) || !n(w.path) || T.has(w.path) || i.has(w.path.toLowerCase()) || w.format !== "md" && w.format !== "txt" || typeof w.lang !== "string" || w.title !== void 0 && typeof w.title !== "string" || !n(w.page) || !n(w.source))
           throw Error("marker page descriptor is invalid");
-        var y = _(q.path, q.format), P = q.path;
-        if (G === 0) {
-          if (y = B.entrypoint, P = B.slug + ".md", q.format !== B.format)
+        var y = _(w.path, w.format), P = w.path;
+        if (q === 0) {
+          if (y = B.entrypoint, P = B.slug + ".md", w.format !== B.format)
             throw Error("marker entry format is invalid");
         }
-        if (q.page !== y || q.source !== P)
+        if (w.page !== y || w.source !== P)
           throw Error("marker generated page mapping is invalid");
-        var N = l(E, q.page);
-        if (!N || k.has(N))
+        var N = k(h, w.page);
+        if (!N || l.has(N))
           throw Error("marker page object is invalid");
-        if (!l(E, q.source))
+        if (!k(h, w.source))
           throw Error("marker source object is invalid");
-        if (I.get(q.page) !== "page" || I.get(q.source) !== "source")
+        if (O.get(w.page) !== "page" || O.get(w.source) !== "source")
           throw Error("marker page object relationship is invalid");
-        var j = B.objects.find(function(p) {
-          return p.name === q.source;
+        var j = B.objects.find(function(g) {
+          return g.name === w.source;
         }).content_type;
-        if (q.format === "md" && j !== "text/markdown; charset=utf-8" || q.format === "txt" && j !== "text/plain; charset=utf-8")
+        if (w.format === "md" && j !== "text/markdown; charset=utf-8" || w.format === "txt" && j !== "text/plain; charset=utf-8")
           throw Error("marker source content type is invalid");
-        T.add(q.path), i.add(q.path.toLowerCase()), k.add(N), g.set(q.path, N);
+        T.add(w.path), i.add(w.path.toLowerCase()), l.add(N), p.set(w.path, N);
       }), L(i))
         throw Error("marker page paths conflict");
-      if (!T.has(B.pages[0].path) || g.get(B.pages[0].path) !== S)
+      if (!T.has(B.pages[0].path) || p.get(B.pages[0].path) !== S)
         throw Error("marker entry page is invalid");
-      if (k.size !== B.pages.length || Array.from(I.values()).filter(function(q) {
-        return q === "source";
+      if (l.size !== B.pages.length || Array.from(O.values()).filter(function(w) {
+        return w === "source";
       }).length !== B.pages.length)
         throw Error("marker page inventory is invalid");
-      return g;
+      return p;
     }
-    function _(Z, E) {
-      if (E !== "md")
+    function _(Z, h) {
+      if (h !== "md")
         return Z + ".html";
-      var h = Z.lastIndexOf("/"), M = Z.lastIndexOf(".");
-      return (M > h ? Z.slice(0, M) : Z) + ".html";
+      var E = Z.lastIndexOf("/"), M = Z.lastIndexOf(".");
+      return (M > E ? Z.slice(0, M) : Z) + ".html";
     }
-    function x(Z) {
-      if (!f(Z) || !f(Z.template) || !f(Z.themes) || !Number.isInteger(Z.generation) || Z.generation <= 0 || typeof Z.indexable !== "boolean" || typeof Z.no_external_assets !== "boolean" || !Z.template || Z.template.kind !== "builtin" && Z.template.kind !== "custom" || Z.mermaid_url !== void 0 && !d0(Z.mermaid_url) || !Z.themes)
+    function G(Z) {
+      if (!f(Z) || !f(Z.template) || !f(Z.themes) || !Number.isInteger(Z.generation) || Z.generation <= 0 || typeof Z.indexable !== "boolean" || typeof Z.no_external_assets !== "boolean" || !Z.template || Z.template.kind !== "builtin" && Z.template.kind !== "custom" || Z.mermaid_url !== void 0 && !d1(Z.mermaid_url) || !Z.themes)
         return !1;
       if (Z.template.kind === "builtin" && Z.template.sha256 !== void 0 || Z.template.kind === "custom" && !u(Z.template.sha256))
         return !1;
@@ -912,12 +916,12 @@ supported client version older than the token-capable release.&#160;<a href="#fn
       return typeof Z === "string" && new TextEncoder().encode(Z).byteLength <= 48 && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(Z);
     }
     function L(Z) {
-      for (var E of Z) {
-        var h = E.indexOf("/");
-        while (h >= 0) {
-          if (Z.has(E.slice(0, h)))
+      for (var h of Z) {
+        var E = h.indexOf("/");
+        while (E >= 0) {
+          if (Z.has(h.slice(0, E)))
             return !0;
-          h = E.indexOf("/", h + 1);
+          E = h.indexOf("/", E + 1);
         }
       }
       return !1;
@@ -928,61 +932,61 @@ supported client version older than the token-capable release.&#160;<a href="#fn
     function f(Z) {
       return !!Z && typeof Z === "object" && !Array.isArray(Z);
     }
-    function l0(Z) {
+    function k1(Z) {
       return typeof Z === "string" && Z.length <= 64 && /^[a-z0-9-]+$/.test(Z);
     }
-    function c0(Z) {
+    function c1(Z) {
       if (typeof Z !== "string")
         return !1;
-      var E = Z.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:[.,]\d+)?(Z|[+-]00:00)$/);
-      if (!E)
+      var h = Z.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:[.,]\d+)?(Z|[+-]00:00)$/);
+      if (!h)
         return !1;
-      var h = Number(E[1]), M = Number(E[2]), B = Number(E[3]), C = Number(E[4]), V = Number(E[5]), S = Number(E[6]), I = h % 4 === 0 && (h % 100 !== 0 || h % 400 === 0), T = [31, I ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-      return M >= 1 && M <= 12 && B >= 1 && B <= T[M - 1] && C <= 23 && V <= 59 && S <= 59;
+      var E = Number(h[1]), M = Number(h[2]), B = Number(h[3]), C = Number(h[4]), H = Number(h[5]), S = Number(h[6]), O = E % 4 === 0 && (E % 100 !== 0 || E % 400 === 0), T = [31, O ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+      return M >= 1 && M <= 12 && B >= 1 && B <= T[M - 1] && C <= 23 && H <= 59 && S <= 59;
     }
-    function i0(Z) {
+    function i1(Z) {
       if (typeof Z !== "string" || Z === "" || Z.trim() !== Z)
         return !1;
       try {
-        var E = new URL(Z);
-        if (E.protocol !== "https:" || E.username || E.password || E.port || E.search || E.hash)
+        var h = new URL(Z);
+        if (h.protocol !== "https:" || h.username || h.password || h.port || h.search || h.hash)
           return !1;
-        var h = E.pathname.replace(/^\/+|\/+$/g, "").split("/");
-        if (h.length !== 2)
+        var E = h.pathname.replace(/^\/+|\/+$/g, "").split("/");
+        if (E.length !== 2)
           return !1;
-        var M = h[0], B = h[1].replace(/\.git$/, "");
+        var M = E[0], B = E[1].replace(/\.git$/, "");
         if (!M || !B || M === "." || M === ".." || B === "." || B === ".." || /[?#@:\\]/.test(M + B))
           return !1;
-        return Z === "https://" + E.hostname.toLowerCase() + "/" + M + "/" + B;
+        return Z === "https://" + h.hostname.toLowerCase() + "/" + M + "/" + B;
       } catch {
         return !1;
       }
     }
-    function g0(Z) {
+    function p1(Z) {
       return typeof Z === "string" && /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+(?:; [a-z0-9!#$&^_.+-]+=(?:[a-z0-9!#$&^_.+-]+|"(?:[^"\\\r\n]|\\.)*"))*$/.test(Z);
     }
-    function p0(Z) {
+    function g1(Z) {
       try {
-        var E = new URL(Z);
-        return (E.protocol === "https:" || E.protocol === "http:") && !E.username && !E.password && !E.search && !E.hash && E.pathname.endsWith(".html");
+        var h = new URL(Z);
+        return (h.protocol === "https:" || h.protocol === "http:") && !h.username && !h.password && !h.search && !h.hash && h.pathname.endsWith(".html");
       } catch {
         return !1;
       }
     }
-    function d0(Z) {
+    function d1(Z) {
       if (typeof Z !== "string")
         return !1;
       try {
-        var E = new URL(Z);
-        return E.protocol === "https:" && !!E.host && !E.username && !E.password && !E.hash;
+        var h = new URL(Z);
+        return h.protocol === "https:" && !!h.host && !h.username && !h.password && !h.hash;
       } catch {
         return !1;
       }
     }
-    function o0(Z) {
-      var E = new Map, h = new Set, M = 0, B = 0, C = 0, V = 0;
+    function o1(Z) {
+      var h = new Map, E = new Set, M = 0, B = 0, C = 0, H = 0;
       if (Z.objects.forEach(function(S) {
-        if (!f(S) || !v(S.name) && S.name !== ".airplan-changes.diff" || E.has(S.name) || h.has(S.name.toLowerCase()) || !Number.isSafeInteger(S.bytes) || S.bytes < 0 || !u(S.sha256) || !g0(S.content_type))
+        if (!f(S) || !n(S.name) && S.name !== ".airplan-changes.diff" || h.has(S.name) || E.has(S.name.toLowerCase()) || !Number.isSafeInteger(S.bytes) || S.bytes < 0 || !u(S.sha256) || !p1(S.content_type))
           throw Error("marker object inventory is invalid");
         if (S.role === "page") {
           if (B += 1, S.bytes <= 0 || S.content_type !== "text/html; charset=utf-8")
@@ -991,105 +995,105 @@ supported client version older than the token-capable release.&#160;<a href="#fn
           if (C += 1, S.bytes <= 0)
             throw Error("marker source object is invalid");
         } else if (S.role === "asset")
-          V += 1;
+          H += 1;
         else if (S.role === "diff") {
           if (M += 1, S.name !== ".airplan-changes.diff" || S.bytes <= 0 || S.content_type !== "text/plain; charset=utf-8")
             throw Error("marker diff object is invalid");
         } else
           throw Error("marker object role is invalid");
-        E.set(S.name, S.role), h.add(S.name.toLowerCase());
-      }), L(h))
+        h.set(S.name, S.role), E.add(S.name.toLowerCase());
+      }), L(E))
         throw Error("marker object paths conflict");
-      if (B !== Z.pages.length || C !== Z.pages.length || B + V > 100 || (Z.revision.number === 1 ? M !== 0 : M !== 1))
+      if (B !== Z.pages.length || C !== Z.pages.length || B + H > 100 || (Z.revision.number === 1 ? M !== 0 : M !== 1))
         throw Error("marker object counts are invalid");
-      return E;
+      return h;
     }
-    function s0(Z, E) {
-      var h = window.location.hash;
-      if (h === "#airplan-all-changes")
-        return Z + h;
-      if (!E)
+    function s1(Z, h) {
+      var E = window.location.hash;
+      if (E === "#airplan-all-changes")
+        return Z + E;
+      if (!h)
         return Z;
-      return E + (h && h !== "#airplan-all-changes" ? h : "");
+      return h + (E && E !== "#airplan-all-changes" ? E : "");
     }
-    function t0(Z) {
-      var E = A.querySelector('meta[name="airplan-revision"]'), h = E ? Number(E.content) : Number(Z.current_revision);
-      if (!Number.isInteger(h) || h <= 0 || Z.current_revision !== h || !Number.isInteger(Z.latest_revision) || !Number.isInteger(Z.last_assigned_revision) || !Array.isArray(Z.revisions) || Z.revisions.length === 0 || Z.last_assigned_revision !== Z.revisions.length || !/^[a-z2-7]{26}$/.test(Z.chain_id) || O && O.content !== Z.chain_id)
+    function t1(Z) {
+      var h = A.querySelector('meta[name="airplan-revision"]'), E = h ? Number(h.content) : Number(Z.current_revision);
+      if (!Number.isInteger(E) || E <= 0 || Z.current_revision !== E || !Number.isInteger(Z.latest_revision) || !Number.isInteger(Z.last_assigned_revision) || !Array.isArray(Z.revisions) || Z.revisions.length === 0 || Z.last_assigned_revision !== Z.revisions.length || !/^[a-z2-7]{26}$/.test(Z.chain_id) || I && I.content !== Z.chain_id)
         throw Error("revision identity is invalid");
-      var M = !1, B = 0, C = Z.revisions.filter(function(G) {
-        if (!G || !Number.isInteger(G.number) || G.number !== B + 1)
+      var M = !1, B = 0, C = Z.revisions.filter(function(q) {
+        if (!q || !Number.isInteger(q.number) || q.number !== B + 1)
           return M = !0, !1;
-        if (B = G.number, G.deleted)
+        if (B = q.number, q.deleted)
           return !1;
-        if (G.safeURL = a(G.url, !1), !G.safeURL)
+        if (q.safeURL = a(q.url, !1), !q.safeURL)
           return M = !0, !1;
-        if (G.number > 1) {
-          var y = a(G.diff_url, !0);
-          if (!y || new URL(y).pathname.replace(/[^/]+$/, "") !== new URL(G.safeURL).pathname.replace(/[^/]+$/, ""))
+        if (q.number > 1) {
+          var y = a(q.diff_url, !0);
+          if (!y || new URL(y).pathname.replace(/[^/]+$/, "") !== new URL(q.safeURL).pathname.replace(/[^/]+$/, ""))
             return M = !0, !1;
         }
         return !0;
       });
-      if (M || Z.revisions[0].number !== 1 || !C.some(function(G) {
-        return G.number === h;
+      if (M || Z.revisions[0].number !== 1 || !C.some(function(q) {
+        return q.number === E;
       }))
         throw Error("revision entries are invalid");
-      var V = C.find(function(G) {
-        return G.number === h;
+      var H = C.find(function(q) {
+        return q.number === E;
       }), S = new URL(window.location.href);
-      if (S.search = "", S.hash = "", !V || !F || new URL(V.safeURL || "").pathname.replace(/[^/]+$/, "") !== F.pathname || !S.pathname.startsWith(F.pathname))
+      if (S.search = "", S.hash = "", !H || !F || new URL(H.safeURL || "").pathname.replace(/[^/]+$/, "") !== F.pathname || !S.pathname.startsWith(F.pathname))
         throw Error("current revision URL is invalid");
-      var I = Math.max.apply(null, C.map(function(G) {
-        return G.number;
+      var O = Math.max.apply(null, C.map(function(q) {
+        return q.number;
       }));
-      if (I !== Z.latest_revision)
+      if (O !== Z.latest_revision)
         throw Error("latest is invalid");
       var T = Array.from(A.querySelectorAll("[data-revision-controls]")), i = Array.from(A.querySelectorAll("[data-revision-heading]"));
       if (i.length === 0) {
         if (T.length === 0)
           throw Error("revision controls are unavailable");
-        var k = A.createElement("p");
-        k.className = "revision-heading", k.setAttribute("data-revision-heading", ""), T[0].appendChild(k), i.push(k);
+        var l = A.createElement("p");
+        l.className = "revision-heading", l.setAttribute("data-revision-heading", ""), T[0].appendChild(l), i.push(l);
       }
-      T.forEach(function(G) {
-        G.hidden = !1;
+      T.forEach(function(q) {
+        q.hidden = !1;
       });
-      var g = h < I, q = g ? "Revision " + h + " of " + I : "Revision " + h + " (Latest)";
-      i.forEach(function(G) {
+      var p = E < O, w = p ? "Revision " + E + " of " + O : "Revision " + E + " (Latest)";
+      i.forEach(function(q) {
         var y = A.createElement("span");
-        y.className = "revision-picker-label", y.textContent = q, y.setAttribute("aria-hidden", "true");
+        y.className = "revision-picker-label", y.textContent = w, y.setAttribute("aria-hidden", "true");
         var P = A.createElement("select");
         P.setAttribute("aria-label", "Document revision"), C.forEach(function(N) {
           var j = A.createElement("option");
-          j.value = N.safeURL || "", j.textContent = N.number === I ? "Revision " + N.number + " (Latest)" : "Revision " + N.number + " of " + I, j.selected = N.number === h, P.appendChild(j);
+          j.value = N.safeURL || "", j.textContent = N.number === O ? "Revision " + N.number + " (Latest)" : "Revision " + N.number + " of " + O, j.selected = N.number === E, P.appendChild(j);
         }), P.addEventListener("change", function() {
           var N = P.selectedIndex;
           if (N < 0 || N >= C.length)
             return;
-          var j = C[N], p = j.safeURL || "";
+          var j = C[N], g = j.safeURL || "";
           if (window.location.hash === "#airplan-all-changes") {
-            window.location.assign(p + (j.number > 1 ? "#airplan-all-changes" : ""));
+            window.location.assign(g + (j.number > 1 ? "#airplan-all-changes" : ""));
             return;
           }
-          var Z1 = K ? new URL(K.content, window.location.href).href : "";
-          if (!$ || S.href === Z1 || !O) {
-            window.location.assign(p);
+          var Z0 = K ? new URL(K.content, window.location.href).href : "";
+          if (!V || S.href === Z0 || !I) {
+            window.location.assign(g);
             return;
           }
-          G.setAttribute("aria-busy", "true"), P.disabled = !0;
-          var T0 = new URL("./", p), u0 = new URL(".airplan.json", T0);
-          u0.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2)), fetch(u0, { cache: "no-store", credentials: "same-origin" }).then(r).then(function(E1) {
-            var h1 = B0(E1, T0, j, O.content);
-            window.location.assign(s0(p, h1.get($.content) || null));
+          q.setAttribute("aria-busy", "true"), P.disabled = !0;
+          var T1 = new URL("./", g), u1 = new URL(".airplan.json", T1);
+          u1.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2)), fetch(u1, { cache: "no-store", credentials: "same-origin" }).then(r).then(function(h0) {
+            var E0 = B1(h0, T1, j, I.content);
+            window.location.assign(s1(g, E0.get(V.content) || null));
           }).catch(function() {
-            console.warn("airplan: selected revision page map is unavailable or invalid"), window.location.assign(p);
+            console.warn("airplan: selected revision page map is unavailable or invalid"), window.location.assign(g);
           });
-        }), G.replaceChildren(y, P), G.classList.add("is-picker"), G.classList.toggle("is-stale", g);
-      }), A.body.classList.toggle("airplan-stale-revision", g);
+        }), q.replaceChildren(y, P), q.classList.add("is-picker"), q.classList.toggle("is-stale", p);
+      }), A.body.classList.toggle("airplan-stale-revision", p);
     }
     if (U) {
-      var O0 = new URL(U.content, window.location.href);
-      O0.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2)), fetch(O0, { cache: "no-store", credentials: "same-origin" }).then(function(Z) {
+      var I1 = new URL(U.content, window.location.href);
+      I1.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2)), fetch(I1, { cache: "no-store", credentials: "same-origin" }).then(function(Z) {
         if (Z.status === 404)
           return null;
         if (!Z.ok)
@@ -1100,104 +1104,104 @@ supported client version older than the token-capable release.&#160;<a href="#fn
           return;
         if (!Z || Z.schema !== "airplan-versions" || Z.version !== 1 || !Array.isArray(Z.revisions) || Z.revisions.length < 2)
           throw Error("metadata is invalid");
-        t0(Z), window.dispatchEvent(new CustomEvent("airplan:versions", {
+        t1(Z), window.dispatchEvent(new CustomEvent("airplan:versions", {
           detail: Z
         }));
       }).catch(function() {
         console.warn("airplan: revision metadata is unavailable or invalid");
       });
     }
-    var M0 = A.createElement("div");
-    M0.className = "sr-status", M0.setAttribute("aria-live", "polite"), A.body.appendChild(M0);
+    var M1 = A.createElement("div");
+    M1.className = "sr-status", M1.setAttribute("aria-live", "polite"), A.body.appendChild(M1);
     var d = null;
-    function a0() {
+    function a1() {
       if (d !== null)
         return;
       d = Array.from(A.querySelectorAll("details:not([open])")), d.forEach(function(Z) {
         Z.open = !0;
       });
     }
-    function r0() {
+    function r1() {
       if (d === null)
         return;
       d.forEach(function(Z) {
         Z.open = !1;
       }), d = null;
     }
-    window.addEventListener("beforeprint", a0), window.addEventListener("afterprint", r0);
-    function x0(Z, E, h) {
-      M0.textContent = E;
+    window.addEventListener("beforeprint", a1), window.addEventListener("afterprint", r1);
+    function G1(Z, h, E) {
+      M1.textContent = h;
       var M = Z.querySelector(".action-label"), B = M ? M.textContent : "";
       if (M)
-        M.textContent = h ? "Copied" : "Failed";
-      Z.classList.add(h ? "is-copied" : "is-failed"), Z.disabled = !0, setTimeout(function() {
+        M.textContent = E ? "Copied" : "Failed";
+      Z.classList.add(E ? "is-copied" : "is-failed"), Z.disabled = !0, setTimeout(function() {
         if (Z.classList.remove("is-copied", "is-failed"), Z.disabled = !1, M)
           M.textContent = B;
       }, 1200);
     }
-    function F0(Z, E) {
+    function F1(Z, h) {
       if (!navigator.clipboard) {
-        x0(E, "Copy failed", !1);
+        G1(h, "Copy failed", !1);
         return;
       }
       navigator.clipboard.writeText(Z).then(function() {
-        x0(E, "Copied!", !0);
+        G1(h, "Copied!", !0);
       }, function() {
-        x0(E, "Copy failed", !1);
+        G1(h, "Copy failed", !1);
       });
     }
-    var W0 = A.getElementById("pages"), D = A.querySelector(".pages-trigger"), Y = null, H0 = window.matchMedia("(max-width: 78rem)"), m = function() {};
-    function V0() {
+    var W1 = A.getElementById("pages"), D = A.querySelector(".pages-trigger"), Y = null, $1 = window.matchMedia("(max-width: 78rem)"), m = function() {};
+    function H1() {
       return Y ? Y.matches(":popover-open") : !1;
     }
-    function Z0(Z) {
-      if (!Y || !V0())
+    function Z1(Z) {
+      if (!Y || !H1())
         return;
-      if (Y.hidePopover(), Z && D && H0.matches)
+      if (Y.hidePopover(), Z && D && $1.matches)
         setTimeout(function() {
           D.focus();
         }, 0);
     }
-    if (W0 && D) {
-      var L0 = W0.querySelector(".pages-list");
-      if (L0) {
-        var z0 = A.createElement("div");
-        if ("popover" in z0 && typeof z0.showPopover === "function") {
+    if (W1 && D) {
+      var L1 = W1.querySelector(".pages-list");
+      if (L1) {
+        var z1 = A.createElement("div");
+        if ("popover" in z1 && typeof z1.showPopover === "function") {
           let Z = function() {
             if (!D || !Y)
               return;
-            var E = D.getBoundingClientRect(), h = D.closest(".toolbar"), M = h ? h.getBoundingClientRect().bottom : E.bottom;
-            Y.style.setProperty("--pages-left", Math.max(16, E.left) + "px"), Y.style.setProperty("--pages-top", M + "px"), Y.style.setProperty("--pages-width", Math.min(480, window.innerWidth - Math.max(16, E.left) - 16) + "px");
+            var h = D.getBoundingClientRect(), E = D.closest(".toolbar"), M = E ? E.getBoundingClientRect().bottom : h.bottom;
+            Y.style.setProperty("--pages-left", Math.max(16, h.left) + "px"), Y.style.setProperty("--pages-top", M + "px"), Y.style.setProperty("--pages-width", Math.min(480, window.innerWidth - Math.max(16, h.left) - 16) + "px");
           };
-          Y = z0, Y.className = "pages-popover", Y.id = "pages-popover", Y.setAttribute("popover", "auto");
-          var E0 = A.createElement("nav");
-          E0.className = "pages-popover-nav", E0.setAttribute("aria-label", "Pages"), E0.appendChild(L0.cloneNode(!0)), Y.appendChild(E0), D.setAttribute("popovertarget", Y.id), D.popoverTargetElement = Y, Y.addEventListener("beforetoggle", function(E) {
-            if (E.newState !== "open")
+          Y = z1, Y.className = "pages-popover", Y.id = "pages-popover", Y.setAttribute("popover", "auto");
+          var h1 = A.createElement("nav");
+          h1.className = "pages-popover-nav", h1.setAttribute("aria-label", "Pages"), h1.appendChild(L1.cloneNode(!0)), Y.appendChild(h1), D.setAttribute("popovertarget", Y.id), D.popoverTargetElement = Y, Y.addEventListener("beforetoggle", function(h) {
+            if (h.newState !== "open")
               return;
             m(), Z();
-          }), Y.addEventListener("toggle", function(E) {
-            var h = E.newState === "open";
-            if (D.setAttribute("aria-expanded", h ? "true" : "false"), A.body.classList.toggle("pages-popover-open", h), h) {
+          }), Y.addEventListener("toggle", function(h) {
+            var E = h.newState === "open";
+            if (D.setAttribute("aria-expanded", E ? "true" : "false"), A.body.classList.toggle("pages-popover-open", E), E) {
               var M = Y.querySelector('[aria-current="page"]');
               if (M)
                 M.scrollIntoView({ block: "nearest" });
             }
             c();
-          }), E0.querySelectorAll("a").forEach(function(E) {
-            E.addEventListener("click", function() {
-              Z0(!1);
+          }), h1.querySelectorAll("a").forEach(function(h) {
+            h.addEventListener("click", function() {
+              Z1(!1);
             });
-          }), H0.addEventListener("change", function() {
-            if (!H0.matches)
-              Z0(!1);
+          }), $1.addEventListener("change", function() {
+            if (!$1.matches)
+              Z1(!1);
           }), window.addEventListener("resize", function() {
-            if (V0())
+            if (H1())
               Z();
           }), D.hidden = !1, D.setAttribute("aria-expanded", "false"), A.body.appendChild(Y), A.body.classList.add("pages-popover-ready");
         }
       }
     }
-    var o = A.getElementById("source"), S0 = A.getElementById("changes"), _0 = A.querySelector("[data-airplan-all-changes]"), b = A.getElementById("toc"), J = null, z = null, N0 = window.matchMedia("(max-width: 78rem)");
+    var o = A.getElementById("source"), S1 = A.getElementById("changes"), _1 = A.querySelector("[data-airplan-all-changes]"), b = A.getElementById("toc"), J = null, z = null, N1 = window.matchMedia("(max-width: 78rem)");
     m = function() {
       if (z && z.open)
         z.close();
@@ -1205,145 +1209,147 @@ supported client version older than the token-capable release.&#160;<a href="#fn
     function c() {
       if (!b || !J || !z)
         return;
-      var Z = N0.matches && !X.hidden && !z.open && !V0();
-      if (J.classList.toggle("is-visible", Z), J.tabIndex = Z ? 0 : -1, J.setAttribute("aria-hidden", Z ? "false" : "true"), z.open && (!N0.matches || X.hidden))
+      var Z = N1.matches && !X.hidden && !z.open && !H1();
+      if (J.classList.toggle("is-visible", Z), J.tabIndex = Z ? 0 : -1, J.setAttribute("aria-hidden", Z ? "false" : "true"), z.open && (!N1.matches || X.hidden))
         m();
     }
-    function R0(Z) {
-      if (Z0(!1), m(), X.hidden = Z !== "rendered", o)
+    function R1(Z) {
+      if (Z1(!1), m(), X.hidden = Z !== "rendered", o)
         o.hidden = Z !== "source";
-      if (S0)
-        S0.hidden = Z !== "changes";
+      if (S1)
+        S1.hidden = Z !== "changes";
       if (b)
         b.hidden = Z !== "rendered";
-      A.querySelectorAll(".viewtoggle button").forEach(function(E) {
-        var h = E.dataset.view === Z;
-        E.classList.toggle("active", h), E.setAttribute("aria-pressed", h ? "true" : "false");
+      A.querySelectorAll(".viewtoggle button").forEach(function(h) {
+        var E = h.dataset.view === Z;
+        h.classList.toggle("active", E), h.setAttribute("aria-pressed", E ? "true" : "false");
       }), c();
     }
     A.querySelectorAll(".viewtoggle button").forEach(function(Z) {
       Z.addEventListener("click", function() {
-        R0(Z.dataset.view || "rendered");
+        R1(Z.dataset.view || "rendered");
       });
     });
-    var K0 = !1;
+    var K1 = !1;
     A.querySelectorAll('.all-changes-link[href$="#airplan-all-changes"]').forEach(function(Z) {
       Z.addEventListener("click", function() {
-        K0 = new URL(Z.href).pathname === window.location.pathname;
+        K1 = new URL(Z.href).pathname === window.location.pathname;
       });
     });
-    function U0() {
-      var Z = window.location.hash === "#airplan-all-changes" && !!_0;
-      if (Z0(!1), m(), A.body.classList.toggle("all-changes-active", Z), _0)
-        _0.hidden = !Z;
+    function U1() {
+      var Z = window.location.hash === "#airplan-all-changes" && !!_1;
+      if (Z1(!1), m(), A.body.classList.toggle("all-changes-active", Z), _1)
+        _1.hidden = !Z;
       if (Z) {
         if (X.hidden = !0, o)
           o.hidden = !0;
-        if (S0)
-          S0.hidden = !0;
+        if (S1)
+          S1.hidden = !0;
         if (b)
           b.hidden = !0;
-        if (K0)
-          _0.querySelector("h1")?.focus();
+        if (K1)
+          _1.querySelector("h1")?.focus();
       } else
-        R0("rendered");
-      K0 = !1, c();
+        R1("rendered");
+      K1 = !1, c();
     }
-    if (window.addEventListener("hashchange", U0), U0(), b) {
+    if (window.addEventListener("hashchange", U1), U1(), b) {
       let Z = function() {
-        if (h0.length === 0) {
+        if (E1.length === 0) {
           c();
           return;
         }
-        var h = 0;
-        if (e0.forEach(function(B, C) {
+        var E = 0;
+        if (e1.forEach(function(B, C) {
           if (B && B.getBoundingClientRect().top <= 128)
-            h = C;
-        }), window.innerHeight + window.scrollY >= A.documentElement.scrollHeight - 2)
-          h = h0.length - 1;
-        var M = h0[h].getAttribute("href");
-        Q0.forEach(function(B) {
+            E = C;
+        }), window.scrollY <= 128)
+          E = 0;
+        else if (window.innerHeight + window.scrollY >= A.documentElement.scrollHeight - 2)
+          E = E1.length - 1;
+        var M = E1[E].getAttribute("href");
+        Q1.forEach(function(B) {
           var C = B.getAttribute("href") === M;
           if (B.classList.toggle("active", C), C)
             B.setAttribute("aria-current", "location");
           else
             B.removeAttribute("aria-current");
         }), c();
-      }, E = function() {
-        if (X0)
+      }, h = function() {
+        if (X1)
           return;
-        X0 = !0, window.requestAnimationFrame(function() {
-          X0 = !1, Z();
+        X1 = !0, window.requestAnimationFrame(function() {
+          X1 = !1, Z();
         });
       };
-      var h0 = Array.from(b.querySelectorAll('a[href^="#"]')), f0 = b.querySelector(".toc-list");
-      if (f0)
+      var E1 = Array.from(b.querySelectorAll('a[href^="#"]')), f1 = b.querySelector(".toc-list");
+      if (f1)
         if (z = A.createElement("dialog"), typeof z.showModal === "function") {
           z.className = "toc-dialog", z.id = "toc-dialog", z.setAttribute("aria-labelledby", "toc-dialog-title");
-          var C0 = A.createElement("div");
-          C0.className = "toc-dialog-panel";
-          var q0 = A.createElement("div");
-          q0.className = "toc-dialog-header";
-          var w0 = A.createElement("h2");
-          w0.className = "toc-dialog-title", w0.id = "toc-dialog-title", w0.textContent = "Contents";
+          var C1 = A.createElement("div");
+          C1.className = "toc-dialog-panel";
+          var w1 = A.createElement("div");
+          w1.className = "toc-dialog-header";
+          var x1 = A.createElement("h2");
+          x1.className = "toc-dialog-title", x1.id = "toc-dialog-title", x1.textContent = "Contents";
           var s = A.createElement("button");
-          s.className = "toc-dialog-close", s.type = "button", s.setAttribute("aria-label", "Close table of contents"), s.innerHTML = P0, q0.appendChild(w0), q0.appendChild(s);
-          var A0 = A.createElement("nav");
-          A0.className = "toc-dialog-nav", A0.setAttribute("aria-label", "Table of contents"), A0.appendChild(f0.cloneNode(!0)), C0.appendChild(q0), C0.appendChild(A0), z.appendChild(C0), J = A.createElement("button"), J.className = "toc-trigger", J.type = "button", J.tabIndex = -1, J.setAttribute("aria-label", "Open table of contents"), J.setAttribute("aria-controls", "toc-dialog"), J.setAttribute("aria-haspopup", "dialog"), J.setAttribute("aria-hidden", "true"), J.innerHTML = k0, A.body.appendChild(J), A.body.appendChild(z), A.body.classList.add("toc-dialog-ready"), J.addEventListener("click", function() {
-            Z0(!1), z.showModal(), A.body.classList.add("toc-dialog-open"), c();
-            var h = z.querySelector("a.active");
-            if (h)
-              h.scrollIntoView({ block: "nearest" });
-          }), s.addEventListener("click", m), z.addEventListener("click", function(h) {
-            if (h.target === z)
+          s.className = "toc-dialog-close", s.type = "button", s.setAttribute("aria-label", "Close table of contents"), s.innerHTML = P1, w1.appendChild(x1), w1.appendChild(s);
+          var A1 = A.createElement("nav");
+          A1.className = "toc-dialog-nav", A1.setAttribute("aria-label", "Table of contents"), A1.appendChild(f1.cloneNode(!0)), C1.appendChild(w1), C1.appendChild(A1), z.appendChild(C1), J = A.createElement("button"), J.className = "toc-trigger", J.type = "button", J.tabIndex = -1, J.setAttribute("aria-label", "Open table of contents"), J.setAttribute("aria-controls", "toc-dialog"), J.setAttribute("aria-haspopup", "dialog"), J.setAttribute("aria-hidden", "true"), J.innerHTML = l1, A.body.appendChild(J), A.body.appendChild(z), A.body.classList.add("toc-dialog-ready"), J.addEventListener("click", function() {
+            Z1(!1), z.showModal(), A.body.classList.add("toc-dialog-open"), c();
+            var E = z.querySelector("a.active");
+            if (E)
+              E.scrollIntoView({ block: "nearest" });
+          }), s.addEventListener("click", m), z.addEventListener("click", function(E) {
+            if (E.target === z)
               m();
-          }), z.addEventListener("keydown", function(h) {
-            if (h.key === "Escape")
-              h.preventDefault(), m();
+          }), z.addEventListener("keydown", function(E) {
+            if (E.key === "Escape")
+              E.preventDefault(), m();
           }), z.addEventListener("close", function() {
             if (A.body.classList.remove("toc-dialog-open"), c(), J.classList.contains("is-visible"))
               setTimeout(function() {
                 J.focus();
               }, 50);
-          }), A0.querySelectorAll("a").forEach(function(h) {
-            h.addEventListener("click", m);
+          }), A1.querySelectorAll("a").forEach(function(E) {
+            E.addEventListener("click", m);
           });
         } else
           z = null;
-      var Q0 = h0.slice();
+      var Q1 = E1.slice();
       if (z)
-        Q0 = Q0.concat(Array.from(z.querySelectorAll('a[href^="#"]')));
-      var e0 = h0.map(function(h) {
-        return A.getElementById((h.getAttribute("href") || "").slice(1));
-      }), X0 = !1;
-      A.addEventListener("scroll", E, { passive: !0 }), window.addEventListener("resize", Z), Z();
+        Q1 = Q1.concat(Array.from(z.querySelectorAll('a[href^="#"]')));
+      var e1 = E1.map(function(E) {
+        return A.getElementById((E.getAttribute("href") || "").slice(1));
+      }), X1 = !1;
+      A.addEventListener("scroll", h, { passive: !0 }), window.addEventListener("resize", Z), Z();
     }
-    var G0 = A.querySelector(".top-controls");
-    function Y0() {
-      var Z = G0 ? G0.getBoundingClientRect().height : 0;
+    var q1 = A.querySelector(".top-controls");
+    function Y1() {
+      var Z = q1 ? q1.getBoundingClientRect().height : 0;
       A.documentElement.style.setProperty("--airplan-sticky-height", Z + "px");
     }
-    if (G0) {
+    if (q1) {
       if (typeof ResizeObserver === "function")
-        new ResizeObserver(Y0).observe(G0);
-      window.addEventListener("resize", Y0), Y0();
+        new ResizeObserver(Y1).observe(q1);
+      window.addEventListener("resize", Y1), Y1();
     }
-    let J0 = A.querySelector(".copy-source");
-    if (J0 && o)
-      J0.addEventListener("click", function() {
+    let J1 = A.querySelector(".copy-source");
+    if (J1 && o)
+      J1.addEventListener("click", function() {
         var Z = o.querySelector("pre");
-        F0(Z ? Z.textContent : "", J0);
+        F1(Z ? Z.textContent : "", J1);
       });
     X.querySelectorAll("pre").forEach(function(Z) {
       if (Z.classList.contains("mermaid"))
         return;
-      var E = A.createElement("div");
-      E.className = "codewrap", Z.parentNode?.insertBefore(E, Z), E.appendChild(Z);
-      var h = A.createElement("button");
-      h.className = "codecopy", h.type = "button", h.setAttribute("aria-label", "Copy code"), h.title = "Copy code", h.innerHTML = v0 + n0 + b0, h.addEventListener("click", function() {
+      var h = A.createElement("div");
+      h.className = "codewrap", Z.parentNode?.insertBefore(h, Z), h.appendChild(Z);
+      var E = A.createElement("button");
+      E.className = "codecopy", E.type = "button", E.setAttribute("aria-label", "Copy code"), E.title = "Copy code", E.innerHTML = n1 + v1 + b1, E.addEventListener("click", function() {
         var M = Z.querySelector("code");
-        F0((M || Z).textContent, h);
-      }), E.appendChild(h);
+        F1((M || Z).textContent, E);
+      }), h.appendChild(E);
     });
   })();
 })();
@@ -1351,200 +1357,200 @@ supported client version older than the token-capable release.&#160;<a href="#fn
 </script>
 <script>window.__AIRPLAN_MERMAID_THEMES__={"themes":{"catppuccin-latte":{"airplanTheme":"catppuccin-latte","background":"#eff1f5","darkMode":false,"edgeLabelBackground":"#e6e9ef","fontFamily":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif","lineColor":"#6c6f85","primaryBorderColor":"#bcc0cc","primaryColor":"#c9d8f5","primaryTextColor":"#4c4f69","secondaryBorderColor":"#bcc0cc","secondaryColor":"#d7e6d9","secondaryTextColor":"#4c4f69","tertiaryBorderColor":"#bcc0cc","tertiaryColor":"#e3dbf4","tertiaryTextColor":"#4c4f69","textColor":"#4c4f69"},"catppuccin-mocha":{"airplanTheme":"catppuccin-mocha","background":"#1e1e2e","darkMode":true,"edgeLabelBackground":"#181825","fontFamily":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif","lineColor":"#a6adc8","primaryBorderColor":"#45475a","primaryColor":"#313953","primaryTextColor":"#cdd6f4","secondaryBorderColor":"#45475a","secondaryColor":"#313a3e","secondaryTextColor":"#cdd6f4","tertiaryBorderColor":"#45475a","tertiaryColor":"#332e46","tertiaryTextColor":"#cdd6f4","textColor":"#cdd6f4"},"github-dark":{"airplanTheme":"github-dark","background":"#0d1117","darkMode":true,"edgeLabelBackground":"#151b23","fontFamily":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif","lineColor":"#9198a1","primaryBorderColor":"#3d444d","primaryColor":"#172840","primaryTextColor":"#e6edf3","secondaryBorderColor":"#3d444d","secondaryColor":"#14291f","secondaryTextColor":"#e6edf3","tertiaryBorderColor":"#3d444d","tertiaryColor":"#1f1d32","tertiaryTextColor":"#e6edf3","textColor":"#e6edf3"},"github-light":{"airplanTheme":"github-light","background":"#ffffff","darkMode":false,"edgeLabelBackground":"#f6f8fa","fontFamily":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif","lineColor":"#59636e","primaryBorderColor":"#d1d9e0","primaryColor":"#d3e4f8","primaryTextColor":"#1f2328","secondaryBorderColor":"#d1d9e0","secondaryColor":"#dfede3","secondaryTextColor":"#1f2328","tertiaryBorderColor":"#d1d9e0","tertiaryColor":"#f0eafb","tertiaryTextColor":"#1f2328","textColor":"#1f2328"},"one-dark":{"airplanTheme":"one-dark","background":"#282c34","darkMode":true,"edgeLabelBackground":"#21252b","fontFamily":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif","lineColor":"#7f848e","primaryBorderColor":"#4b5263","primaryColor":"#324456","primaryTextColor":"#abb2bf","secondaryBorderColor":"#4b5263","secondaryColor":"#38413e","secondaryTextColor":"#abb2bf","tertiaryBorderColor":"#4b5263","tertiaryColor":"#3b3548","tertiaryTextColor":"#abb2bf","textColor":"#abb2bf"},"rose-pine":{"airplanTheme":"rose-pine","background":"#191724","darkMode":true,"edgeLabelBackground":"#1f1d2e","fontFamily":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif","lineColor":"#908caa","primaryBorderColor":"#403d52","primaryColor":"#383147","primaryTextColor":"#e0def4","secondaryBorderColor":"#403d52","secondaryColor":"#1c2433","secondaryTextColor":"#e0def4","tertiaryBorderColor":"#403d52","tertiaryColor":"#2e283b","tertiaryTextColor":"#e0def4","textColor":"#e0def4"},"rose-pine-dawn":{"airplanTheme":"rose-pine-dawn","background":"#faf4ed","darkMode":false,"edgeLabelBackground":"#fffaf3","fontFamily":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif","lineColor":"#797593","primaryBorderColor":"#dfdad9","primaryColor":"#e7dee1","primaryTextColor":"#575279","secondaryBorderColor":"#dfdad9","secondaryColor":"#e3e7e2","secondaryTextColor":"#575279","tertiaryBorderColor":"#dfdad9","tertiaryColor":"#ede5e5","tertiaryTextColor":"#575279","textColor":"#575279"},"solarized-dark":{"airplanTheme":"solarized-dark","background":"#002b36","darkMode":true,"edgeLabelBackground":"#073642","fontFamily":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif","lineColor":"#839496","primaryBorderColor":"#586e75","primaryColor":"#073c52","primaryTextColor":"#93a1a1","secondaryBorderColor":"#586e75","secondaryColor":"#133a2e","secondaryTextColor":"#93a1a1","tertiaryBorderColor":"#586e75","tertiaryColor":"#0d3347","tertiaryTextColor":"#93a1a1","textColor":"#93a1a1"},"solarized-light":{"airplanTheme":"solarized-light","background":"#fdf6e3","darkMode":false,"edgeLabelBackground":"#eee8d5","fontFamily":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif","lineColor":"#839496","primaryBorderColor":"#eee8d5","primaryColor":"#d6e3e0","primaryTextColor":"#586e75","secondaryBorderColor":"#eee8d5","secondaryColor":"#ece9c3","secondaryTextColor":"#586e75","tertiaryBorderColor":"#eee8d5","tertiaryColor":"#ece6df","tertiaryTextColor":"#586e75","textColor":"#586e75"},"tokyo-night":{"airplanTheme":"tokyo-night","background":"#1a1b26","darkMode":true,"edgeLabelBackground":"#24283b","fontFamily":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif","lineColor":"#9aa5ce","primaryBorderColor":"#3b4261","primaryColor":"#2b334c","primaryTextColor":"#c0caf5","secondaryBorderColor":"#3b4261","secondaryColor":"#2c3430","secondaryTextColor":"#c0caf5","tertiaryBorderColor":"#3b4261","tertiaryColor":"#2d2a3f","tertiaryTextColor":"#c0caf5","textColor":"#c0caf5"},"tokyo-night-day":{"airplanTheme":"tokyo-night-day","background":"#e1e2e7","darkMode":false,"edgeLabelBackground":"#d4d6e4","fontFamily":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif","lineColor":"#6172b0","primaryBorderColor":"#a8aecb","primaryColor":"#c1d0e7","primaryTextColor":"#3760bf","secondaryBorderColor":"#a8aecb","secondaryColor":"#ced3cf","secondaryTextColor":"#3760bf","tertiaryBorderColor":"#a8aecb","tertiaryColor":"#d4cfe2","tertiaryTextColor":"#3760bf","textColor":"#3760bf"}},"print":{"airplanTheme":"github-light","background":"#ffffff","darkMode":false,"edgeLabelBackground":"#f6f8fa","fontFamily":"-apple-system, BlinkMacSystemFont, \"Segoe UI\", Helvetica, Arial, sans-serif","lineColor":"#59636e","primaryBorderColor":"#d1d9e0","primaryColor":"#d3e4f8","primaryTextColor":"#1f2328","secondaryBorderColor":"#d1d9e0","secondaryColor":"#dfede3","secondaryTextColor":"#1f2328","tertiaryBorderColor":"#d1d9e0","tertiaryColor":"#f0eafb","tertiaryTextColor":"#1f2328","textColor":"#1f2328"}};</script>
 <script type="module" referrerpolicy="no-referrer">
-function Z0() {
+function Z1() {
   let Z = 0;
   return {
     next: () => ++Z,
-    isCurrent: (L) => L === Z
+    isCurrent: (A) => A === Z
   };
 }
 
-var C0 = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', M0 = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 10a.75.75 0 0 1 .75.75v2.5c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 1 13.25v-2.5a.75.75 0 0 1 .75-.75Zm12.5 0a.75.75 0 0 1 .75.75v2.5A1.75 1.75 0 0 1 13.25 15h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 .75-.75ZM2.75 2.5a.25.25 0 0 0-.25.25v2.5a.75.75 0 0 1-1.5 0v-2.5C1 1.784 1.784 1 2.75 1h2.5a.75.75 0 0 1 0 1.5ZM10 1.75a.75.75 0 0 1 .75-.75h2.5c.966 0 1.75.784 1.75 1.75v2.5a.75.75 0 0 1-1.5 0v-2.5a.25.25 0 0 0-.25-.25h-2.5a.75.75 0 0 1-.75-.75Z"/></svg>';
+var C1 = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', M1 = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 10a.75.75 0 0 1 .75.75v2.5c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 1 13.25v-2.5a.75.75 0 0 1 .75-.75Zm12.5 0a.75.75 0 0 1 .75.75v2.5A1.75 1.75 0 0 1 13.25 15h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 .75-.75ZM2.75 2.5a.25.25 0 0 0-.25.25v2.5a.75.75 0 0 1-1.5 0v-2.5C1 1.784 1.784 1 2.75 1h2.5a.75.75 0 0 1 0 1.5ZM10 1.75a.75.75 0 0 1 .75-.75h2.5c.966 0 1.75.784 1.75 1.75v2.5a.75.75 0 0 1-1.5 0v-2.5a.25.25 0 0 0-.25-.25h-2.5a.75.75 0 0 1-.75-.75Z"/></svg>';
 
-var $ = Array.from(document.querySelectorAll("pre.mermaid")), O0 = "https://cdn.jsdelivr.net/npm/mermaid@11.16.1/dist/mermaid.esm.min.mjs", l = $.map((Z) => Z.textContent), K = $.map(() => new Map), S = $.map(() => new Set), p = window.__AIRPLAN_THEME_CATALOG__, L0 = window.__AIRPLAN_MERMAID_THEMES__, H0 = matchMedia("print"), q = "__airplan-print-github-light", Q0 = 0, y = null, Y = window.__airplanThemeState?.theme ?? p?.defaultLight ?? "github-light", E0 = $.map(() => Y), P = H0.matches, o, g = new Set, A0 = Z0();
-function d(Z, L, E = !0) {
-  let A = K[Z].get(L);
-  if (!A)
+var $ = Array.from(document.querySelectorAll("pre.mermaid")), J1 = "https://cdn.jsdelivr.net/npm/mermaid@11.16.1/dist/mermaid.esm.min.mjs", l = $.map((Z) => Z.textContent), K = $.map(() => new Map), I = $.map(() => new Set), v = window.__AIRPLAN_THEME_CATALOG__, A1 = window.__AIRPLAN_MERMAID_THEMES__, H1 = matchMedia("print"), q = "__airplan-print-github-light", Q1 = 0, b = null, X = window.__airplanThemeState?.theme ?? v?.defaultLight ?? "github-light", E1 = $.map(() => X), Y = H1.matches, o, g = new Set, L1 = Z1();
+function d(Z, A, E = !0) {
+  let L = K[Z].get(A);
+  if (!L)
     return !1;
-  if ($[Z].innerHTML = A.svg, A.bindFunctions)
-    A.bindFunctions($[Z]);
-  if (y)
-    y.enhance($[Z]);
-  if (E && L !== q)
-    E0[Z] = L;
+  if ($[Z].innerHTML = L.svg, L.bindFunctions)
+    L.bindFunctions($[Z]);
+  if (b)
+    b.enhance($[Z]);
+  if (E && A !== q)
+    E1[Z] = A;
   return !0;
 }
-function v(Z) {
-  let L = !0;
-  return K.forEach((E, A) => {
-    if (!d(A, Z))
-      L = !1;
-  }), L;
+function y(Z) {
+  let A = !0;
+  return K.forEach((E, L) => {
+    if (!d(L, Z))
+      A = !1;
+  }), A;
 }
 function m() {
-  K.forEach((Z, L) => {
-    if (!d(L, Y))
-      d(L, E0[L]);
+  K.forEach((Z, A) => {
+    if (!d(A, X))
+      d(A, E1[A]);
   });
 }
-function k(Z, L = !0) {
+function u(Z, A = !0) {
   if (o)
-    o(Z, L);
+    o(Z, A);
   else
     g.add(Z);
 }
 window.addEventListener("airplan:themechange", (Z) => {
-  let L = Z.detail;
-  if (Y = L.theme, !P)
-    k(L.theme);
+  let A = Z.detail;
+  if (X = A.theme, !Y)
+    u(A.theme);
 });
 window.addEventListener("airplan:themeprepare", (Z) => {
-  let L = Z.detail;
-  k(L.theme, !1);
+  let A = Z.detail;
+  u(A.theme, !1);
 });
-H0.addEventListener("change", (Z) => {
-  if (P = Z.matches, P)
-    v(q);
+H1.addEventListener("change", (Z) => {
+  if (Y = Z.matches, Y)
+    y(q);
   else
-    k(Y), m();
+    u(X), m();
 });
 window.addEventListener("beforeprint", () => {
-  P = !0, v(q);
+  Y = !0, y(q);
 });
 window.addEventListener("afterprint", () => {
-  P = !1, k(Y), m();
+  Y = !1, u(X), m();
 });
-function T(Z, L, E) {
-  let A = document.createElement("button");
-  return A.type = "button", A.className = "mermaid-button", A.setAttribute(`data-airplan-mermaid-${L}`, ""), A.setAttribute("aria-label", Z), A.title = Z, A.innerHTML = E, A;
+function h(Z, A, E) {
+  let L = document.createElement("button");
+  return L.type = "button", L.className = "mermaid-button", L.setAttribute(`data-airplan-mermaid-${A}`, ""), L.setAttribute("aria-label", Z), L.title = Z, L.innerHTML = E, L;
 }
-function _0(Z) {
-  let L = Z.getAttribute("viewBox")?.trim().split(/[\s,]+/).map(Number);
-  if (L?.length === 4 && Number.isFinite(L[2]) && L[2] > 0 && Number.isFinite(L[3]) && L[3] > 0)
-    return { width: L[2], height: L[3] };
-  let E = Number.parseFloat(Z.getAttribute("width") || ""), A = Number.parseFloat(Z.getAttribute("height") || "");
+function _1(Z) {
+  let A = Z.getAttribute("viewBox")?.trim().split(/[\s,]+/).map(Number);
+  if (A?.length === 4 && Number.isFinite(A[2]) && A[2] > 0 && Number.isFinite(A[3]) && A[3] > 0)
+    return { width: A[2], height: A[3] };
+  let E = Number.parseFloat(Z.getAttribute("width") || ""), L = Number.parseFloat(Z.getAttribute("height") || "");
   return {
     width: Number.isFinite(E) && E > 0 ? E : 800,
-    height: Number.isFinite(A) && A > 0 ? A : 600
+    height: Number.isFinite(L) && L > 0 ? L : 600
   };
 }
-function $0(Z) {
-  let L = Z.cloneNode(!0), E = `airplan-mermaid-viewer-${Q0++}-`, A = new Map, U = [L, ...L.querySelectorAll("*")];
-  U.forEach((j) => {
-    let N = j.getAttribute("id");
+function $1(Z) {
+  let A = Z.cloneNode(!0), E = `airplan-mermaid-viewer-${Q1++}-`, L = new Map, U = [A, ...A.querySelectorAll("*")];
+  U.forEach((O) => {
+    let N = O.getAttribute("id");
     if (!N)
       return;
-    let J = `${E}${N}`;
-    A.set(N, J), j.setAttribute("id", J);
-  }), U.forEach((j) => {
-    Array.from(j.attributes).forEach((N) => {
-      let J = N.value;
-      if (A.forEach((B, M) => {
-        if (J = J.replaceAll(`url(#${M})`, `url(#${B})`), J === `#${M}`)
-          J = `#${B}`;
+    let j = `${E}${N}`;
+    L.set(N, j), O.setAttribute("id", j);
+  }), U.forEach((O) => {
+    Array.from(O.attributes).forEach((N) => {
+      let j = N.value;
+      if (L.forEach((B, M) => {
+        if (j = j.replaceAll(`url(#${M})`, `url(#${B})`), j === `#${M}`)
+          j = `#${B}`;
       }), N.name === "aria-labelledby" || N.name === "aria-describedby")
-        J = J.split(/\s+/).map((B) => A.get(B) || B).join(" ");
-      if (J !== N.value)
-        j.setAttribute(N.name, J);
+        j = j.split(/\s+/).map((B) => L.get(B) || B).join(" ");
+      if (j !== N.value)
+        O.setAttribute(N.name, j);
     });
   });
-  let x = Array.from(A).sort(([j], [N]) => N.length - j.length);
-  return L.querySelectorAll("style").forEach((j) => {
-    let N = j.textContent || "";
-    x.forEach(([J, B]) => {
-      let M = J.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), O = new RegExp(`#${M}(?![\\w-])`, "g");
-      N = N.replace(O, () => `#${B}`);
-    }), j.textContent = N;
-  }), L;
+  let R = Array.from(L).sort(([O], [N]) => N.length - O.length);
+  return A.querySelectorAll("style").forEach((O) => {
+    let N = O.textContent || "";
+    R.forEach(([j, B]) => {
+      let M = j.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), J = new RegExp(`#${M}(?![\\w-])`, "g");
+      N = N.replace(J, () => `#${B}`);
+    }), O.textContent = N;
+  }), A;
 }
-function B0(Z, L, E) {
-  return Math.min(Math.max(Z, L), E);
+function B1(Z, A, E) {
+  return Math.min(Math.max(Z, A), E);
 }
-function U0() {
+function U1() {
   let Z = document.createElement("dialog");
   if (typeof Z.showModal !== "function")
     return null;
   Z.id = "airplan-mermaid-dialog", Z.className = "mermaid-dialog", Z.setAttribute("data-airplan-mermaid-dialog", ""), Z.setAttribute("aria-labelledby", "airplan-mermaid-dialog-title");
-  let L = document.createElement("div");
-  L.className = "mermaid-dialog-shell";
+  let A = document.createElement("div");
+  A.className = "mermaid-dialog-shell";
   let E = document.createElement("header");
   E.className = "mermaid-dialog-header";
-  let A = document.createElement("strong");
-  A.id = "airplan-mermaid-dialog-title", A.textContent = "Mermaid diagram", E.appendChild(A);
+  let L = document.createElement("strong");
+  L.id = "airplan-mermaid-dialog-title", L.textContent = "Mermaid diagram", E.appendChild(L);
   let U = document.createElement("div");
   U.className = "mermaid-toolbar", U.setAttribute("role", "toolbar"), U.setAttribute("aria-label", "Diagram zoom controls");
-  let x = T("Zoom out", "zoom-out", "&minus;"), j = document.createElement("output");
-  j.className = "mermaid-zoom-value", j.setAttribute("data-airplan-mermaid-zoom-value", ""), j.setAttribute("aria-live", "polite"), j.textContent = "100%";
-  let N = T("Zoom in", "zoom-in", "+"), J = T("Fit diagram", "fit", "Fit"), B = T("Close diagram viewer", "close", C0);
-  U.append(x, j, N, J, B), E.appendChild(U);
+  let R = h("Zoom out", "zoom-out", "&minus;"), O = document.createElement("output");
+  O.className = "mermaid-zoom-value", O.setAttribute("data-airplan-mermaid-zoom-value", ""), O.setAttribute("aria-live", "polite"), O.textContent = "100%";
+  let N = h("Zoom in", "zoom-in", "+"), j = h("Fit diagram", "fit", "Fit"), B = h("Close diagram viewer", "close", C1);
+  U.append(R, O, N, j, B), E.appendChild(U);
   let M = document.createElement("div");
   M.className = "mermaid-canvas", M.setAttribute("data-airplan-mermaid-canvas", ""), M.tabIndex = 0, M.setAttribute("role", "group"), M.setAttribute("aria-label", "Zoomable Mermaid diagram. Scroll or use plus and minus to zoom. Drag or use arrow keys to pan.");
-  let O = document.createElement("div");
-  O.className = "mermaid-surface", O.setAttribute("data-airplan-mermaid-surface", ""), M.appendChild(O);
-  let V = document.createElement("p");
-  V.className = "mermaid-help", V.textContent = "Scroll to zoom · Drag to pan · 0 to fit", L.append(E, M, V), Z.appendChild(L), document.body.appendChild(Z);
-  let G = null, Q = null, W = null, F = 1, I = 1, R = 1, z = 0, X = 0, f = null, s = 0, i = 0, r = 0, n = 0;
-  function D() {
-    if (O.style.transform = `translate(${z}px, ${X}px)`, W)
-      W.style.transform = `translate(-50%, -50%) scale(${R})`;
-    j.textContent = `${Math.round(R * 100)}%`;
+  let J = document.createElement("div");
+  J.className = "mermaid-surface", J.setAttribute("data-airplan-mermaid-surface", ""), M.appendChild(J);
+  let P = document.createElement("p");
+  P.className = "mermaid-help", P.textContent = "Scroll to zoom · Drag to pan · 0 to fit", A.append(E, M, P), Z.appendChild(A), document.body.appendChild(Z);
+  let w = null, Q = null, G = null, x = 1, V = 1, F = 1, z = 0, c = 0, f = null, s = 0, i = 0, a = 0, r = 0;
+  function S() {
+    if (J.style.transform = `translate(${z}px, ${c}px)`, G)
+      G.style.transform = `translate(-50%, -50%) scale(${F})`;
+    O.textContent = `${Math.round(F * 100)}%`;
   }
-  function h() {
+  function T() {
     let C = M.getBoundingClientRect(), _ = Math.max(C.width - 48, 1), H = Math.max(C.height - 48, 1);
-    R = B0(Math.min(_ / F, H / I, 1), 0.05, 8), z = 0, X = 0, D();
+    F = B1(Math.min(_ / x, H / V, 1), 0.05, 8), z = 0, c = 0, S();
   }
-  function c(C, _, H) {
-    let w = B0(C, 0.05, 8);
-    if (w === R)
+  function D(C, _, H) {
+    let W = B1(C, 0.05, 8);
+    if (W === F)
       return;
     if (_ !== void 0 && H !== void 0) {
-      let b = M.getBoundingClientRect(), j0 = _ - (b.left + b.width / 2) - z, J0 = H - (b.top + b.height / 2) - X, e = w / R;
-      z += j0 * (1 - e), X += J0 * (1 - e);
+      let p = M.getBoundingClientRect(), O1 = _ - (p.left + p.width / 2) - z, j1 = H - (p.top + p.height / 2) - c, e = W / F;
+      z += O1 * (1 - e), c += j1 * (1 - e);
     }
-    R = w, D();
+    F = W, S();
   }
-  function a(C, _) {
-    let H = $0(C);
-    W = H;
-    let w = _0(C);
-    if (F = w.width, I = w.height, H.style.width = `${F}px`, H.style.height = `${I}px`, H.style.maxWidth = "none", H.style.maxHeight = "none", O.replaceChildren(H), _)
-      h();
+  function n(C, _) {
+    let H = $1(C);
+    G = H;
+    let W = _1(C);
+    if (x = W.width, V = W.height, H.style.width = `${x}px`, H.style.height = `${V}px`, H.style.maxWidth = "none", H.style.maxHeight = "none", J.replaceChildren(H), _)
+      T();
     else
-      D();
+      S();
   }
-  function u() {
+  function k() {
     if (Z.open)
       Z.close();
   }
-  function N0(C, _) {
+  function N1(C, _) {
     let H = C.querySelector("svg");
     if (!H)
       return;
-    G = C, Q = _, a(H, !1), Z.showModal(), document.body.classList.add("mermaid-dialog-open"), h(), M.focus();
+    w = C, Q = _, n(H, !1), Z.showModal(), document.body.classList.add("mermaid-dialog-open"), T(), M.focus();
   }
-  x.addEventListener("click", () => c(R / 1.25)), N.addEventListener("click", () => c(R * 1.25)), J.addEventListener("click", h), B.addEventListener("click", u), Z.addEventListener("cancel", (C) => {
-    C.preventDefault(), u();
+  R.addEventListener("click", () => D(F / 1.25)), N.addEventListener("click", () => D(F * 1.25)), j.addEventListener("click", T), B.addEventListener("click", k), Z.addEventListener("cancel", (C) => {
+    C.preventDefault(), k();
   }), Z.addEventListener("click", (C) => {
     if (C.target === Z)
-      u();
+      k();
   }), Z.addEventListener("close", () => {
     document.body.classList.remove("mermaid-dialog-open"), f = null, M.classList.remove("mermaid-canvas-panning");
     let C = Q;
-    if (G = null, Q = null, C?.isConnected)
+    if (w = null, Q = null, C?.isConnected)
       setTimeout(() => C.focus(), 0);
   }), Z.addEventListener("keydown", (C) => {
     if (C.ctrlKey || C.metaKey || C.altKey)
       return;
     if (C.key === "+" || C.key === "=") {
-      C.preventDefault(), c(R * 1.25);
+      C.preventDefault(), D(F * 1.25);
       return;
     }
     if (C.key === "-") {
-      C.preventDefault(), c(R / 1.25);
+      C.preventDefault(), D(F / 1.25);
       return;
     }
     if (C.key === "0") {
-      C.preventDefault(), h();
+      C.preventDefault(), T();
       return;
     }
     if (C.target !== M)
@@ -1557,20 +1563,20 @@ function U0() {
     }[C.key];
     if (!H)
       return;
-    C.preventDefault(), z += H[0], X += H[1], D();
+    C.preventDefault(), z += H[0], c += H[1], S();
   }), M.addEventListener("wheel", (C) => {
-    C.preventDefault(), c(R * (C.deltaY < 0 ? 1.2 : 0.8333333333333334), C.clientX, C.clientY);
+    C.preventDefault(), D(F * (C.deltaY < 0 ? 1.2 : 0.8333333333333334), C.clientX, C.clientY);
   }, { passive: !1 }), M.addEventListener("pointerdown", (C) => {
     if (C.button !== 0)
       return;
-    f = C.pointerId, s = C.clientX, i = C.clientY, r = z, n = X, M.classList.add("mermaid-canvas-panning");
+    f = C.pointerId, s = C.clientX, i = C.clientY, a = z, r = c, M.classList.add("mermaid-canvas-panning");
     try {
       M.setPointerCapture(C.pointerId);
     } catch {}
   }), M.addEventListener("pointermove", (C) => {
     if (f !== C.pointerId)
       return;
-    z = r + C.clientX - s, X = n + C.clientY - i, D();
+    z = a + C.clientX - s, c = r + C.clientY - i, S();
   });
   function t(C) {
     if (f !== C.pointerId)
@@ -1587,97 +1593,97 @@ function U0() {
         return;
       let H = C.querySelector(":scope > [data-airplan-mermaid-open]");
       if (!H) {
-        H = T("Open diagram viewer", "open", M0), H.classList.add("mermaid-open"), H.setAttribute("aria-haspopup", "dialog"), H.setAttribute("aria-controls", Z.id);
-        let w = H;
-        H.addEventListener("click", () => N0(C, w)), C.appendChild(H);
+        H = h("Open diagram viewer", "open", M1), H.classList.add("mermaid-open"), H.setAttribute("aria-haspopup", "dialog"), H.setAttribute("aria-controls", Z.id);
+        let W = H;
+        H.addEventListener("click", () => N1(C, W)), C.appendChild(H);
       }
-      if (G === C && Z.open)
-        Q = H, a(_, !1);
+      if (w === C && Z.open)
+        Q = H, n(_, !1);
     }
   };
 }
 try {
   let U = function(B) {
-    return K.every((M, O) => M.has(B) || S[O].has(B));
-  }, x = function(B, M = B) {
+    return K.every((M, J) => M.has(B) || I[J].has(B));
+  }, R = function(B, M = B) {
     if (U(M))
       return Promise.resolve();
-    let O = A.get(M);
-    if (O)
-      return O;
-    let V = M === q ? Z.print : Z.themes[B];
-    if (!V)
+    let J = L.get(M);
+    if (J)
+      return J;
+    let P = M === q ? Z.print : Z.themes[B];
+    if (!P)
       return Promise.resolve();
-    let G = E.then(async () => {
+    let w = E.then(async () => {
       if (U(M))
         return;
       try {
-        L.initialize({
+        A.initialize({
           startOnLoad: !1,
           securityLevel: "strict",
           secure: ["theme", "themeVariables", "themeCSS", "darkMode"],
           theme: "base",
-          themeVariables: V
+          themeVariables: P
         });
       } catch (Q) {
-        S.forEach((W, F) => {
-          if (W.add(M), K[F].size === 0)
-            $[F].textContent = l[F], $[F].classList.add("mermaid-failed");
+        I.forEach((G, x) => {
+          if (G.add(M), K[x].size === 0)
+            $[x].textContent = l[x], $[x].classList.add("mermaid-failed");
         }), console.warn(`airplan: Mermaid ${B} initialization failed`, Q);
         return;
       }
-      for (let [Q, W] of l.entries()) {
-        if (K[Q].has(M) || S[Q].has(M))
+      for (let [Q, G] of l.entries()) {
+        if (K[Q].has(M) || I[Q].has(M))
           continue;
         try {
-          let F = await L.render(`airplan-mermaid-${M.replace(/[^a-z0-9-]/g, "-")}-${Q}`, W);
-          K[Q].set(M, F);
-          let I = $[Q];
-          if (I.classList.add("mermaid-rendered"), I.classList.remove("mermaid-failed"), !y)
-            y = U0();
-        } catch (F) {
-          if (S[Q].add(M), K[Q].size === 0)
-            $[Q].textContent = W, $[Q].classList.add("mermaid-failed");
-          console.warn(`airplan: Mermaid ${B} diagram ${Q + 1} rendering failed`, F);
+          let x = await A.render(`airplan-mermaid-${M.replace(/[^a-z0-9-]/g, "-")}-${Q}`, G);
+          K[Q].set(M, x);
+          let V = $[Q];
+          if (V.classList.add("mermaid-rendered"), V.classList.remove("mermaid-failed"), !b)
+            b = U1();
+        } catch (x) {
+          if (I[Q].add(M), K[Q].size === 0)
+            $[Q].textContent = G, $[Q].classList.add("mermaid-failed");
+          console.warn(`airplan: Mermaid ${B} diagram ${Q + 1} rendering failed`, x);
         }
       }
     });
-    return E = G.catch(() => {}), A.set(M, G), G.then(() => A.delete(M), () => A.delete(M)), G;
+    return E = w.catch(() => {}), L.set(M, w), w.then(() => L.delete(M), () => L.delete(M)), w;
   };
-  if (!p || !L0)
+  if (!v || !A1)
     throw Error("theme catalog is unavailable");
-  let Z = L0, { default: L } = await import(O0), E = Promise.resolve(), A = new Map;
-  async function j(B, M = !0) {
-    let O = M ? A0.next() : 0;
-    if (await x(B), M && A0.isCurrent(O) && Y === B && !P)
-      v(B);
+  let Z = A1, { default: A } = await import(J1), E = Promise.resolve(), L = new Map;
+  async function O(B, M = !0) {
+    let J = M ? L1.next() : 0;
+    if (await R(B), M && L1.isCurrent(J) && X === B && !Y)
+      y(B);
   }
-  o = j;
-  let N = window.__airplanThemeState, J = new Set([
-    N?.lightTheme ?? p.defaultLight,
-    N?.darkTheme ?? p.defaultDark
+  o = O;
+  let N = window.__airplanThemeState, j = new Set([
+    N?.lightTheme ?? v.defaultLight,
+    N?.darkTheme ?? v.defaultDark
   ]);
-  for (let B of J)
-    await x(B);
-  if (await A.get("github-light"), Z.themes["github-light"] && U("github-light"))
+  for (let B of j)
+    await R(B);
+  if (await L.get("github-light"), Z.themes["github-light"] && U("github-light"))
     K.forEach((B, M) => {
-      let O = B.get("github-light");
-      if (O)
-        B.set(q, O);
-      if (S[M].has("github-light"))
-        S[M].add(q);
+      let J = B.get("github-light");
+      if (J)
+        B.set(q, J);
+      if (I[M].has("github-light"))
+        I[M].add(q);
     });
   else
-    await x("github-light", q);
+    await R("github-light", q);
   for (let B of g)
-    await x(B);
-  if (g.clear(), await x(Y), P)
-    v(q);
+    await R(B);
+  if (g.clear(), await R(X), Y)
+    y(q);
   else
     m();
 } catch (Z) {
-  $.forEach((L, E) => {
-    L.textContent = l[E], L.classList.add("mermaid-failed");
+  $.forEach((A, E) => {
+    A.textContent = l[E], A.classList.add("mermaid-failed");
   }), console.warn("airplan: Mermaid rendering failed", Z);
 }
 

@@ -131,7 +131,7 @@ type RenderRecipe struct {
 
 // RendererGeneration is incremented only when generated page capabilities or
 // embedded assets require existing source-backed pages to be re-rendered.
-const RendererGeneration = 20
+const RendererGeneration = 26
 
 // MarkerDeclaredTotals returns the object count and byte total an upload
 // declares (SPEC.md §9): its ownership marker plus every object the marker

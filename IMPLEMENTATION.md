@@ -255,7 +255,9 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   beyond conditional Mermaid loading. A generalized bake step expands readable assets for
   `airplan template [document|collection]` and minified assets for executable
   built-ins. Both commands therefore emit complete, standalone, reusable
-  templates without exposing internal bake markers.
+  templates without exposing internal bake markers. Collection overview and
+  member actions use the same generated icon-and-label controls as document
+  actions, including the copy-to-copied state transition.
 - Built-in multi-page navigation remains server-rendered. Rendering derives a
   directory tree from the ordered page list while preserving that flat list for
   previous/next sequencing. Directories are static visual groups, and every page
@@ -271,7 +273,8 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   centered inner row at every width, with Pages pinned left when the rails
   collapse. Wide rail
   headings sit outside their scrollable lists, and the
-  title-led document header owns page identity, segmented path breadcrumbs,
+  title-led document header owns page identity and a segmented path breadcrumb
+  only when collapsed bundle navigation replaces the toolbar breadcrumb,
   a full-width title, a desktop mode/revision control rail with quiet inset-height
   actions and its selector at the far right that stacks revision actions first
   on mobile, and complete-diff entry while the translucent
@@ -279,13 +282,19 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   moves Appearance to the body and measures its trigger when opened, resized,
   or scrolled so the fixed panel remains attached outside the toolbar's
   backdrop-filter containing block. Pages and Appearance use the same
-  floating-panel geometry at collapsed widths. The breadcrumb uses the
-  generated stack glyph for its bundle root and separates subtly colored
-  revision identity with a centered dot. Narrow content gains bottom clearance
+  floating-panel geometry at collapsed widths. Breadcrumbs use the generated
+  stack glyph linking to the entry page for bundle roots and the generated file
+  glyph for single documents,
+  omit revision identity, share the file-action row's vertical center, and truncate
+  the final path segment in narrow single-page toolbars. ToC highlighting reserves
+  the first 128 CSS pixels of document scroll
+  for the first entry before applying the bottom-visible shortcut. Named source
+  strips reset inline-code decoration so the filename shares
+  the strip's single outline. Narrow content gains bottom clearance
   from the floating Contents trigger. The complete-diff header keeps its return and raw links above
   the report, reuses metadata-backed revision pickers, and hides compact Pages
   navigation. This page structure uses
-  `RendererGeneration` 20.
+  `RendererGeneration` 26.
 - Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, safe theme CSS/catalog metadata, structured headings/ToC

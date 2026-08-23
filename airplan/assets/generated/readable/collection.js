@@ -228,13 +228,18 @@
         return;
       }
       navigator.clipboard.writeText(url).then(function() {
+        const label = button.querySelector(".action-label");
+        if (!label)
+          return;
         var pending = pendingRestores.get(button);
         if (pending)
           window.clearTimeout(pending.timer);
-        var old = pending ? pending.label : button.textContent;
-        button.textContent = "Copied";
+        var old = pending ? pending.label : label.textContent || "Copy link";
+        label.textContent = "Copied";
+        button.classList.add("is-copied");
         var timer = window.setTimeout(function() {
-          button.textContent = old;
+          label.textContent = old;
+          button.classList.remove("is-copied");
           pendingRestores.delete(button);
         }, 1200);
         pendingRestores.set(button, { label: old, timer });

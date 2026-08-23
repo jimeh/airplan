@@ -21,9 +21,9 @@
 <div class="page-shell">
 <nav class="toolbar" aria-label="Collection controls">
   <div class="collection-actions toolbar-actions">
-    <button type="button" data-copy-overview>Copy page link</button>
+    <button type="button" data-copy-overview>{{template "airplan-icon-copy"}}{{template "airplan-icon-copied"}}<span class="action-label">Copy page link</span></button>
     {{- with .RepositoryURL}}
-    <a href="{{.}}">Repository</a>
+    <a href="{{.}}">{{template "airplan-icon-repository"}}<span>Repository</span></a>
     {{- end}}
   </div>
 {{- if .AppearanceEnabled}}
@@ -43,9 +43,9 @@
         <div class="meta">{{.ContentType}} · {{formatBytes .Bytes}}</div>
       </div>
       <div class="actions">
-        <a href="{{.Path}}">Open</a>
-        <a href="{{.Path}}" download>Download</a>
-        <button type="button" data-copy="{{.Path}}">Copy link</button>
+        <a href="{{.Path}}">{{template "airplan-icon-open"}}<span>Open</span></a>
+        <a href="{{.Path}}" download>{{template "airplan-icon-download"}}<span>Download</span></a>
+        <button type="button" data-copy="{{.Path}}">{{template "airplan-icon-copy"}}{{template "airplan-icon-copied"}}<span class="action-label">Copy link</span></button>
       </div>
     </div>
     {{- if ne .MediaKind "file"}}

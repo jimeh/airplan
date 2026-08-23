@@ -146,8 +146,8 @@ body {
   content: "";
   position: absolute;
   top: 50%;
-  /* Balance against the preceding action's 0.65rem inline padding. */
-  left: -0.825rem;
+  /* Center the 1px rule in the 1rem gap created by toolbar gap plus margin. */
+  left: calc(-0.5rem - 0.5px);
   width: 1px;
   height: 1rem;
   background: var(--control-divider);
@@ -208,7 +208,7 @@ body {
   appearance: none;
   -webkit-appearance: none;
   width: 100%;
-  min-height: 2.5rem;
+  height: var(--compact-control-height);
   padding: 0.3rem 2.25rem 0.3rem 0.5rem;
   color: var(--fg);
   background: var(--surface-subtle);
@@ -237,6 +237,21 @@ body {
   width: 16px;
   height: 16px;
   flex: none;
+}
+
+.icon-check,
+.icon-x {
+  display: none;
+}
+
+.is-copied .icon-copy,
+.is-failed .icon-copy {
+  display: none;
+}
+
+.is-copied .icon-check,
+.is-failed .icon-x {
+  display: inline;
 }
 
 .sr-status {

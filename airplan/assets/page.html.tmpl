@@ -1,4 +1,17 @@
 <!-- airplan:icon-templates -->
+{{- define "airplan-document-breadcrumb-items" -}}
+  {{- if gt (len .Pages) 1}}
+  <a class="document-breadcrumb-root" href="{{.Entrypoint}}" aria-label="Document bundle" title="Document bundle">{{template "airplan-icon-bundle"}}</a><span class="document-breadcrumb-separator" aria-hidden="true">/</span>
+  {{- else}}
+  <span class="document-breadcrumb-root" aria-label="Document" title="Document">{{template "airplan-icon-file"}}</span>
+  {{- end}}
+  <span class="document-breadcrumb-path">
+  {{- range $index, $segment := .CurrentPageBreadcrumbs}}
+    {{- if $index}}<span class="document-breadcrumb-separator" aria-hidden="true">/</span>{{end}}
+    <span class="document-breadcrumb-segment">{{$segment}}</span>
+  {{- end}}
+  </span>
+{{- end -}}
 {{- define "airplan-page-navigation-items" -}}
 {{- range .}}
   {{- if .IsDirectory}}
@@ -55,7 +68,7 @@
   <button type="button" class="pages-trigger js-only" hidden
     aria-label="Open pages" aria-controls="pages-popover">{{template "airplan-icon-pages"}}<span>Pages</span></button>
 {{- end}}
-  <span class="toolbar-context toolbar-context-document" title="{{.CurrentPage.Path}}">{{.CurrentPage.Path}}</span>
+  <div class="document-breadcrumb toolbar-breadcrumb toolbar-context toolbar-context-document" title="{{.CurrentPage.Path}}">{{template "airplan-document-breadcrumb-items" .}}</div>
   <span class="toolbar-context toolbar-context-history">Bundle history</span>
 {{- if or (and (eq .Format "md") .HighlightedSourceHTML) .SourcePath}}
   <div class="file-actions toolbar-actions{{if not .SourcePath}} js-only{{end}}"{{if not .SourcePath}} hidden{{end}}>
@@ -97,18 +110,7 @@
 </nav>
 {{- end}}
 <header class="document-header">
-  <p class="document-breadcrumb">
-    {{- if gt (len .Pages) 1}}
-    <span class="document-breadcrumb-root" aria-label="Document bundle" title="Document bundle">{{template "airplan-icon-bundle"}}</span><span class="document-breadcrumb-separator" aria-hidden="true">/</span>
-    {{- end}}
-    <span class="document-breadcrumb-path">
-    {{- range $index, $segment := .CurrentPageBreadcrumbs}}
-      {{- if $index}}<span class="document-breadcrumb-separator" aria-hidden="true">/</span>{{end}}
-      <span class="document-breadcrumb-segment">{{$segment}}</span>
-    {{- end}}
-    </span>
-    {{- if .Revision}}<span class="document-breadcrumb-revision-group"><span class="document-breadcrumb-revision-separator" aria-hidden="true">·</span><span class="document-breadcrumb-revision">Revision {{.Revision}}</span></span>{{end}}
-  </p>
+  <p class="document-breadcrumb document-breadcrumb-header">{{template "airplan-document-breadcrumb-items" .}}</p>
   <div class="document-heading-row">
     <h1>{{.Title}}</h1>
   </div>

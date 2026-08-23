@@ -35,6 +35,7 @@ describe("generated icons", () => {
   test("keeps hand-authored browser and template sources free of SVG markup", async () => {
     const root = resolve(import.meta.dir, "..");
     const paths = [
+      "airplan/assets/collection.html.tmpl",
       "airplan/assets/page.html.tmpl",
       "airplan/assets/theme-toggle.html.tmpl",
       "web/src/page.ts",

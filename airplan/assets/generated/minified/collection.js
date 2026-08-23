@@ -2,45 +2,45 @@
   function P(e) {
     return e === "system" || e === "light" || e === "dark";
   }
-  function T(e, i) {
+  function T(e, a) {
     try {
-      return e?.getItem(i) ?? null;
+      return e?.getItem(a) ?? null;
     } catch {
       return null;
     }
   }
-  function E(e, i, l) {
+  function E(e, a, c) {
     try {
-      if (l === null)
-        e?.removeItem(i);
+      if (c === null)
+        e?.removeItem(a);
       else
-        e?.setItem(i, l);
+        e?.setItem(a, c);
     } catch {}
   }
-  function x(e, i, l) {
-    let o = T(l, "airplan-color-mode");
+  function x(e, a, c) {
+    let o = T(c, "airplan-color-mode");
     if (o === null) {
-      let p = T(l, "airplan-theme");
+      let p = T(c, "airplan-theme");
       if (o = p === "light" || p === "dark" ? p : "system", o !== "system")
-        E(l, "airplan-color-mode", o);
+        E(c, "airplan-color-mode", o);
     }
-    let u = P(o) ? o : "system", d = new Set(e.themes.map((p) => p.id)), a = T(l, "airplan-light-theme"), c = T(l, "airplan-dark-theme"), n = a !== null && d.has(a) ? a : e.defaultLight, h = c !== null && d.has(c) ? c : e.defaultDark;
-    return b(e, u, n, h, i);
+    let m = P(o) ? o : "system", d = new Set(e.themes.map((p) => p.id)), i = T(c, "airplan-light-theme"), r = T(c, "airplan-dark-theme"), n = i !== null && d.has(i) ? i : e.defaultLight, h = r !== null && d.has(r) ? r : e.defaultDark;
+    return C(e, m, n, h, a);
   }
-  function b(e, i, l, o, u) {
-    let d = new Map(e.themes.map((v) => [v.id, v])), a = d.has(l) ? l : e.defaultLight, c = d.has(o) ? o : e.defaultDark, n = i === "system" ? u ? "dark" : "light" : i, h = n === "light" ? a : c, p = d.get(h)?.variant ?? n;
-    return { mode: i, resolvedMode: n, lightTheme: a, darkTheme: c, theme: h, variant: p };
+  function C(e, a, c, o, m) {
+    let d = new Map(e.themes.map((v) => [v.id, v])), i = d.has(c) ? c : e.defaultLight, r = d.has(o) ? o : e.defaultDark, n = a === "system" ? m ? "dark" : "light" : a, h = n === "light" ? i : r, p = d.get(h)?.variant ?? n;
+    return { mode: a, resolvedMode: n, lightTheme: i, darkTheme: r, theme: h, variant: p };
   }
-  function A(e, i) {
-    if (i === "system")
+  function A(e, a) {
+    if (a === "system")
       E(e, "airplan-color-mode", null), E(e, "airplan-theme", null);
     else
-      E(e, "airplan-color-mode", i), E(e, "airplan-theme", i);
+      E(e, "airplan-color-mode", a), E(e, "airplan-theme", a);
   }
-  function B(e, i, l) {
-    E(e, i === "light" ? "airplan-light-theme" : "airplan-dark-theme", l);
+  function y(e, a, c) {
+    E(e, a === "light" ? "airplan-light-theme" : "airplan-dark-theme", c);
   }
-  function y(e) {
+  function B(e) {
     return {
       mode: e.mode,
       resolvedMode: e.resolvedMode,
@@ -50,129 +50,132 @@
   }
 
   (function() {
-    let e = document, i = e.documentElement;
+    let e = document, a = e.documentElement;
     e.querySelectorAll(".js-only").forEach((t) => {
       t.hidden = !1;
     });
-    let l = window.__AIRPLAN_THEME_CATALOG__;
-    if (!l)
+    let c = window.__AIRPLAN_THEME_CATALOG__;
+    if (!c)
       return;
-    let o = l, u = window.matchMedia("(prefers-color-scheme: dark)"), d;
+    let o = c, m = window.matchMedia("(prefers-color-scheme: dark)"), d;
     try {
       d = window.localStorage;
     } catch {}
-    let a = window.__airplanThemeState ?? x(o, u.matches, d), c = e.querySelector("[data-airplan-appearance-trigger]"), n = e.querySelector("[data-airplan-appearance-panel]"), h = e.querySelector('select[data-airplan-theme-slot="light"]'), p = e.querySelector('select[data-airplan-theme-slot="dark"]'), v = Array.from(e.querySelectorAll("[data-airplan-color-mode]"));
+    let i = window.__airplanThemeState ?? x(o, m.matches, d), r = e.querySelector("[data-airplan-appearance-trigger]"), n = e.querySelector("[data-airplan-appearance-panel]"), h = e.querySelector('select[data-airplan-theme-slot="light"]'), p = e.querySelector('select[data-airplan-theme-slot="dark"]'), v = Array.from(e.querySelectorAll("[data-airplan-color-mode]"));
     if (n)
       e.body.appendChild(n);
     function M(t) {
       if (!t || t.options.length > 0)
         return;
-      for (let [r, f] of [
+      for (let [l, s] of [
         ["light", "Light themes"],
         ["dark", "Dark themes"]
       ]) {
-        let m = e.createElement("optgroup");
-        m.label = f;
-        for (let s of o.themes) {
-          if (s.variant !== r)
+        let u = e.createElement("optgroup");
+        u.label = s;
+        for (let f of o.themes) {
+          if (f.variant !== l)
             continue;
-          let L = e.createElement("option");
-          L.value = s.id, L.textContent = s.name, m.append(L);
+          let b = e.createElement("option");
+          b.value = f.id, b.textContent = f.name, u.append(b);
         }
-        if (m.children.length > 0)
-          t.append(m);
+        if (u.children.length > 0)
+          t.append(u);
       }
     }
     M(h), M(p);
-    function _(t, r = !0) {
-      if (a = t, window.__airplanThemeState = a, i.dataset.airplanMode = a.mode, i.dataset.airplanResolvedMode = a.resolvedMode, i.dataset.airplanTheme = a.theme, i.dataset.airplanThemeVariant = a.variant, v.forEach((f) => {
-        let m = f.dataset.airplanColorMode === a.mode;
-        f.classList.toggle("active", m), f.setAttribute("aria-pressed", String(m));
+    function _(t, l = !0) {
+      if (i = t, window.__airplanThemeState = i, a.dataset.airplanMode = i.mode, a.dataset.airplanResolvedMode = i.resolvedMode, a.dataset.airplanTheme = i.theme, a.dataset.airplanThemeVariant = i.variant, v.forEach((s) => {
+        let u = s.dataset.airplanColorMode === i.mode;
+        s.classList.toggle("active", u), s.setAttribute("aria-pressed", String(u));
       }), h)
-        h.value = a.lightTheme;
+        h.value = i.lightTheme;
       if (p)
-        p.value = a.darkTheme;
-      if (r)
-        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: y(a) }));
+        p.value = i.darkTheme;
+      if (l)
+        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: B(i) }));
     }
     function w(t = {}) {
-      _(b(o, t.mode ?? a.mode, t.lightTheme ?? a.lightTheme, t.darkTheme ?? a.darkTheme, u.matches));
+      _(C(o, t.mode ?? i.mode, t.lightTheme ?? i.lightTheme, t.darkTheme ?? i.darkTheme, m.matches));
     }
-    function S(t, r = !1) {
-      if (!n || !c)
+    function L(t, l = !1) {
+      if (!n || !r)
         return;
       if (t)
-        C();
-      if (n.hidden = !t, c.setAttribute("aria-expanded", String(t)), t)
+        S();
+      if (n.hidden = !t, r.setAttribute("aria-expanded", String(t)), t)
         n.querySelector("button,select")?.focus();
-      else if (r)
-        c.focus();
+      else if (l)
+        r.focus();
     }
-    function C() {
-      if (!n || !c)
+    function S() {
+      if (!n || !r)
         return;
-      let t = c.getBoundingClientRect(), r = c.closest(".toolbar")?.getBoundingClientRect(), f = e.documentElement.clientWidth, m = Math.min(304, f - 32), s = Math.max(16, f - t.right);
-      n.style.setProperty("--airplan-appearance-top", `${(r?.bottom ?? t.bottom) + 8}px`), n.style.setProperty("--airplan-appearance-right", `${Math.min(s, Math.max(16, f - m - 16))}px`);
+      let t = r.getBoundingClientRect(), l = r.closest(".toolbar")?.getBoundingClientRect(), s = e.documentElement.clientWidth, u = Math.min(304, s - 32), f = Math.max(16, s - t.right);
+      n.style.setProperty("--airplan-appearance-top", `${(l?.bottom ?? t.bottom) + 8}px`), n.style.setProperty("--airplan-appearance-right", `${Math.min(f, Math.max(16, s - u - 16))}px`);
     }
-    c?.addEventListener("click", () => S(Boolean(n?.hidden ?? !0))), v.forEach((t) => t.addEventListener("click", () => {
-      let r = t.dataset.airplanColorMode;
-      if (!r)
+    r?.addEventListener("click", () => L(Boolean(n?.hidden ?? !0))), v.forEach((t) => t.addEventListener("click", () => {
+      let l = t.dataset.airplanColorMode;
+      if (!l)
         return;
-      A(d, r), w({ mode: r });
+      A(d, l), w({ mode: l });
     }));
-    function H(t, r) {
-      B(d, t, r.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: r.value } })), w(t === "light" ? { lightTheme: r.value } : { darkTheme: r.value });
+    function H(t, l) {
+      y(d, t, l.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: l.value } })), w(t === "light" ? { lightTheme: l.value } : { darkTheme: l.value });
     }
-    h?.addEventListener("change", () => H("light", h)), p?.addEventListener("change", () => H("dark", p)), u.addEventListener("change", () => {
-      if (a.mode === "system")
+    h?.addEventListener("change", () => H("light", h)), p?.addEventListener("change", () => H("dark", p)), m.addEventListener("change", () => {
+      if (i.mode === "system")
         w();
     }), e.addEventListener("keydown", (t) => {
       if (t.key === "Escape" && n && !n.hidden)
-        t.preventDefault(), S(!1, !0);
+        t.preventDefault(), L(!1, !0);
     }), e.addEventListener("pointerdown", (t) => {
-      if (!n || n.hidden || !c)
+      if (!n || n.hidden || !r)
         return;
-      let r = t.target;
-      if (!(r instanceof Node) || n.contains(r) || c.contains(r))
+      let l = t.target;
+      if (!(l instanceof Node) || n.contains(l) || r.contains(l))
         return;
-      let m = (r instanceof Element ? r : r.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), s = n.contains(e.activeElement) && !m;
-      if (S(!1), s)
+      let u = (l instanceof Element ? l : l.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), f = n.contains(e.activeElement) && !u;
+      if (L(!1), f)
         setTimeout(() => {
           if (e.activeElement === e.body || n.contains(e.activeElement))
-            c.focus();
+            r.focus();
         });
     }), window.addEventListener("resize", () => {
       if (n && !n.hidden)
-        C();
+        S();
     }), window.addEventListener("scroll", () => {
       if (n && !n.hidden)
-        C();
-    }), _(a, !1);
+        S();
+    }), _(i, !1);
   })();
 
   (function() {
-    var e = document, i = new WeakMap;
-    e.addEventListener("click", function(l) {
-      let o = l.target instanceof Element ? l.target.closest("[data-copy],[data-copy-overview]") : null;
+    var e = document, a = new WeakMap;
+    e.addEventListener("click", function(c) {
+      let o = c.target instanceof Element ? c.target.closest("[data-copy],[data-copy-overview]") : null;
       if (!o)
         return;
-      var u = o.hasAttribute("data-copy-overview") ? location.href : new URL(o.dataset.copy || "", e.baseURI).href;
+      var m = o.hasAttribute("data-copy-overview") ? location.href : new URL(o.dataset.copy || "", e.baseURI).href;
       if (!navigator.clipboard) {
-        prompt("Copy link", u);
+        prompt("Copy link", m);
         return;
       }
-      navigator.clipboard.writeText(u).then(function() {
-        var d = i.get(o);
-        if (d)
-          window.clearTimeout(d.timer);
-        var a = d ? d.label : o.textContent;
-        o.textContent = "Copied";
-        var c = window.setTimeout(function() {
-          o.textContent = a, i.delete(o);
+      navigator.clipboard.writeText(m).then(function() {
+        let d = o.querySelector(".action-label");
+        if (!d)
+          return;
+        var i = a.get(o);
+        if (i)
+          window.clearTimeout(i.timer);
+        var r = i ? i.label : d.textContent || "Copy link";
+        d.textContent = "Copied", o.classList.add("is-copied");
+        var n = window.setTimeout(function() {
+          d.textContent = r, o.classList.remove("is-copied"), a.delete(o);
         }, 1200);
-        i.set(o, { label: a, timer: c });
+        a.set(o, { label: r, timer: n });
       }, function() {
-        prompt("Copy link", u);
+        prompt("Copy link", m);
       });
     });
   })();

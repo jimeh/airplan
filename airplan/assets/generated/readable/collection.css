@@ -152,7 +152,7 @@ body {
   width: 1px;
   height: 1rem;
   top: 50%;
-  left: -.825rem;
+  left: calc(-.5rem - .5px);
   transform: translateY(-50%);
 }
 
@@ -209,13 +209,13 @@ body {
 .appearance-panel select {
   appearance: none;
   -webkit-appearance: none;
+  height: var(--compact-control-height);
   color: var(--fg);
   background: var(--surface-subtle);
   border: 1px solid var(--border);
   font: inherit;
   border-radius: 7px;
   width: 100%;
-  min-height: 2.5rem;
   padding: .3rem 2.25rem .3rem .5rem;
 }
 
@@ -239,6 +239,14 @@ body {
   flex: none;
   width: 16px;
   height: 16px;
+}
+
+.icon-check, .icon-x, .is-copied .icon-copy, .is-failed .icon-copy {
+  display: none;
+}
+
+.is-copied .icon-check, .is-failed .icon-x {
+  display: inline;
 }
 
 .sr-status {
@@ -381,6 +389,7 @@ h1 {
   border-radius: 8px;
   justify-content: center;
   align-items:  center;
+  gap: .4rem;
   min-height: 2.1rem;
   padding: .4rem .65rem;
 }

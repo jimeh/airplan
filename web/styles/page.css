@@ -86,6 +86,36 @@ html {
   display: none;
 }
 
+.document-breadcrumb.toolbar-breadcrumb {
+  flex: 1 1 auto;
+  flex-wrap: nowrap;
+  gap: 0.55rem;
+  margin: 0 auto 0 0;
+  line-height: 1.45;
+}
+
+.toolbar-breadcrumb .document-breadcrumb-path {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.toolbar-breadcrumb .document-breadcrumb-segment,
+.toolbar-breadcrumb .document-breadcrumb-separator,
+.toolbar-breadcrumb .document-breadcrumb-root {
+  flex: none;
+}
+
+.toolbar-breadcrumb .document-breadcrumb-segment:last-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 body.all-changes-active .toolbar-context-document {
   display: none;
 }
@@ -458,21 +488,6 @@ body.toc-dialog-open {
   }
 }
 
-.icon-check,
-.icon-x {
-  display: none;
-}
-
-.is-copied .icon-copy,
-.is-failed .icon-copy {
-  display: none;
-}
-
-.is-copied .icon-check,
-.is-failed .icon-x {
-  display: inline;
-}
-
 .document-header {
   grid-column: 2;
   grid-row: 2;
@@ -497,6 +512,12 @@ body.toc-dialog-open {
 .document-breadcrumb-root {
   display: inline-flex;
   align-items: center;
+  color: inherit;
+  text-decoration: none;
+}
+
+a.document-breadcrumb-root:hover {
+  color: var(--fg);
 }
 
 .document-breadcrumb-root .icon {
@@ -512,23 +533,8 @@ body.toc-dialog-open {
   color: var(--fg);
 }
 
-.document-breadcrumb-revision {
-  color: color-mix(in srgb, var(--link) 45%, var(--muted));
-  font-size: 0.7rem;
-  font-weight: 600;
-}
-
-.document-breadcrumb-revision-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.55rem;
-  white-space: nowrap;
-}
-
-.document-breadcrumb-revision-separator {
-  color: color-mix(in srgb, var(--muted) 65%, transparent);
-  font-size: 0.85rem;
-  line-height: 1;
+.document-breadcrumb-header {
+  display: none;
 }
 
 .document-heading-row,
@@ -1409,11 +1415,15 @@ body.mermaid-dialog-open {
 
 .filehead code {
   background: none;
+  border: 0;
+  border-radius: 0;
   padding: 0;
   color: var(--fg);
+  font-size: inherit;
 }
 
-.filehead + pre {
+.filehead + pre,
+.filehead + .codewrap pre {
   border-radius: 0 0 8px 8px;
   margin-top: 0;
 }
@@ -1465,8 +1475,12 @@ mark {
     margin-inline: auto;
   }
 
-  .toolbar-context-document {
+  .bundle-page .toolbar-breadcrumb {
     display: none;
+  }
+
+  .bundle-page .document-breadcrumb-header {
+    display: flex;
   }
 
   body.all-changes-active .toolbar-context-history {

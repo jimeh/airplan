@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.50.0**
+**Spec version: 0.56.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -340,7 +340,9 @@ described below.
     and while either transient navigation panel is open. Without native dialog
     support or scripting, the inline list remains as the fallback.
   - In-page navigation scrolls smoothly by default. It becomes immediate
-    when the reader requests reduced motion.
+    when the reader requests reduced motion. Scroll highlighting keeps the
+    first entry active throughout the first 128 CSS pixels of document scroll,
+    even when a short document's bottom is already visible.
   - Scroll position highlighting is a progressive enhancement and
     respects `prefers-reduced-motion`. The table of contents is hidden
     in source view and omitted when fewer than two entries remain.
@@ -362,24 +364,30 @@ described below.
     filters a slot, and a page-owned chevron keeps the select affordance aligned
     across browsers. Escape and outside activation dismiss the panel, Escape
     restores focus, and narrow layouts keep it inset from viewport edges. Its
-    selectors retain one control height across responsive breakpoints, while
-    the compact mode buttons match the document's content-mode controls. With
+    selectors retain the compact mode-track height across responsive
+    breakpoints, matching the other panel controls. The compact mode buttons
+    match the document's content-mode controls. With
     scripting disabled, uploader defaults follow the system preference and the
     panel is absent. The appearance trigger follows the file controls and stays
     at the far-right edge behind a quiet divider. The global toolbar shows the
-    current logical page path at the left on wide layouts and keeps file actions
-    and Appearance at the right. A document header below it owns the resolved
+    segmented current-page breadcrumb at the left on wide layouts and keeps
+    file actions and Appearance at the right. Bundle pages move that breadcrumb
+    into the document header as soon as Pages replaces it in the toolbar.
+    Single-page documents retain the toolbar breadcrumb at every width and
+    show a file icon before the path, and ellipsize its final segment before it
+    can displace the actions. Toolbar breadcrumbs share the action row's vertical
+    center. Breadcrumbs omit revision identity. A document
+    header below the toolbar owns the resolved
     title, revision controls, All changes, and the Read, Source, and Changes
     modes. The title always owns the full header width. A compact control rail
     below it places content modes at the left and quiet, secondary revision
     actions at the right. All changes precedes the revision selector, which
     anchors the control rail's right edge. Both actions match the inset height
     of a content-mode button rather than the taller outer mode track. On mobile,
-    revision actions occupy the first row and content modes the second. Its
-    breadcrumb represents each logical path segment
-    separately and uses a stack icon for a bundle root. Revision identity
-    follows a distinct centered-dot separator as subtly colored text rather
-    than appearing as another path segment or a badge. At every viewport width,
+    revision actions occupy the first row and content modes the second. Each
+    breadcrumb represents every logical path segment separately and uses a
+    stack icon for a bundle root and a file icon for a single document. The
+    bundle-root stack is a normal link to the entry page. At every viewport width,
     the frosted toolbar layer spans the full viewport while its control row
     stays centered at the document width. The layer uses a 60% theme-background
     tint with blur and contains file actions and Appearance; it additionally
@@ -489,8 +497,8 @@ built-in navigation, transition CSS, or JavaScript.
 
 The title-led page structure, segmented path breadcrumb, directory-grouped
 managed-page navigation, revision-aware content modes, transition CSS, and
-built-in control icon set define renderer generation 20. Single-page output
-also uses generation 20 because
+built-in control icon set define renderer generation 26. Single-page output
+also uses generation 26 because
 the current writer has one renderer generation for all generated pages.
 
 ### Plain-text input
@@ -512,7 +520,9 @@ A shared source file reads like a one-file gist.
   including its extension (`keygen.go`), else slug (no
   content-derived title — the document is never interpreted).
 - The page shows the original filename as a header bar attached to
-  the code block, so a shared file identifies itself. Omitted for
+  the code block with one continuous outline and no rounded interior corners.
+  The filename remains monospaced without inline-code background, border, or
+  padding, so a shared file identifies itself. Omitted for
   stdin input, where no filename exists.
 - The original file is uploaded alongside the page as
   `<random>/<slug>.<ext>` (`text/plain; charset=utf-8`, same cache
@@ -641,8 +651,9 @@ kind:
 - PDF, archive, text, and unknown members use compact file rows without empty
   preview panels;
 - every member shows its filename, content type, human-readable size, and
-  `Open`, `Download`, and `Copy link` actions;
-- an overview copy action returns the absolute `index.html` URL;
+  icon-and-label `Open`, `Download`, and `Copy link` actions;
+- icon-and-label overview actions copy the absolute `index.html` URL and open
+  repository context when available;
 - open and download links work without JavaScript, while copy buttons are a
   progressive enhancement;
 - relative member URLs remain correct under custom domains and key prefixes;

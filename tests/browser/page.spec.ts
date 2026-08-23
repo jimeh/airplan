@@ -105,6 +105,8 @@ let collectionMembers = new Map<string, Buffer>();
 let fixtureSource = "";
 let mermaidURL = "";
 let server: ReturnType<typeof createServer>;
+let shortHTML = Buffer.alloc(0);
+let shortURL = "";
 let sourceURL = "";
 let tempRoot = "";
 let collectionHTML = Buffer.alloc(0);
@@ -202,6 +204,8 @@ test.beforeAll(async () => {
   tempRoot = await mkdtemp(join(tmpdir(), "airplan-browser-"));
   fixtureSource = await readFile(fixturePath, "utf8");
   const outputPath = join(tempRoot, "index.html");
+  const shortFixturePath = join(tempRoot, "short.md");
+  const shortOutputPath = join(tempRoot, "short.html");
   const collectionOutputPath = join(tempRoot, "collection.html");
   const customOutputPath = join(tempRoot, "custom.html");
   const fixedOutputPath = join(tempRoot, "fixed.html");
@@ -213,11 +217,21 @@ test.beforeAll(async () => {
   const env = cleanEnv();
   env.XDG_CONFIG_HOME = configRoot;
 
+  await writeFile(
+    shortFixturePath,
+    "# Short document\n\n## First section\n\nFirst.\n\n## Last section\n\nLast.\n",
+  );
+
   // The binary is built once by the global setup; running it here keeps
   // this hook well inside its timeout even on a cold Go cache.
   await execFileAsync(
     binaryPath,
     ["preview", "--repo", "none", "--output", outputPath, fixturePath],
+    { cwd: repoRoot, env },
+  );
+  await execFileAsync(
+    binaryPath,
+    ["preview", "--repo", "none", "--output", shortOutputPath, shortFixturePath],
     { cwd: repoRoot, env },
   );
   await execFileAsync(
@@ -311,7 +325,7 @@ dark_theme = "tokyo-night"
       "preview",
       "--files",
       "--repo",
-      "none",
+      "https://github.com/jimeh/airplan",
       "--title",
       "<Evidence & results>",
       "--output",
@@ -364,6 +378,7 @@ syntax = "derived"
     { cwd: repoRoot, env },
   );
   const html = await readFile(outputPath);
+  shortHTML = await readFile(shortOutputPath);
   collectionHTML = await readFile(collectionOutputPath);
   customHTML = await readFile(customOutputPath);
   fixedHTML = await readFile(fixedOutputPath);
@@ -394,6 +409,8 @@ syntax = "derived"
     let body;
     if (request.url === "/") {
       body = html;
+    } else if (request.url === "/short") {
+      body = shortHTML;
     } else if (request.url === "/source") {
       body = sourceHTML;
     } else if (request.url === `/${"r".repeat(26)}/plan.html`) {
@@ -461,9 +478,26 @@ syntax = "derived"
   collectionURL = `${baseURL}/collection`;
   customURL = `${baseURL}/custom`;
   subsetURL = `${baseURL}/subset`;
+  shortURL = `${baseURL}/short`;
   fixedURL = `${baseURL}/fixed`;
   fixedCollectionURL = `${baseURL}/fixed-collection`;
   sourceURL = `${baseURL}/source`;
+});
+
+test("short documents keep the first ToC item active near the page top", async ({ page }) => {
+  await page.setViewportSize({ width: 1400, height: 800 });
+  await page.goto(shortURL);
+
+  const tocLinks = page.locator("#toc .toc-list a");
+  await expect(tocLinks).toHaveCount(2);
+  await expect(tocLinks.first()).toHaveClass(/active/);
+  await expect(tocLinks.last()).not.toHaveClass(/active/);
+
+  await page.setViewportSize({ width: 1400, height: 420 });
+  await page.evaluate(() => window.scrollTo(0, 100));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(100);
+  await expect(tocLinks.first()).toHaveClass(/active/);
+  await expect(tocLinks.last()).not.toHaveClass(/active/);
 });
 
 test("bundle pages use ordinary navigation and update both rails", async ({
@@ -508,6 +542,18 @@ test("bundle pages use ordinary navigation and update both rails", async ({
   }
 
   await expect(inlinePages.locator('a[aria-current="page"]')).toContainText("README.md");
+  const selectedPageRadii = await inlinePages
+    .locator('a[aria-current="page"]')
+    .evaluate((selectedPage) => {
+      const styles = getComputedStyle(selectedPage);
+      return [
+        styles.borderTopLeftRadius,
+        styles.borderTopRightRadius,
+        styles.borderBottomRightRadius,
+        styles.borderBottomLeftRadius,
+      ];
+    });
+  expect(selectedPageRadii).toEqual(["0px", "6px", "6px", "0px"]);
   await expect(inlinePages.locator(".pages-directory-label")).toHaveText(["docs", "examples"]);
   await expect(inlinePages.locator(".pages-directory-label .icon")).toHaveCount(2);
   await expect(inlinePages.locator("details, summary")).toHaveCount(0);
@@ -577,12 +623,35 @@ test("bundle pages use ordinary navigation and update both rails", async ({
   await expect(
     page.locator(".page-shell > .pages-nav .pages-directory.is-current > .pages-directory-label"),
   ).toHaveText("docs");
-  await expect(page.locator(".document-breadcrumb-root .icon")).toHaveCount(1);
-  await expect(page.locator(".document-breadcrumb-root")).toHaveAttribute(
+  const documentBreadcrumb = testInfo.project.name.startsWith("narrow-")
+    ? page.locator(".document-breadcrumb-header")
+    : page.locator(".toolbar-breadcrumb");
+  await expect(documentBreadcrumb).toBeVisible();
+  await expect(documentBreadcrumb.locator(".document-breadcrumb-root .icon")).toHaveCount(1);
+  await expect(documentBreadcrumb.locator(".document-breadcrumb-root")).toHaveAttribute(
     "aria-label",
     "Document bundle",
   );
-  await expect(page.locator(".document-breadcrumb-segment")).toHaveText(["docs", "design.md"]);
+  await expect(documentBreadcrumb.locator(".document-breadcrumb-root")).toHaveAttribute(
+    "href",
+    "../index.html",
+  );
+  await expect(documentBreadcrumb.locator(".document-breadcrumb-segment")).toHaveText([
+    "docs",
+    "design.md",
+  ]);
+  if (!testInfo.project.name.startsWith("narrow-")) {
+    const toolbarCenters = await page.locator(".toolbar").evaluate((toolbar) => {
+      const breadcrumb = toolbar.querySelector(".toolbar-breadcrumb")!.getBoundingClientRect();
+      const actions = toolbar.querySelector(".toolbar-actions")!.getBoundingClientRect();
+      return {
+        actions: actions.top + actions.height / 2,
+        breadcrumb: breadcrumb.top + breadcrumb.height / 2,
+      };
+    });
+    expect(toolbarCenters.breadcrumb).toBeCloseTo(toolbarCenters.actions, 0);
+  }
+  await expect(page.locator(".document-breadcrumb-revision")).toHaveCount(0);
   await expect(page.locator("pre.mermaid > svg")).toHaveCount(1);
   await expect(page.locator(".page-sequence-previous")).toContainText("Bundle overview");
   await expect(page.locator(".page-sequence-next")).toContainText("server.go");
@@ -623,6 +692,8 @@ test("bundle toolbar stays sticky and keeps Pages left when rails collapse", asy
   const pages = page.getByRole("button", { name: "Open pages" });
   await expect(page.locator(".page-shell > .pages-nav")).toBeHidden();
   await expect(pages).toBeVisible();
+  await expect(page.locator(".toolbar-breadcrumb")).toBeHidden();
+  await expect(page.locator(".document-breadcrumb-header")).toBeVisible();
   const layout = await topControls.evaluate((element) => {
     const styles = getComputedStyle(element);
     const toolbar = element.querySelector<HTMLElement>(".toolbar")!;
@@ -846,11 +917,15 @@ test("collection overview presents and links every media kind", async ({ context
   await expect(page.getByRole("heading", { name: "notes.bin" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Open" })).toHaveCount(4);
   await expect(page.getByRole("link", { name: "Download" })).toHaveCount(4);
+  await expect(page.locator(".file .actions .icon")).toHaveCount(16);
+  await expect(page.getByRole("link", { name: "Repository" }).locator(".icon")).toHaveCount(1);
   await page.keyboard.press("Tab");
   const overviewCopy = page.getByRole("button", {
     name: "Copy page link",
   });
   await expect(overviewCopy).toBeFocused();
+  await expect(overviewCopy.locator(".icon-copy")).toBeVisible();
+  await expect(overviewCopy.locator(".icon-check")).toBeHidden();
   await expect(overviewCopy).toHaveCSS("outline-style", "solid");
   await expect(overviewCopy).toHaveCSS("outline-width", "2px");
   const fileCopy = page.locator('[data-copy="./notes.bin"]');
@@ -859,12 +934,16 @@ test("collection overview presents and links every media kind", async ({ context
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toBe(`${baseURL}/notes.bin`);
   await expect(fileCopy).toHaveText("Copied");
+  await expect(fileCopy.locator(".icon-copy")).toBeHidden();
+  await expect(fileCopy.locator(".icon-check")).toBeVisible();
   await page.waitForTimeout(300);
   await fileCopy.click();
   await page.waitForTimeout(1000);
   await expect(fileCopy).toHaveText("Copied");
   await page.waitForTimeout(300);
   await expect(fileCopy).toHaveText("Copy link");
+  await expect(fileCopy.locator(".icon-copy")).toBeVisible();
+  await expect(fileCopy.locator(".icon-check")).toBeHidden();
   await overviewCopy.click();
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(collectionURL);
   const overflow = await page.evaluate(
@@ -1089,6 +1168,7 @@ test("collapsed toolbar and appearance controls keep stable heights", async ({
           .getBoundingClientRect();
         const panel = document.querySelector(".appearance-panel")!.getBoundingClientRect();
         const mode = document.querySelector("[data-airplan-color-mode]")!.getBoundingClientRect();
+        const modeTrack = document.querySelector(".appearance-modes")!.getBoundingClientRect();
         const viewMode = document.querySelector(".viewtoggle button")!.getBoundingClientRect();
         const select = document
           .querySelector('select[data-airplan-theme-slot="light"]')!
@@ -1100,6 +1180,7 @@ test("collapsed toolbar and appearance controls keep stable heights", async ({
           toolbarHeight: toolbar.height,
           triggerHeight: trigger.height,
           modeHeight: mode.height,
+          modeTrackHeight: modeTrack.height,
           viewModeHeight: viewMode.height,
           selectHeight: select.height,
           panelGap: panel.top - toolbar.bottom,
@@ -1119,7 +1200,9 @@ test("collapsed toolbar and appearance controls keep stable heights", async ({
   expect(geometries.map(({ modeHeight, viewModeHeight }) => modeHeight - viewModeHeight)).toEqual([
     0, 0, 0, 0,
   ]);
-  expect(geometries.map(({ selectHeight }) => selectHeight)).toEqual([40, 40, 40, 40]);
+  expect(
+    geometries.map(({ selectHeight, modeTrackHeight }) => selectHeight - modeTrackHeight),
+  ).toEqual([0, 0, 0, 0]);
   expect(geometries.map(({ panelGap }) => panelGap)).toEqual([8, 8, 8, 8]);
   expect(
     geometries.slice(0, 2).map(({ panelRight, triggerRight }) => panelRight - triggerRight),
@@ -2109,17 +2192,13 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   expect(wideControlLayout.toolbarLeft).toBeCloseTo(268, 0);
   expect(wideControlLayout.toolbarRight).toBeCloseTo(1132, 0);
   expect(wideControlLayout.viewTop).toBeGreaterThan(wideControlLayout.toolbarBottom);
-  await expect(page.locator(".toolbar-context-document")).toHaveText("plan.md");
+  await expect(
+    page.locator(".toolbar-breadcrumb .document-breadcrumb-segment:last-child"),
+  ).toHaveText("plan.md");
   await expect(page.locator(".document-header").getByRole("heading", { level: 1 })).toHaveText(
     "Browser revision",
   );
-  await expect(page.locator(".document-breadcrumb-revision")).toHaveText("Revision 2");
-  await expect(page.locator(".document-breadcrumb-revision-separator")).toHaveText("·");
-  await expect(page.locator(".document-breadcrumb-revision")).toHaveCSS(
-    "background-color",
-    "rgba(0, 0, 0, 0)",
-  );
-  await expect(page.locator(".document-breadcrumb-revision")).toHaveCSS("border-top-width", "0px");
+  await expect(page.locator(".document-breadcrumb-revision")).toHaveCount(0);
 
   await page.setViewportSize({ width: 1000, height: 800 });
   const mediumControlLayout = await page.locator(".top-controls").evaluate((element) => {
@@ -2349,11 +2428,11 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
       const bounds = element.getBoundingClientRect();
       const divider = getComputedStyle(element, "::before");
       const previousAction = element.previousElementSibling!.lastElementChild!;
-      const previousLabel = previousAction.lastElementChild!.getBoundingClientRect();
       const dividerX = bounds.left + Number.parseFloat(divider.left);
+      const dividerWidth = Number.parseFloat(divider.width);
       return {
-        before: dividerX - previousLabel.right,
-        after: bounds.left - dividerX,
+        before: dividerX - previousAction.getBoundingClientRect().right,
+        after: bounds.left - (dividerX + dividerWidth),
       };
     });
     expect(dividerSpacing.before).toBeCloseTo(dividerSpacing.after, 0);
@@ -2936,6 +3015,35 @@ test("uploaded source controls share the first row on narrow screens", async ({
   await expect(toolbar.locator(".viewtoggle")).toHaveCount(0);
   await expect(toolbar.getByRole("link", { name: "Download source" })).toBeVisible();
   await expect(toolbar.getByRole("link", { name: "Open raw source" })).toBeVisible();
+  await expect(toolbar.locator(".document-breadcrumb-root")).toHaveAttribute(
+    "aria-label",
+    "Document",
+  );
+  await expect(toolbar.locator(".document-breadcrumb-root .icon")).toHaveCount(1);
+
+  const sourceJoin = await page.locator(".filehead").evaluate((heading) => {
+    const wrapper = heading.nextElementSibling!;
+    const pre = wrapper.querySelector("pre")!;
+    const filename = heading.querySelector("code")!;
+    const filenameStyle = getComputedStyle(filename);
+    return {
+      adjacent: Math.abs(heading.getBoundingClientRect().bottom - pre.getBoundingClientRect().top),
+      filenameBackground: filenameStyle.backgroundColor,
+      filenameBorder: filenameStyle.borderTopWidth,
+      filenameFontSize: filenameStyle.fontSize,
+      filenamePadding: filenameStyle.paddingTop,
+      headingFontSize: getComputedStyle(heading).fontSize,
+      topLeftRadius: getComputedStyle(pre).borderTopLeftRadius,
+      topRightRadius: getComputedStyle(pre).borderTopRightRadius,
+    };
+  });
+  expect(sourceJoin.adjacent).toBeLessThan(1);
+  expect(sourceJoin.filenameBackground).toBe("rgba(0, 0, 0, 0)");
+  expect(sourceJoin.filenameBorder).toBe("0px");
+  expect(sourceJoin.filenameFontSize).toBe(sourceJoin.headingFontSize);
+  expect(sourceJoin.filenamePadding).toBe("0px");
+  expect(sourceJoin.topLeftRadius).toBe("0px");
+  expect(sourceJoin.topRightRadius).toBe("0px");
 
   const alignment = await toolbar.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
@@ -2951,6 +3059,32 @@ test("uploaded source controls share the first row on narrow screens", async ({
   });
   expect(alignment.actionsCenter).toBeCloseTo(alignment.themeCenter, 0);
   expect(alignment.right).toBeCloseTo(alignment.rightPadding, 0);
+
+  await page.setViewportSize({ width: 280, height: 700 });
+  await expect(page.locator(".toolbar-breadcrumb")).toBeVisible();
+  await expect(page.locator(".document-breadcrumb-header")).toBeHidden();
+  const breadcrumbOverflow = await page.locator(".toolbar-breadcrumb").evaluate((breadcrumb) => {
+    const finalSegment = breadcrumb.querySelector<HTMLElement>(
+      ".document-breadcrumb-segment:last-child",
+    )!;
+    const actions = document.querySelector<HTMLElement>(".file-actions")!.getBoundingClientRect();
+    const bounds = breadcrumb.getBoundingClientRect();
+    const styles = getComputedStyle(finalSegment);
+    return {
+      clearsActions: bounds.right <= actions.left,
+      overflow: styles.overflow,
+      textOverflow: styles.textOverflow,
+      truncated: finalSegment.scrollWidth > finalSegment.clientWidth,
+      whiteSpace: styles.whiteSpace,
+    };
+  });
+  expect(breadcrumbOverflow).toEqual({
+    clearsActions: true,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    truncated: true,
+    whiteSpace: "nowrap",
+  });
 });
 
 test("print view is compact and expands disclosures", async ({ browser, page }, testInfo) => {

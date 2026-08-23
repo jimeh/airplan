@@ -948,7 +948,9 @@
             current = index;
           }
         });
-        if (window.innerHeight + window.scrollY >= d.documentElement.scrollHeight - 2) {
+        if (window.scrollY <= 128) {
+          current = 0;
+        } else if (window.innerHeight + window.scrollY >= d.documentElement.scrollHeight - 2) {
           current = tocLinks.length - 1;
         }
         var activeHref = tocLinks[current].getAttribute("href");
