@@ -5,6 +5,9 @@
   --buncss-dark: ;
   color-scheme: light dark;
   --page-width: 54rem;
+  --floating-panel-bg: color-mix(in srgb, var(--bg) 96%, var(--surface-subtle));
+  --floating-panel-radius: 12px;
+  --floating-panel-shadow: 0 12px 32px color-mix(in srgb, var(--fg) 16%, transparent);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -147,17 +150,18 @@ body {
 }
 
 .appearance-panel {
-  position: absolute;
+  position: fixed;
   z-index: 30;
+  top: var(--airplan-appearance-top, 4rem);
+  right: var(--airplan-appearance-right, 1rem);
   color: var(--fg);
-  background: var(--bg);
+  background: var(--floating-panel-bg);
   border: 1px solid var(--border);
-  box-shadow: 0 10px 30px color-mix(in srgb, var(--fg) 14%, transparent);
-  border-radius: 10px;
+  border-radius: var(--floating-panel-radius);
+  box-shadow: var(--floating-panel-shadow);
   width: min(19rem, 100vw - 2rem);
   padding: .85rem;
-  top: calc(100% + .5rem);
-  right: 0;
+  font-size: .85rem;
 }
 
 .appearance-heading {
@@ -187,6 +191,7 @@ body {
 
 .appearance-modes button {
   flex: 1;
+  min-width: 0;
 }
 
 .appearance-select {
@@ -203,7 +208,7 @@ body {
   font: inherit;
   border-radius: 7px;
   width: 100%;
-  min-height: 2.1rem;
+  min-height: 2.5rem;
   padding: .3rem 2.25rem .3rem .5rem;
 }
 
@@ -243,7 +248,7 @@ body {
 }
 
 @media (max-width: 48rem) {
-  .toolbar button, .toolbar a {
+  .toolbar > button, .toolbar > a, .toolbar > .toolbar-actions > button, .toolbar > .toolbar-actions > a, .toolbar > .appearance > .appearance-trigger {
     min-width: 44px;
     min-height: 44px;
   }
@@ -264,11 +269,9 @@ body {
   }
 
   .appearance-panel {
-    position: fixed;
     width: auto;
-    top: 3.5rem;
-    left: .75rem;
-    right: .75rem;
+    left: 1rem;
+    right: 1rem;
   }
 }
 
@@ -686,19 +689,18 @@ body.toc-dialog-open {
 
 .pages-popover {
   position: fixed;
-  inset: var(--pages-top) auto auto var(--pages-left);
+  inset: calc(var(--pages-top)  + .5rem) auto auto var(--pages-left);
   width: var(--pages-width);
-  max-height: calc(100svh - var(--pages-top)  - 1rem);
+  max-height: calc(100svh - var(--pages-top)  - 1.5rem);
   color: var(--fg);
-  background: var(--bg);
+  background: var(--floating-panel-bg);
   border: 1px solid var(--border);
+  border-radius: var(--floating-panel-radius);
+  box-shadow: var(--floating-panel-shadow);
   overflow: hidden;
-  border-top: 0;
-  border-radius: 0 0 10px 10px;
   max-width: calc(100vw - 2rem);
   margin: 0;
   padding: .5rem;
-  box-shadow: 0 12px 28px #00000038;
 }
 
 .pages-popover-nav {
@@ -757,8 +759,39 @@ body.toc-dialog-open {
   line-height: 1.45;
 }
 
-.document-breadcrumb-current {
+.document-breadcrumb-root {
+  display: inline-flex;
+  align-items:  center;
+}
+
+.document-breadcrumb-root .icon {
+  width: 14px;
+  height: 14px;
+}
+
+.document-breadcrumb-path {
+  display: contents;
+}
+
+.document-breadcrumb-segment:last-child {
   color: var(--fg);
+}
+
+.document-breadcrumb-revision {
+  display: inline-flex;
+  color: var(--muted);
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  letter-spacing: .01em;
+  border-radius: 999px;
+  align-items:  center;
+  min-height: 1.35rem;
+  margin-left: .1rem;
+  padding: .05rem .42rem;
+  font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Helvetica, Arial, sans-serif;
+  font-size: .68rem;
+  font-weight: 600;
+  line-height: 1.2;
 }
 
 .document-heading-row, .diff-view-header {
@@ -898,9 +931,7 @@ body.toc-dialog-open {
 }
 
 .document-header .view-controls {
-  border-bottom: 1px solid var(--border);
   margin-top: 1rem;
-  padding-bottom: 1rem;
   font-size: .85rem;
 }
 
@@ -974,6 +1005,10 @@ body.all-changes-active .pages-nav, body.all-changes-active .toc, body.all-chang
   padding-bottom: .9rem;
   font-size: .75rem;
   font-weight: 600;
+}
+
+.complete-diff-meta .revision-controls {
+  margin-left: auto;
 }
 
 .file-actions {
@@ -1677,10 +1712,17 @@ mark {
     height: calc(var(--airplan-toolbar-height)  + env(safe-area-inset-top));
     min-height: calc(var(--airplan-toolbar-height)  + env(safe-area-inset-top));
     padding: env(safe-area-inset-top) 1.5rem 0;
-    background: var(--bg);
-    border-bottom: 1px solid var(--border);
+    background: color-mix(in srgb, var(--bg) 60%, transparent);
+    backdrop-filter: blur(18px) saturate(1.15);
+    -webkit-backdrop-filter: blur(18px) saturate(1.15);
+    border-bottom: 0;
     flex-wrap: nowrap;
     top: 0;
+  }
+
+  .top-controls .toolbar > button, .top-controls .toolbar > a, .top-controls .toolbar > .toolbar-actions > button, .top-controls .toolbar > .toolbar-actions > a, .top-controls .toolbar > .appearance > .appearance-trigger {
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .toolbar-context-document {
@@ -1789,6 +1831,19 @@ mark {
 
   .mermaid-toolbar [data-airplan-mermaid-close] {
     margin-left: auto;
+  }
+}
+
+@media (max-width: 36rem) {
+  body > .appearance-panel {
+    left: 1rem;
+    right: 1rem;
+  }
+
+  .pages-popover {
+    inset: calc(var(--pages-top)  + .5rem) 1rem auto;
+    width: auto;
+    max-width: none;
   }
 }
 

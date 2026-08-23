@@ -259,6 +259,11 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Real R2 release smoke tests may use `AIRPLAN_TIMEOUT=60s`** when
   local firewall approval could interrupt the sequence. The product
   default remains 30 seconds.
+- **Unsigned macOS development binaries may be denied R2 access** even when
+  the public URL and an installed Developer ID-signed Airplan binary work.
+  Confirm the signature difference before diagnosing storage. For a local
+  smoke or demo refresh, sign a temporary build with an available Developer ID
+  identity and verify it; never overwrite the managed installation.
 
 ## Layout
 

@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.45.0**
+**Spec version: 0.47.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -361,14 +361,19 @@ described below.
     identical catalog grouped into Light themes and Dark themes; variant never
     filters a slot, and a page-owned chevron keeps the select affordance aligned
     across browsers. Escape and outside activation dismiss the panel, Escape
-    restores focus, and narrow layouts keep it inset from viewport edges. With
+    restores focus, and narrow layouts keep it inset from viewport edges. Its
+    selectors retain one control height across responsive breakpoints, while
+    the compact mode buttons match the document's content-mode controls. With
     scripting disabled, uploader defaults follow the system preference and the
     panel is absent. The appearance trigger follows the file controls and stays
     at the far-right edge behind a quiet divider. The global toolbar shows the
     current logical page path at the left on wide layouts and keeps file actions
     and Appearance at the right. A document header below it owns the resolved
-    title, revision controls, All changes, and the Rendered, Source, and Changes
-    modes. At collapsed-rail widths, the sticky toolbar contains file actions,
+    title, revision controls, All changes, and the Read, Source, and Changes
+    modes. Its breadcrumb represents each logical path segment separately and
+    uses a stack icon for a bundle root. Its revision is a separate status
+    badge rather than another path segment. At collapsed-rail widths, the
+    toolbar uses a 60% theme-background tint with blur and contains file actions,
     Appearance, and the Pages trigger while the complete document header stays
     with the content. The content-mode
     eye, code, and diff icons remain visible beside the labels. Content-mode
@@ -384,7 +389,7 @@ described below.
     entry. Explicit new-mode writes mirror
     that legacy key; System removes both mode keys. Unknown stored theme IDs are
     retained but inactive on pages whose catalogs do not contain them.
-  - Rendered/source toggle: switch between the rendered plan and a
+  - Read/source toggle: switch between the rendered plan and a
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter
     ships. (Embedding the source roughly doubles page weight —
@@ -466,14 +471,15 @@ supported transition uses a restrained, short root crossfade; it does not
 prefetch or hide network latency. Each destination loads a fresh document and
 initializes its own theme controls,
 source and changes views, table of contents, copy buttons, print hooks, authored
-scripts, and Mermaid runtime. Page-local state such as Rendered/Source selection
+scripts, and Mermaid runtime. Page-local state such as Read/Source selection
 resets; existing persistent theme preferences continue across pages. Print
 includes only the loaded page. Custom templates receive bundle data but no
 built-in navigation, transition CSS, or JavaScript.
 
-The title-led page structure, directory-grouped managed-page navigation,
-revision-aware content modes, transition CSS, and built-in control icon set
-define renderer generation 15. Single-page output also uses generation 15 because
+The title-led page structure, segmented path breadcrumb, directory-grouped
+managed-page navigation, revision-aware content modes, transition CSS, and
+built-in control icon set define renderer generation 17. Single-page output
+also uses generation 17 because
 the current writer has one renderer generation for all generated pages.
 
 ### Plain-text input
@@ -1364,7 +1370,7 @@ including a one-option selector when deletion leaves one live chain member;
 the global toolbar contains no revision control and there are no previous,
 next, or latest shortcut links.
 Valid metadata also adds an icon-labeled `All changes` action beside the selector for every revision
-greater than 1. Markdown pages expose Rendered and Source modes plus Changes
+greater than 1. Markdown pages expose Read and Source modes plus Changes
 only when that logical page was added or its source, format, title, or language
 changed. Managed text pages expose Source plus the same optional Changes mode.
 Page reorder alone appears only in the complete report. Changes is page-local;
@@ -1372,22 +1378,28 @@ the entry page does not absorb child changes. `All changes` is the complete
 adjacent report and opens only on the entry page through
 `#airplan-all-changes`. It replaces the document header with a complete-diff
 header containing a breadcrumb-style return to the entry page, adjacent
-revision context, and an icon-labeled raw-diff action. The global toolbar
+revision context, the same metadata-backed revision selector, and an
+icon-labeled raw-diff action. Selecting another revision keeps Bundle history
+open when that target has a complete report and returns to its entry page for
+revision 1. The global toolbar
 identifies this state as Bundle history. The view hides the page rails, the
 collapsed Pages trigger, and content modes while active. The return and
 raw-diff actions precede the report so they remain practical for long diffs.
 These are normal anchors and
 navigations; the runtime does not replace document HTML or manage history.
 
-At the collapsed-rail breakpoint the document toolbar becomes sticky, opaque,
-and safe-area aware, and Pages stays aligned to its left edge. Its content row
+At the collapsed-rail breakpoint the document toolbar becomes sticky,
+translucent, blurred, and safe-area aware, and Pages stays aligned to its left
+edge. It has no bottom rule. Its content row
 remains 3.5rem tall across collapsed viewport sizes, plus any safe-area inset.
-It retains Pages, applicable Copy/Download/Raw actions, and Appearance. At the
-mobile action breakpoint the file actions become icon-only 44px targets. The
+It retains Pages, applicable Copy/Download/Raw actions, and Appearance. These
+toolbar actions remain 44px targets across collapsed widths. At the mobile
+action breakpoint the file-action labels become visually hidden. The
 title, content modes, and revision actions remain together in the document
 header below the toolbar, and
 fragment offsets include its measured height. Pages progressively enhances into a native
-top-anchored popover below its trigger, with ordinary navigation links, light
+floating popover below its trigger, with the same border, radius, background,
+and shadow language as Appearance, ordinary navigation links, light
 dismiss, Escape handling, and focus restoration. It is visually and
 behaviorally distinct from the bottom-sheet Contents dialog, and only one may
 be open. Without native popover support or scripting, the inline Pages list

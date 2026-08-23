@@ -130,14 +130,15 @@ type TemplateData struct {
 	HighlightedCompleteDiffHTML template.HTML
 	AllChangesPath              string
 
-	// Pages, PageNavigation, CurrentPage, Entrypoint, and Assets describe the
-	// document. Ordinary single-page rendering exposes one current entry page
-	// and no assets.
-	Pages          []DocumentTemplatePage
-	PageNavigation []DocumentTemplateNavigationItem
-	CurrentPage    DocumentTemplatePage
-	Entrypoint     string
-	Assets         []DocumentTemplateAsset
+	// Pages, PageNavigation, CurrentPage, CurrentPageBreadcrumbs, Entrypoint,
+	// and Assets describe the document. Ordinary single-page rendering exposes
+	// one current entry page and no assets.
+	Pages                  []DocumentTemplatePage
+	PageNavigation         []DocumentTemplateNavigationItem
+	CurrentPage            DocumentTemplatePage
+	CurrentPageBreadcrumbs []string
+	Entrypoint             string
+	Assets                 []DocumentTemplateAsset
 }
 
 // LoadTemplate parses a custom page template from path. The template

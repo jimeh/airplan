@@ -681,76 +681,86 @@ interface DocumentMarker {
     );
     if (latest !== metadata.latest_revision) throw new Error("latest is invalid");
 
-    var revisionControls = d.querySelector<HTMLElement>("[data-revision-controls]");
-    var heading = d.querySelector("[data-revision-heading]");
-    if (!heading) {
-      if (!revisionControls) throw new Error("revision controls are unavailable");
-      heading = d.createElement("p");
-      heading.className = "revision-heading";
-      heading.setAttribute("data-revision-heading", "");
-      revisionControls.appendChild(heading);
+    var revisionControls = Array.from(d.querySelectorAll<HTMLElement>("[data-revision-controls]"));
+    var headings = Array.from(d.querySelectorAll<HTMLElement>("[data-revision-heading]"));
+    if (headings.length === 0) {
+      if (revisionControls.length === 0) throw new Error("revision controls are unavailable");
+      var fallbackHeading = d.createElement("p");
+      fallbackHeading.className = "revision-heading";
+      fallbackHeading.setAttribute("data-revision-heading", "");
+      revisionControls[0].appendChild(fallbackHeading);
+      headings.push(fallbackHeading);
     }
-    if (revisionControls) revisionControls.hidden = false;
+    revisionControls.forEach(function (controls) {
+      controls.hidden = false;
+    });
     var stale = embedded < latest;
     var label = stale
       ? "Revision " + embedded + " of " + latest
       : "Revision " + embedded + " (Latest)";
-    var visualLabel = d.createElement("span");
-    visualLabel.className = "revision-picker-label";
-    visualLabel.textContent = label;
-    visualLabel.setAttribute("aria-hidden", "true");
-    var select = d.createElement("select");
-    select.setAttribute("aria-label", "Document revision");
-    live.forEach(function (revision) {
-      var option = d.createElement("option");
-      option.value = revision.safeURL || "";
-      option.textContent =
-        revision.number === latest
-          ? "Revision " + revision.number + " (Latest)"
-          : "Revision " + revision.number + " of " + latest;
-      option.selected = revision.number === embedded;
-      select.appendChild(option);
-    });
-    select.addEventListener("change", function () {
-      var selected = select.selectedIndex;
-      if (selected < 0 || selected >= live.length) return;
-      var target = live[selected];
-      var entryURL = target.safeURL || "";
-      if (window.location.hash === "#airplan-all-changes") {
-        window.location.assign(entryURL + (target.number > 1 ? "#airplan-all-changes" : ""));
-        return;
-      }
-      var embeddedEntrypoint = entrypointMeta
-        ? new URL(entrypointMeta.content, window.location.href).href
-        : "";
-      if (!pagePathMeta || currentPage.href === embeddedEntrypoint || !revisionChainMeta) {
-        window.location.assign(entryURL);
-        return;
-      }
-      heading!.setAttribute("aria-busy", "true");
-      select.disabled = true;
-      var selectedDirectory = new URL("./", entryURL);
-      var markerURL = new URL(".airplan.json", selectedDirectory);
-      markerURL.searchParams.set(
-        "_airplan",
-        Date.now().toString(36) + Math.random().toString(36).slice(2),
-      );
-      fetch(markerURL, { cache: "no-store", credentials: "same-origin" })
-        .then(readBoundedMarker)
-        .then(function (marker) {
-          var pages = validateMarker(marker, selectedDirectory, target, revisionChainMeta!.content);
-          window.location.assign(
-            revisionDestination(entryURL, pages.get(pagePathMeta!.content) || null),
-          );
-        })
-        .catch(function () {
-          console.warn("airplan: selected revision page map is unavailable or invalid");
+    headings.forEach(function (heading) {
+      var visualLabel = d.createElement("span");
+      visualLabel.className = "revision-picker-label";
+      visualLabel.textContent = label;
+      visualLabel.setAttribute("aria-hidden", "true");
+      var select = d.createElement("select");
+      select.setAttribute("aria-label", "Document revision");
+      live.forEach(function (revision) {
+        var option = d.createElement("option");
+        option.value = revision.safeURL || "";
+        option.textContent =
+          revision.number === latest
+            ? "Revision " + revision.number + " (Latest)"
+            : "Revision " + revision.number + " of " + latest;
+        option.selected = revision.number === embedded;
+        select.appendChild(option);
+      });
+      select.addEventListener("change", function () {
+        var selected = select.selectedIndex;
+        if (selected < 0 || selected >= live.length) return;
+        var target = live[selected];
+        var entryURL = target.safeURL || "";
+        if (window.location.hash === "#airplan-all-changes") {
+          window.location.assign(entryURL + (target.number > 1 ? "#airplan-all-changes" : ""));
+          return;
+        }
+        var embeddedEntrypoint = entrypointMeta
+          ? new URL(entrypointMeta.content, window.location.href).href
+          : "";
+        if (!pagePathMeta || currentPage.href === embeddedEntrypoint || !revisionChainMeta) {
           window.location.assign(entryURL);
-        });
+          return;
+        }
+        heading.setAttribute("aria-busy", "true");
+        select.disabled = true;
+        var selectedDirectory = new URL("./", entryURL);
+        var markerURL = new URL(".airplan.json", selectedDirectory);
+        markerURL.searchParams.set(
+          "_airplan",
+          Date.now().toString(36) + Math.random().toString(36).slice(2),
+        );
+        fetch(markerURL, { cache: "no-store", credentials: "same-origin" })
+          .then(readBoundedMarker)
+          .then(function (marker) {
+            var pages = validateMarker(
+              marker,
+              selectedDirectory,
+              target,
+              revisionChainMeta!.content,
+            );
+            window.location.assign(
+              revisionDestination(entryURL, pages.get(pagePathMeta!.content) || null),
+            );
+          })
+          .catch(function () {
+            console.warn("airplan: selected revision page map is unavailable or invalid");
+            window.location.assign(entryURL);
+          });
+      });
+      heading.replaceChildren(visualLabel, select);
+      heading.classList.add("is-picker");
+      heading.classList.toggle("is-stale", stale);
     });
-    heading.replaceChildren(visualLabel, select);
-    heading.classList.add("is-picker");
-    heading.classList.toggle("is-stale", stale);
     d.body.classList.toggle("airplan-stale-revision", stale);
   }
   if (versionsMeta) {
@@ -929,7 +939,7 @@ interface DocumentMarker {
     }
   }
 
-  // Rendered/source toggle.
+  // Read/source toggle.
   var source = d.getElementById("source");
   var changes = d.getElementById("changes");
   var allChanges = d.querySelector<HTMLElement>("[data-airplan-all-changes]");

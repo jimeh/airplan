@@ -568,6 +568,12 @@ test("bundle pages use ordinary navigation and update both rails", async ({
   await expect(
     page.locator(".page-shell > .pages-nav .pages-directory.is-current > .pages-directory-label"),
   ).toHaveText("docs");
+  await expect(page.locator(".document-breadcrumb-root .icon")).toHaveCount(1);
+  await expect(page.locator(".document-breadcrumb-root")).toHaveAttribute(
+    "aria-label",
+    "Document bundle",
+  );
+  await expect(page.locator(".document-breadcrumb-segment")).toHaveText(["docs", "design.md"]);
   await expect(page.locator("pre.mermaid > svg")).toHaveCount(1);
   await expect(page.locator(".page-sequence-previous")).toContainText("Bundle overview");
   await expect(page.locator(".page-sequence-next")).toContainText("server.go");
@@ -579,7 +585,7 @@ test("bundle pages use ordinary navigation and update both rails", async ({
   await expect
     .poll(() => page.evaluate(() => navigator.clipboard.readText()))
     .toContain("# Design notes");
-  await page.getByRole("button", { name: "Rendered view" }).click();
+  await page.getByRole("button", { name: "Read view" }).click();
 
   if (testInfo.project.name.startsWith("narrow-")) {
     await page.getByRole("button", { name: "Open table of contents" }).click();
@@ -613,12 +619,16 @@ test("collapsed bundle navigation stays sticky with Pages on the left", async ({
     const trigger = element.querySelector(".pages-trigger")!.getBoundingClientRect();
     const bounds = element.getBoundingClientRect();
     return {
+      backdropFilter: styles.backdropFilter,
+      borderBottomWidth: styles.borderBottomWidth,
       position: styles.position,
       left: trigger.left - bounds.left,
       leftPadding: Number.parseFloat(styles.paddingLeft),
     };
   });
   expect(layout.position).toBe("sticky");
+  expect(layout.backdropFilter).toContain("blur(18px)");
+  expect(layout.borderBottomWidth).toBe("0px");
   expect(layout.left).toBeCloseTo(layout.leftPadding, 0);
 
   await pages.click();
@@ -634,11 +644,44 @@ test("collapsed bundle navigation stays sticky with Pages on the left", async ({
           return popoverBounds.top - toolbarBounds.bottom;
         }),
       )
-      .toBeCloseTo(0, 0);
+      .toBeCloseTo(8, 0);
   }
-  await page.setViewportSize({ width: 1000, height: 640 });
+
+  const pagesPanelStyle = await popover.evaluate((element) => {
+    const styles = getComputedStyle(element);
+    const bounds = element.getBoundingClientRect();
+    return {
+      background: styles.backgroundColor,
+      borderRadius: styles.borderRadius,
+      boxShadow: styles.boxShadow,
+      left: bounds.left,
+      right: window.innerWidth - bounds.right,
+    };
+  });
+
   await pages.click();
   await expect(popover).toBeHidden();
+  const appearanceTrigger = page.getByRole("button", { name: "Appearance" });
+  await appearanceTrigger.click();
+  const panelStyles = await page.evaluate(() => {
+    const appearancePanel = getComputedStyle(document.querySelector(".appearance-panel")!);
+    const appearanceBounds = document.querySelector(".appearance-panel")!.getBoundingClientRect();
+    return {
+      background: appearancePanel.backgroundColor,
+      borderRadius: appearancePanel.borderRadius,
+      boxShadow: appearancePanel.boxShadow,
+      left: appearanceBounds.left,
+      right: window.innerWidth - appearanceBounds.right,
+    };
+  });
+  expect(pagesPanelStyle.background).toBe(panelStyles.background);
+  expect(pagesPanelStyle.borderRadius).toBe(panelStyles.borderRadius);
+  expect(pagesPanelStyle.boxShadow).toBe(panelStyles.boxShadow);
+  expect(pagesPanelStyle.left).toBeCloseTo(panelStyles.left, 0);
+  expect(pagesPanelStyle.right).toBeCloseTo(panelStyles.right, 0);
+  await appearanceTrigger.click();
+
+  await page.setViewportSize({ width: 1000, height: 640 });
 
   await page.evaluate(() => window.scrollTo(0, 320));
   await expect
@@ -1013,6 +1056,67 @@ test("appearance controls pair mode labels with icons and align custom select ch
   await page.getByRole("button", { name: "Dark", exact: true }).click();
   await expect(trigger.locator('[data-airplan-resolved-icon="light"]')).toBeHidden();
   await expect(trigger.locator('[data-airplan-resolved-icon="dark"]')).toBeVisible();
+});
+
+test("collapsed toolbar and appearance controls keep stable heights", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers responsive geometry");
+  await page.goto(baseURL);
+
+  const geometries = [];
+  for (const width of [1000, 700, 520, 390]) {
+    await page.setViewportSize({ width, height: 700 });
+    const trigger = page.getByRole("button", { name: "Appearance" });
+    await trigger.click();
+    geometries.push(
+      await page.evaluate(() => {
+        const toolbar = document.querySelector(".toolbar")!.getBoundingClientRect();
+        const trigger = document
+          .querySelector("[data-airplan-appearance-trigger]")!
+          .getBoundingClientRect();
+        const panel = document.querySelector(".appearance-panel")!.getBoundingClientRect();
+        const mode = document.querySelector("[data-airplan-color-mode]")!.getBoundingClientRect();
+        const viewMode = document.querySelector(".viewtoggle button")!.getBoundingClientRect();
+        const select = document
+          .querySelector('select[data-airplan-theme-slot="light"]')!
+          .getBoundingClientRect();
+        const toolbarBackground = getComputedStyle(
+          document.querySelector(".toolbar")!,
+        ).backgroundColor;
+        return {
+          toolbarHeight: toolbar.height,
+          triggerHeight: trigger.height,
+          modeHeight: mode.height,
+          viewModeHeight: viewMode.height,
+          selectHeight: select.height,
+          panelGap: panel.top - toolbar.bottom,
+          panelLeft: panel.left,
+          panelRight: document.documentElement.clientWidth - panel.right,
+          panelViewportRight: window.innerWidth - panel.right,
+          triggerRight: document.documentElement.clientWidth - trigger.right,
+          toolbarBackground,
+        };
+      }),
+    );
+    await trigger.click();
+  }
+
+  expect(geometries.map(({ toolbarHeight }) => toolbarHeight)).toEqual([56, 56, 56, 56]);
+  expect(geometries.map(({ triggerHeight }) => triggerHeight)).toEqual([44, 44, 44, 44]);
+  expect(geometries.map(({ modeHeight, viewModeHeight }) => modeHeight - viewModeHeight)).toEqual([
+    0, 0, 0, 0,
+  ]);
+  expect(geometries.map(({ selectHeight }) => selectHeight)).toEqual([40, 40, 40, 40]);
+  expect(geometries.map(({ panelGap }) => panelGap)).toEqual([8, 8, 8, 8]);
+  expect(
+    geometries.slice(0, 2).map(({ panelRight, triggerRight }) => panelRight - triggerRight),
+  ).toEqual([0, 0]);
+  expect(geometries.every(({ toolbarBackground }) => toolbarBackground.endsWith(" / 0.6)"))).toBe(
+    true,
+  );
+  expect(geometries.at(-1)?.panelLeft).toBeCloseTo(16, 0);
+  expect(geometries.at(-1)?.panelViewportRight).toBeCloseTo(16, 0);
 });
 
 test("appearance panel dismisses accessibly and restores focus", async ({ page }) => {
@@ -1911,6 +2015,9 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
     const viewElement = element.querySelector<HTMLElement>(".viewtoggle button")!;
     const view = viewElement.getBoundingClientRect();
     const viewStyle = getComputedStyle(viewElement);
+    const viewControlsStyle = getComputedStyle(
+      element.querySelector<HTMLElement>(".view-controls")!,
+    );
     return {
       actionCenter: action.top + action.height / 2,
       actionFontSize: actionStyle.fontSize,
@@ -1920,16 +2027,20 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
       viewFontSize: viewStyle.fontSize,
       viewLineHeight: viewStyle.lineHeight,
       viewTop: view.top,
+      viewBorderBottomWidth: viewControlsStyle.borderBottomWidth,
     };
   });
   expect(wideControlLayout.viewFontSize).toBe(wideControlLayout.actionFontSize);
   expect(wideControlLayout.viewLineHeight).toBe(wideControlLayout.actionLineHeight);
+  expect(wideControlLayout.viewBorderBottomWidth).toBe("0px");
   expect(wideControlLayout.viewTop).toBeGreaterThan(wideControlLayout.toolbarBottom);
   expect(wideControlLayout.viewTop).toBeGreaterThanOrEqual(wideControlLayout.headingBottom);
   await expect(page.locator(".toolbar-context-document")).toHaveText("plan.md");
   await expect(page.locator(".document-header").getByRole("heading", { level: 1 })).toHaveText(
     "Browser revision",
   );
+  await expect(page.locator(".document-breadcrumb-revision")).toHaveText("Revision 2");
+  await expect(page.locator(".document-breadcrumb-revision")).toHaveCSS("border-radius", "999px");
 
   const pageShell = page.locator(".page-shell");
   for (const width of [700]) {
@@ -1950,9 +2061,7 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
       )
       .toEqual({ domOrder: false, visualOrder: true });
   }
-  await expect(page.getByRole("button", { name: "Rendered view" }).locator("svg.icon")).toHaveCount(
-    1,
-  );
+  await expect(page.getByRole("button", { name: "Read view" }).locator("svg.icon")).toHaveCount(1);
   await expect(page.getByRole("button", { name: "Source view" }).locator("svg.icon")).toHaveCount(
     1,
   );
@@ -2025,7 +2134,7 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   await expect(page.locator("#changes")).toBeHidden();
   await expect(page.locator("#rendered")).toBeVisible();
   await page.emulateMedia({ media: "screen" });
-  await page.getByRole("button", { name: "Rendered view" }).click();
+  await page.getByRole("button", { name: "Read view" }).click();
   await expect(page.locator("#rendered")).toBeVisible();
   await expect(page.locator("#changes")).toBeHidden();
   await page.getByRole("link", { name: "All changes" }).click();
@@ -2039,6 +2148,11 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   await expect(page.locator(".toolbar-context-history")).toHaveText("Bundle history");
   await expect(page.locator(".toolbar-context-history")).toBeVisible();
   await expect(page.locator(".document-header")).toBeHidden();
+  const historyRevision = page
+    .locator("[data-airplan-all-changes]")
+    .getByRole("combobox", { name: "Document revision" });
+  await expect(historyRevision).toBeVisible();
+  await expect(historyRevision.locator("option")).toHaveCount(2);
   const actionPlacement = await allChangesActions.evaluate((element) => {
     const back = element.querySelector(".all-changes-back")!;
     const raw = element.querySelector(".raw-diff")!;
@@ -2059,6 +2173,10 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   await expect(page.locator("[data-airplan-all-changes]")).toBeVisible();
   await page.goBack();
   await expect(page).not.toHaveURL(/#airplan-all-changes$/);
+  await expect(page.locator("#rendered")).toBeVisible();
+  await page.getByRole("link", { name: "All changes" }).click();
+  await historyRevision.selectOption(revisions[0].url);
+  await expect(page).toHaveURL(revisions[0].url);
   await expect(page.locator("#rendered")).toBeVisible();
 });
 
@@ -2207,7 +2325,7 @@ test("rendered page controls work", async ({ context, page }, testInfo) => {
     await expect(page.getByRole("heading", { name: "Details" })).toBeVisible();
   }
 
-  const renderedButton = page.getByRole("button", { name: "Rendered view" });
+  const renderedButton = page.getByRole("button", { name: "Read view" });
   const sourceButton = page.getByRole("button", { name: "Source view" });
   await expect(renderedButton).toHaveAttribute("aria-pressed", "true");
   await expect(sourceButton).toHaveAttribute("aria-pressed", "false");

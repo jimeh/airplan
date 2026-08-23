@@ -8,6 +8,7 @@ export interface IconDefinition {
 // Updating an Octicon mapping remains an explicit, reviewable source change.
 export const iconManifest = {
   back: { octicon: "arrow-left" },
+  bundle: { octicon: "stack" },
   pages: { octicon: "list-unordered" },
   directory: { octicon: "file-directory" },
   copy: { octicon: "copy", classes: ["icon-copy"] },

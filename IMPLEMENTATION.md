@@ -269,18 +269,26 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   a native top-anchored popover while Contents retains its bottom-sheet dialog;
   the document toolbar becomes sticky when the rails collapse, with Pages
   pinned left. Wide rail headings sit outside their scrollable lists, and the
-  title-led document header owns page identity, content modes, revision state,
-  and complete-diff entry while the global toolbar keeps file operations. The
-  complete-diff header keeps its return and raw links above the report while
-  hiding compact Pages navigation. This page structure uses
-  `RendererGeneration` 15.
+  title-led document header owns page identity, segmented path breadcrumbs,
+  content modes, revision state, and complete-diff entry while the translucent
+  blurred global toolbar keeps file operations. The shared theme initializer
+  moves Appearance to the body and measures its trigger when opened, resized,
+  or scrolled so the fixed panel remains attached outside the toolbar's
+  backdrop-filter containing block. Pages and Appearance use the same
+  floating-panel geometry at collapsed widths. The breadcrumb uses the
+  generated stack glyph for its bundle root and renders revision identity as a
+  separate badge. The complete-diff header keeps its return and raw links above
+  the report, reuses metadata-backed revision pickers, and hides compact Pages
+  navigation. This page structure uses
+  `RendererGeneration` 17.
 - Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, safe theme CSS/catalog metadata, structured headings/ToC
   entries, format metadata,
   title, slug, indexing intent, frontmatter, repository context, source
   names/paths, ordered bundle pages, directory-grouped page navigation,
-  current-page identity, entrypoint, and assets. Document-specific CSS and JS
+  current-page identity, current-page breadcrumb segments, entrypoint, and
+  assets. Document-specific CSS and JS
   cover the page grid, Pages and On this
   page rails, narrow navigation dialog, previous/next controls, prose, source
   view, table of contents, copy controls, and Mermaid integration. Custom

@@ -57,7 +57,7 @@
 
 </script>
 <style>
-:root{--buncss-light:initial;--buncss-dark: ;color-scheme:light dark;--page-width:54rem}@media (prefers-color-scheme:dark){:root{--buncss-light: ;--buncss-dark:initial} }*{box-sizing:border-box}body{background:var(--bg);color:var(--fg);-webkit-text-size-adjust:100%;margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif,Apple Color Emoji,Segoe UI Emoji;font-size:16px;line-height:1.7}.toolbar{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items: center;gap:.5rem;width:100%;padding:.75rem 1.25rem 0;font-size:.85rem}.toolbar:not(:has(>:not([hidden]))){display:none}.toolbar a,.toolbar button{display:inline-flex;white-space:nowrap;font:inherit;color:var(--muted);text-decoration:none;cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;gap:.4rem;padding:.4rem .65rem}.toolbar a:hover,.toolbar button:hover{color:var(--fg);background:var(--control-hover)}.toolbar a:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar button:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar-actions{display:inline-flex;align-items: center;gap:.5rem}.mode-toggle{display:inline-flex;background:var(--control-track);border:0;border-radius:8px;gap:2px;padding:2px}.mode-toggle button{display:inline-flex;color:var(--muted);font:inherit;cursor:pointer;background:0 0;border:0;border-radius:6px;justify-content:center;align-items: center;gap:.4rem;padding:.3rem .55rem}.mode-toggle button:hover{color:var(--fg)}.mode-toggle button.active{color:var(--fg);background:var(--control-active);box-shadow:0 1px 2px #0003}.appearance-trigger{width:1.85rem;padding-inline-start:0;padding-inline-end:0}.appearance-resolved-icon{display:none}:root[data-airplan-resolved-mode=light] .appearance-resolved-icon[data-airplan-resolved-icon=light],:root[data-airplan-resolved-mode=dark] .appearance-resolved-icon[data-airplan-resolved-icon=dark]{display:block}.appearance{position:relative}.appearance:not(:first-child){margin-left:.5rem}.appearance:not(:first-child):before{content:"";position:absolute;background:var(--control-divider);width:1px;height:1rem;top:50%;left:-.825rem;transform:translateY(-50%)}.appearance-panel{position:absolute;z-index:30;color:var(--fg);background:var(--bg);border:1px solid var(--border);box-shadow:0 10px 30px color-mix(in srgb,var(--fg)14%,transparent);border-radius:10px;width:min(19rem,100vw - 2rem);padding:.85rem;top:calc(100% + .5rem);right:0}.appearance-heading{color:var(--heading);margin-bottom:.75rem;font-weight:600}.appearance-field{display:grid;gap:.35rem}.appearance-field+.appearance-field{margin-top:.75rem}.appearance-label{color:var(--muted);font-size:.78rem;font-weight:600}.appearance-modes{width:100%}.appearance-modes button{flex:1}.appearance-select{position:relative;display:grid}.appearance-panel select{appearance:none;-webkit-appearance:none;color:var(--fg);background:var(--surface-subtle);border:1px solid var(--border);font:inherit;border-radius:7px;width:100%;min-height:2.1rem;padding:.3rem 2.25rem .3rem .5rem}.appearance-panel select:focus-visible{outline:2px solid var(--link);outline-offset:2px}.appearance-select .appearance-select-icon{position:absolute;color:var(--muted);pointer-events:none;width:.875rem;height:.875rem;top:50%;right:.7rem;transform:translateY(-50%)}.icon{flex:none;width:16px;height:16px}.sr-status{position:absolute;overflow:hidden;clip-path:inset(50%);white-space:nowrap;width:1px;height:1px}[hidden]{display:none!important}@media (max-width:48rem){.toolbar button,.toolbar a{min-width:44px;min-height:44px} }@media (max-width:36rem){.toolbar{padding-inline-start:1rem;padding-inline-end:1rem}.appearance:not(:first-child){margin-left:0}.appearance:not(:first-child):before{display:none}.appearance-panel{position:fixed;width:auto;top:3.5rem;left:.75rem;right:.75rem} }@media print{:root,:root[data-airplan-theme]{--buncss-light:initial;--buncss-dark: ;color-scheme:light}.toolbar{display:none!important} }.page-shell{width:min(100%,var(--page-width));min-height:100vh;margin:0 auto;padding-bottom:4rem}header,.files{margin-inline-start:1.5rem;margin-inline-end:1.5rem}header{border-bottom:1px solid var(--border);padding:1.5rem 0 1.75rem}h1{color:var(--heading);letter-spacing:-.025em;overflow-wrap:anywhere;margin:.35em 0;font-size:2em;font-weight:700;line-height:1.25}.summary{color:var(--muted);margin:0;font-size:.9rem}.files{list-style:none;padding:0}.file{border-bottom:1px solid var(--border);padding:1.5rem 0 1.75rem}.file-header{display:flex;justify-content:space-between;align-items: flex-start;gap:1rem}.details{min-width:0}.details h2{color:var(--heading);overflow-wrap:anywhere;margin:0;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.95rem;font-weight:600;line-height:1.5}.meta{color:var(--muted);overflow-wrap:anywhere;margin-top:.2rem;font-size:.8rem}.actions{display:flex;flex-wrap:wrap;flex:none;justify-content:flex-end;gap:.15rem;margin:-.35rem 0 0;font-size:.82rem}.actions a,.actions button{display:inline-flex;color:var(--muted);font:inherit;text-decoration:none;white-space:nowrap;cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;min-height:2.1rem;padding:.4rem .65rem}.actions a:hover,.actions button:hover{background:var(--control-hover);color:var(--fg)}.actions :where(a,button):focus-visible{outline:2px solid var(--link);outline-offset:2px}.actions a:first-child{color:var(--link)}.preview{display:flex;overflow:hidden;background:var(--surface-subtle);border-radius:8px;justify-content:center;align-items: center;margin-top:1rem}.preview--audio{border:1px solid var(--border)}.preview-link{display:block;width:100%}.preview-link:focus-visible{outline:2px solid var(--link);outline-offset:-2px}.preview img{display:block;width:100%;height:auto}.preview video{display:block;object-fit:contain;width:100%;max-height:70vh}.preview audio{width:min(100% - 2rem,40rem);margin:1.5rem 1rem}@media (max-width:36rem){.toolbar{display:grid;grid-template-columns:max-content 1fr max-content;justify-content:stretch}.collection-actions{grid-column:1/3;grid-row:1;justify-self:start}.toolbar .appearance{grid-column:3;grid-row:1;justify-self:end}header,.files{margin-inline-start:1.25rem;margin-inline-end:1.25rem}header{padding-top:1rem}h1{font-size:1.75em}.file-header{display:block}.actions{justify-content:flex-start;margin:.65rem 0 -.35rem -.65rem} }
+:root{--buncss-light:initial;--buncss-dark: ;color-scheme:light dark;--page-width:54rem;--floating-panel-bg:color-mix(in srgb,var(--bg)96%,var(--surface-subtle));--floating-panel-radius:12px;--floating-panel-shadow:0 12px 32px color-mix(in srgb,var(--fg)16%,transparent)}@media (prefers-color-scheme:dark){:root{--buncss-light: ;--buncss-dark:initial} }*{box-sizing:border-box}body{background:var(--bg);color:var(--fg);-webkit-text-size-adjust:100%;margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif,Apple Color Emoji,Segoe UI Emoji;font-size:16px;line-height:1.7}.toolbar{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items: center;gap:.5rem;width:100%;padding:.75rem 1.25rem 0;font-size:.85rem}.toolbar:not(:has(>:not([hidden]))){display:none}.toolbar a,.toolbar button{display:inline-flex;white-space:nowrap;font:inherit;color:var(--muted);text-decoration:none;cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;gap:.4rem;padding:.4rem .65rem}.toolbar a:hover,.toolbar button:hover{color:var(--fg);background:var(--control-hover)}.toolbar a:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar button:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar-actions{display:inline-flex;align-items: center;gap:.5rem}.mode-toggle{display:inline-flex;background:var(--control-track);border:0;border-radius:8px;gap:2px;padding:2px}.mode-toggle button{display:inline-flex;color:var(--muted);font:inherit;cursor:pointer;background:0 0;border:0;border-radius:6px;justify-content:center;align-items: center;gap:.4rem;padding:.3rem .55rem}.mode-toggle button:hover{color:var(--fg)}.mode-toggle button.active{color:var(--fg);background:var(--control-active);box-shadow:0 1px 2px #0003}.appearance-trigger{width:1.85rem;padding-inline-start:0;padding-inline-end:0}.appearance-resolved-icon{display:none}:root[data-airplan-resolved-mode=light] .appearance-resolved-icon[data-airplan-resolved-icon=light],:root[data-airplan-resolved-mode=dark] .appearance-resolved-icon[data-airplan-resolved-icon=dark]{display:block}.appearance{position:relative}.appearance:not(:first-child){margin-left:.5rem}.appearance:not(:first-child):before{content:"";position:absolute;background:var(--control-divider);width:1px;height:1rem;top:50%;left:-.825rem;transform:translateY(-50%)}.appearance-panel{position:fixed;z-index:30;top:var(--airplan-appearance-top,4rem);right:var(--airplan-appearance-right,1rem);color:var(--fg);background:var(--floating-panel-bg);border:1px solid var(--border);border-radius:var(--floating-panel-radius);box-shadow:var(--floating-panel-shadow);width:min(19rem,100vw - 2rem);padding:.85rem;font-size:.85rem}.appearance-heading{color:var(--heading);margin-bottom:.75rem;font-weight:600}.appearance-field{display:grid;gap:.35rem}.appearance-field+.appearance-field{margin-top:.75rem}.appearance-label{color:var(--muted);font-size:.78rem;font-weight:600}.appearance-modes{width:100%}.appearance-modes button{flex:1;min-width:0}.appearance-select{position:relative;display:grid}.appearance-panel select{appearance:none;-webkit-appearance:none;color:var(--fg);background:var(--surface-subtle);border:1px solid var(--border);font:inherit;border-radius:7px;width:100%;min-height:2.5rem;padding:.3rem 2.25rem .3rem .5rem}.appearance-panel select:focus-visible{outline:2px solid var(--link);outline-offset:2px}.appearance-select .appearance-select-icon{position:absolute;color:var(--muted);pointer-events:none;width:.875rem;height:.875rem;top:50%;right:.7rem;transform:translateY(-50%)}.icon{flex:none;width:16px;height:16px}.sr-status{position:absolute;overflow:hidden;clip-path:inset(50%);white-space:nowrap;width:1px;height:1px}[hidden]{display:none!important}@media (max-width:48rem){.toolbar>button,.toolbar>a,.toolbar>.toolbar-actions>button,.toolbar>.toolbar-actions>a,.toolbar>.appearance>.appearance-trigger{min-width:44px;min-height:44px} }@media (max-width:36rem){.toolbar{padding-inline-start:1rem;padding-inline-end:1rem}.appearance:not(:first-child){margin-left:0}.appearance:not(:first-child):before{display:none}.appearance-panel{width:auto;left:1rem;right:1rem} }@media print{:root,:root[data-airplan-theme]{--buncss-light:initial;--buncss-dark: ;color-scheme:light}.toolbar{display:none!important} }.page-shell{width:min(100%,var(--page-width));min-height:100vh;margin:0 auto;padding-bottom:4rem}header,.files{margin-inline-start:1.5rem;margin-inline-end:1.5rem}header{border-bottom:1px solid var(--border);padding:1.5rem 0 1.75rem}h1{color:var(--heading);letter-spacing:-.025em;overflow-wrap:anywhere;margin:.35em 0;font-size:2em;font-weight:700;line-height:1.25}.summary{color:var(--muted);margin:0;font-size:.9rem}.files{list-style:none;padding:0}.file{border-bottom:1px solid var(--border);padding:1.5rem 0 1.75rem}.file-header{display:flex;justify-content:space-between;align-items: flex-start;gap:1rem}.details{min-width:0}.details h2{color:var(--heading);overflow-wrap:anywhere;margin:0;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.95rem;font-weight:600;line-height:1.5}.meta{color:var(--muted);overflow-wrap:anywhere;margin-top:.2rem;font-size:.8rem}.actions{display:flex;flex-wrap:wrap;flex:none;justify-content:flex-end;gap:.15rem;margin:-.35rem 0 0;font-size:.82rem}.actions a,.actions button{display:inline-flex;color:var(--muted);font:inherit;text-decoration:none;white-space:nowrap;cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;min-height:2.1rem;padding:.4rem .65rem}.actions a:hover,.actions button:hover{background:var(--control-hover);color:var(--fg)}.actions :where(a,button):focus-visible{outline:2px solid var(--link);outline-offset:2px}.actions a:first-child{color:var(--link)}.preview{display:flex;overflow:hidden;background:var(--surface-subtle);border-radius:8px;justify-content:center;align-items: center;margin-top:1rem}.preview--audio{border:1px solid var(--border)}.preview-link{display:block;width:100%}.preview-link:focus-visible{outline:2px solid var(--link);outline-offset:-2px}.preview img{display:block;width:100%;height:auto}.preview video{display:block;object-fit:contain;width:100%;max-height:70vh}.preview audio{width:min(100% - 2rem,40rem);margin:1.5rem 1rem}@media (max-width:36rem){.toolbar{display:grid;grid-template-columns:max-content 1fr max-content;justify-content:stretch}.collection-actions{grid-column:1/3;grid-row:1;justify-self:start}.toolbar .appearance{grid-column:3;grid-row:1;justify-self:end}header,.files{margin-inline-start:1.25rem;margin-inline-end:1.25rem}header{padding-top:1rem}h1{font-size:1.75em}.file-header{display:block}.actions{justify-content:flex-start;margin:.65rem 0 -.35rem -.65rem} }
 
 :root{color-scheme:light;--bg:#ffffff;--fg:#1f2328;--heading:#1f2328;--subheading:#474b4f;--muted:#59636e;--link:#0969da;--border:#d1d9e0;--surface-subtle:#f6f8fa;--code-inline-bg:#fafbfc;--code-bg:#f6f8fa;--code-border:#dee4e9;--control-track:#f6f8fa;--control-active:#eff1f3;--control-hover:#f6f7f8;--control-divider:#dde3e8;--on-link:#ffffff;--info:#0969da;--success:#1a7f37;--important:#8250df;--warning:#9a6700;--danger:#cf222e;--alert-info-bg:#e1edfb;--alert-success-bg:#e4f0e7;--alert-important-bg:#f0eafb;--alert-warning-bg:#f3ede0;--alert-danger-bg:#f9e4e6;--dialog-backdrop:#00000080}
 @media screen and (prefers-color-scheme:dark){:root:not([data-airplan-theme]){color-scheme:dark;--bg:#0d1117;--fg:#e6edf3;--heading:#e6edf3;--subheading:#bfc5cb;--muted:#9198a1;--link:#4493f8;--border:#3d444d;--surface-subtle:#151b23;--code-inline-bg:#11171e;--code-bg:#151b23;--code-border:#2f363e;--control-track:#151b23;--control-active:#212830;--control-hover:#181e25;--control-divider:#313740;--on-link:#0d1117;--info:#58a6ff;--success:#3fb950;--important:#a371f7;--warning:#d29922;--danger:#f85149;--alert-info-bg:#162333;--alert-success-bg:#13251e;--alert-important-bg:#1f1d32;--alert-warning-bg:#252118;--alert-danger-bg:#29191d;--dialog-backdrop:#00000080}
@@ -172,48 +172,48 @@ body{background:#fff;color:#1f2328}}
 </div>
 <script>
 (() => {
-  function q(e) {
+  function P(e) {
     return e === "system" || e === "light" || e === "dark";
   }
-  function s(e, n) {
+  function T(e, i) {
     try {
-      return e?.getItem(n) ?? null;
+      return e?.getItem(i) ?? null;
     } catch {
       return null;
     }
   }
-  function E(e, n, o) {
+  function E(e, i, l) {
     try {
-      if (o === null)
-        e?.removeItem(n);
+      if (l === null)
+        e?.removeItem(i);
       else
-        e?.setItem(n, o);
+        e?.setItem(i, l);
     } catch {}
   }
-  function A(e, n, o) {
-    let a = s(o, "airplan-color-mode");
-    if (a === null) {
-      let p = s(o, "airplan-theme");
-      if (a = p === "light" || p === "dark" ? p : "system", a !== "system")
-        E(o, "airplan-color-mode", a);
+  function x(e, i, l) {
+    let o = T(l, "airplan-color-mode");
+    if (o === null) {
+      let p = T(l, "airplan-theme");
+      if (o = p === "light" || p === "dark" ? p : "system", o !== "system")
+        E(l, "airplan-color-mode", o);
     }
-    let u = q(a) ? a : "system", r = new Set(e.themes.map((p) => p.id)), i = s(o, "airplan-light-theme"), d = s(o, "airplan-dark-theme"), c = i !== null && r.has(i) ? i : e.defaultLight, m = d !== null && r.has(d) ? d : e.defaultDark;
-    return L(e, u, c, m, n);
+    let u = P(o) ? o : "system", d = new Set(e.themes.map((p) => p.id)), a = T(l, "airplan-light-theme"), c = T(l, "airplan-dark-theme"), n = a !== null && d.has(a) ? a : e.defaultLight, h = c !== null && d.has(c) ? c : e.defaultDark;
+    return b(e, u, n, h, i);
   }
-  function L(e, n, o, a, u) {
-    let r = new Map(e.themes.map((v) => [v.id, v])), i = r.has(o) ? o : e.defaultLight, d = r.has(a) ? a : e.defaultDark, c = n === "system" ? u ? "dark" : "light" : n, m = c === "light" ? i : d, p = r.get(m)?.variant ?? c;
-    return { mode: n, resolvedMode: c, lightTheme: i, darkTheme: d, theme: m, variant: p };
+  function b(e, i, l, o, u) {
+    let d = new Map(e.themes.map((v) => [v.id, v])), a = d.has(l) ? l : e.defaultLight, c = d.has(o) ? o : e.defaultDark, n = i === "system" ? u ? "dark" : "light" : i, h = n === "light" ? a : c, p = d.get(h)?.variant ?? n;
+    return { mode: i, resolvedMode: n, lightTheme: a, darkTheme: c, theme: h, variant: p };
   }
-  function H(e, n) {
-    if (n === "system")
+  function A(e, i) {
+    if (i === "system")
       E(e, "airplan-color-mode", null), E(e, "airplan-theme", null);
     else
-      E(e, "airplan-color-mode", n), E(e, "airplan-theme", n);
+      E(e, "airplan-color-mode", i), E(e, "airplan-theme", i);
   }
-  function x(e, n, o) {
-    E(e, n === "light" ? "airplan-light-theme" : "airplan-dark-theme", o);
+  function B(e, i, l) {
+    E(e, i === "light" ? "airplan-light-theme" : "airplan-dark-theme", l);
   }
-  function B(e) {
+  function y(e) {
     return {
       mode: e.mode,
       resolvedMode: e.resolvedMode,
@@ -223,111 +223,127 @@ body{background:#fff;color:#1f2328}}
   }
 
   (function() {
-    let e = document, n = e.documentElement;
+    let e = document, i = e.documentElement;
     e.querySelectorAll(".js-only").forEach((t) => {
       t.hidden = !1;
     });
-    let o = window.__AIRPLAN_THEME_CATALOG__;
-    if (!o)
+    let l = window.__AIRPLAN_THEME_CATALOG__;
+    if (!l)
       return;
-    let a = o, u = window.matchMedia("(prefers-color-scheme: dark)"), r;
+    let o = l, u = window.matchMedia("(prefers-color-scheme: dark)"), d;
     try {
-      r = window.localStorage;
+      d = window.localStorage;
     } catch {}
-    let i = window.__airplanThemeState ?? A(a, u.matches, r), d = e.querySelector("[data-airplan-appearance-trigger]"), c = e.querySelector("[data-airplan-appearance-panel]"), m = e.querySelector('select[data-airplan-theme-slot="light"]'), p = e.querySelector('select[data-airplan-theme-slot="dark"]'), v = Array.from(e.querySelectorAll("[data-airplan-color-mode]"));
-    function b(t) {
+    let a = window.__airplanThemeState ?? x(o, u.matches, d), c = e.querySelector("[data-airplan-appearance-trigger]"), n = e.querySelector("[data-airplan-appearance-panel]"), h = e.querySelector('select[data-airplan-theme-slot="light"]'), p = e.querySelector('select[data-airplan-theme-slot="dark"]'), v = Array.from(e.querySelectorAll("[data-airplan-color-mode]"));
+    if (n)
+      e.body.appendChild(n);
+    function M(t) {
       if (!t || t.options.length > 0)
         return;
-      for (let [l, f] of [
+      for (let [r, f] of [
         ["light", "Light themes"],
         ["dark", "Dark themes"]
       ]) {
-        let h = e.createElement("optgroup");
-        h.label = f;
-        for (let T of a.themes) {
-          if (T.variant !== l)
+        let m = e.createElement("optgroup");
+        m.label = f;
+        for (let s of o.themes) {
+          if (s.variant !== r)
             continue;
-          let C = e.createElement("option");
-          C.value = T.id, C.textContent = T.name, h.append(C);
+          let L = e.createElement("option");
+          L.value = s.id, L.textContent = s.name, m.append(L);
         }
-        if (h.children.length > 0)
-          t.append(h);
+        if (m.children.length > 0)
+          t.append(m);
       }
     }
-    b(m), b(p);
-    function _(t, l = !0) {
-      if (i = t, window.__airplanThemeState = i, n.dataset.airplanMode = i.mode, n.dataset.airplanResolvedMode = i.resolvedMode, n.dataset.airplanTheme = i.theme, n.dataset.airplanThemeVariant = i.variant, v.forEach((f) => {
-        let h = f.dataset.airplanColorMode === i.mode;
-        f.classList.toggle("active", h), f.setAttribute("aria-pressed", String(h));
-      }), m)
-        m.value = i.lightTheme;
+    M(h), M(p);
+    function _(t, r = !0) {
+      if (a = t, window.__airplanThemeState = a, i.dataset.airplanMode = a.mode, i.dataset.airplanResolvedMode = a.resolvedMode, i.dataset.airplanTheme = a.theme, i.dataset.airplanThemeVariant = a.variant, v.forEach((f) => {
+        let m = f.dataset.airplanColorMode === a.mode;
+        f.classList.toggle("active", m), f.setAttribute("aria-pressed", String(m));
+      }), h)
+        h.value = a.lightTheme;
       if (p)
-        p.value = i.darkTheme;
-      if (l)
-        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: B(i) }));
+        p.value = a.darkTheme;
+      if (r)
+        window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: y(a) }));
     }
-    function S(t = {}) {
-      _(L(a, t.mode ?? i.mode, t.lightTheme ?? i.lightTheme, t.darkTheme ?? i.darkTheme, u.matches));
+    function w(t = {}) {
+      _(b(o, t.mode ?? a.mode, t.lightTheme ?? a.lightTheme, t.darkTheme ?? a.darkTheme, u.matches));
     }
-    function w(t, l = !1) {
-      if (!c || !d)
+    function S(t, r = !1) {
+      if (!n || !c)
         return;
-      if (c.hidden = !t, d.setAttribute("aria-expanded", String(t)), t)
-        c.querySelector("button,select")?.focus();
-      else if (l)
-        d.focus();
+      if (t)
+        C();
+      if (n.hidden = !t, c.setAttribute("aria-expanded", String(t)), t)
+        n.querySelector("button,select")?.focus();
+      else if (r)
+        c.focus();
     }
-    d?.addEventListener("click", () => w(Boolean(c?.hidden ?? !0))), v.forEach((t) => t.addEventListener("click", () => {
-      let l = t.dataset.airplanColorMode;
-      if (!l)
+    function C() {
+      if (!n || !c)
         return;
-      H(r, l), S({ mode: l });
+      let t = c.getBoundingClientRect(), r = c.closest(".toolbar")?.getBoundingClientRect(), f = e.documentElement.clientWidth, m = Math.min(304, f - 32), s = Math.max(16, f - t.right);
+      n.style.setProperty("--airplan-appearance-top", `${(r?.bottom ?? t.bottom) + 8}px`), n.style.setProperty("--airplan-appearance-right", `${Math.min(s, Math.max(16, f - m - 16))}px`);
+    }
+    c?.addEventListener("click", () => S(Boolean(n?.hidden ?? !0))), v.forEach((t) => t.addEventListener("click", () => {
+      let r = t.dataset.airplanColorMode;
+      if (!r)
+        return;
+      A(d, r), w({ mode: r });
     }));
-    function M(t, l) {
-      x(r, t, l.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: l.value } })), S(t === "light" ? { lightTheme: l.value } : { darkTheme: l.value });
+    function H(t, r) {
+      B(d, t, r.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: r.value } })), w(t === "light" ? { lightTheme: r.value } : { darkTheme: r.value });
     }
-    m?.addEventListener("change", () => M("light", m)), p?.addEventListener("change", () => M("dark", p)), u.addEventListener("change", () => {
-      if (i.mode === "system")
-        S();
+    h?.addEventListener("change", () => H("light", h)), p?.addEventListener("change", () => H("dark", p)), u.addEventListener("change", () => {
+      if (a.mode === "system")
+        w();
     }), e.addEventListener("keydown", (t) => {
-      if (t.key === "Escape" && c && !c.hidden)
-        t.preventDefault(), w(!1, !0);
+      if (t.key === "Escape" && n && !n.hidden)
+        t.preventDefault(), S(!1, !0);
     }), e.addEventListener("pointerdown", (t) => {
-      if (!c || c.hidden || !d)
+      if (!n || n.hidden || !c)
         return;
-      let l = t.target;
-      if (!(l instanceof Node) || c.contains(l) || d.contains(l))
+      let r = t.target;
+      if (!(r instanceof Node) || n.contains(r) || c.contains(r))
         return;
-      let h = (l instanceof Element ? l : l.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), T = c.contains(e.activeElement) && !h;
-      if (w(!1), T)
+      let m = (r instanceof Element ? r : r.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), s = n.contains(e.activeElement) && !m;
+      if (S(!1), s)
         setTimeout(() => {
-          if (e.activeElement === e.body || c.contains(e.activeElement))
-            d.focus();
+          if (e.activeElement === e.body || n.contains(e.activeElement))
+            c.focus();
         });
-    }), _(i, !1);
+    }), window.addEventListener("resize", () => {
+      if (n && !n.hidden)
+        C();
+    }), window.addEventListener("scroll", () => {
+      if (n && !n.hidden)
+        C();
+    }), _(a, !1);
   })();
 
   (function() {
-    var e = document, n = new WeakMap;
-    e.addEventListener("click", function(o) {
-      let a = o.target instanceof Element ? o.target.closest("[data-copy],[data-copy-overview]") : null;
-      if (!a)
+    var e = document, i = new WeakMap;
+    e.addEventListener("click", function(l) {
+      let o = l.target instanceof Element ? l.target.closest("[data-copy],[data-copy-overview]") : null;
+      if (!o)
         return;
-      var u = a.hasAttribute("data-copy-overview") ? location.href : new URL(a.dataset.copy || "", e.baseURI).href;
+      var u = o.hasAttribute("data-copy-overview") ? location.href : new URL(o.dataset.copy || "", e.baseURI).href;
       if (!navigator.clipboard) {
         prompt("Copy link", u);
         return;
       }
       navigator.clipboard.writeText(u).then(function() {
-        var r = n.get(a);
-        if (r)
-          window.clearTimeout(r.timer);
-        var i = r ? r.label : a.textContent;
-        a.textContent = "Copied";
-        var d = window.setTimeout(function() {
-          a.textContent = i, n.delete(a);
+        var d = i.get(o);
+        if (d)
+          window.clearTimeout(d.timer);
+        var a = d ? d.label : o.textContent;
+        o.textContent = "Copied";
+        var c = window.setTimeout(function() {
+          o.textContent = a, i.delete(o);
         }, 1200);
-        n.set(a, { label: i, timer: d });
+        i.set(o, { label: a, timer: c });
       }, function() {
         prompt("Copy link", u);
       });

@@ -99,10 +99,15 @@
 <header class="document-header">
   <p class="document-breadcrumb">
     {{- if gt (len .Pages) 1}}
-    <span>Document bundle</span><span aria-hidden="true">/</span>
+    <span class="document-breadcrumb-root" aria-label="Document bundle" title="Document bundle">{{template "airplan-icon-bundle"}}</span><span class="document-breadcrumb-separator" aria-hidden="true">/</span>
     {{- end}}
-    <span class="document-breadcrumb-current">{{.CurrentPage.Path}}</span>
-    {{- if .Revision}}<span aria-hidden="true">/</span><span>Revision {{.Revision}}</span>{{end}}
+    <span class="document-breadcrumb-path">
+    {{- range $index, $segment := .CurrentPageBreadcrumbs}}
+      {{- if $index}}<span class="document-breadcrumb-separator" aria-hidden="true">/</span>{{end}}
+      <span class="document-breadcrumb-segment">{{$segment}}</span>
+    {{- end}}
+    </span>
+    {{- if .Revision}}<span class="document-breadcrumb-revision">Revision {{.Revision}}</span>{{end}}
   </p>
   <div class="document-heading-row">
     <h1>{{.Title}}</h1>
@@ -119,8 +124,8 @@
   <section class="view-controls" aria-label="Content view">
     <div class="viewtoggle mode-toggle js-only" hidden>
       <button type="button" class="active" data-view="rendered"
-        aria-pressed="true" aria-label="{{if eq .Format "md"}}Rendered{{else}}Source{{end}} view"
-        title="{{if eq .Format "md"}}Rendered{{else}}Source{{end}} view">{{if eq .Format "md"}}{{template "airplan-icon-rendered"}}{{else}}{{template "airplan-icon-source"}}{{end}}<span>{{if eq .Format "md"}}Rendered{{else}}Source{{end}}</span></button>
+        aria-pressed="true" aria-label="{{if eq .Format "md"}}Read{{else}}Source{{end}} view"
+        title="{{if eq .Format "md"}}Read{{else}}Source{{end}} view">{{if eq .Format "md"}}{{template "airplan-icon-rendered"}}{{else}}{{template "airplan-icon-source"}}{{end}}<span>{{if eq .Format "md"}}Read{{else}}Source{{end}}</span></button>
       {{- if eq .Format "md"}}
       <button type="button" data-view="source" aria-pressed="false"
         aria-label="Source view" title="Source view">{{template "airplan-icon-source"}}<span>Source</span></button>
@@ -205,7 +210,12 @@
       <a class="raw-diff diff-action" href="{{.DiffPath}}">{{template "airplan-icon-source"}}<span>Open raw diff</span></a>
     </div>
   </nav>
-  <div class="complete-diff-meta"><span>Complete bundle report</span><span>Revision {{.Revision}}</span></div>
+  <div class="complete-diff-meta">
+    <span>Complete bundle report</span>
+    <div class="revision-controls js-only" data-revision-controls role="group" aria-label="Revision controls" hidden>
+      <p class="revision-heading" data-revision-heading>Revision {{.Revision}}{{if .RevisionCount}} of {{.RevisionCount}}{{end}}</p>
+    </div>
+  </div>
 </header>
 {{- if .HighlightedCompleteDiffHTML}}
 {{.HighlightedCompleteDiffHTML}}

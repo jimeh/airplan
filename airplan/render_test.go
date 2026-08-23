@@ -532,7 +532,7 @@ func TestRenderMarkdownInteractivity(t *testing.T) {
 
 	for name, frag := range map[string]string{
 		"view toggle":           `class="viewtoggle mode-toggle js-only" hidden`,
-		"rendered label":        `<span>Rendered</span>`,
+		"read label":            `<span>Read</span>`,
 		"source label":          `<span>Source</span>`,
 		"pressed state":         `aria-pressed="true"`,
 		"copy source":           `class="copy-source js-only" hidden`,

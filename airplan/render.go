@@ -526,6 +526,7 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 		data.Entrypoint = opts.Entrypoint
 	}
 	data.PageNavigation = buildDocumentPageNavigation(data.Pages)
+	data.CurrentPageBreadcrumbs = strings.Split(data.CurrentPage.Path, "/")
 	if data.AllChangesPath == "" && data.Revision > 1 && data.DiffPath != "" {
 		data.AllChangesPath = data.Entrypoint + "#airplan-all-changes"
 	}

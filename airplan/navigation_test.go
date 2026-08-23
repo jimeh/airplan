@@ -55,22 +55,24 @@ func TestCustomTemplateReceivesFlatPagesAndGroupedNavigation(t *testing.T) {
 		`{{range .Pages}}{{.Path}};{{end}}|` +
 			`{{range .PageNavigation}}` +
 			`{{if .IsDirectory}}dir={{.Name}}/{{range .Children}}{{.Name}},{{end}};` +
-			`{{else}}page={{.Name}};{{end}}{{end}}`,
+			`{{else}}page={{.Name}};{{end}}{{end}}|` +
+			`{{range .CurrentPageBreadcrumbs}}{{.}};{{end}}`,
 	))
 	pages := []DocumentTemplatePage{
-		{Path: "README.md", Title: "Bundle overview", URL: "README.html", Current: true},
-		{Path: "guides/getting-started.md", Title: "Getting started", URL: "guides/getting-started.html"},
+		{Path: "README.md", Title: "Bundle overview", URL: "README.html"},
+		{Path: "guides/getting-started.md", Title: "Getting started", URL: "guides/getting-started.html", Current: true},
 		{Path: "guides/architecture.md", Title: "Architecture", URL: "guides/architecture.html"},
 	}
 	out, err := RenderMarkdown([]byte("# Bundle overview\n"), RenderOptions{
 		Title: "Bundle overview", Template: tmpl, Pages: pages,
-		CurrentPage: pages[0], Entrypoint: "README.html",
+		CurrentPage: pages[1], Entrypoint: "README.html",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := "README.md;guides/getting-started.md;guides/architecture.md;|" +
-		"page=README.md;dir=guides/getting-started.md,architecture.md,;"
+		"page=README.md;dir=guides/getting-started.md,architecture.md,;|" +
+		"guides;getting-started.md;"
 	if got := strings.TrimSpace(string(out)); got != want {
 		t.Fatalf("custom navigation data = %q, want %q", got, want)
 	}

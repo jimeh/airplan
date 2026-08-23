@@ -26,7 +26,7 @@ The generated page should work independently of developer config.
 
 ## Details
 
-- Rendered and source views remain accessible.
+- Read and Source views remain accessible.
 - Copy controls preserve exact source and code bytes.
 
 ## Code sample
