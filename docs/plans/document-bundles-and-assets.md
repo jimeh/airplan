@@ -14,6 +14,10 @@ supersedes this plan's entry-only revision switching and bundle-wide per-page
 Changes presentation. The storage model, browser-native navigation, and other
 bundle decisions remain unchanged.
 
+Later contract: SPEC.md 0.57.0 supersedes this plan's explicit-role-only local
+CLI and MCP input decisions. Named file sets now infer document kind, entry,
+pages, and assets, while the marker and structured API model remains explicit.
+
 ## 1. Goal
 
 Let one Airplan document upload represent a small, self-contained body of work:
@@ -1287,7 +1291,7 @@ proportionate verification; no runtime behavior changes.
 ## 19. Explicit non-goals
 
 - Automatic recursive directory upload.
-- Automatic role inference for multiple input files.
+- Reference-based role inference from document contents.
 - Airplan-managed navigation among authored HTML pages.
 - Rewriting raw HTML attributes, CSS URLs, JavaScript imports, or asset contents.
 - Asset galleries, thumbnailing, media transcoding, virus scanning, or archive

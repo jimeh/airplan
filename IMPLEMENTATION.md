@@ -145,6 +145,12 @@ res, err := client.Upload(ctx, airplan.Input{
 // res.URL, res.Key, res.SourceURL, res.Bytes, res.ContentType,
 // res.MarkerKey, res.Format, res.RepositoryURL
 
+plan, err := airplan.PlanLocalPaths(airplan.LocalPathPlanOptions{
+    Paths: []string{"README.md", "docs/design.md", "images/flow.svg"},
+})
+// plan.Kind, plan.Entrypoint, plan.PagePaths, plan.AssetPaths
+// let local-file adapters build the explicit reader-based input below.
+
 document, err := client.UploadDocument(ctx, airplan.DocumentInput{
     Entry: airplan.PageInput{Reader: readme, Path: "README.md"},
     Pages: []airplan.PageInput{{
@@ -315,6 +321,12 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   links whose normalized target exactly matches the managed-source map. Relative
   URLs are calculated from each rendered page, so local output-directory
   previews and hosted pages use the same navigation model.
+- Local file planning: `local_paths.go` owns upload-kind inference, entry
+  selection, containment checks, and inferred page-versus-asset roles for named
+  filesystem inputs. It reads unknown supporting files only to classify complete
+  UTF-8 text, returns path-only plans without retaining descriptors, and leaves
+  opening, limits, rendering, and storage to the calling operation. Root upload,
+  preview, revision creation, and local MCP adapters consume the same plan.
 - Collection rendering uses a separate embedded `html/template` and stable
   `CollectionTemplateData` / `CollectionTemplateFile` surface. Preflight
   validates names and limits, resolves deterministic MIME/media kinds, creates
@@ -918,9 +930,10 @@ content plus strict-base64 assets. The compatibility and canonical revision
 tools share one schema and handler. Decoding enforces a 32 MiB aggregate asset
 limit independently of the Streamable HTTP body ceiling.
 
-With `LocalFiles`, stdio also registers `upload_document_files`,
-`new_document_revision_files`, and collection `upload_files` because client and
-tool process share a filesystem. HTTP omits all local-file tools because
+With `LocalFiles`, stdio also registers inferred `upload_paths`, explicit or
+inferred `upload_document_files`, `new_document_revision_files`, and collection
+`upload_files` because client and tool process share a filesystem. HTTP omits
+all local-file tools because
 server-local paths are not a portable file-transfer mechanism. Tool result structs
 provide the generated JSON Schemas and keep warnings inside structured output.
 Partial sync, purge, and bulk-upgrade errors set `IsError` without returning a

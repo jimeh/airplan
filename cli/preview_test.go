@@ -136,6 +136,35 @@ func TestPreviewMaterializesDocumentBundle(t *testing.T) {
 	}
 }
 
+func TestPreviewInfersDocumentBundleFromPositionalFiles(t *testing.T) {
+	isolateEnv(t)
+	root := t.TempDir()
+	entry := filepath.Join(root, "README.md")
+	page := filepath.Join(root, "guide.md")
+	asset := filepath.Join(root, "flow.svg")
+	for name, body := range map[string]string{
+		entry: "# Entry\n", page: "# Guide\n", asset: "<svg></svg>",
+	} {
+		if err := os.WriteFile(name, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	destination := filepath.Join(root, "preview")
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{
+		"preview", "--repo", "none", "--output-dir", destination,
+		page, asset, entry,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"readme.html", "guide.html", "flow.svg"} {
+		if _, err := os.Stat(filepath.Join(destination, name)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
 func TestPreviewOutputDirNoSource(t *testing.T) {
 	isolateEnv(t)
 	root := t.TempDir()

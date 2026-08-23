@@ -63,7 +63,8 @@ type mcpUpdateDocumentInput struct {
 }
 
 type mcpUploadDocumentFilesInput struct {
-	EntryPath        string   `json:"entry_path"`
+	Paths            []string `json:"paths,omitempty" jsonschema:"Local file paths to infer as one document. Markdown entry selection and supporting roles follow the Airplan local path rules."`
+	EntryPath        string   `json:"entry_path,omitempty" jsonschema:"Explicit local document entry path. It may also appear in paths."`
 	PagePaths        []string `json:"page_paths,omitempty"`
 	AssetPaths       []string `json:"asset_paths,omitempty"`
 	Title            string   `json:"title,omitempty"`
@@ -72,6 +73,26 @@ type mcpUploadDocumentFilesInput struct {
 	MaxTotalPageSize int64    `json:"max_total_page_size,omitempty"`
 	MaxAssetSize     int64    `json:"max_asset_size,omitempty"`
 	MaxTotalSize     int64    `json:"max_total_size,omitempty"`
+}
+
+type mcpUploadPathsInput struct {
+	Paths            []string `json:"paths" jsonschema:"Local file paths to classify and upload together."`
+	Entrypoint       string   `json:"entrypoint,omitempty"`
+	PagePaths        []string `json:"page_paths,omitempty"`
+	AssetPaths       []string `json:"asset_paths,omitempty"`
+	Collection       bool     `json:"collection,omitempty" jsonschema:"Force collection mode instead of inferring from the paths."`
+	Title            string   `json:"title,omitempty"`
+	Slug             string   `json:"slug,omitempty"`
+	MaxSize          int64    `json:"max_size,omitempty"`
+	MaxTotalPageSize int64    `json:"max_total_page_size,omitempty"`
+	MaxAssetSize     int64    `json:"max_asset_size,omitempty"`
+	MaxTotalSize     int64    `json:"max_total_size,omitempty"`
+}
+
+type mcpUploadPathsOutput struct {
+	Kind       UploadKind      `json:"kind"`
+	Document   *DocumentResult `json:"document,omitempty"`
+	Collection *FilesResult    `json:"collection,omitempty"`
 }
 
 type mcpRevisionDocumentFilesInput struct {
@@ -320,8 +341,70 @@ func NewMCPServerWithOptions(
 
 	if localFiles {
 		mcp.AddTool(server, &mcp.Tool{
+			Name: "upload_paths",
+			Description: "Classify and upload local paths as a document or " +
+				"collection. Markdown or HTML selects document mode; other " +
+				"multi-file sets default to a collection. Available only over local stdio.",
+		}, func(ctx context.Context, _ *mcp.CallToolRequest,
+			input mcpUploadPathsInput,
+		) (*mcp.CallToolResult, mcpUploadPathsOutput, error) {
+			ctx, cancel := mcpOperationContext(ctx, client)
+			defer cancel()
+			plan, err := PlanLocalPaths(LocalPathPlanOptions{
+				Paths: input.Paths, Entrypoint: input.Entrypoint,
+				PagePaths: input.PagePaths, AssetPaths: input.AssetPaths,
+				ForceCollection: input.Collection,
+			})
+			if err != nil {
+				return nil, mcpUploadPathsOutput{}, err
+			}
+			if plan.Kind == UploadKindCollection {
+				opened, err := openMCPCollectionFiles(plan.CollectionPaths)
+				if err != nil {
+					return nil, mcpUploadPathsOutput{}, err
+				}
+				defer opened.close()
+				result, err := client.UploadFiles(ctx, FilesInput{
+					Files: opened.inputs, Title: input.Title,
+					MaxSize: input.MaxSize, MaxTotalSize: input.MaxTotalSize,
+				})
+				if err != nil {
+					return nil, mcpUploadPathsOutput{}, mcpOperationError(ctx, err, false, options.Logger)
+				}
+				if result == nil {
+					return nil, mcpUploadPathsOutput{}, errors.New(
+						"airplan: collection upload returned no result",
+					)
+				}
+				return uploadToolContent(&result.Result), mcpUploadPathsOutput{
+					Kind: UploadKindCollection, Collection: result,
+				}, nil
+			}
+			opened, err := openMCPPlannedDocument(plan, mcpUploadDocumentFilesInput{
+				Title: input.Title, Slug: input.Slug, MaxSize: input.MaxSize,
+				MaxTotalPageSize: input.MaxTotalPageSize,
+				MaxAssetSize:     input.MaxAssetSize, MaxTotalSize: input.MaxTotalSize,
+			})
+			if err != nil {
+				return nil, mcpUploadPathsOutput{}, err
+			}
+			defer opened.close()
+			result, err := client.UploadDocument(ctx, opened.input)
+			if err != nil {
+				return nil, mcpUploadPathsOutput{}, mcpOperationError(ctx, err, false, options.Logger)
+			}
+			if result == nil {
+				return nil, mcpUploadPathsOutput{}, errors.New(
+					"airplan: document upload returned no result",
+				)
+			}
+			return uploadDocumentToolContent(result), mcpUploadPathsOutput{
+				Kind: UploadKindDocument, Document: result,
+			}, nil
+		})
+		mcp.AddTool(server, &mcp.Tool{
 			Name:        "upload_document_files",
-			Description: "Upload one local entry file with optional managed pages and assets. Available only over local stdio.",
+			Description: "Upload local document paths using either inferred paths or an explicit entry with page and asset roles. Available only over local stdio.",
 		}, func(ctx context.Context, _ *mcp.CallToolRequest,
 			input mcpUploadDocumentFilesInput,
 		) (*mcp.CallToolResult, DocumentResult, error) {
@@ -345,13 +428,13 @@ func NewMCPServerWithOptions(
 		})
 		mcp.AddTool(server, &mcp.Tool{
 			Name:        "new_document_revision_files",
-			Description: "Create a complete document revision from one local entry file with optional managed pages and assets. Available only over local stdio.",
+			Description: "Create a complete document revision from inferred local paths or an explicit entry with page and asset roles. Available only over local stdio.",
 		}, func(ctx context.Context, _ *mcp.CallToolRequest,
 			input mcpRevisionDocumentFilesInput,
 		) (*mcp.CallToolResult, DocumentRevisionResult, error) {
 			ctx, cancel := mcpOperationContext(ctx, client)
 			defer cancel()
-			opened, err := openMCPDocumentFiles(input.mcpUploadDocumentFilesInput)
+			opened, err := openMCPRevisionDocumentFiles(input.mcpUploadDocumentFilesInput)
 			if err != nil {
 				return nil, DocumentRevisionResult{}, err
 			}
@@ -376,37 +459,13 @@ func NewMCPServerWithOptions(
 		) (*mcp.CallToolResult, FilesResult, error) {
 			ctx, cancel := mcpOperationContext(ctx, client)
 			defer cancel()
-			files := make([]FileInput, 0, len(input.Paths))
-			opened := make([]*os.File, 0, len(input.Paths))
-			defer func() {
-				for _, file := range opened {
-					_ = file.Close()
-				}
-			}()
-			for _, path := range input.Paths {
-				file, err := os.Open(path)
-				if err != nil {
-					return nil, FilesResult{}, fmt.Errorf(
-						"airplan: open collection file %q: %w", path, err,
-					)
-				}
-				info, err := file.Stat()
-				if err != nil || !info.Mode().IsRegular() {
-					_ = file.Close()
-					if err == nil {
-						err = fmt.Errorf("not a regular file")
-					}
-					return nil, FilesResult{}, fmt.Errorf(
-						"airplan: inspect collection file %q: %w", path, err,
-					)
-				}
-				opened = append(opened, file)
-				files = append(files, FileInput{
-					Name: filepath.Base(path), Reader: file, Size: info.Size(),
-				})
+			opened, err := openMCPCollectionFiles(input.Paths)
+			if err != nil {
+				return nil, FilesResult{}, err
 			}
+			defer opened.close()
 			result, err := client.UploadFiles(ctx, FilesInput{
-				Files: files, Title: input.Title,
+				Files: opened.inputs, Title: input.Title,
 				MaxSize: input.MaxSize, MaxTotalSize: input.MaxTotalSize,
 			})
 			if err != nil {
@@ -823,10 +882,37 @@ func (o *mcpOpenedDocument) close() {
 }
 
 func openMCPDocumentFiles(input mcpUploadDocumentFilesInput) (*mcpOpenedDocument, error) {
-	if input.EntryPath == "" {
-		return nil, errors.New("airplan: entry_path is required")
+	plan, err := PlanLocalPaths(LocalPathPlanOptions{
+		Paths: input.Paths, Entrypoint: input.EntryPath,
+		PagePaths: input.PagePaths, AssetPaths: input.AssetPaths,
+		ForceDocument: true,
+	})
+	if err != nil {
+		return nil, err
 	}
-	entryAbs, err := filepath.Abs(input.EntryPath)
+	return openMCPPlannedDocument(plan, input)
+}
+
+func openMCPRevisionDocumentFiles(input mcpUploadDocumentFilesInput) (*mcpOpenedDocument, error) {
+	plan, err := PlanLocalPaths(LocalPathPlanOptions{
+		Paths: input.Paths, Entrypoint: input.EntryPath,
+		PagePaths: input.PagePaths, AssetPaths: input.AssetPaths,
+		ForceDocument: true, EntryFormat: "md",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return openMCPPlannedDocument(plan, input)
+}
+
+func openMCPPlannedDocument(
+	plan *LocalPathPlan,
+	input mcpUploadDocumentFilesInput,
+) (*mcpOpenedDocument, error) {
+	if plan == nil || plan.Kind != UploadKindDocument || plan.Entrypoint == "" {
+		return nil, errors.New("airplan: local document plan is invalid")
+	}
+	entryAbs, err := filepath.Abs(plan.Entrypoint)
 	if err != nil {
 		return nil, fmt.Errorf("airplan: resolve entry_path: %w", err)
 	}
@@ -856,7 +942,7 @@ func openMCPDocumentFiles(input mcpUploadDocumentFilesInput) (*mcpOpenedDocument
 	_ = info
 	opened.files = append(opened.files, entry)
 	opened.input.Entry = PageInput{Reader: entry, Path: filepath.Base(entryAbs), Title: input.Title}
-	for _, value := range input.PagePaths {
+	for _, value := range plan.PagePaths {
 		file, _, logical, err := openMCPBundleMember(rootDeclared, root, value)
 		if err != nil {
 			return fail(err)
@@ -864,13 +950,55 @@ func openMCPDocumentFiles(input mcpUploadDocumentFilesInput) (*mcpOpenedDocument
 		opened.files = append(opened.files, file)
 		opened.input.Pages = append(opened.input.Pages, PageInput{Reader: file, Path: logical})
 	}
-	for _, value := range input.AssetPaths {
+	for _, value := range plan.AssetPaths {
 		file, info, logical, err := openMCPBundleMember(rootDeclared, root, value)
 		if err != nil {
 			return fail(err)
 		}
 		opened.files = append(opened.files, file)
 		opened.input.Assets = append(opened.input.Assets, AssetInput{Reader: file, Path: logical, Size: info.Size()})
+	}
+	return opened, nil
+}
+
+type mcpOpenedFiles struct {
+	inputs []FileInput
+	files  []*os.File
+}
+
+func (o *mcpOpenedFiles) close() {
+	for _, file := range o.files {
+		_ = file.Close()
+	}
+}
+
+func openMCPCollectionFiles(paths []string) (*mcpOpenedFiles, error) {
+	if len(paths) == 0 {
+		return nil, errors.New("airplan: collection requires one or more named files")
+	}
+	opened := &mcpOpenedFiles{
+		inputs: make([]FileInput, 0, len(paths)),
+		files:  make([]*os.File, 0, len(paths)),
+	}
+	for _, path := range paths {
+		file, err := os.Open(path)
+		if err != nil {
+			opened.close()
+			return nil, fmt.Errorf("airplan: open collection file %q: %w", path, err)
+		}
+		info, err := file.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			_ = file.Close()
+			opened.close()
+			if err == nil {
+				err = errors.New("not a regular file")
+			}
+			return nil, fmt.Errorf("airplan: inspect collection file %q: %w", path, err)
+		}
+		opened.files = append(opened.files, file)
+		opened.inputs = append(opened.inputs, FileInput{
+			Name: filepath.Base(path), Reader: file, Size: info.Size(),
+		})
 	}
 	return opened, nil
 }
@@ -1015,7 +1143,7 @@ func safeMCPToolName(request mcp.Request) string {
 	}
 	switch call.Params.Name {
 	case "upload_document", "new_document_revision", "update_document",
-		"upload_document_files", "new_document_revision_files", "upload_files",
+		"upload_paths", "upload_document_files", "new_document_revision_files", "upload_files",
 		"list_uploads", "inspect_upload",
 		"delete_upload", "protect_upload", "unprotect_upload",
 		"sync_manifest", "preview_purge", "execute_purge",

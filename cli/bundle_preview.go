@@ -9,10 +9,11 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func runDocumentBundlePreview(cmd *cobra.Command, args []string, opts *previewOptions) error {
-	if opts.files || len(args) != 1 || args[0] == "-" {
-		return errors.New("airplan: bundle preview requires exactly one named entry file")
-	}
+func runDocumentBundlePreview(
+	cmd *cobra.Command,
+	plan *airplan.LocalPathPlan,
+	opts *previewOptions,
+) error {
 	if opts.outputDir == "" {
 		return errors.New("airplan: bundle preview requires --output-dir")
 	}
@@ -51,7 +52,7 @@ func runDocumentBundlePreview(cmd *cobra.Command, args []string, opts *previewOp
 	}
 	ctx, cancel := previewContext(cmd, cfg)
 	defer cancel()
-	opened, err := openDocumentBundle(args[0], opts.pages, opts.assets)
+	opened, err := openDocumentBundle(plan.Entrypoint, plan.PagePaths, plan.AssetPaths)
 	if err != nil {
 		return err
 	}

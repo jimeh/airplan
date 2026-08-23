@@ -36,7 +36,7 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 		localFiles bool
 		wantTools  int
 	}{
-		{name: "stdio", localFiles: true, wantTools: 16},
+		{name: "stdio", localFiles: true, wantTools: 17},
 		{name: "hosted HTTP", localFiles: false, wantTools: 13},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -65,6 +65,7 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 				t.Fatalf("tools = %d, want %d", len(tools.Tools), test.wantTools)
 			}
 			hasUploadFiles := false
+			hasUploadPaths := false
 			hasUploadDocumentFiles := false
 			hasRevisionFiles := false
 			hasNewRevision := false
@@ -72,6 +73,7 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 			uploadDocumentDescription := ""
 			for _, tool := range tools.Tools {
 				hasUploadFiles = hasUploadFiles || tool.Name == "upload_files"
+				hasUploadPaths = hasUploadPaths || tool.Name == "upload_paths"
 				hasUploadDocumentFiles = hasUploadDocumentFiles || tool.Name == "upload_document_files"
 				hasRevisionFiles = hasRevisionFiles || tool.Name == "new_document_revision_files"
 				hasNewRevision = hasNewRevision || tool.Name == "new_document_revision"
@@ -82,6 +84,9 @@ func TestMCPToolSurfaceAndManifestList(t *testing.T) {
 			}
 			if hasUploadFiles != test.localFiles {
 				t.Fatalf("upload_files present = %t", hasUploadFiles)
+			}
+			if hasUploadPaths != test.localFiles {
+				t.Fatalf("upload_paths present = %t", hasUploadPaths)
 			}
 			if hasUploadDocumentFiles != test.localFiles || hasRevisionFiles != test.localFiles {
 				t.Fatalf("local document tools = upload %t revision %t", hasUploadDocumentFiles, hasRevisionFiles)
@@ -281,6 +286,56 @@ func TestMCPUploadDocumentAcceptsInlinePagesAndAssets(t *testing.T) {
 	}
 	if !invalid.IsError || transport.documentCalls != 1 {
 		t.Fatalf("invalid result = %+v, calls = %d", invalid, transport.documentCalls)
+	}
+}
+
+func TestMCPUploadPathsInfersLocalDocumentRoles(t *testing.T) {
+	root := t.TempDir()
+	entry := filepath.Join(root, "README.md")
+	page := filepath.Join(root, "main.go")
+	asset := filepath.Join(root, "flow.svg")
+	for name, body := range map[string]string{
+		entry: "# Entry\n", page: "package main\n", asset: "<svg></svg>",
+	} {
+		if err := os.WriteFile(name, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	transport := &mcpTestTransport{documentResult: &DocumentResult{Result: Result{
+		URL: "https://plans.example.com/bbbbbbbbbbbbbbbbbbbbbbbbbb/readme.html",
+		Key: "bbbbbbbbbbbbbbbbbbbbbbbbbb/readme.html", Kind: string(UploadKindDocument),
+	}}}
+	client := &Client{cfg: &Config{}, remote: transport}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	server := NewMCPServer(client, "test", true)
+	clientTransport, serverTransport := mcp.NewInMemoryTransports()
+	serverSession, err := server.Connect(ctx, serverTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = serverSession.Close() }()
+	protocolClient := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "test"}, nil)
+	session, err := protocolClient.Connect(ctx, clientTransport, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = session.Close() }()
+
+	result, err := session.CallTool(ctx, &mcp.CallToolParams{
+		Name: "upload_paths", Arguments: map[string]any{
+			"paths": []any{page, asset, entry},
+		},
+	})
+	if err != nil || result.IsError {
+		t.Fatalf("result = %+v, error = %v", result, err)
+	}
+	if transport.documentCalls != 1 || transport.documentInput.Entry.Path != "README.md" ||
+		len(transport.documentInput.Pages) != 1 ||
+		transport.documentInput.Pages[0].Path != "main.go" ||
+		len(transport.documentInput.Assets) != 1 ||
+		transport.documentInput.Assets[0].Path != "flow.svg" {
+		t.Fatalf("document input = %+v, calls = %d", transport.documentInput, transport.documentCalls)
 	}
 }
 

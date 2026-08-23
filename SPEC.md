@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.56.0**
+**Spec version: 0.57.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -29,7 +29,7 @@ implementation is built lives in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 Non-goals: no accounts, multi-user authorization, embedded manifest web UI,
 background sync daemon, remotely coordinated database, horizontal server
 replicas, recursive directory upload, media transcoding, thumbnail generation,
-archive expansion, automatic file-role inference, asset-content rewriting,
+archive expansion, reference-based file-role inference, asset-content rewriting,
 client-side routing, offline caching, or page-level lifecycle operations.
 Airplan is not a public catalog or general pastebin.
 
@@ -73,20 +73,27 @@ Upload output contract (critical for agent use):
 `airplan [flags] [file ...]` — no file, or one `-`, reads a document from
 stdin. Collections require one or more named regular files.
 
-Airplan selects collection mode before rendering or storage mutation when any
-of these conditions hold:
+Airplan selects the upload kind before rendering or storage mutation:
 
-1. `--files` is set.
-2. More than one path is supplied.
-3. One named input has a recognized media or generic-binary extension. The
-   deterministic set includes common image, video, audio, PDF, and archive
-   formats; SVG is included even though it is text.
-4. One named input contains a NUL byte in its first 8 KiB or those bytes are
-   not valid UTF-8.
+1. `--collection` forces collection mode. `--files` is its compatibility
+   alias.
+2. `--entrypoint`, `--page`, `--asset`, or `--format md|html|txt` forces
+   document mode.
+3. One named input retains the existing document-versus-collection detection:
+   recognized media and opaque-resource extensions, a NUL byte in the first
+   8 KiB, or invalid UTF-8 in that prefix select collection mode; other
+   text-like inputs select document mode.
+4. Multiple named inputs containing at least one Markdown file select document
+   mode.
+5. Multiple named inputs with no Markdown but at least one HTML file select
+   document mode.
+6. Other multiple-file sets select collection mode.
 
-An explicit `--format md|html|txt` forces document mode and retains document
-validation. Stdin is always document mode. `--files` and `--format` are
-mutually exclusive.
+Stdin is always document mode. Collection forcing and document-only role or
+format flags are mutually exclusive. Local mode selection validates named
+regular files without opening FIFOs. Structured Go, REST, and inline MCP
+operations retain explicit document and collection entry points and never
+infer roles from transport filenames.
 
 ### Document input
 
@@ -137,16 +144,30 @@ the guard stays a per-invocation decision.
 A document has exactly one entry document. It may also declare managed pages
 and assets. A document with at least one non-entry page or asset is a document
 bundle, but its upload kind remains `document`. Collections remain unordered
-peer files with a generated overview. Multiple unqualified positional files
-therefore still select collection mode.
+peer files with a generated overview.
 
-`--page PATH` and `--asset PATH` explicitly add repeatable supporting roles.
-The first positional input remains the entry. These flags require the entry to
-be a named regular file, are not valid with collection mode, and cannot name
-the same normalized path. Bundled stdin is rejected because it has no local
-bundle root. An authored HTML entry may declare assets, including other HTML
-files, but cannot declare managed pages. Additional managed pages require a
-Markdown entry and may contain Markdown or UTF-8 text/source. Airplan renders
+For local multi-file document inputs, `--entrypoint PATH` wins and adds the
+named file when it is not already positional. Without it, Markdown-led inputs
+prefer a root-level `README.md`, then a root-level `index.md`, matching those
+names case-insensitively, then the first Markdown file in argument order.
+HTML-only inputs prefer a root-level `index.html` or `index.htm`, then the first
+HTML file. A preferred root-level candidate qualifies only when its directory
+contains every supplied file. The selected entry's directory is the bundle
+root; any supplied path outside that directory fails instead of silently
+widening the root.
+
+With a Markdown entry, other Markdown files and complete valid UTF-8 text or
+source files become managed pages. HTML, recognized media and opaque-resource
+extensions, files containing NUL, and invalid UTF-8 become byte-exact assets.
+With an HTML or text entry, every non-entry file becomes an asset. In
+particular, multiple authored HTML files form one HTML document plus assets;
+Airplan does not render, rewrite, or provide navigation among them.
+
+`--page PATH` and `--asset PATH` explicitly add a supporting file or override
+the inferred role of a positional file. They cannot assign conflicting roles
+to one normalized path and are invalid with collection mode. Bundled stdin is
+rejected because it has no local bundle root. Additional managed pages require
+a Markdown entry and may contain Markdown or UTF-8 text/source. Airplan renders
 source code through the text renderer. Assets are opaque byte-for-byte objects
 that Airplan neither renders nor inspects internally. CLI adapters detect their
 content types; structured callers may provide an explicit content type.
@@ -1034,36 +1055,38 @@ already is the original file.
 airplan [flags] [file ...]
 ```
 
-No file, or one `-`, reads a document from stdin. Multiple paths are one
-collection.
+No file, or one `-`, reads a document from stdin. Multiple named paths use the
+local inference rules in §2.
 
-| Flag                      | Default        | Notes                                 |
-| ------------------------- | -------------- | ------------------------------------- |
-| `--files`                 | off            | force named inputs into collection    |
-| `--page PATH`             | none           | repeatable managed document page      |
-| `--asset PATH`            | none           | repeatable byte-exact document asset  |
-| `--format`                | auto           | document-only `md`\|`html`\|`txt`     |
-| `--slug S`                | from filename  | document-only URL filename            |
-| `--title T`               | from content   | document or collection title          |
-| `--template P`            | built-in       | document template                     |
-| `--collection-template P` | built-in       | collection overview template          |
-| `--no-source`             | off            | document-only source suppression      |
-| `--indexable`             | off            | omit noindex on generated pages       |
-| `--no-external-assets`    | off            | document-only managed load control    |
-| `--mermaid-url URL`       | pinned URL     | document-only Mermaid module          |
-| `--repo VALUE`            | `auto`         | `auto`, `none`, or repository URL     |
-| `--max-size N`            | mode-specific  | 10 MiB page; 1 GiB collection member  |
-| `--max-total-page-size N` | 100 MiB        | document managed-source total         |
-| `--max-asset-size N`      | 1 GiB          | document per-asset limit              |
-| `--max-total-size N`      | 2 GiB          | document assets or collection total   |
-| `--timeout D`             | 30s            | operation timeout; 0 = no limit       |
-| `--lang L`                | from filename  | entry text highlight language         |
-| `--json`                  | off            | JSON object on stdout                 |
-| `--profile P`             | config default | named profile from config file        |
-| `--config PATH`           | XDG default    | alternate config file                 |
-| `--manifest PATH`         | state default  | local S3 operation manifest           |
-| `--open`                  | off            | open the entry or collection overview |
-| `--version`               |                |                                       |
+| Flag                      | Default        | Notes                                  |
+| ------------------------- | -------------- | -------------------------------------- |
+| `--collection`            | off            | force named inputs into collection     |
+| `--files`                 | off            | compatibility alias for `--collection` |
+| `--entrypoint PATH`       | inferred       | select and include document entry      |
+| `--page PATH`             | none           | repeatable managed-page override       |
+| `--asset PATH`            | none           | repeatable byte-exact asset override   |
+| `--format`                | auto           | document-only `md`\|`html`\|`txt`      |
+| `--slug S`                | from filename  | document-only URL filename             |
+| `--title T`               | from content   | document or collection title           |
+| `--template P`            | built-in       | document template                      |
+| `--collection-template P` | built-in       | collection overview template           |
+| `--no-source`             | off            | document-only source suppression       |
+| `--indexable`             | off            | omit noindex on generated pages        |
+| `--no-external-assets`    | off            | document-only managed load control     |
+| `--mermaid-url URL`       | pinned URL     | document-only Mermaid module           |
+| `--repo VALUE`            | `auto`         | `auto`, `none`, or repository URL      |
+| `--max-size N`            | mode-specific  | 10 MiB page; 1 GiB collection member   |
+| `--max-total-page-size N` | 100 MiB        | document managed-source total          |
+| `--max-asset-size N`      | 1 GiB          | document per-asset limit               |
+| `--max-total-size N`      | 2 GiB          | document assets or collection total    |
+| `--timeout D`             | 30s            | operation timeout; 0 = no limit        |
+| `--lang L`                | from filename  | entry text highlight language          |
+| `--json`                  | off            | JSON object on stdout                  |
+| `--profile P`             | config default | named profile from config file         |
+| `--config PATH`           | XDG default    | alternate config file                  |
+| `--manifest PATH`         | state default  | local S3 operation manifest            |
+| `--open`                  | off            | open the entry or collection overview  |
+| `--version`               |                |                                        |
 
 Plus flag overrides for every connection setting (`--endpoint`,
 `--bucket`, `--region`, `--public-base-url`, `--key-prefix`) for
@@ -1084,8 +1107,9 @@ unaffected — the upload succeeded and the URL was already printed.
 
 Flags explicitly used in the wrong mode fail before storage mutation.
 `--format`, `--lang`, `--slug`, `--template`, `--no-source`,
-`--no-external-assets`, and `--mermaid-url` are document-only. `--files`,
-`--collection-template` is collection-only. `--page`, `--asset`,
+`--no-external-assets`, and `--mermaid-url` are document-only. `--collection`,
+its `--files` compatibility alias, and `--collection-template` are
+collection-only. `--entrypoint`, `--page`, `--asset`,
 `--max-total-page-size`, and `--max-asset-size` are document-only.
 `--open` always opens the entry page or collection
 overview, never an arbitrary member.
@@ -1139,15 +1163,16 @@ airplan login.png demo.webm
 # → https://plans.example.com/vq3n.../index.html
 
 cat plan.md | airplan --slug refactor-auth
-airplan --files README.md
+airplan --collection README.md
 airplan --json report.html
 airplan --profile personal --open plan.md
 
-airplan README.md \
-  --page docs/design.md \
-  --page examples/server.go \
-  --asset images/flow.svg \
-  --asset recordings/demo.mp4
+airplan README.md docs/design.md examples/server.go \
+  images/flow.svg recordings/demo.mp4
+
+# Override an ambiguous UTF-8 file that should remain an asset.
+airplan README.md docs/design.md assets/status.json \
+  --asset assets/status.json
 ```
 
 ### Document upgrades
@@ -1240,7 +1265,7 @@ that parseable result on stdout and make the command non-zero.
 
 ### Linked Markdown revisions
 
-`airplan new-revision <url|key> [file|-]` is the canonical revision command.
+`airplan new-revision <url|key> [file ...]` is the canonical revision command.
 `airplan update` is a warning-free compatibility alias for the same command,
 with identical flags, stdout, stderr, no-op behavior, and exit status. No
 removal is scheduled for the alias.
@@ -1248,7 +1273,9 @@ removal is scheduled for the alias.
 Revision creation accepts only a complete, marker-managed, source-backed
 document whose entry remains Markdown. It resolves any supplied chain member
 to the latest live revision and uploads a complete replacement document under
-a new random directory. `--page` and `--asset` resupply the complete bundle;
+a new random directory. Named inputs use the same entry and role inference as
+new uploads. Positional paths plus `--entrypoint`, `--page`, and `--asset`
+resupply the complete bundle;
 omitted pages and assets are removals, never inherited state. A named entry must
 resolve to the existing document slug. Stdin or an omitted name preserves it
 implicitly and remains valid only for a one-entry replacement.
@@ -1575,8 +1602,8 @@ airplan unprotect <url|key>
 airplan upgrade [--check] [--force] [--template PATH] [--json] <url|key>
 airplan upgrade --all [--dry-run] [--yes] [--concurrency N]
                 [--all-profiles] [--json]
-airplan new-revision [--page PATH]... [--asset PATH]... [--json] [--open]
-                     <url|key> [file|-]
+airplan new-revision [--entrypoint PATH] [--page PATH]... [--asset PATH]...
+                     [--json] [--open] <url|key> [file ...]
 # `update` is an accepted alias for `new-revision`
 airplan purge [--remote] [--older-than 30d|2026-01-01] [--include-versioned]
               [--all] [--dry-run] [--yes] [--concurrency N]
@@ -1604,7 +1631,7 @@ collection overview template.
 resulting HTML to stdout or to `--output PATH`. It supports the rendering
 flags `--format`, `--lang`, `--slug`, `--title`, `--template`,
 `--indexable`, `--no-external-assets`, `--mermaid-url`, `--repo`, and
-`--max-size`, plus document-bundle `--page`, `--asset`,
+`--max-size`, plus document-bundle `--entrypoint`, `--page`, `--asset`,
 `--max-total-page-size`, `--max-asset-size`, and `--max-total-size`,
 plus `--config` and `--profile` for
 resolving template settings. It does not validate S3 connection fields,
@@ -1628,7 +1655,8 @@ sibling temporary directory and renames it into place. It refuses any existing
 destination, including an empty directory. Failure leaves no plausible partial
 bundle at the requested path.
 
-`preview --files` or multiple named inputs renders a collection overview. It
+`preview --collection` renders a collection overview. Unforced multiple named
+inputs use the same local kind and role inference as upload. Collection preview
 supports `--title`, `--collection-template`, `--indexable`, `--repo`,
 `--max-size`, and `--max-total-size`, performs the same collection preflight,
 and accesses neither storage nor the manifest. The output uses the same
@@ -3259,6 +3287,7 @@ The minimal tool set is:
 | `upload_document`             | yes   | yes  | Upload inline entry, pages, and assets |
 | `new_document_revision`       | yes   | yes  | Create a complete document revision    |
 | `update_document`             | yes   | yes  | Compatibility revision name            |
+| `upload_paths`                | yes   | no   | Infer and upload a local file set      |
 | `upload_document_files`       | yes   | no   | Upload a document bundle from paths    |
 | `new_document_revision_files` | yes   | no   | Create a document revision from paths  |
 | `upload_files`                | yes   | no   | Upload local paths as a collection     |
@@ -3293,8 +3322,12 @@ The `upload_document` tool description identifies GFM, highlighted code,
 Mermaid fences, GitHub-style alerts, frontmatter, footnotes, and responsive
 columns as optional Markdown affordances to use when they improve clarity.
 
-When local-file access is enabled, `upload_document_files` accepts `entry_path`,
-`page_paths`, and `asset_paths`.
+When local-file access is enabled, `upload_paths` accepts ordered `paths`,
+optional `entrypoint`, `page_paths`, and `asset_paths` overrides, plus a
+`collection` force switch. It applies the CLI's local inference rules and
+returns a discriminated document or collection result. The compatibility tools
+remain explicit: `upload_document_files` accepts optional inferred `paths` or
+`entry_path`, `page_paths`, and `asset_paths`, while
 `new_document_revision_files` accepts the same paths plus `url_or_key`. They
 apply the CLI's bundle-root and path rules without base64 buffering. There is
 no update-named alias for the newly introduced local-file revision tool.

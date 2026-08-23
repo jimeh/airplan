@@ -115,6 +115,43 @@ func TestUpdatePrintsOnlyNewRevisionURLAndJSONDescribesChain(t *testing.T) {
 	}
 }
 
+func TestNewRevisionInfersBundleRolesFromPositionalFiles(t *testing.T) {
+	isolateEnv(t)
+	fake := newFakeRemoteS3(t, nil, nil, nil)
+	dir := strings.Repeat("r", 26)
+	seedCLICurrentDocument(t, fake, dir)
+	config := writeCLIConfig(t, fake.server.URL)
+	target := "https://plans.example.com/" + dir + "/plan.html"
+	root := t.TempDir()
+	entry := filepath.Join(root, "plan.md")
+	page := filepath.Join(root, "guide.md")
+	asset := filepath.Join(root, "flow.svg")
+	for name, body := range map[string]string{
+		entry: "# Revised plan\n", page: "# Guide\n", asset: "<svg></svg>",
+	} {
+		if err := os.WriteFile(name, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stdout, stderr, err := executeCommand(t, "", "", "new-revision", "--json",
+		"--config", config, target, entry, page, asset)
+	if err != nil || stderr != "" {
+		t.Fatalf("stdout = %q, stderr = %q, error = %v", stdout, stderr, err)
+	}
+	var result airplan.DocumentRevisionResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("stdout = %q: %v", stdout, err)
+	}
+	if len(result.Pages) != 2 || result.Pages[0].Path != "plan.md" ||
+		result.Pages[1].Path != "guide.md" {
+		t.Fatalf("pages = %+v", result.Pages)
+	}
+	if len(result.Assets) != 1 || result.Assets[0].Path != "flow.svg" {
+		t.Fatalf("assets = %+v", result.Assets)
+	}
+}
+
 func TestUpdateAcceptsExplicitManifestWithDirectS3Backend(t *testing.T) {
 	isolateEnv(t)
 	fake := newFakeRemoteS3(t, nil, nil, nil)

@@ -42,8 +42,8 @@ one cleanup unit.
   Authored HTML and link destinations are preserved, so treat it as trusted
   content.
 - Source and plain-text files become highlighted, gist-like pages.
-- A Markdown entry can include ordered pages and assets with `--page` and
-  `--asset`; the entry URL stays the command result.
+- Multiple files containing Markdown or HTML become one document automatically;
+  the entry URL stays the command result.
 - HTML stays HTML, with no rendering step. Treat HTML input as trusted code: it
   may execute scripts when someone opens the link.
 - Images, video, and audio render on a responsive collection overview. Generic
@@ -438,19 +438,20 @@ airplan --open plan.md            # upload and open in a browser
 airplan --json plan.md            # structured result for scripts
 ```
 
-Add managed pages and byte-exact assets explicitly when one entry document
-should own the whole set:
+Pass a primary Markdown document with its related files to create a document
+bundle:
 
 ```sh
-airplan README.md \
-  --page docs/design.md \
-  --page examples/server.go \
-  --asset images/flow.svg \
-  --asset recordings/demo.mp4
+airplan README.md docs/design.md examples/server.go \
+  images/flow.svg recordings/demo.mp4
 ```
 
-The entry file's directory is the bundle root. Page and asset paths must remain
-beneath it, including after resolving symlinks. Airplan preserves safe nested
+Airplan prefers a root `README.md`, then `index.md`, then the first Markdown
+file as the entry. `--entrypoint PATH` overrides that choice. Other Markdown
+and UTF-8 source files become managed pages; HTML, media, and opaque resources
+become byte-exact assets. Use `--page` or `--asset` to override an ambiguous
+file's inferred role. The entry file's directory is the bundle root. Every path
+must remain beneath it, including after resolving symlinks. Airplan preserves safe nested
 paths, renders Markdown pages as sibling `.html` files, appends `.html` to
 source-code page names, and rewrites links only when they exactly name a
 declared managed source. Assets are uploaded unchanged and do not appear in the
@@ -463,8 +464,8 @@ Bundles accept at most 100 total items. Defaults are 10 MiB per managed source,
 `--max-total-page-size`, `--max-asset-size`, and `--max-total-size`. A server may
 advertise lower limits.
 
-Pass multiple files to create one collection. Airplan prints each direct file
-URL in argument order, then the overview URL:
+Multiple files without Markdown or HTML create a collection. Airplan prints
+each direct file URL in argument order, then the overview URL:
 
 ```console
 $ airplan login.png settings.png demo.webm
@@ -475,12 +476,13 @@ https://plans.example.com/vq3n.../index.html
 ```
 
 A single recognized media or binary file also becomes a collection. Use
-`--files` when one text-like input should be uploaded unchanged instead of
-rendered as a document:
+`--collection` when one text-like input should be uploaded unchanged, or when a
+Markdown or HTML file set should remain a collection. `--files` remains a
+compatibility alias.
 
 ```sh
 airplan screenshot.png
-airplan --files README.md
+airplan --collection README.md
 airplan --json screenshot.png recording.webm
 ```
 
@@ -546,9 +548,8 @@ an immutable view of its original source:
 ```sh
 airplan new-revision --json https://plans.example.com/vq3n.../plan.html plan.md
 
-airplan new-revision https://plans.example.com/vq3n.../readme.html README.md \
-  --page docs/design.md \
-  --asset images/flow.svg
+airplan new-revision https://plans.example.com/vq3n.../readme.html \
+  README.md docs/design.md images/flow.svg
 ```
 
 `new-revision` is the canonical name. `update` remains a warning-free
@@ -582,9 +583,9 @@ contact S3, or update the upload history.
 ```sh
 airplan preview plan.md > plan.html
 airplan preview -o plan.html plan.md
-airplan preview README.md --page docs/design.md \
-  --asset images/flow.svg --output-dir ./preview
-airplan preview --files screenshot.png demo.webm -o index.html
+airplan preview README.md docs/design.md images/flow.svg \
+  --output-dir ./preview
+airplan preview --collection screenshot.png demo.webm -o index.html
 ```
 
 A preview with pages or assets requires `--output-dir`. Airplan stages the
@@ -804,10 +805,10 @@ purge, and preview-by-default document upgrade tools. `upload_document` and the
 canonical `new_document_revision` accept inline UTF-8 pages and base64 assets;
 `update_document` remains an identical compatibility tool. Inline assets have a
 32 MiB decoded aggregate limit in addition to the hosted request-body limit.
-Local stdio adds `upload_document_files` and
-`new_document_revision_files` for entry, page, and asset paths, plus the
-existing collection `upload_files`. Hosted MCP never accepts server-local paths
-and omits all three local-file tools. `upgrade_documents` applies only exact
+Local stdio adds `upload_paths` for the same automatic classification,
+`upload_document_files` and `new_document_revision_files` for document paths,
+and explicit collection `upload_files`. Hosted MCP never accepts server-local
+paths and omits all four local-file tools. `upgrade_documents` applies only exact
 items returned by its preview. Template dumping, config inspection, arbitrary
 object access, and filesystem browsing are not exposed.
 

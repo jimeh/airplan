@@ -18,6 +18,7 @@ type updateOptions struct {
 	maxTotalSize     string
 	pages            []string
 	assets           []string
+	entrypoint       string
 	json, open       bool
 }
 
@@ -35,10 +36,10 @@ type updateJSONResult struct {
 func newUpdateCmd() *cobra.Command {
 	opts := &updateOptions{}
 	cmd := &cobra.Command{
-		Use:     "new-revision <url|key> [markdown-file]",
+		Use:     "new-revision <url|key> [file ...]",
 		Aliases: []string{"update"},
 		Short:   "Upload a new linked Markdown revision",
-		Args:    cobra.RangeArgs(1, 2), SilenceUsage: true, SilenceErrors: true,
+		Args:    cobra.MinimumNArgs(1), SilenceUsage: true, SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error { return runUpdate(cmd, args, opts) },
 	}
 	f := cmd.Flags()
@@ -49,8 +50,9 @@ func newUpdateCmd() *cobra.Command {
 	f.StringVar(&opts.maxTotalPageSize, "max-total-page-size", "100MiB", "managed-source total limit; 0 = no limit")
 	f.StringVar(&opts.maxAssetSize, "max-asset-size", "1GiB", "per-asset limit; 0 = no limit")
 	f.StringVar(&opts.maxTotalSize, "max-total-size", "2GiB", "asset total limit; 0 = no limit")
-	f.StringArrayVar(&opts.pages, "page", nil, "managed page file (repeatable)")
-	f.StringArrayVar(&opts.assets, "asset", nil, "supporting asset file (repeatable)")
+	f.StringArrayVar(&opts.pages, "page", nil, "managed page file (repeatable; overrides inferred role)")
+	f.StringArrayVar(&opts.assets, "asset", nil, "supporting asset file (repeatable; overrides inferred role)")
+	f.StringVar(&opts.entrypoint, "entrypoint", "", "document entry file")
 	f.BoolVarP(&opts.json, "json", "j", false, "print one JSON result")
 	f.BoolVarP(&opts.open, "open", "o", false, "open the new revision URL")
 	return cmd
@@ -86,16 +88,24 @@ func runUpdate(cmd *cobra.Command, args []string, opts *updateOptions) error {
 		MaxTotalPageSize: maxTotalPages, MaxAssetSize: maxAsset,
 		MaxTotalSize: maxTotal,
 	}
-	if len(args) == 1 || args[1] == "-" {
-		if len(opts.pages) != 0 || len(opts.assets) != 0 {
-			return errors.New("airplan: bundle revisions require a named entry file")
-		}
+	stdin := len(args) == 1 || (len(args) == 2 && args[1] == "-")
+	if stdin && opts.entrypoint == "" && len(opts.pages) == 0 && len(opts.assets) == 0 {
 		document.Entry = airplan.PageInput{
 			Reader: cmd.InOrStdin(), Format: "md",
 			Title: opts.title,
 		}
 	} else {
-		opened, openErr := openDocumentBundle(args[1], opts.pages, opts.assets)
+		plan, planErr := airplan.PlanLocalPaths(airplan.LocalPathPlanOptions{
+			Paths: args[1:], Entrypoint: opts.entrypoint,
+			PagePaths: opts.pages, AssetPaths: opts.assets,
+			ForceDocument: true, EntryFormat: "md",
+		})
+		if planErr != nil {
+			return planErr
+		}
+		opened, openErr := openDocumentBundle(
+			plan.Entrypoint, plan.PagePaths, plan.AssetPaths,
+		)
 		if openErr != nil {
 			return openErr
 		}

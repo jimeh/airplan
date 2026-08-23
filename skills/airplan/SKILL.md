@@ -63,21 +63,25 @@ belong with it:
 
 ```sh
 airplan --json README.md \
-  --page docs/design.md \
-  --page examples/server.go \
-  --asset images/flow.svg \
-  --asset recordings/demo.webm
+  docs/design.md \
+  examples/server.go \
+  images/flow.svg \
+  recordings/demo.webm
 ```
 
 Run the command from the entry file's project. Every page and asset must remain
 beneath the entry directory, including after resolving symlinks. Airplan adds
-declared pages to built-in navigation and uploads assets unchanged. Read `.url`
+Markdown and UTF-8 source files to built-in navigation and uploads recognized
+opaque resources unchanged. It prefers a root `README.md`, then `index.md`, then
+the first Markdown file as the entry. Use `--entrypoint`, `--page`, or `--asset`
+to override inference. Read `.url`
 for the entry, `.pages[].url` for managed pages, and `.assets[].url` for assets.
 Do not use a bundle for peer evidence files with no primary narrative; use a
 collection instead.
 
 With MCP, use inline `upload_document` for generated text and small assets. Use
-`upload_document_files` when the local tool is available for screenshots,
+`upload_paths` when the local tool can infer a mixed local file set, or
+`upload_document_files` when explicit document roles are preferable for screenshots,
 recordings, or other files that should not be base64-buffered. Hosted MCP does
 not expose local-file tools. Inline MCP assets have a 32 MiB decoded aggregate
 limit; use the local-file tool or REST for larger assets.
@@ -138,8 +142,8 @@ when uploading a temporary file.
 
 ## Screenshots, recordings, and other files
 
-When a document is the primary narrative, declare its supporting evidence with
-`--asset` as described above. When the files are peers with no primary
+When a document is the primary narrative, include its supporting evidence in
+the same command and use `--asset` only for ambiguous UTF-8 resources. When the files are peers with no primary
 document, upload related evidence in one invocation so it becomes one
 collection and one cleanup unit:
 
@@ -161,9 +165,9 @@ airplan --json screenshot.png demo.webm
 # .url          → collection overview URL
 ```
 
-Multiple named files automatically form a collection. A single recognized
-media or binary file does too. Use `--files` to upload one text-like file
-unchanged instead of rendering it as a document.
+Multiple named files without Markdown or HTML automatically form a collection.
+A single recognized media or binary file does too. Use `--collection` to force
+any named set into a collection. `--files` remains a compatibility alias.
 
 For a substantial recording, supply a longer explicit timeout such as
 `--timeout 2m`; do not inspect configuration or credentials to discover the
