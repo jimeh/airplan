@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.58.0**
+**Spec version: 0.59.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -1437,8 +1437,10 @@ labeled `Revision N (Latest)`. The whole indicator opens a native select,
 including a one-option selector when deletion leaves one live chain member;
 the global toolbar contains no revision control and there are no previous,
 next, or latest shortcut links.
-Valid metadata also adds an icon-labeled `All changes` action beside the selector for every revision
-greater than 1. Markdown pages expose Read and Source modes plus Changes
+Valid metadata also adds an icon-labeled `All changes` action beside the selector
+for every multi-page document revision greater than 1. Single-page documents
+omit it because their complete report is identical to the page-local Changes
+view. Markdown pages expose Read and Source modes plus Changes
 only when that logical page was added or its source, format, title, or language
 changed. Managed text pages expose Source plus the same optional Changes mode.
 Page reorder alone appears only in the complete report. Changes is page-local;

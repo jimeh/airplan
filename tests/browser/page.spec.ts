@@ -117,6 +117,7 @@ let subsetHTML = Buffer.alloc(0);
 let revisionHTML = Buffer.alloc(0);
 let revisionNotesHTML = Buffer.alloc(0);
 let revisionNotesSource = Buffer.alloc(0);
+let revisionSingleHTML = Buffer.alloc(0);
 let bundleMembers = new Map<string, Buffer>();
 const versionRequests: Array<{
   headers: import("node:http").IncomingHttpHeaders;
@@ -387,6 +388,7 @@ syntax = "derived"
   revisionHTML = await readFile(revisionOutputPath);
   revisionNotesHTML = await readFile(join(tempRoot, "notes.html"));
   revisionNotesSource = await readFile(join(tempRoot, "notes.md"));
+  revisionSingleHTML = await readFile(join(tempRoot, "single.html"));
   bundleMembers = new Map([
     ["/bundle/index.html", await readFile(join(bundleOutputPath, "index.html"))],
     ["/bundle/docs/design.html", await readFile(join(bundleOutputPath, "docs", "design.html"))],
@@ -421,6 +423,8 @@ syntax = "derived"
       response.writeHead(200, { "Content-Type": "text/markdown; charset=utf-8" });
       response.end(revisionNotesSource);
       return;
+    } else if (request.url === `/${"t".repeat(26)}/single.html`) {
+      body = revisionSingleHTML;
     } else if (request.url === `/${"r".repeat(26)}/.airplan-changes.diff`) {
       response.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
       response.end("--- revision-1/plan.md\n+++ revision-2/plan.md\n");
@@ -2368,6 +2372,43 @@ test("revision Changes view switches and exposes its adjacent raw diff", async (
   await historyRevision.selectOption(revisions[0].url);
   await expect(page).toHaveURL(revisions[0].url);
   await expect(page.locator("#rendered")).toBeVisible();
+});
+
+test("single-page revision omits the redundant All changes action", async ({ page }) => {
+  const firstDir = "u".repeat(26);
+  const currentDir = "t".repeat(26);
+  const revisions = [
+    {
+      number: 1,
+      url: `${baseURL}/${firstDir}/single.html`,
+      created_at: "2026-08-15T10:00:00Z",
+    },
+    {
+      number: 2,
+      url: `${baseURL}/${currentDir}/single.html`,
+      created_at: "2026-08-15T10:10:00Z",
+      diff_url: `${baseURL}/${currentDir}/.airplan-changes.diff`,
+    },
+  ];
+  await page.route("**/.airplan-versions.json?*", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        schema: "airplan-versions",
+        version: 1,
+        chain_id: "t".repeat(26),
+        current_revision: 2,
+        latest_revision: 2,
+        last_assigned_revision: 2,
+        revisions,
+      }),
+    }),
+  );
+
+  await page.goto(revisions[1].url);
+  await expect(page.getByRole("combobox", { name: "Document revision" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Changes view" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "All changes" })).toHaveCount(0);
 });
 
 test("rendered page controls work", async ({ context, page }, testInfo) => {
