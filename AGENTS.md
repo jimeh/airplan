@@ -88,6 +88,9 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Worktree bootstrap** (`.treeboot.toml`): copy the root checkout's
   ignored `mise.local.toml` once, then run `mise run setup`. Existing
   worktree-local copies are intentionally preserved.
+- **Transient Lefthook replacement failure**: if worktree setup reports that it
+  could not replace a missing shared `pre-commit` hook, rerun `mise run setup`.
+  The second install completes after dependency seeding.
 - **Removed worktree lint cache**: if `golangci-lint` reports source paths from
   a deleted worktree, run `golangci-lint cache clean` before retrying. Cached
   issues otherwise keep references to files that no longer exist.

@@ -1,329 +1,334 @@
-function Z1() {
-  let Z = 0;
+function t() {
+  let C = 0;
   return {
-    next: () => ++Z,
-    isCurrent: (A) => A === Z
+    next: () => ++C,
+    isCurrent: (M) => M === C
   };
 }
 
-var C1 = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', M1 = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 10a.75.75 0 0 1 .75.75v2.5c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 1 13.25v-2.5a.75.75 0 0 1 .75-.75Zm12.5 0a.75.75 0 0 1 .75.75v2.5A1.75 1.75 0 0 1 13.25 15h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 .75-.75ZM2.75 2.5a.25.25 0 0 0-.25.25v2.5a.75.75 0 0 1-1.5 0v-2.5C1 1.784 1.784 1 2.75 1h2.5a.75.75 0 0 1 0 1.5ZM10 1.75a.75.75 0 0 1 .75-.75h2.5c.966 0 1.75.784 1.75 1.75v2.5a.75.75 0 0 1-1.5 0v-2.5a.25.25 0 0 0-.25-.25h-2.5a.75.75 0 0 1-.75-.75Z"/></svg>';
+var e = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>', Z1 = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 10a.75.75 0 0 1 .75.75v2.5c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 1 13.25v-2.5a.75.75 0 0 1 .75-.75Zm12.5 0a.75.75 0 0 1 .75.75v2.5A1.75 1.75 0 0 1 13.25 15h-2.5a.75.75 0 0 1 0-1.5h2.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 .75-.75ZM2.75 2.5a.25.25 0 0 0-.25.25v2.5a.75.75 0 0 1-1.5 0v-2.5C1 1.784 1.784 1 2.75 1h2.5a.75.75 0 0 1 0 1.5ZM10 1.75a.75.75 0 0 1 .75-.75h2.5c.966 0 1.75.784 1.75 1.75v2.5a.75.75 0 0 1-1.5 0v-2.5a.25.25 0 0 0-.25-.25h-2.5a.75.75 0 0 1-.75-.75Z"/></svg>';
 
-var $ = Array.from(document.querySelectorAll("pre.mermaid")), J1 = {{.MermaidURL}}, l = $.map((Z) => Z.textContent), K = $.map(() => new Map), I = $.map(() => new Set), v = window.__AIRPLAN_THEME_CATALOG__, A1 = window.__AIRPLAN_MERMAID_THEMES__, H1 = matchMedia("print"), q = "__airplan-print-github-light", Q1 = 0, b = null, X = window.__airplanThemeState?.theme ?? v?.defaultLight ?? "github-light", E1 = $.map(() => X), Y = H1.matches, o, g = new Set, L1 = Z1();
-function d(Z, A, E = !0) {
-  let L = K[Z].get(A);
+var F = Array.from(document.querySelectorAll("pre.mermaid")), O1 = {{.MermaidURL}}, y = F.map((C) => C.textContent), x = F.map(() => new Map), c = F.map(() => new Set), p = window.__AIRPLAN_THEME_CATALOG__, C1 = window.__AIRPLAN_MERMAID_THEMES__, L1 = matchMedia("print"), q = "__airplan-print-github-light", j1 = 0, b = null, Y = window.__airplanThemeState?.theme ?? p?.defaultLight ?? "github-light", H1 = F.map(() => Y), f = L1.matches, l, o = new Set, M1 = t();
+function d(C, M, E = !0) {
+  let L = x[C].get(M);
   if (!L)
     return !1;
-  if ($[Z].innerHTML = L.svg, L.bindFunctions)
-    L.bindFunctions($[Z]);
+  if (F[C].innerHTML = L.svg, L.bindFunctions)
+    L.bindFunctions(F[C]);
   if (b)
-    b.enhance($[Z]);
-  if (E && A !== q)
-    E1[Z] = A;
+    b.enhance(F[C]);
+  if (E && M !== q)
+    H1[C] = M;
   return !0;
 }
-function y(Z) {
-  let A = !0;
-  return K.forEach((E, L) => {
-    if (!d(L, Z))
-      A = !1;
-  }), A;
+function v(C) {
+  let M = !0;
+  return x.forEach((E, L) => {
+    if (!d(L, C))
+      M = !1;
+  }), M;
 }
-function m() {
-  K.forEach((Z, A) => {
-    if (!d(A, X))
-      d(A, E1[A]);
+function g() {
+  x.forEach((C, M) => {
+    if (!d(M, Y))
+      d(M, H1[M]);
   });
 }
-function u(Z, A = !0) {
-  if (o)
-    o(Z, A);
+function u(C, M = !0) {
+  if (l)
+    l(C, M);
   else
-    g.add(Z);
+    o.add(C);
 }
-window.addEventListener("airplan:themechange", (Z) => {
-  let A = Z.detail;
-  if (X = A.theme, !Y)
-    u(A.theme);
+window.addEventListener("airplan:themechange", (C) => {
+  let M = C.detail;
+  if (Y = M.theme, !f)
+    u(M.theme);
 });
-window.addEventListener("airplan:themeprepare", (Z) => {
-  let A = Z.detail;
-  u(A.theme, !1);
+window.addEventListener("airplan:themeprepare", (C) => {
+  let M = C.detail;
+  u(M.theme, !1);
 });
-H1.addEventListener("change", (Z) => {
-  if (Y = Z.matches, Y)
-    y(q);
+L1.addEventListener("change", (C) => {
+  if (f = C.matches, f)
+    v(q);
   else
-    u(X), m();
+    u(Y), g();
 });
 window.addEventListener("beforeprint", () => {
-  Y = !0, y(q);
+  f = !0, v(q);
 });
 window.addEventListener("afterprint", () => {
-  Y = !1, u(X), m();
+  f = !1, u(Y), g();
 });
-function h(Z, A, E) {
+function D(C, M, E) {
   let L = document.createElement("button");
-  return L.type = "button", L.className = "mermaid-button", L.setAttribute(`data-airplan-mermaid-${A}`, ""), L.setAttribute("aria-label", Z), L.title = Z, L.innerHTML = E, L;
+  return L.type = "button", L.className = "mermaid-button", L.setAttribute(`data-airplan-mermaid-${M}`, ""), L.setAttribute("aria-label", C), L.title = C, L.innerHTML = E, L;
 }
-function _1(Z) {
-  let A = Z.getAttribute("viewBox")?.trim().split(/[\s,]+/).map(Number);
-  if (A?.length === 4 && Number.isFinite(A[2]) && A[2] > 0 && Number.isFinite(A[3]) && A[3] > 0)
-    return { width: A[2], height: A[3] };
-  let E = Number.parseFloat(Z.getAttribute("width") || ""), L = Number.parseFloat(Z.getAttribute("height") || "");
+function J1(C) {
+  let M = C.getAttribute("viewBox")?.trim().split(/[\s,]+/).map(Number);
+  if (M?.length === 4 && Number.isFinite(M[0]) && Number.isFinite(M[1]) && Number.isFinite(M[2]) && M[2] > 0 && Number.isFinite(M[3]) && M[3] > 0)
+    return { x: M[0], y: M[1], width: M[2], height: M[3] };
+  let E = Number.parseFloat(C.getAttribute("width") || ""), L = Number.parseFloat(C.getAttribute("height") || "");
   return {
+    x: 0,
+    y: 0,
     width: Number.isFinite(E) && E > 0 ? E : 800,
     height: Number.isFinite(L) && L > 0 ? L : 600
   };
 }
-function $1(Z) {
-  let A = Z.cloneNode(!0), E = `airplan-mermaid-viewer-${Q1++}-`, L = new Map, U = [A, ...A.querySelectorAll("*")];
-  U.forEach((O) => {
-    let N = O.getAttribute("id");
+function Q1(C) {
+  let M = C.cloneNode(!0), E = `airplan-mermaid-viewer-${j1++}-`, L = new Map, R = [M, ...M.querySelectorAll("*")];
+  R.forEach((j) => {
+    let N = j.getAttribute("id");
     if (!N)
       return;
-    let j = `${E}${N}`;
-    L.set(N, j), O.setAttribute("id", j);
-  }), U.forEach((O) => {
-    Array.from(O.attributes).forEach((N) => {
-      let j = N.value;
-      if (L.forEach((B, M) => {
-        if (j = j.replaceAll(`url(#${M})`, `url(#${B})`), j === `#${M}`)
-          j = `#${B}`;
+    let Q = `${E}${N}`;
+    L.set(N, Q), j.setAttribute("id", Q);
+  }), R.forEach((j) => {
+    Array.from(j.attributes).forEach((N) => {
+      let Q = N.value;
+      if (L.forEach((B, A) => {
+        if (Q = Q.replaceAll(`url(#${A})`, `url(#${B})`), Q === `#${A}`)
+          Q = `#${B}`;
       }), N.name === "aria-labelledby" || N.name === "aria-describedby")
-        j = j.split(/\s+/).map((B) => L.get(B) || B).join(" ");
-      if (j !== N.value)
-        O.setAttribute(N.name, j);
+        Q = Q.split(/\s+/).map((B) => L.get(B) || B).join(" ");
+      if (Q !== N.value)
+        j.setAttribute(N.name, Q);
     });
   });
-  let R = Array.from(L).sort(([O], [N]) => N.length - O.length);
-  return A.querySelectorAll("style").forEach((O) => {
-    let N = O.textContent || "";
-    R.forEach(([j, B]) => {
-      let M = j.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), J = new RegExp(`#${M}(?![\\w-])`, "g");
-      N = N.replace(J, () => `#${B}`);
-    }), O.textContent = N;
-  }), A;
+  let K = Array.from(L).sort(([j], [N]) => N.length - j.length);
+  return M.querySelectorAll("style").forEach((j) => {
+    let N = j.textContent || "";
+    K.forEach(([Q, B]) => {
+      let A = Q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $ = new RegExp(`#${A}(?![\\w-])`, "g");
+      N = N.replace($, () => `#${B}`);
+    }), j.textContent = N;
+  }), M;
 }
-function B1(Z, A, E) {
-  return Math.min(Math.max(Z, A), E);
+function A1(C, M, E) {
+  return Math.min(Math.max(C, M), E);
 }
-function U1() {
-  let Z = document.createElement("dialog");
-  if (typeof Z.showModal !== "function")
+function _1() {
+  let C = document.createElement("dialog");
+  if (typeof C.showModal !== "function")
     return null;
-  Z.id = "airplan-mermaid-dialog", Z.className = "mermaid-dialog", Z.setAttribute("data-airplan-mermaid-dialog", ""), Z.setAttribute("aria-labelledby", "airplan-mermaid-dialog-title");
-  let A = document.createElement("div");
-  A.className = "mermaid-dialog-shell";
+  C.id = "airplan-mermaid-dialog", C.className = "mermaid-dialog", C.setAttribute("data-airplan-mermaid-dialog", ""), C.setAttribute("aria-labelledby", "airplan-mermaid-dialog-title");
+  let M = document.createElement("div");
+  M.className = "mermaid-dialog-shell";
   let E = document.createElement("header");
   E.className = "mermaid-dialog-header";
   let L = document.createElement("strong");
   L.id = "airplan-mermaid-dialog-title", L.textContent = "Mermaid diagram", E.appendChild(L);
-  let U = document.createElement("div");
-  U.className = "mermaid-toolbar", U.setAttribute("role", "toolbar"), U.setAttribute("aria-label", "Diagram zoom controls");
-  let R = h("Zoom out", "zoom-out", "&minus;"), O = document.createElement("output");
-  O.className = "mermaid-zoom-value", O.setAttribute("data-airplan-mermaid-zoom-value", ""), O.setAttribute("aria-live", "polite"), O.textContent = "100%";
-  let N = h("Zoom in", "zoom-in", "+"), j = h("Fit diagram", "fit", "Fit"), B = h("Close diagram viewer", "close", C1);
-  U.append(R, O, N, j, B), E.appendChild(U);
-  let M = document.createElement("div");
-  M.className = "mermaid-canvas", M.setAttribute("data-airplan-mermaid-canvas", ""), M.tabIndex = 0, M.setAttribute("role", "group"), M.setAttribute("aria-label", "Zoomable Mermaid diagram. Scroll or use plus and minus to zoom. Drag or use arrow keys to pan.");
-  let J = document.createElement("div");
-  J.className = "mermaid-surface", J.setAttribute("data-airplan-mermaid-surface", ""), M.appendChild(J);
+  let R = document.createElement("div");
+  R.className = "mermaid-toolbar", R.setAttribute("role", "toolbar"), R.setAttribute("aria-label", "Diagram zoom controls");
+  let K = D("Zoom out", "zoom-out", "&minus;"), j = document.createElement("output");
+  j.className = "mermaid-zoom-value", j.setAttribute("data-airplan-mermaid-zoom-value", ""), j.setAttribute("aria-live", "polite"), j.textContent = "100%";
+  let N = D("Zoom in", "zoom-in", "+"), Q = D("Fit diagram", "fit", "Fit"), B = D("Close diagram viewer", "close", e);
+  R.append(K, j, N, Q, B), E.appendChild(R);
+  let A = document.createElement("div");
+  A.className = "mermaid-canvas", A.setAttribute("data-airplan-mermaid-canvas", ""), A.tabIndex = 0, A.setAttribute("role", "group"), A.setAttribute("aria-label", "Zoomable Mermaid diagram. Scroll or use plus and minus to zoom. Drag or use arrow keys to pan.");
+  let $ = document.createElement("div");
+  $.className = "mermaid-surface", $.setAttribute("data-airplan-mermaid-surface", ""), A.appendChild($);
   let P = document.createElement("p");
-  P.className = "mermaid-help", P.textContent = "Scroll to zoom · Drag to pan · 0 to fit", A.append(E, M, P), Z.appendChild(A), document.body.appendChild(Z);
-  let w = null, Q = null, G = null, x = 1, V = 1, F = 1, z = 0, c = 0, f = null, s = 0, i = 0, a = 0, r = 0;
-  function S() {
-    if (J.style.transform = `translate(${z}px, ${c}px)`, G)
-      G.style.transform = `translate(-50%, -50%) scale(${F})`;
-    O.textContent = `${Math.round(F * 100)}%`;
+  P.className = "mermaid-help", P.textContent = "Scroll to zoom · Drag to pan · 0 to fit", M.append(E, A, P), C.appendChild(M), document.body.appendChild(C);
+  let W = null, _ = null, z = null, U = { x: 0, y: 0, width: 1, height: 1 }, O = 1, w = 0, I = 0, V = null, m = 0, s = 0, i = 0, a = 0;
+  function X() {
+    if (j.textContent = `${Math.round(O * 100)}%`, !z)
+      return;
+    let Z = A.getBoundingClientRect(), J = Math.max(Z.width, 1) / O, H = Math.max(Z.height, 1) / O, G = U.x + U.width / 2 + w, S = U.y + U.height / 2 + I;
+    z.setAttribute("viewBox", [G - J / 2, S - H / 2, J, H].join(" "));
   }
   function T() {
-    let C = M.getBoundingClientRect(), _ = Math.max(C.width - 48, 1), H = Math.max(C.height - 48, 1);
-    F = B1(Math.min(_ / x, H / V, 1), 0.05, 8), z = 0, c = 0, S();
+    let Z = A.getBoundingClientRect(), J = Math.max(Z.width - 48, 1), H = Math.max(Z.height - 48, 1);
+    O = A1(Math.min(J / U.width, H / U.height, 1), 0.05, 8), w = 0, I = 0, X();
   }
-  function D(C, _, H) {
-    let W = B1(C, 0.05, 8);
-    if (W === F)
+  function h(Z, J, H) {
+    let G = A1(Z, 0.05, 8);
+    if (G === O)
       return;
-    if (_ !== void 0 && H !== void 0) {
-      let p = M.getBoundingClientRect(), O1 = _ - (p.left + p.width / 2) - z, j1 = H - (p.top + p.height / 2) - c, e = W / F;
-      z += O1 * (1 - e), c += j1 * (1 - e);
+    if (J !== void 0 && H !== void 0) {
+      let S = A.getBoundingClientRect(), E1 = J - (S.left + S.width / 2), N1 = H - (S.top + S.height / 2);
+      w += E1 * (1 / O - 1 / G), I += N1 * (1 / O - 1 / G);
     }
-    F = W, S();
+    O = G, X();
   }
-  function n(C, _) {
-    let H = $1(C);
-    G = H;
-    let W = _1(C);
-    if (x = W.width, V = W.height, H.style.width = `${x}px`, H.style.height = `${V}px`, H.style.maxWidth = "none", H.style.maxHeight = "none", J.replaceChildren(H), _)
+  function r(Z, J) {
+    let H = Q1(Z);
+    if (z = H, U = J1(Z), H.style.width = "100%", H.style.height = "100%", H.style.maxWidth = "none", H.style.maxHeight = "none", $.replaceChildren(H), J)
       T();
     else
-      S();
+      X();
   }
+  if (typeof ResizeObserver === "function")
+    new ResizeObserver(() => X()).observe(A);
+  else
+    window.addEventListener("resize", X);
   function k() {
-    if (Z.open)
-      Z.close();
+    if (C.open)
+      C.close();
   }
-  function N1(C, _) {
-    let H = C.querySelector("svg");
+  function B1(Z, J) {
+    let H = Z.querySelector("svg");
     if (!H)
       return;
-    w = C, Q = _, n(H, !1), Z.showModal(), document.body.classList.add("mermaid-dialog-open"), T(), M.focus();
+    W = Z, _ = J, r(H, !1), C.showModal(), document.body.classList.add("mermaid-dialog-open"), T(), A.focus();
   }
-  R.addEventListener("click", () => D(F / 1.25)), N.addEventListener("click", () => D(F * 1.25)), j.addEventListener("click", T), B.addEventListener("click", k), Z.addEventListener("cancel", (C) => {
-    C.preventDefault(), k();
-  }), Z.addEventListener("click", (C) => {
-    if (C.target === Z)
+  K.addEventListener("click", () => h(O / 1.25)), N.addEventListener("click", () => h(O * 1.25)), Q.addEventListener("click", T), B.addEventListener("click", k), C.addEventListener("cancel", (Z) => {
+    Z.preventDefault(), k();
+  }), C.addEventListener("click", (Z) => {
+    if (Z.target === C)
       k();
-  }), Z.addEventListener("close", () => {
-    document.body.classList.remove("mermaid-dialog-open"), f = null, M.classList.remove("mermaid-canvas-panning");
-    let C = Q;
-    if (w = null, Q = null, C?.isConnected)
-      setTimeout(() => C.focus(), 0);
-  }), Z.addEventListener("keydown", (C) => {
-    if (C.ctrlKey || C.metaKey || C.altKey)
+  }), C.addEventListener("close", () => {
+    document.body.classList.remove("mermaid-dialog-open"), V = null, A.classList.remove("mermaid-canvas-panning");
+    let Z = _;
+    if (W = null, _ = null, Z?.isConnected)
+      setTimeout(() => Z.focus(), 0);
+  }), C.addEventListener("keydown", (Z) => {
+    if (Z.ctrlKey || Z.metaKey || Z.altKey)
       return;
-    if (C.key === "+" || C.key === "=") {
-      C.preventDefault(), D(F * 1.25);
-      return;
-    }
-    if (C.key === "-") {
-      C.preventDefault(), D(F / 1.25);
+    if (Z.key === "+" || Z.key === "=") {
+      Z.preventDefault(), h(O * 1.25);
       return;
     }
-    if (C.key === "0") {
-      C.preventDefault(), T();
+    if (Z.key === "-") {
+      Z.preventDefault(), h(O / 1.25);
       return;
     }
-    if (C.target !== M)
+    if (Z.key === "0") {
+      Z.preventDefault(), T();
       return;
-    let _ = C.shiftKey ? 120 : 40, H = {
-      ArrowLeft: [_, 0],
-      ArrowRight: [-_, 0],
-      ArrowUp: [0, _],
-      ArrowDown: [0, -_]
-    }[C.key];
+    }
+    if (Z.target !== A)
+      return;
+    let J = Z.shiftKey ? 120 : 40, H = {
+      ArrowLeft: [-J, 0],
+      ArrowRight: [J, 0],
+      ArrowUp: [0, -J],
+      ArrowDown: [0, J]
+    }[Z.key];
     if (!H)
       return;
-    C.preventDefault(), z += H[0], c += H[1], S();
-  }), M.addEventListener("wheel", (C) => {
-    C.preventDefault(), D(F * (C.deltaY < 0 ? 1.2 : 0.8333333333333334), C.clientX, C.clientY);
-  }, { passive: !1 }), M.addEventListener("pointerdown", (C) => {
-    if (C.button !== 0)
+    Z.preventDefault(), w += H[0] / O, I += H[1] / O, X();
+  }), A.addEventListener("wheel", (Z) => {
+    Z.preventDefault(), h(O * (Z.deltaY < 0 ? 1.2 : 0.8333333333333334), Z.clientX, Z.clientY);
+  }, { passive: !1 }), A.addEventListener("pointerdown", (Z) => {
+    if (Z.button !== 0)
       return;
-    f = C.pointerId, s = C.clientX, i = C.clientY, a = z, r = c, M.classList.add("mermaid-canvas-panning");
+    V = Z.pointerId, m = Z.clientX, s = Z.clientY, i = w, a = I, A.classList.add("mermaid-canvas-panning");
     try {
-      M.setPointerCapture(C.pointerId);
+      A.setPointerCapture(Z.pointerId);
     } catch {}
-  }), M.addEventListener("pointermove", (C) => {
-    if (f !== C.pointerId)
+  }), A.addEventListener("pointermove", (Z) => {
+    if (V !== Z.pointerId)
       return;
-    z = a + C.clientX - s, c = r + C.clientY - i, S();
+    w = i - (Z.clientX - m) / O, I = a - (Z.clientY - s) / O, X();
   });
-  function t(C) {
-    if (f !== C.pointerId)
+  function n(Z) {
+    if (V !== Z.pointerId)
       return;
     try {
-      M.releasePointerCapture(C.pointerId);
+      A.releasePointerCapture(Z.pointerId);
     } catch {}
-    f = null, M.classList.remove("mermaid-canvas-panning");
+    V = null, A.classList.remove("mermaid-canvas-panning");
   }
-  return M.addEventListener("pointerup", t), M.addEventListener("pointercancel", t), {
-    enhance(C) {
-      let _ = C.querySelector("svg");
-      if (!_)
+  return A.addEventListener("pointerup", n), A.addEventListener("pointercancel", n), {
+    enhance(Z) {
+      let J = Z.querySelector("svg");
+      if (!J)
         return;
-      let H = C.querySelector(":scope > [data-airplan-mermaid-open]");
+      let H = Z.querySelector(":scope > [data-airplan-mermaid-open]");
       if (!H) {
-        H = h("Open diagram viewer", "open", M1), H.classList.add("mermaid-open"), H.setAttribute("aria-haspopup", "dialog"), H.setAttribute("aria-controls", Z.id);
-        let W = H;
-        H.addEventListener("click", () => N1(C, W)), C.appendChild(H);
+        H = D("Open diagram viewer", "open", Z1), H.classList.add("mermaid-open"), H.setAttribute("aria-haspopup", "dialog"), H.setAttribute("aria-controls", C.id);
+        let G = H;
+        H.addEventListener("click", () => B1(Z, G)), Z.appendChild(H);
       }
-      if (w === C && Z.open)
-        Q = H, n(_, !1);
+      if (W === Z && C.open)
+        _ = H, r(J, !1);
     }
   };
 }
 try {
-  let U = function(B) {
-    return K.every((M, J) => M.has(B) || I[J].has(B));
-  }, R = function(B, M = B) {
-    if (U(M))
+  let R = function(B) {
+    return x.every((A, $) => A.has(B) || c[$].has(B));
+  }, K = function(B, A = B) {
+    if (R(A))
       return Promise.resolve();
-    let J = L.get(M);
-    if (J)
-      return J;
-    let P = M === q ? Z.print : Z.themes[B];
+    let $ = L.get(A);
+    if ($)
+      return $;
+    let P = A === q ? C.print : C.themes[B];
     if (!P)
       return Promise.resolve();
-    let w = E.then(async () => {
-      if (U(M))
+    let W = E.then(async () => {
+      if (R(A))
         return;
       try {
-        A.initialize({
+        M.initialize({
           startOnLoad: !1,
           securityLevel: "strict",
           secure: ["theme", "themeVariables", "themeCSS", "darkMode"],
           theme: "base",
           themeVariables: P
         });
-      } catch (Q) {
-        I.forEach((G, x) => {
-          if (G.add(M), K[x].size === 0)
-            $[x].textContent = l[x], $[x].classList.add("mermaid-failed");
-        }), console.warn(`airplan: Mermaid ${B} initialization failed`, Q);
+      } catch (_) {
+        c.forEach((z, U) => {
+          if (z.add(A), x[U].size === 0)
+            F[U].textContent = y[U], F[U].classList.add("mermaid-failed");
+        }), console.warn(`airplan: Mermaid ${B} initialization failed`, _);
         return;
       }
-      for (let [Q, G] of l.entries()) {
-        if (K[Q].has(M) || I[Q].has(M))
+      for (let [_, z] of y.entries()) {
+        if (x[_].has(A) || c[_].has(A))
           continue;
         try {
-          let x = await A.render(`airplan-mermaid-${M.replace(/[^a-z0-9-]/g, "-")}-${Q}`, G);
-          K[Q].set(M, x);
-          let V = $[Q];
-          if (V.classList.add("mermaid-rendered"), V.classList.remove("mermaid-failed"), !b)
-            b = U1();
-        } catch (x) {
-          if (I[Q].add(M), K[Q].size === 0)
-            $[Q].textContent = G, $[Q].classList.add("mermaid-failed");
-          console.warn(`airplan: Mermaid ${B} diagram ${Q + 1} rendering failed`, x);
+          let U = await M.render(`airplan-mermaid-${A.replace(/[^a-z0-9-]/g, "-")}-${_}`, z);
+          x[_].set(A, U);
+          let O = F[_];
+          if (O.classList.add("mermaid-rendered"), O.classList.remove("mermaid-failed"), !b)
+            b = _1();
+        } catch (U) {
+          if (c[_].add(A), x[_].size === 0)
+            F[_].textContent = z, F[_].classList.add("mermaid-failed");
+          console.warn(`airplan: Mermaid ${B} diagram ${_ + 1} rendering failed`, U);
         }
       }
     });
-    return E = w.catch(() => {}), L.set(M, w), w.then(() => L.delete(M), () => L.delete(M)), w;
+    return E = W.catch(() => {}), L.set(A, W), W.then(() => L.delete(A), () => L.delete(A)), W;
   };
-  if (!v || !A1)
+  if (!p || !C1)
     throw Error("theme catalog is unavailable");
-  let Z = A1, { default: A } = await import(J1), E = Promise.resolve(), L = new Map;
-  async function O(B, M = !0) {
-    let J = M ? L1.next() : 0;
-    if (await R(B), M && L1.isCurrent(J) && X === B && !Y)
-      y(B);
+  let C = C1, { default: M } = await import(O1), E = Promise.resolve(), L = new Map;
+  async function j(B, A = !0) {
+    let $ = A ? M1.next() : 0;
+    if (await K(B), A && M1.isCurrent($) && Y === B && !f)
+      v(B);
   }
-  o = O;
-  let N = window.__airplanThemeState, j = new Set([
-    N?.lightTheme ?? v.defaultLight,
-    N?.darkTheme ?? v.defaultDark
+  l = j;
+  let N = window.__airplanThemeState, Q = new Set([
+    N?.lightTheme ?? p.defaultLight,
+    N?.darkTheme ?? p.defaultDark
   ]);
-  for (let B of j)
-    await R(B);
-  if (await L.get("github-light"), Z.themes["github-light"] && U("github-light"))
-    K.forEach((B, M) => {
-      let J = B.get("github-light");
-      if (J)
-        B.set(q, J);
-      if (I[M].has("github-light"))
-        I[M].add(q);
+  for (let B of Q)
+    await K(B);
+  if (await L.get("github-light"), C.themes["github-light"] && R("github-light"))
+    x.forEach((B, A) => {
+      let $ = B.get("github-light");
+      if ($)
+        B.set(q, $);
+      if (c[A].has("github-light"))
+        c[A].add(q);
     });
   else
-    await R("github-light", q);
-  for (let B of g)
-    await R(B);
-  if (g.clear(), await R(X), Y)
-    y(q);
+    await K("github-light", q);
+  for (let B of o)
+    await K(B);
+  if (o.clear(), await K(Y), f)
+    v(q);
   else
-    m();
-} catch (Z) {
-  $.forEach((A, E) => {
-    A.textContent = l[E], A.classList.add("mermaid-failed");
-  }), console.warn("airplan: Mermaid rendering failed", Z);
+    g();
+} catch (C) {
+  F.forEach((M, E) => {
+    M.textContent = y[E], M.classList.add("mermaid-failed");
+  }), console.warn("airplan: Mermaid rendering failed", C);
 }

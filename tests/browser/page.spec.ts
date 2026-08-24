@@ -65,7 +65,7 @@ export default {
     }
     return {
       svg: '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="240"' +
-        ' viewBox="0 0 640 240" role="img" data-mermaid-theme="' + name +
+        ' viewBox="-80 -20 800 280" role="img" data-mermaid-theme="' + name +
         '" id="' + id + '" aria-labelledby="' + id + '-title ' + id +
         '-label" aria-describedby="' + id + '-desc">' +
         '<title id="' + id + '-title">Diagram</title>' +
@@ -83,7 +83,10 @@ export default {
         '" marker-end="url(#' + id + '-arrow)"/>' +
         '<a href="#' + id + '-node"><text id="' + id + '-label" x="24"' +
         ' y="112" fill="' + renderThemeVariables.textColor + '">' +
-        escapeHTML(source) + '</text></a></g></svg>',
+        escapeHTML(source) + '</text></a>' +
+        '<foreignObject x="24" y="126" width="180" height="32">' +
+        '<div xmlns="http://www.w3.org/1999/xhtml">HTML label</div>' +
+        '</foreignObject></g></svg>',
     };
   },
 };
@@ -2625,6 +2628,7 @@ test("Mermaid viewer is shared, theme-aware, and responsive", async ({ page }, t
     describedBy: (svg.getAttribute("aria-describedby") || "").split(/\s+/),
     nestedLabelledBy: svg.querySelector("g")!.getAttribute("aria-labelledby") || "",
     style: svg.querySelector("style")!.textContent || "",
+    foreignObjectText: svg.querySelector("foreignObject")?.textContent || "",
   }));
   expect(cloneData.ids.some((id) => inlineIDs.includes(id))).toBe(false);
   const referenced = [
@@ -2645,6 +2649,7 @@ test("Mermaid viewer is shared, theme-aware, and responsive", async ({ page }, t
   const cloneNodeID = cloneData.ids.find((id) => id.endsWith("-node"));
   expect(cloneData.style).toContain(`#${inlineRootID || ""}-node-extra{opacity:.5}`);
   expect(cloneData.style).not.toContain(`#${cloneNodeID}-extra`);
+  expect(cloneData.foreignObjectText).toBe("HTML label");
 
   await dialog.getByRole("button", { name: "Close diagram viewer" }).click();
   await expect(dialog).toBeHidden();
@@ -2862,9 +2867,35 @@ test("Mermaid viewer zooms, pans, and preserves its view across themes", async (
   const dialog = page.locator("[data-airplan-mermaid-dialog]");
   const canvas = dialog.locator("[data-airplan-mermaid-canvas]");
   const surface = dialog.locator("[data-airplan-mermaid-surface]");
+  const viewerSVG = dialog.locator(".mermaid-surface > svg");
   const zoom = dialog.locator("[data-airplan-mermaid-zoom-value]");
   const initialPercent = Number.parseInt((await zoom.textContent()) || "", 10);
   expect(initialPercent).toBeLessThanOrEqual(100);
+  const readViewBox = async (): Promise<[number, number, number, number]> => {
+    const value = await viewerSVG.getAttribute("viewBox");
+    const numbers = value?.trim().split(/\s+/).map(Number);
+    if (numbers?.length !== 4 || numbers.some((number) => !Number.isFinite(number))) {
+      throw new Error(`invalid Mermaid viewer viewBox: ${value}`);
+    }
+    return numbers as [number, number, number, number];
+  };
+  const initialViewBox = await readViewBox();
+  expect(initialViewBox[0] + initialViewBox[2] / 2).toBeCloseTo(320);
+  expect(initialViewBox[1] + initialViewBox[3] / 2).toBeCloseTo(120);
+  const renderingLayers = await viewerSVG.evaluate((svg) => {
+    const canvas = svg.closest("[data-airplan-mermaid-canvas]");
+    const surface = svg.closest("[data-airplan-mermaid-surface]");
+    const shell = svg.closest(".mermaid-dialog-shell");
+    const dialog = svg.closest("dialog");
+    return [svg, surface, canvas, shell, dialog].map((element) => ({
+      className: element?.getAttribute("class") || element?.tagName || "unknown",
+      transform: element ? getComputedStyle(element).transform : "missing",
+      willChange: element ? getComputedStyle(element).willChange : "missing",
+    }));
+  });
+  expect(renderingLayers).toEqual(
+    renderingLayers.map((layer) => ({ ...layer, transform: "none", willChange: "auto" })),
+  );
 
   const modifiedKeyPrevented = await canvas.evaluate((element) => {
     const event = new KeyboardEvent("keydown", {
@@ -2886,22 +2917,33 @@ test("Mermaid viewer zooms, pans, and preserves its view across themes", async (
 
   const bounds = await canvas.boundingBox();
   if (!bounds) throw new Error("Mermaid canvas has no bounding box");
+  const pointerRatio = { x: 0.75, y: 0.25 };
+  const anchorBefore = [
+    initialViewBox[0] + pointerRatio.x * initialViewBox[2],
+    initialViewBox[1] + pointerRatio.y * initialViewBox[3],
+  ];
   await canvas.dispatchEvent("wheel", {
     deltaY: -100,
-    clientX: bounds.x + bounds.width * 0.75,
-    clientY: bounds.y + bounds.height * 0.25,
+    clientX: bounds.x + bounds.width * pointerRatio.x,
+    clientY: bounds.y + bounds.height * pointerRatio.y,
   });
   await expect(zoom).toHaveText(`${Math.round(initialPercent * 1.2)}%`);
-  const anchoredTransform = await surface.getAttribute("style");
-  expect(anchoredTransform).not.toContain("translate(0px, 0px)");
+  const anchoredViewBox = await readViewBox();
+  expect(anchoredViewBox[2]).toBeCloseTo(initialViewBox[2] / 1.2);
+  expect(anchoredViewBox[3]).toBeCloseTo(initialViewBox[3] / 1.2);
+  expect(anchoredViewBox[0] + pointerRatio.x * anchoredViewBox[2]).toBeCloseTo(anchorBefore[0], 0);
+  expect(anchoredViewBox[1] + pointerRatio.y * anchoredViewBox[3]).toBeCloseTo(anchorBefore[1], 0);
+  const activeScale = bounds.width / anchoredViewBox[2];
 
   await canvas.focus();
   await page.keyboard.press("ArrowRight");
-  const keyboardTransform = await surface.getAttribute("style");
-  expect(keyboardTransform).not.toBe(anchoredTransform);
+  const keyboardViewBox = await readViewBox();
+  expect(keyboardViewBox[0] - anchoredViewBox[0]).toBeCloseTo(40 / activeScale);
+  expect(keyboardViewBox[1]).toBeCloseTo(anchoredViewBox[1]);
   await page.keyboard.press("Shift+ArrowDown");
-  const shiftedTransform = await surface.getAttribute("style");
-  expect(shiftedTransform).not.toBe(keyboardTransform);
+  const shiftedViewBox = await readViewBox();
+  expect(shiftedViewBox[0]).toBeCloseTo(keyboardViewBox[0]);
+  expect(shiftedViewBox[1] - keyboardViewBox[1]).toBeCloseTo(120 / activeScale);
 
   await canvas.dispatchEvent("pointerdown", {
     button: 0,
@@ -2909,6 +2951,8 @@ test("Mermaid viewer zooms, pans, and preserves its view across themes", async (
     clientX: 200,
     clientY: 200,
   });
+  await expect(canvas).toHaveClass(/mermaid-canvas-panning/);
+  await expect(canvas).toHaveCSS("transform", "none");
   await canvas.dispatchEvent("pointermove", {
     pointerId: 7,
     clientX: 260,
@@ -2919,13 +2963,12 @@ test("Mermaid viewer zooms, pans, and preserves its view across themes", async (
     clientX: 260,
     clientY: 230,
   });
-  const draggedTransform = await surface.getAttribute("style");
-  expect(draggedTransform).not.toBe(shiftedTransform);
+  const draggedViewBox = await readViewBox();
+  expect(draggedViewBox[0] - shiftedViewBox[0]).toBeCloseTo(-60 / activeScale);
+  expect(draggedViewBox[1] - shiftedViewBox[1]).toBeCloseTo(-30 / activeScale);
 
-  const viewerSVG = dialog.locator(".mermaid-surface > svg");
-  const svgTransform = await viewerSVG.getAttribute("style");
   const oldCloneID = await viewerSVG.getAttribute("id");
-  if (!svgTransform || !oldCloneID || !draggedTransform) {
+  if (!oldCloneID) {
     throw new Error("Mermaid viewer state is incomplete");
   }
   await page.evaluate(() => {
@@ -2938,8 +2981,10 @@ test("Mermaid viewer zooms, pans, and preserves its view across themes", async (
   });
   await expect(viewerSVG).toHaveAttribute("data-mermaid-theme", "github-dark");
   await expect(viewerSVG).not.toHaveAttribute("id", oldCloneID);
-  await expect(surface).toHaveAttribute("style", draggedTransform);
-  await expect(viewerSVG).toHaveAttribute("style", svgTransform);
+  const themedViewBox = await readViewBox();
+  themedViewBox.forEach((value, index) => expect(value).toBeCloseTo(draggedViewBox[index]));
+  await expect(surface).not.toHaveAttribute("style", /transform/);
+  await expect(viewerSVG).not.toHaveAttribute("style", /transform/);
 
   await page.keyboard.press("+");
   await expect(zoom).not.toHaveText(`${Math.round(initialPercent * 1.2)}%`);
@@ -2951,13 +2996,61 @@ test("Mermaid viewer zooms, pans, and preserves its view across themes", async (
     await page.keyboard.press("+");
   }
   await expect(zoom).toHaveText("800%");
+  const maximumViewBox = await readViewBox();
+  const maximumBounds = await canvas.boundingBox();
+  if (!maximumBounds) throw new Error("Mermaid canvas has no maximum-zoom bounds");
+  expect(maximumViewBox[2]).toBeCloseTo(maximumBounds.width / 8);
+  expect(maximumViewBox[3]).toBeCloseTo(maximumBounds.height / 8);
   await page.keyboard.press("0");
   await expect(zoom).toHaveText(`${initialPercent}%`);
-  await expect(surface).toHaveAttribute("style", "transform: translate(0px, 0px);");
+  const fittedViewBox = await readViewBox();
+  fittedViewBox.forEach((value, index) => expect(value).toBeCloseTo(initialViewBox[index]));
+
+  const fittedScale = maximumBounds.width / fittedViewBox[2];
+  await page.setViewportSize({ width: 1100, height: 800 });
+  const resizedBounds = await canvas.boundingBox();
+  if (!resizedBounds) throw new Error("Mermaid canvas has no resized bounds");
+  await expect
+    .poll(async () => (await readViewBox())[2])
+    .toBeCloseTo(resizedBounds.width / fittedScale);
+  const resizedViewBox = await readViewBox();
+  expect(resizedViewBox[3]).toBeCloseTo(resizedBounds.height / fittedScale);
+  expect(resizedViewBox[0] + resizedViewBox[2] / 2).toBeCloseTo(320);
+  expect(resizedViewBox[1] + resizedViewBox[3] / 2).toBeCloseTo(120);
 
   await page.mouse.click(2, 2);
   await expect(dialog).toBeHidden();
   await expect(trigger).toBeFocused();
+});
+
+test("Mermaid viewer falls back from missing SVG geometry", async ({ page }, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-light",
+    "one desktop project covers missing viewer geometry",
+  );
+  await page.goto(baseURL);
+  const diagram = page.locator("pre.mermaid").first();
+  await diagram.locator(":scope > svg").evaluate((svg) => {
+    svg.removeAttribute("viewBox");
+    svg.setAttribute("width", "320");
+    svg.removeAttribute("height");
+  });
+  await diagram.hover();
+  await diagram.getByRole("button", { name: "Open diagram viewer" }).click();
+
+  const viewerSVG = page.locator("[data-airplan-mermaid-dialog] .mermaid-surface > svg");
+  const viewBox = await viewerSVG.evaluate((svg) =>
+    (svg.getAttribute("viewBox") || "").trim().split(/\s+/).map(Number),
+  );
+  expect(viewBox).toHaveLength(4);
+  expect(viewBox.every(Number.isFinite)).toBe(true);
+  expect(viewBox[0] + viewBox[2] / 2).toBeCloseTo(160);
+  expect(viewBox[1] + viewBox[3] / 2).toBeCloseTo(300);
+  expect(await viewerSVG.evaluate((svg) => [svg.style.width, svg.style.height])).toEqual([
+    "100%",
+    "100%",
+  ]);
+  await expect(viewerSVG).toHaveCSS("transform", "none");
 });
 
 test("Mermaid failures preserve source without viewer controls", async ({ page }, testInfo) => {

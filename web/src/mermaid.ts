@@ -117,7 +117,14 @@ function createButton(label: string, action: string, content: string) {
   return button;
 }
 
-function readSVGSize(svg: SVGSVGElement) {
+interface SVGGeometry {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function readSVGGeometry(svg: SVGSVGElement): SVGGeometry {
   const values = svg
     .getAttribute("viewBox")
     ?.trim()
@@ -125,16 +132,20 @@ function readSVGSize(svg: SVGSVGElement) {
     .map(Number);
   if (
     values?.length === 4 &&
+    Number.isFinite(values[0]) &&
+    Number.isFinite(values[1]) &&
     Number.isFinite(values[2]) &&
     values[2] > 0 &&
     Number.isFinite(values[3]) &&
     values[3] > 0
   ) {
-    return { width: values[2], height: values[3] };
+    return { x: values[0], y: values[1], width: values[2], height: values[3] };
   }
   const width = Number.parseFloat(svg.getAttribute("width") || "");
   const height = Number.parseFloat(svg.getAttribute("height") || "");
   return {
+    x: 0,
+    y: 0,
     width: Number.isFinite(width) && width > 0 ? width : 800,
     height: Number.isFinite(height) && height > 0 ? height : 600,
   };
@@ -249,8 +260,7 @@ function createMermaidViewer(): MermaidViewer | null {
   let sourceBlock: HTMLPreElement | null = null;
   let returnFocus: HTMLButtonElement | null = null;
   let viewerSVG: SVGSVGElement | null = null;
-  let naturalWidth = 1;
-  let naturalHeight = 1;
+  let geometry: SVGGeometry = { x: 0, y: 0, width: 1, height: 1 };
   let scale = 1;
   let panX = 0;
   let panY = 0;
@@ -260,12 +270,18 @@ function createMermaidViewer(): MermaidViewer | null {
   let pointerPanX = 0;
   let pointerPanY = 0;
 
-  function applyTransform() {
-    surface.style.transform = `translate(${panX}px, ${panY}px)`;
-    if (viewerSVG) {
-      viewerSVG.style.transform = `translate(-50%, -50%) scale(${scale})`;
-    }
+  function applyViewBox() {
     zoomValue.textContent = `${Math.round(scale * 100)}%`;
+    if (!viewerSVG) return;
+    const bounds = canvas.getBoundingClientRect();
+    const viewWidth = Math.max(bounds.width, 1) / scale;
+    const viewHeight = Math.max(bounds.height, 1) / scale;
+    const centerX = geometry.x + geometry.width / 2 + panX;
+    const centerY = geometry.y + geometry.height / 2 + panY;
+    viewerSVG.setAttribute(
+      "viewBox",
+      [centerX - viewWidth / 2, centerY - viewHeight / 2, viewWidth, viewHeight].join(" "),
+    );
   }
 
   function fitDiagram() {
@@ -273,13 +289,13 @@ function createMermaidViewer(): MermaidViewer | null {
     const availableWidth = Math.max(bounds.width - 48, 1);
     const availableHeight = Math.max(bounds.height - 48, 1);
     scale = clamp(
-      Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight, 1),
+      Math.min(availableWidth / geometry.width, availableHeight / geometry.height, 1),
       0.05,
       8,
     );
     panX = 0;
     panY = 0;
-    applyTransform();
+    applyViewBox();
   }
 
   function setZoom(nextScale: number, clientX?: number, clientY?: number) {
@@ -287,29 +303,32 @@ function createMermaidViewer(): MermaidViewer | null {
     if (clamped === scale) return;
     if (clientX !== undefined && clientY !== undefined) {
       const bounds = canvas.getBoundingClientRect();
-      const offsetX = clientX - (bounds.left + bounds.width / 2) - panX;
-      const offsetY = clientY - (bounds.top + bounds.height / 2) - panY;
-      const ratio = clamped / scale;
-      panX += offsetX * (1 - ratio);
-      panY += offsetY * (1 - ratio);
+      const offsetX = clientX - (bounds.left + bounds.width / 2);
+      const offsetY = clientY - (bounds.top + bounds.height / 2);
+      panX += offsetX * (1 / scale - 1 / clamped);
+      panY += offsetY * (1 / scale - 1 / clamped);
     }
     scale = clamped;
-    applyTransform();
+    applyViewBox();
   }
 
   function showSVG(svg: SVGSVGElement, reset: boolean) {
     const clone = cloneMermaidSVG(svg);
     viewerSVG = clone;
-    const size = readSVGSize(svg);
-    naturalWidth = size.width;
-    naturalHeight = size.height;
-    clone.style.width = `${naturalWidth}px`;
-    clone.style.height = `${naturalHeight}px`;
+    geometry = readSVGGeometry(svg);
+    clone.style.width = "100%";
+    clone.style.height = "100%";
     clone.style.maxWidth = "none";
     clone.style.maxHeight = "none";
     surface.replaceChildren(clone);
     if (reset) fitDiagram();
-    else applyTransform();
+    else applyViewBox();
+  }
+
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(() => applyViewBox()).observe(canvas);
+  } else {
+    window.addEventListener("resize", applyViewBox);
   }
 
   function closeViewer() {
@@ -370,16 +389,16 @@ function createMermaidViewer(): MermaidViewer | null {
     if (event.target !== canvas) return;
     const panStep = event.shiftKey ? 120 : 40;
     const direction = {
-      ArrowLeft: [panStep, 0],
-      ArrowRight: [-panStep, 0],
-      ArrowUp: [0, panStep],
-      ArrowDown: [0, -panStep],
+      ArrowLeft: [-panStep, 0],
+      ArrowRight: [panStep, 0],
+      ArrowUp: [0, -panStep],
+      ArrowDown: [0, panStep],
     }[event.key];
     if (!direction) return;
     event.preventDefault();
-    panX += direction[0];
-    panY += direction[1];
-    applyTransform();
+    panX += direction[0] / scale;
+    panY += direction[1] / scale;
+    applyViewBox();
   });
   canvas.addEventListener(
     "wheel",
@@ -403,9 +422,9 @@ function createMermaidViewer(): MermaidViewer | null {
   });
   canvas.addEventListener("pointermove", (event) => {
     if (activePointer !== event.pointerId) return;
-    panX = pointerPanX + event.clientX - pointerStartX;
-    panY = pointerPanY + event.clientY - pointerStartY;
-    applyTransform();
+    panX = pointerPanX - (event.clientX - pointerStartX) / scale;
+    panY = pointerPanY - (event.clientY - pointerStartY) / scale;
+    applyViewBox();
   });
   function stopPanning(event: PointerEvent) {
     if (activePointer !== event.pointerId) return;

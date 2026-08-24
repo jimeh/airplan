@@ -313,7 +313,9 @@ described below.
   dialog. Inline diagrams remain passive. The viewer initially fits the
   diagram without enlarging it beyond its natural size, supports 5%–800% zoom
   through buttons, pointer-anchored wheel input, and `+`/`-`/`0` keys, and
-  supports drag and arrow-key panning with a larger Shift step. Escape,
+  supports drag and arrow-key panning with a larger Shift step. The cloned SVG
+  remains vector-rendered throughout that range so diagram lines and labels
+  stay sharp at high magnification. Escape,
   backdrop, and close controls dismiss it and restore focus. Theme changes
   refresh an open viewer without resetting its zoom or pan. The control is
   always visible on touch input and otherwise appears on hover or focus; the
@@ -526,8 +528,8 @@ built-in navigation, transition CSS, or JavaScript.
 
 The title-led page structure, segmented path breadcrumb, directory-grouped
 managed-page navigation, revision-aware content modes, transition CSS, and
-built-in control icon set define renderer generation 26. Single-page output
-also uses generation 26 because
+built-in control icon set, and sharp vector Mermaid viewer define renderer
+generation 27. Single-page output also uses generation 27 because
 the current writer has one renderer generation for all generated pages.
 
 ### Plain-text input
