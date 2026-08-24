@@ -114,13 +114,15 @@ Format detection:
    whitespace/BOM) → html, else md. Bare stdin defaulting to
    markdown is load-bearing: it is the primary agent path.
 
-Binary rejection: input containing a NUL byte within its first 8 KiB
-(git's binary heuristic) is rejected with an error before any upload,
-regardless of detected or forced format. airplan uploads UTF-8 text
-documents: input that is not valid UTF-8 is likewise rejected before
-any upload, regardless of detected or forced format. There is no
-bypass for either check. When input fails both checks, the invalid
-UTF-8 error takes precedence over the binary-input error.
+After Airplan selects document mode, input containing a NUL byte within its
+first 8 KiB (git's binary heuristic) is rejected with an error before any
+upload, regardless of detected or forced format. Airplan uploads UTF-8 text
+documents: document input that is not valid UTF-8 is likewise rejected before
+any upload, regardless of detected or forced format. There is no bypass for
+either check. When document input fails both checks, the invalid UTF-8 error
+takes precedence over the binary-input error. These document validation rules
+do not change the mode-selection rules above, which may infer collection mode
+from NUL or invalid UTF-8 bytes in named input.
 
 A zero-byte document is rejected before key generation or any upload.
 Whitespace-only input remains valid: airplan does not reinterpret authored
@@ -183,17 +185,17 @@ Each item has a stable logical path relative to the bundle root, using `/`
 separators. The entry logical path is its basename, including for direct Go,
 REST, and inline MCP callers; supporting page and asset paths may be nested.
 Logical paths must be relative and non-empty, and must not contain empty, `.`,
-`..`, reserved `.airplan-*`, backslash, NUL, or control-character segments.
-Segments ending in a dot or space and Windows device basenames such as `CON`,
-`AUX`, `COM1`, and `LPT1` are invalid so every accepted bundle can be
-materialized portably. Airplan rejects duplicate normalized paths, case-folded
-collisions, generated-page collisions, file-versus-directory prefix conflicts,
-and any path that escapes the bundle root. It does not rename conflicting
-objects. URL assembly percent-encodes each segment separately and preserves `/`
-as hierarchy. A relative URL whose first segment contains `:` receives an
-explicit `./` prefix so a browser cannot interpret it as a URL scheme. Direct
-Go, REST, and inline MCP callers provide logical paths explicitly and do not
-invoke local filesystem inference.
+`..`, reserved `.airplan-*`, backslash, NUL, control characters, or the
+Windows-reserved characters `<`, `>`, `:`, `"`, `|`, `?`, and `*`. Segments
+ending in a dot or space and Windows device basenames such as `CON`, `AUX`,
+`COM1`, and `LPT1`, including the `COM¹`-`COM³` and `LPT¹`-`LPT³` aliases,
+are invalid so every accepted bundle can be materialized portably. Airplan
+rejects duplicate normalized paths, case-folded collisions, generated-page
+collisions, file-versus-directory prefix conflicts, and any path that escapes
+the bundle root. It does not rename conflicting objects. URL assembly
+percent-encodes each segment separately and preserves `/`
+as hierarchy. Direct Go, REST, and inline MCP callers provide logical paths
+explicitly and do not invoke local filesystem inference.
 
 A document accepts at most 100 user-supplied items in total, including its
 entry, managed pages, and assets. `--max-size` remains the per-managed-page

@@ -98,6 +98,40 @@ func TestMaterializeRenderedDocumentRemovesStagingAfterDigestFailure(t *testing.
 	}
 }
 
+func TestMaterializeRenderedDocumentRejectsAssetGrowthAfterPreflight(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "preview")
+	reader := &trackedSeekReader{Reader: bytes.NewReader([]byte("asset"))}
+	assets, err := prepareAssets(context.Background(), DocumentInput{
+		Assets: []AssetInput{{
+			Reader: reader, Path: "nested/asset.bin", Size: 5,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader.Reader = bytes.NewReader([]byte("asset grew"))
+
+	err = materializeRenderedDocument(context.Background(), destination,
+		&RenderedDocumentBundle{Pages: []RenderedBundlePage{{
+			PagePath: "plan.html", HTML: []byte("page"),
+		}}}, assets,
+	)
+	if err == nil || !strings.Contains(err.Error(), "changed after preflight") {
+		t.Fatalf("error = %v", err)
+	}
+	if _, statErr := os.Stat(destination); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("failed preview destination exists: %v", statErr)
+	}
+	matches, globErr := filepath.Glob(filepath.Join(root, ".airplan-preview-*"))
+	if globErr != nil {
+		t.Fatal(globErr)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("preview staging remains after asset growth: %v", matches)
+	}
+}
+
 func TestMaterializeRenderedDocumentChecksCancellationBeforeAssets(t *testing.T) {
 	root := t.TempDir()
 	destination := filepath.Join(root, "preview")

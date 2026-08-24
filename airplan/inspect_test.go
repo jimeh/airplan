@@ -235,6 +235,62 @@ func TestInspectUploadCollectionChecksEveryDeclaredFile(t *testing.T) {
 	}
 }
 
+func TestInspectUploadCollectionChecksEntryPageDigest(t *testing.T) {
+	dir := strings.Repeat("d", 26)
+	pageBody := []byte("actual page")
+	fileBody := []byte("valid file")
+	marker := validCollectionMarker()
+	marker.Directory = dir
+	marker.Objects[0].Bytes = int64(len(pageBody))
+	marker.Objects[0].SHA256 = contentSHA256([]byte("wrong page!"))
+	marker.Objects[1].Bytes = int64(len(fileBody))
+	marker.Objects[1].SHA256 = contentSHA256(fileBody)
+	markerBody, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := []objectInfo{
+		{Key: dir + "/" + CollectionMarkerFilename, Size: int64(len(markerBody))},
+		{Key: dir + "/index.html", Size: int64(len(pageBody))},
+		{Key: dir + "/screenshot.png", Size: int64(len(fileBody))},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("list-type") == "2" {
+			writeListXML(t, w, objects)
+			return
+		}
+		switch r.URL.Path {
+		case "/plans/" + dir + "/" + CollectionMarkerFilename:
+			_, _ = w.Write(markerBody)
+		case "/plans/" + dir + "/index.html":
+			_, _ = w.Write(pageBody)
+		case "/plans/" + dir + "/screenshot.png":
+			_, _ = w.Write(fileBody)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	got, err := newInspectTestClient(t, server.URL).InspectUpload(
+		context.Background(), dir,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != UploadIncomplete {
+		t.Fatalf("inspection state = %s, want incomplete", got.State)
+	}
+	if got.Page == nil || got.Page.Bytes != got.Page.ExpectedBytes ||
+		got.Page.SHA256 == got.Page.ExpectedSHA256 {
+		t.Fatalf("entry page inspection = %+v, want digest mismatch", got.Page)
+	}
+	if len(got.Files) != 1 ||
+		got.Files[0].SHA256 != got.Files[0].ExpectedSHA256 {
+		t.Fatalf("collection files = %+v, want valid digest", got.Files)
+	}
+}
+
 func TestInspectUploadAcceptsDeclaredNestedTarget(t *testing.T) {
 	dir := "abcdefghijklmnopqrstuvwxyz"
 	marker := validBundleMarkerV6()

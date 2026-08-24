@@ -364,6 +364,9 @@ func (c *Client) inspectUploadSnapshot(
 		(marker.Version >= 2 && inspection.Page.Bytes != marker.PageBytes) {
 		inspection.State = UploadIncomplete
 	}
+	if !inspectedObjectMatches(inspection.Page, verifyDigests) {
+		inspection.State = UploadIncomplete
+	}
 	if inspection.Source != nil &&
 		!inspectedObjectMatches(inspection.Source, verifyDigests) {
 		inspection.State = UploadIncomplete

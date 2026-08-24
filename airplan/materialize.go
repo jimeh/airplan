@@ -152,6 +152,18 @@ func materializeRenderedDocument(
 			return fmt.Errorf("airplan: create preview asset %q: %w", asset.Path, err)
 		}
 		_, copyErr := io.CopyN(file, asset.Reader, asset.Size)
+		if copyErr == nil {
+			var extra [1]byte
+			n, probeErr := asset.Reader.Read(extra[:])
+			switch {
+			case n > 0:
+				copyErr = fmt.Errorf("asset changed after preflight: declared size is %d bytes but reader contains more data", asset.Size)
+			case probeErr == nil:
+				copyErr = fmt.Errorf("probe asset after declared size: %w", io.ErrNoProgress)
+			case !errors.Is(probeErr, io.EOF):
+				copyErr = fmt.Errorf("probe asset after declared size: %w", probeErr)
+			}
+		}
 		closeErr := file.Close()
 		if copyErr != nil {
 			return fmt.Errorf("airplan: copy preview asset %q: %w", asset.Path, copyErr)
@@ -181,7 +193,18 @@ func materializeRenderedDocument(
 			return fmt.Errorf("airplan: set preview file permissions: %w", err)
 		}
 	}
-	if err := os.Chmod(temporary, 0o755); err != nil {
+	if err := filepath.WalkDir(temporary, func(name string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !entry.IsDir() {
+			return nil
+		}
+		if err := os.Chmod(name, 0o755); err != nil {
+			return fmt.Errorf("set permissions for %q: %w", name, err)
+		}
+		return nil
+	}); err != nil {
 		return fmt.Errorf("airplan: set preview directory permissions: %w", err)
 	}
 	if err := publishDirectoryNoReplace(temporary, abs); err != nil {
