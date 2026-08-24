@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.1](https://github.com/jimeh/airplan/compare/v0.11.0...v0.11.1) (2026-08-24)
+
+
+### Bug Fixes
+
+* keep Mermaid viewer sharp at high zoom ([#101](https://github.com/jimeh/airplan/issues/101)) ([bf4574a](https://github.com/jimeh/airplan/commit/bf4574a92d4b2ed532048c1effb9ee971a423fc8))
+* prevent empty document scroll overflow ([#115](https://github.com/jimeh/airplan/issues/115)) ([424f230](https://github.com/jimeh/airplan/commit/424f230dd250d2c8dfb6fcaaf4d6ecede8b0329b))
+
 ## [0.11.0](https://github.com/jimeh/airplan/compare/v0.10.0...v0.11.0) (2026-08-24)
 
 
