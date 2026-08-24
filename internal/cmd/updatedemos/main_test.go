@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -55,6 +56,14 @@ func TestDemoObjectURL(t *testing.T) {
 			want: "https://demo.example/team%20plans/" +
 				"abcdefghijklmnopqrstuvwxyz/shot%20one.svg",
 		},
+		{
+			name: "nested escaped object",
+			page: "https://demo.example/team%20plans/" +
+				"abcdefghijklmnopqrstuvwxyz/index.html",
+			file: "docs/design notes.html",
+			want: "https://demo.example/team%20plans/" +
+				"abcdefghijklmnopqrstuvwxyz/docs/design%20notes.html",
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := demoObjectURL(tt.page, "index.html", tt.file)
@@ -65,6 +74,16 @@ func TestDemoObjectURL(t *testing.T) {
 				t.Fatalf("demoObjectURL() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDemoObjectURLRejectsUnsafeObjectName(t *testing.T) {
+	_, err := demoObjectURL(
+		"https://demo.example/abcdefghijklmnopqrstuvwxyz/index.html",
+		"index.html", "../outside.txt",
+	)
+	if err == nil || !strings.Contains(err.Error(), "invalid object name") {
+		t.Fatalf("error = %v, want invalid object name", err)
 	}
 }
 
@@ -150,9 +169,281 @@ func TestRepositoryDemosMatchReadmeAndFixtures(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got, want := len(content.objects), len(demo.inputPaths)+1; got != want {
+		if got, want := len(content.objects), len(demo.objects); got != want {
 			t.Fatalf("%s objects = %d, want %d", demo.id, got, want)
 		}
+		if demo.reference != "airplan-demo-document-bundle" {
+			continue
+		}
+		rendered := renderBundleDemoObjects(t, demo)
+		configuredNames := make([]string, len(content.objects))
+		renderedNames := make([]string, len(rendered))
+		for index := range content.objects {
+			configuredNames[index] = content.objects[index].name
+		}
+		for index := range rendered {
+			renderedNames[index] = rendered[index].name
+		}
+		if !reflect.DeepEqual(configuredNames, renderedNames) {
+			t.Fatalf(
+				"%s configured objects = %v, rendered objects = %v",
+				demo.id, configuredNames, renderedNames,
+			)
+		}
+		for index := range content.objects {
+			if !bytes.Equal(content.objects[index].body, rendered[index].body) {
+				t.Fatalf(
+					"%s object %q fixture bytes differ from renderer output",
+					demo.id, content.objects[index].name,
+				)
+			}
+		}
+	}
+}
+
+func renderBundleDemoObjects(t *testing.T, d demo) []demoObject {
+	t.Helper()
+	plan, err := airplan.PlanLocalPaths(airplan.LocalPathPlanOptions{
+		Paths: d.inputPaths,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Kind != airplan.UploadKindDocument || len(plan.PagePaths) == 0 ||
+		len(plan.AssetPaths) == 0 {
+		t.Fatalf("%s input plan is not a document bundle: %+v", d.id, plan)
+	}
+	root := filepath.Dir(plan.Entrypoint)
+	read := func(filename string) ([]byte, string) {
+		t.Helper()
+		body, readErr := os.ReadFile(filename)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		logical, relErr := filepath.Rel(root, filename)
+		if relErr != nil {
+			t.Fatal(relErr)
+		}
+		return body, filepath.ToSlash(logical)
+	}
+	entryBody, entryPath := read(plan.Entrypoint)
+	input := airplan.DocumentInput{
+		Entry: airplan.PageInput{
+			Reader: bytes.NewReader(entryBody), Path: entryPath,
+		},
+		Title: demoArgValue(d, "--title"),
+		Slug:  demoArgValue(d, "--slug"),
+	}
+	input.Entry.Title = input.Title
+	for _, filename := range plan.PagePaths {
+		body, logical := read(filename)
+		input.Pages = append(input.Pages, airplan.PageInput{
+			Reader: bytes.NewReader(body), Path: logical,
+		})
+	}
+	assetBodies := make(map[string][]byte, len(plan.AssetPaths))
+	for _, filename := range plan.AssetPaths {
+		body, logical := read(filename)
+		assetBodies[logical] = body
+		input.Assets = append(input.Assets, airplan.AssetInput{
+			Reader: bytes.NewReader(body), Path: logical, Size: int64(len(body)),
+		})
+	}
+	bundle, err := airplan.RenderDocument(
+		context.Background(), input,
+		airplan.DocumentRenderOptions{RenderInputOptions: airplan.RenderInputOptions{
+			IncludeSource: true,
+			Repository:    demoArgValue(d, "--repo"),
+		}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := make([]demoObject, 0, len(bundle.Pages)*2+len(bundle.Assets))
+	for _, page := range bundle.Pages {
+		objects = append(objects, demoObject{name: page.PagePath, body: page.HTML})
+		if page.SourcePath != "" {
+			objects = append(objects, demoObject{
+				name: page.SourcePath, body: page.Source,
+			})
+		}
+	}
+	for _, asset := range bundle.Assets {
+		objects = append(objects, demoObject{
+			name: asset.Path, body: assetBodies[asset.Path],
+		})
+	}
+	return objects
+}
+
+func demoArgValue(d demo, name string) string {
+	for index := 0; index+1 < len(d.args); index++ {
+		if d.args[index] == name {
+			return d.args[index+1]
+		}
+	}
+	return ""
+}
+
+func TestValidatePublishedResultRejectsMissingSource(t *testing.T) {
+	fixture := newDemoFixture(t, "page", "source")
+	pageURL := "https://demo.example/upload/example.html"
+	err := validatePublishedResult(publishedResult{
+		URL: pageURL,
+		Pages: []airplan.PageResult{{
+			Path: "example.md", URL: pageURL,
+		}},
+	}, fixture.entry)
+	if err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf("error = %v, want missing object inventory", err)
+	}
+}
+
+func TestValidatePublishedResultAcceptsSupportedUploadShapes(t *testing.T) {
+	t.Run("document", func(t *testing.T) {
+		fixture := newDemoFixture(t, "page", "source")
+		pageURL := "https://demo.example/upload/example.html"
+		err := validatePublishedResult(publishedResult{
+			URL: pageURL,
+			Pages: []airplan.PageResult{{
+				Path: "example.md", URL: pageURL,
+				SourceURL: "https://demo.example/upload/example.md",
+			}},
+		}, fixture.entry)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("collection", func(t *testing.T) {
+		dir := t.TempDir()
+		page := writeFixtureFile(t, dir, "index.html", "overview")
+		image := writeFixtureFile(t, dir, "shot.svg", "image")
+		d := demo{
+			id: "collection", pageName: "index.html",
+			objects: []expectedDemoObject{
+				{name: "index.html", path: page},
+				{name: "shot.svg", path: image},
+			},
+		}
+		pageURL := "https://demo.example/upload/index.html"
+		err := validatePublishedResult(publishedResult{
+			URL: pageURL,
+			Files: []airplan.FileResult{{
+				Name: "shot.svg", URL: "https://demo.example/upload/shot.svg",
+			}},
+		}, d)
+		if err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("document bundle", func(t *testing.T) {
+		fixture := newBundleDemoFixture(t)
+		pageURL := "https://demo.example/upload/implementation-plan.html"
+		result := publishedBundleResult(t, fixture.entry, pageURL)
+		if err := validatePublishedResult(result, fixture.entry); err != nil {
+			t.Fatal(err)
+		}
+	})
+}
+
+func TestValidatePublishedResultRejectsInvalidInventories(t *testing.T) {
+	fixture := newBundleDemoFixture(t)
+	pageURL := "https://demo.example/upload/implementation-plan.html"
+
+	tests := []struct {
+		name   string
+		mutate func(*publishedResult)
+		want   string
+	}{
+		{
+			name: "missing nested page",
+			mutate: func(result *publishedResult) {
+				result.Pages = append(result.Pages[:1], result.Pages[2:]...)
+			},
+			want: "missing object",
+		},
+		{
+			name: "unexpected object",
+			mutate: func(result *publishedResult) {
+				result.Assets[0].URL = "https://demo.example/upload/images/other.svg"
+			},
+			want: "unexpected object URL",
+		},
+		{
+			name: "duplicate object",
+			mutate: func(result *publishedResult) {
+				result.Assets = append(result.Assets, result.Assets[0])
+			},
+			want: "duplicate object URL",
+		},
+		{
+			name: "cross directory",
+			mutate: func(result *publishedResult) {
+				result.Assets[0].URL = "https://demo.example/other/request-flow.svg"
+			},
+			want: "outside the upload directory",
+		},
+		{
+			name: "malformed URL",
+			mutate: func(result *publishedResult) {
+				result.Assets[0].URL = "https://demo.example/%zz"
+			},
+			want: "malformed published object URL",
+		},
+		{
+			name: "mixed shapes",
+			mutate: func(result *publishedResult) {
+				result.Files = []airplan.FileResult{{URL: result.Assets[0].URL}}
+			},
+			want: "mixes collection and document objects",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := publishedBundleResult(t, fixture.entry, pageURL)
+			test.mutate(&result)
+			err := validatePublishedResult(result, fixture.entry)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func TestLoadDemoContentRejectsInvalidObjectInventory(t *testing.T) {
+	file := writeFixtureFile(t, t.TempDir(), "body", "body")
+	for _, test := range []struct {
+		name    string
+		objects []expectedDemoObject
+		want    string
+	}{
+		{
+			name: "duplicate",
+			objects: []expectedDemoObject{
+				{name: "index.html", path: file},
+				{name: "index.html", path: file},
+			},
+			want: "duplicate object name",
+		},
+		{
+			name: "escaping",
+			objects: []expectedDemoObject{
+				{name: "index.html", path: file},
+				{name: "../outside.txt", path: file},
+			},
+			want: "invalid object name",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := loadDemoContent(demo{
+				id: "invalid", pageName: "index.html", objects: test.objects,
+			})
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
 	}
 }
 
@@ -178,6 +469,58 @@ func TestUpdateReadmeKeepsFreshCurrentDemo(t *testing.T) {
 		t.Fatal("fresh demo was uploaded again")
 	}
 	fixture.wantURL(t, current)
+}
+
+func TestUpdateReadmeKeepsFreshCompleteBundle(t *testing.T) {
+	fixture := newBundleDemoFixture(t)
+	current := "https://demo.example/current/implementation-plan.html"
+	fixture.writeReadme(t, current)
+	fetcher := freshDemoFetcher(t, fixture.entry, current)
+	err := fixture.update(t, fetcher, "", false, publishFunc(
+		func(context.Context, demo) (string, error) {
+			t.Fatal("fresh bundle was uploaded again")
+			return "", nil
+		},
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixture.wantURL(t, current)
+}
+
+func TestUpdateReadmeUploadsWhenBundleObjectIsStale(t *testing.T) {
+	for _, objectName := range []string{
+		"docs/design.html", "docs/design.md", "images/request-flow.svg",
+	} {
+		t.Run(objectName, func(t *testing.T) {
+			fixture := newBundleDemoFixture(t)
+			current := "https://demo.example/current/implementation-plan.html"
+			fixture.writeReadme(t, current)
+			fetcher := freshDemoFetcher(t, fixture.entry, current)
+			staleURL, err := demoObjectURL(
+				current, fixture.entry.pageName, objectName,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fetcher[staleURL] = []byte("stale")
+			want := "https://demo.example/refreshed/implementation-plan.html"
+			published := 0
+			err = fixture.update(t, fetcher, "", false, publishFunc(
+				func(context.Context, demo) (string, error) {
+					published++
+					return want, nil
+				},
+			))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if published != 1 {
+				t.Fatalf("published %d times, want 1", published)
+			}
+			fixture.wantURL(t, want)
+		})
+	}
 }
 
 func TestUpdateReadmePrefersFreshCurrentDemoOverFreshCandidate(t *testing.T) {
@@ -300,7 +643,12 @@ func TestUpdateReadmeUploadsWhenCollectionMemberIsStale(t *testing.T) {
 		entry: demo{
 			id: "collection", reference: "demo-collection",
 			inputPaths: []string{imagePath, notesPath},
-			goldenPath: goldenPath, pageName: "index.html",
+			pageName:   "index.html",
+			objects: []expectedDemoObject{
+				{name: "index.html", path: goldenPath},
+				{name: "shot.svg", path: imagePath},
+				{name: "notes.txt", path: notesPath},
+			},
 		},
 	}
 	current := "https://demo.example/current/index.html"
@@ -354,6 +702,66 @@ func TestUpdateReadmeAllowsCandidateWithoutNewReference(t *testing.T) {
 	fixture.wantURL(t, current)
 }
 
+func TestUpdateReadmeReusesExistingCandidateWhenItLacksNewReference(
+	t *testing.T,
+) {
+	existing := newDemoFixture(t, "existing page", "existing source")
+	newDemo := newDemoFixture(t, "new page", "new source")
+	newDemo.entry.id = "new demo"
+	newDemo.entry.reference = "demo-new"
+
+	currentExisting := "https://demo.example/current-existing/example.html"
+	currentNew := "https://demo.example/current-new/example.html"
+	candidateExisting := "https://demo.example/candidate-existing/example.html"
+	freshNew := "https://demo.example/fresh-new/example.html"
+	readme := fmt.Sprintf(
+		"[Existing][%s]\n[New][%s]\n\n[%s]: %s\n[%s]: %s\n",
+		existing.entry.reference, newDemo.entry.reference,
+		existing.entry.reference, currentExisting,
+		newDemo.entry.reference, currentNew,
+	)
+	readmePath := filepath.Join(t.TempDir(), "README.md")
+	if err := os.WriteFile(readmePath, []byte(readme), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	candidatePath := filepath.Join(t.TempDir(), "candidate.md")
+	writeDemoReadme(
+		t, candidatePath, existing.entry.reference, candidateExisting,
+	)
+	fetcher := freshDemoFetcher(t, existing.entry, candidateExisting)
+	published := 0
+	err := updateReadme(
+		context.Background(), fetcher,
+		publishFunc(func(_ context.Context, got demo) (string, error) {
+			published++
+			if got.reference != newDemo.entry.reference {
+				t.Fatalf("published %q, want new demo", got.reference)
+			}
+			return freshNew, nil
+		}),
+		[]demo{existing.entry, newDemo.entry}, readmePath, candidatePath, false,
+		io.Discard,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published != 1 {
+		t.Fatalf("published %d times, want 1", published)
+	}
+	updated, err := os.ReadFile(readmePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	urls, err := demoURLs(updated, []demo{existing.entry, newDemo.entry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if urls[existing.entry.reference] != candidateExisting ||
+		urls[newDemo.entry.reference] != freshNew {
+		t.Fatalf("updated URLs = %v", urls)
+	}
+}
+
 func TestUpdateReadmeForceUploadsWithFreshCandidate(t *testing.T) {
 	fixture := newDemoFixture(t, "page", "source")
 	current := "https://demo.example/current/example.html"
@@ -399,10 +807,115 @@ func newDemoFixture(t *testing.T, pageBody string, sourceBody string) demoFixtur
 		readmePath: filepath.Join(dir, "README.md"),
 		entry: demo{
 			id: "example", reference: "demo-example",
-			inputPaths: []string{sourcePath}, goldenPath: goldenPath,
-			pageName: "example.html",
+			inputPaths: []string{sourcePath},
+			pageName:   "example.html",
+			objects: []expectedDemoObject{
+				{name: "example.html", path: goldenPath},
+				{name: "example.md", path: sourcePath},
+			},
 		},
 	}
+}
+
+func newBundleDemoFixture(t *testing.T) demoFixture {
+	t.Helper()
+	dir := t.TempDir()
+	objects := []struct {
+		name string
+		body string
+	}{
+		{name: "implementation-plan.html", body: "entry page"},
+		{name: "implementation-plan.md", body: "entry source"},
+		{name: "docs/design.html", body: "design page"},
+		{name: "docs/design.md", body: "design source"},
+		{name: "examples/server.go.html", body: "server page"},
+		{name: "examples/server.go", body: "server source"},
+		{name: "images/request-flow.svg", body: "flow asset"},
+	}
+	d := demo{
+		id: "bundle", reference: "demo-bundle",
+		inputPaths: []string{
+			filepath.Join(dir, "implementation-plan.md"),
+			filepath.Join(dir, "docs", "design.md"),
+			filepath.Join(dir, "examples", "server.go"),
+			filepath.Join(dir, "images", "request-flow.svg"),
+		},
+		pageName: "implementation-plan.html",
+	}
+	for _, object := range objects {
+		objectPath := writeFixtureFile(t, dir, object.name, object.body)
+		d.objects = append(d.objects, expectedDemoObject{
+			name: object.name, path: objectPath,
+		})
+	}
+	return demoFixture{
+		dir: dir, readmePath: filepath.Join(dir, "README.md"), entry: d,
+	}
+}
+
+func freshDemoFetcher(t *testing.T, d demo, pageURL string) stubFetcher {
+	t.Helper()
+	content, err := loadDemoContent(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetcher := make(stubFetcher, len(content.objects))
+	for _, object := range content.objects {
+		objectURL, err := demoObjectURL(pageURL, d.pageName, object.name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fetcher[objectURL] = object.body
+	}
+	return fetcher
+}
+
+func publishedBundleResult(
+	t *testing.T, d demo, pageURL string,
+) publishedResult {
+	t.Helper()
+	objectURL := func(name string) string {
+		t.Helper()
+		value, err := demoObjectURL(pageURL, d.pageName, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	return publishedResult{
+		URL: pageURL,
+		Pages: []airplan.PageResult{
+			{
+				Path: "implementation-plan.md", URL: pageURL,
+				SourceURL: objectURL("implementation-plan.md"),
+			},
+			{
+				Path: "docs/design.md", URL: objectURL("docs/design.html"),
+				SourceURL: objectURL("docs/design.md"),
+			},
+			{
+				Path:      "examples/server.go",
+				URL:       objectURL("examples/server.go.html"),
+				SourceURL: objectURL("examples/server.go"),
+			},
+		},
+		Assets: []airplan.AssetResult{{
+			Path: "images/request-flow.svg",
+			URL:  objectURL("images/request-flow.svg"),
+		}},
+	}
+}
+
+func writeFixtureFile(t *testing.T, root, name, body string) string {
+	t.Helper()
+	target := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return target
 }
 
 func (f demoFixture) writeReadme(t *testing.T, pageURL string) {

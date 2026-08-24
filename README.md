@@ -62,6 +62,9 @@ one cleanup unit.
   is a concise architecture overview showing the CLI and library workflows.
 - [Upload with airplan's Go API][airplan-demo-go-api]
   is a runnable Go example presented as a highlighted, gist-like page.
+- [API rollout handoff][airplan-demo-document-bundle]
+  is a document bundle with linked Markdown and Go pages, ordinary page
+  navigation, and an SVG request-flow asset.
 - [Release verification evidence][airplan-demo-collection]
   is a file collection with an image preview and direct links to every
   original artifact.
@@ -69,6 +72,7 @@ one cleanup unit.
 [airplan-demo-implementation-plan]: https://demo.airplan.dev/hxvyoxe3c7mgh3wmv5qgzj7hne/implementation-plan.html
 [airplan-demo-how-it-works]: https://demo.airplan.dev/xavyr3wcc6oz5ejyzyjcfvpcvq/how-airplan-works.html
 [airplan-demo-go-api]: https://demo.airplan.dev/wy6wbiw2j7ksasrrcarr65yvzq/upload-example.html
+[airplan-demo-document-bundle]: https://demo.airplan.dev/hxvyoxe3c7mgh3wmv5qgzj7hne/implementation-plan.html
 [airplan-demo-collection]: https://demo.airplan.dev/hb5muc7vawx4v3yhafcp7rd34q/index.html
 
 The exact behavior is defined in [SPEC.md](SPEC.md).

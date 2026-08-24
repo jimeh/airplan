@@ -108,9 +108,9 @@ jobs:
           commit-message: "docs: refresh live demo links"
           title: "docs: refresh live demo links"
           body: |
-            Refreshes README demo links after comparing the published page and
-            source bytes with the repository's upload-mode fixtures. Published
-            demo URLs are permanent and are never deleted by this workflow.
+            Refreshes README demo links after comparing every published object
+            byte with the repository's upload-mode fixtures. Published demo
+            URLs are permanent and are never deleted by this workflow.
           draft: false
       - if: >-
           steps.sync.outputs.changed == 'false' &&
