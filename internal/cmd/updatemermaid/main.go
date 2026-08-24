@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -19,6 +20,8 @@ import (
 
 const (
 	manifestPath        = "internal/deps/mermaid.json"
+	packageJSONPath     = "package.json"
+	bunLockPath         = "bun.lock"
 	renderGoldenPattern = "airplan/testdata/TestRenderMarkdownGolden/*.html"
 	minimumAge          = 72 * time.Hour
 )
@@ -57,6 +60,8 @@ func update(now time.Time, client *http.Client, dryRun bool) (retErr error) {
 	}
 	trackedPaths := append([]string{
 		manifestPath,
+		packageJSONPath,
+		bunLockPath,
 		"airplan/mermaid_generated.go",
 	}, renderGoldenPaths...)
 	originals := make(map[string][]byte, len(trackedPaths))
@@ -74,6 +79,9 @@ func update(now time.Time, client *http.Client, dryRun bool) (retErr error) {
 	}
 	currentVersion, err := parseVersion(current.Version)
 	if err != nil {
+		return err
+	}
+	if err := requirePackageVersion(originals[packageJSONPath], current.Version); err != nil {
 		return err
 	}
 
@@ -157,7 +165,21 @@ func update(now time.Time, client *http.Client, dryRun bool) (retErr error) {
 	if err := os.WriteFile(manifestPath, encoded, 0o644); err != nil {
 		return err
 	}
+	packageJSON, err := replacePackageVersion(
+		originals[packageJSONPath], current.Version, next.raw,
+	)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(packageJSONPath, packageJSON, 0o644); err != nil {
+		return err
+	}
 	commands := [][]string{
+		{
+			"bun", "install", "--lockfile-only",
+			"--minimum-release-age=" +
+				strconv.FormatInt(int64(minimumAge/time.Second), 10),
+		},
 		{
 			"go", "run", "./internal/cmd/genmermaid",
 			manifestPath, "airplan/mermaid_generated.go",
@@ -175,6 +197,37 @@ func update(now time.Time, client *http.Client, dryRun bool) (retErr error) {
 	rollback = false
 	fmt.Printf("updated Mermaid %s -> %s\n", current.Version, next.raw)
 	return nil
+}
+
+func requirePackageVersion(data []byte, want string) error {
+	var packageJSON struct {
+		DevDependencies map[string]string `json:"devDependencies"`
+	}
+	if err := json.Unmarshal(data, &packageJSON); err != nil {
+		return fmt.Errorf("parse %s: %w", packageJSONPath, err)
+	}
+	got := packageJSON.DevDependencies["mermaid"]
+	if got != want {
+		return fmt.Errorf(
+			"%s Mermaid version %q does not match %s version %q",
+			packageJSONPath, got, manifestPath, want,
+		)
+	}
+	return nil
+}
+
+func replacePackageVersion(data []byte, current, next string) ([]byte, error) {
+	if err := requirePackageVersion(data, current); err != nil {
+		return nil, err
+	}
+	oldValue := []byte(`"mermaid": "` + current + `"`)
+	newValue := []byte(`"mermaid": "` + next + `"`)
+	if bytes.Count(data, oldValue) != 1 {
+		return nil, fmt.Errorf(
+			"%s must contain one formatted Mermaid dependency", packageJSONPath,
+		)
+	}
+	return bytes.Replace(data, oldValue, newValue, 1), nil
 }
 
 func findRenderGoldens() ([]string, error) {

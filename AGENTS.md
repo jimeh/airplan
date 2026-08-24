@@ -119,7 +119,10 @@ coverage has no equivalent local task on non-Windows hosts.
   CSS are built by Bun into committed readable/minified assets embedded via
   go:embed. `generate:web:check` byte-compares a temporary rebuild. Mermaid is the
   only airplan-managed external load and is conditional. Update its pin with
-  `mise run update:mermaid`; dependency-only updates never bump SPEC.md.
+  `mise run update:mermaid`; dependency-only updates never bump SPEC.md. The
+  exact Mermaid version is also a development dependency for the real-runtime
+  browser test. The updater changes the manifest, package pin, Bun lockfile,
+  generated Go, and render goldens as one transaction.
   Shared base/theme assets and theme-toggle markup are baked into both complete
   standalone template outputs; document and collection assets remain
   page-specific. Keep new bake markers and assets covered by template
@@ -131,10 +134,6 @@ coverage has no equivalent local task on non-Windows hosts.
   structural braces outside strings, comments, and escapes; quoted delimiters
   remain intact and cause generation to fail. Never globally rewrite brace
   pairs in generated assets.
-- **Bun ambient types currently require library checking to be skipped**:
-  `tsconfig.tooling.json` uses `skipLibCheck` because Bun 1.3's declarations do
-  not typecheck against the pinned Node 24 declarations under TypeScript 7.
-  Maintained browser, build, and Playwright sources remain strictly checked.
 - **Bun installs use the isolated linker**: transitive packages stay below
   ignored `node_modules/.bun/`. A hoisted dependency containing Go source can
   otherwise become an accidental package discovered by `go list ./...`.

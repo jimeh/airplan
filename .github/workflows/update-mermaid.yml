@@ -30,7 +30,7 @@ jobs:
       - uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
         with:
           add_shims_to_path: false
-          install_args: golangci-lint
+          install_args: bun golangci-lint
       - id: app-token
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
@@ -56,8 +56,8 @@ jobs:
           git config user.email "airplan-release-bot[bot]@users.noreply.github.com"
           git fetch origin "$BRANCH:refs/remotes/origin/$BRANCH" || true
           git switch -C "$BRANCH"
-          git add -A -- internal/deps/mermaid.json airplan/mermaid_generated.go \
-            airplan/testdata/TestRenderMarkdownGolden
+          git add -A -- package.json bun.lock internal/deps/mermaid.json \
+            airplan/mermaid_generated.go airplan/testdata/TestRenderMarkdownGolden
           git commit -m "chore(deps): update Mermaid"
           git remote set-url origin \
             "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"

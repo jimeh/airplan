@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -67,6 +69,28 @@ func TestUpdateFailsClosedOnMalformedTime(t *testing.T) {
 		`"time":{"11.16.0":"not-a-time"}}`)
 	if err := update(now, client, true); err == nil {
 		t.Fatal("malformed registry time was accepted")
+	}
+}
+
+func TestRequirePackageVersion(t *testing.T) {
+	matching := []byte(`{"devDependencies":{"mermaid":"11.16.1"}}`)
+	if err := requirePackageVersion(matching, "11.16.1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := requirePackageVersion(matching, "11.17.0"); err == nil {
+		t.Fatal("mismatched package version was accepted")
+	}
+}
+
+func TestReplacePackageVersion(t *testing.T) {
+	original := []byte("{\n  \"devDependencies\": {\n    \"mermaid\": \"11.16.1\"\n  }\n}\n")
+	got, err := replacePackageVersion(original, "11.16.1", "11.17.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(string(original), "11.16.1", "11.17.0", 1)
+	if string(got) != want {
+		t.Fatalf("updated package = %q, want %q", got, want)
 	}
 }
 
@@ -234,6 +258,22 @@ func withManifest(t *testing.T, contents string) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, manifestPath),
 		[]byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var current manifest
+	if err := json.Unmarshal([]byte(contents), &current); err != nil {
+		t.Fatal(err)
+	}
+	packageJSON := fmt.Sprintf(
+		"{\n  \"devDependencies\": {\n    \"mermaid\": %q\n  }\n}\n",
+		current.Version,
+	)
+	if err := os.WriteFile(filepath.Join(dir, packageJSONPath),
+		[]byte(packageJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, bunLockPath),
+		[]byte("placeholder\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	trackedPaths := []string{
