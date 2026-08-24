@@ -41,11 +41,10 @@ Deliver the work as two pull requests:
 
 1. Use Bun for JavaScript package management, script execution, and production
    asset bundling. Commit `bun.lock`, remove `package-lock.json`, and configure
-   Bun to reject releases newer than seven days for every dependency by
+   Bun to reject releases newer than three days for every dependency by
    default.
-2. Add Bun to `mise.toml` and `mise.lock`. Retain Node in Mise initially so
-   Playwright continues to run under its supported Node runtime even though Bun
-   installs its dependencies.
+2. Add Bun to `mise.toml` and `mise.lock`. Run Playwright under Bun and do not
+   retain Node solely for the browser test runner.
 3. Use TypeScript 7 in strict mode for all maintained browser code, Playwright
    configuration, browser tests, and asset-build scripts.
 4. Use Oxfmt for TypeScript, JavaScript output fixtures where applicable, CSS,
@@ -190,11 +189,11 @@ Commit a repository `bunfig.toml` with Bun's install-time release-age gate:
 
 ```toml
 [install]
-minimumReleaseAge = 604800
+minimumReleaseAge = 259200
 minimumReleaseAgeExcludes = []
 ```
 
-The seven-day minimum applies to all direct and transitive packages, including
+The three-day minimum applies to all direct and transitive packages, including
 TypeScript, type declarations, test tooling, linters, formatters, and their
 dependencies. Do not weaken it with standing package exclusions. A confirmed
 security update may use a narrowly scoped, temporary exception in the update
@@ -219,16 +218,16 @@ Update Mise setup, browser tests, dependency audit, CI, README development
 instructions, AGENTS task descriptions, and any workflow cache keys that
 refer to npm or `package-lock.json`.
 
-Retain Node 26 in Mise for Playwright. Run Playwright's CLI through its installed
-package under Node if Bun's bin execution would change the runtime. Bun still
-owns dependency resolution and installation.
+Run Playwright's installed CLI explicitly under Bun. Playwright remains the
+browser test framework and browser installer, while Bun owns dependency
+resolution, installation, and JavaScript execution.
 
 ### 6.2 Development dependencies
 
 Add exact compatible releases of:
 
 - `typescript` 7.x;
-- `@types/node` matching the retained Node major;
+- `@types/bun` matching the retained Bun release;
 - `oxlint`;
 - `oxlint-tsgolint` matching TypeScript 7;
 - `oxfmt`;
@@ -245,7 +244,7 @@ Add:
 
 - `tsconfig.json` for browser code with strict TypeScript 7, DOM libraries,
   modern browser target, and bundler resolution;
-- a separate Playwright/tooling tsconfig with Node types;
+- a separate Playwright/tooling tsconfig with Bun types;
 - `.oxlintrc.json` enabling correctness plus material type-aware promise and
   exception rules;
 - `.oxfmtrc.json` with generated outputs, lockfiles, artifacts, coverage, and
@@ -448,7 +447,7 @@ Required automated evidence:
 8. `mise run test:browser` passes.
 9. `mise run audit:deps` uses Bun and passes.
 10. A focused configuration test parses `bunfig.toml` and requires exactly a
-    seven-day minimum with an empty exclusion list. A scratch install without a
+    three-day minimum with an empty exclusion list. A scratch install without a
     lockfile proves Bun accepts and applies the repository configuration during
     fresh resolution; `bun ci` separately proves the committed lockfile is
     reproducible. Do not claim that a locked install age-checks versions already
@@ -464,11 +463,11 @@ new baseline is established.
 
 - Bun is the only project JavaScript package manager.
 - `bun.lock` is committed and `package-lock.json` is absent.
-- Bun enforces a seven-day minimum release age for every dependency by default,
+- Bun enforces a three-day minimum release age for every dependency by default,
   with no standing exclusions.
 - Every maintained JavaScript source has become TypeScript.
-- Node remains only for supported tooling runtime needs, not package
-  management.
+- Bun is the only JavaScript runtime used by repository tooling. Playwright
+  remains the browser test framework.
 - Production browser JavaScript and CSS are Bun-bundled and minified.
 - `airplan template` remains readable and reusable.
 - Generated output is deterministic and checked locally and in CI.
@@ -1192,12 +1191,10 @@ IDs.
 
 ### 8.7 Package-manager/runtime conflation
 
-Risk: replacing npm accidentally forces Playwright or another Node-only tool to
-execute under Bun.
+Risk: a package that works under Node may expose a Bun compatibility gap.
 
-Mitigation: distinguish package management from runtime. Bun owns installs and
-scripts; retain explicit Node execution where upstream support or observed
-behavior requires it.
+Mitigation: pin Bun and run the full Playwright browser matrix under Bun before
+accepting runtime upgrades.
 
 ## 9. Alternatives rejected
 
@@ -1224,7 +1221,7 @@ behavior requires it.
 
 ### Pull request 1
 
-1. Add and lock Bun; add the all-dependency seven-day release-age gate; migrate
+1. Add and lock Bun; add the all-dependency three-day release-age gate; migrate
    npm lock and commands.
 2. Add TypeScript 7, Oxc, and Stylelint configuration and tasks.
 3. Establish authored web source and generated-asset directories.

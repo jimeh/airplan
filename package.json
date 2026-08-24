@@ -9,15 +9,14 @@
     "format:check": "bun run format --check",
     "lint:css": "stylelint 'web/styles/**/*.css'",
     "lint:ts": "oxlint web tests/browser playwright.config.ts && oxlint --type-aware --tsconfig tsconfig.json web/src && oxlint --type-aware --tsconfig tsconfig.tooling.json web/build.ts web/*.test.ts tests/browser playwright.config.ts",
-    "test:browser": "node ./node_modules/@playwright/test/cli.js test",
+    "test:browser": "bun ./node_modules/@playwright/test/cli.js test",
     "test:web": "bun test web",
     "typecheck:web": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.tooling.json"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
     "@primer/octicons": "19.33.0",
-    "@types/bun": "1.3.14",
-    "@types/node": "26.2.0",
+    "@types/bun": "1.4.0",
     "mermaid": "11.16.1",
     "oxfmt": "0.63.0",
     "oxlint": "1.78.0",

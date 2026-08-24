@@ -1,46 +1,46 @@
 (() => {
-  function T(_) {
-    return _ === "system" || _ === "light" || _ === "dark";
+  function u(e) {
+    return e === "system" || e === "light" || e === "dark";
   }
-  function I(_, n) {
+  function m(e, o) {
     try {
-      return _?.getItem(n) ?? null;
+      return e?.getItem(o) ?? null;
     } catch {
       return null;
     }
   }
-  function V(_, n, p) {
+  function p(e, o, t) {
     try {
-      if (p === null)
-        _?.removeItem(n);
+      if (t === null)
+        e?.removeItem(o);
       else
-        _?.setItem(n, p);
+        e?.setItem(o, t);
     } catch {}
   }
-  function P(_, n, p) {
-    let A = I(p, "airplan-color-mode");
-    if (A === null) {
-      let S = I(p, "airplan-theme");
-      if (A = S === "light" || S === "dark" ? S : "system", A !== "system")
-        V(p, "airplan-color-mode", A);
+  function g(e, o, t) {
+    let r = m(t, "airplan-color-mode");
+    if (r === null) {
+      let n = m(t, "airplan-theme");
+      if (r = n === "light" || n === "dark" ? n : "system", r !== "system")
+        p(t, "airplan-color-mode", r);
     }
-    let N = T(A) ? A : "system", E = new Set(_.themes.map((S) => S.id)), C = I(p, "airplan-light-theme"), w = I(p, "airplan-dark-theme"), G = C !== null && E.has(C) ? C : _.defaultLight, H = w !== null && E.has(w) ? w : _.defaultDark;
-    return b(_, N, G, H, n);
+    let h = u(r) ? r : "system", a = new Set(e.themes.map((n) => n.id)), i = m(t, "airplan-light-theme"), d = m(t, "airplan-dark-theme"), l = i !== null && a.has(i) ? i : e.defaultLight, s = d !== null && a.has(d) ? d : e.defaultDark;
+    return T(e, h, l, s, o);
   }
-  function b(_, n, p, A, N) {
-    let E = new Map(_.themes.map((O) => [O.id, O])), C = E.has(p) ? p : _.defaultLight, w = E.has(A) ? A : _.defaultDark, G = n === "system" ? N ? "dark" : "light" : n, H = G === "light" ? C : w, S = E.get(H)?.variant ?? G;
-    return { mode: n, resolvedMode: G, lightTheme: C, darkTheme: w, theme: H, variant: S };
+  function T(e, o, t, r, h) {
+    let a = new Map(e.themes.map((c) => [c.id, c])), i = a.has(t) ? t : e.defaultLight, d = a.has(r) ? r : e.defaultDark, l = o === "system" ? h ? "dark" : "light" : o, s = l === "light" ? i : d, n = a.get(s)?.variant ?? l;
+    return { mode: o, resolvedMode: l, lightTheme: i, darkTheme: d, theme: s, variant: n };
   }
 
   try {
-    let _ = window.__AIRPLAN_THEME_CATALOG__;
-    if (_) {
-      let n;
+    let e = window.__AIRPLAN_THEME_CATALOG__;
+    if (e) {
+      let o;
       try {
-        n = window.localStorage;
+        o = window.localStorage;
       } catch {}
-      let p = P(_, matchMedia("(prefers-color-scheme: dark)").matches, n), A = document.documentElement;
-      A.dataset.airplanMode = p.mode, A.dataset.airplanResolvedMode = p.resolvedMode, A.dataset.airplanTheme = p.theme, A.dataset.airplanThemeVariant = p.variant, window.__airplanThemeState = p;
+      let t = g(e, matchMedia("(prefers-color-scheme: dark)").matches, o), r = document.documentElement;
+      r.dataset.airplanMode = t.mode, r.dataset.airplanResolvedMode = t.resolvedMode, r.dataset.airplanTheme = t.theme, r.dataset.airplanThemeVariant = t.variant, window.__airplanThemeState = t;
     }
   } catch {}
 })();

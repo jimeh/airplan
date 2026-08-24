@@ -176,7 +176,7 @@ jobs:
         with:
           add_shims_to_path: false
           cache_save: ${{ github.event_name != 'pull_request' }}
-          install_args: bun node
+          install_args: bun
       - run: bun ci
       - run: bunx playwright install --with-deps --only-shell chromium
       - run: bun run test:browser

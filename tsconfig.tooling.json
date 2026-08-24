@@ -8,7 +8,7 @@
     "noEmit": true,
     "strict": true,
     "target": "ES2022",
-    "types": ["bun", "node"]
+    "types": ["bun"]
   },
   "include": ["web/build.ts", "web/**/*.test.ts", "tests/browser/**/*.ts", "playwright.config.ts"]
 }

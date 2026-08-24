@@ -7,7 +7,6 @@ run_auto_install = true
 
 [tools]
 bun = "1"
-node = "26"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1"
 goreleaser = "2"
 golangci-lint = "2"

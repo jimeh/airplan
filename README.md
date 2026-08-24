@@ -1232,14 +1232,14 @@ mise run verify             # broad local validation
 mise run update:mermaid     # update an eligible, 72-hour-old Mermaid pin
 ```
 
-`mise run setup` installs Bun and Node, performs a frozen `bun ci`, and installs
-the Git hooks. Bun is the repository package manager and builds the maintained
-TypeScript and CSS into readable and minified committed browser assets. Node is
-retained only as Playwright's supported runtime. `bunfig.toml` rejects every
-direct and transitive package release newer than seven days with no standing
-exclusions. A confirmed security update may add a narrowly scoped temporary
-exception in the same update and must remove it once the release reaches the
-normal age.
+`mise run setup` installs Bun, performs a frozen `bun ci`, and installs the Git
+hooks. Bun is the repository package manager and builds the maintained
+TypeScript and CSS into readable and minified committed browser assets.
+Playwright runs under Bun, so the development toolchain does not install Node.
+`bunfig.toml` rejects every direct and transitive package release newer than
+three days with no standing exclusions. A confirmed security update may add a
+narrowly scoped temporary exception in the same update and must remove it once
+the release reaches the normal age.
 
 The browser suite requires Chromium. The shared task installs the matching
 build on demand, and CI also installs Chromium's Linux system dependencies.

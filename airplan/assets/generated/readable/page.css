@@ -776,7 +776,7 @@ body.toc-dialog-open {
 
 @media (prefers-reduced-motion: no-preference) {
   .pages-popover:popover-open {
-    animation: pages-reveal .14s ease-out;
+    animation: .14s ease-out pages-reveal;
   }
 }
 
