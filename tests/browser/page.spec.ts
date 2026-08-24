@@ -2871,18 +2871,19 @@ test("Mermaid viewer supports touch pinch zoom without a persistent focus ring",
       }),
     );
     await touchPage.goto(baseURL);
-    await touchPage
+    const touchTrigger = touchPage
       .getByRole("button", {
         name: "Open diagram viewer",
       })
-      .first()
-      .click();
+      .first();
+    await touchTrigger.click();
 
     const dialog = touchPage.locator("[data-airplan-mermaid-dialog]");
     const canvas = dialog.locator("[data-airplan-mermaid-canvas]");
     const viewerSVG = dialog.locator(".mermaid-surface > svg");
     const zoom = dialog.locator("[data-airplan-mermaid-zoom-value]");
     await expect(canvas).toBeFocused();
+    await expect(canvas).toHaveClass(/mermaid-canvas-pointer-focus/);
     await expect(canvas).toHaveCSS("outline-style", "none");
 
     const initialPercent = Number.parseInt((await zoom.textContent()) || "", 10);
@@ -2897,38 +2898,45 @@ test("Mermaid viewer supports touch pinch zoom without a persistent focus ring",
     const initialViewBox = await readViewBox();
     const bounds = await canvas.boundingBox();
     if (!bounds) throw new Error("Mermaid touch canvas has no bounding box");
-    const centerY = bounds.y + bounds.height / 2;
-    const firstStart = bounds.x + bounds.width * 0.35;
-    const secondStart = bounds.x + bounds.width * 0.65;
-    const firstEnd = bounds.x + bounds.width * 0.25;
-    const secondEnd = bounds.x + bounds.width * 0.75;
+    const startRatio = { x: 0.35, y: 0.35 };
+    const endRatio = { x: 0.4, y: 0.4 };
+    const firstStartX = bounds.x + bounds.width * 0.2;
+    const secondStartX = bounds.x + bounds.width * 0.5;
+    const startY = bounds.y + bounds.height * startRatio.y;
+    const firstEndX = bounds.x + bounds.width * 0.15;
+    const secondEndX = bounds.x + bounds.width * 0.65;
+    const endY = bounds.y + bounds.height * endRatio.y;
+    const anchoredPoint = [
+      initialViewBox[0] + startRatio.x * initialViewBox[2],
+      initialViewBox[1] + startRatio.y * initialViewBox[3],
+    ];
 
     await canvas.dispatchEvent("pointerdown", {
       button: 0,
-      clientX: firstStart,
-      clientY: centerY,
+      clientX: firstStartX,
+      clientY: startY,
       isPrimary: true,
       pointerId: 91,
       pointerType: "touch",
     });
     await canvas.dispatchEvent("pointerdown", {
       button: 0,
-      clientX: secondStart,
-      clientY: centerY,
+      clientX: secondStartX,
+      clientY: startY,
       isPrimary: false,
       pointerId: 92,
       pointerType: "touch",
     });
     await canvas.dispatchEvent("pointermove", {
-      clientX: firstEnd,
-      clientY: centerY,
+      clientX: firstEndX,
+      clientY: endY,
       isPrimary: true,
       pointerId: 91,
       pointerType: "touch",
     });
     await canvas.dispatchEvent("pointermove", {
-      clientX: secondEnd,
-      clientY: centerY,
+      clientX: secondEndX,
+      clientY: endY,
       isPrimary: false,
       pointerId: 92,
       pointerType: "touch",
@@ -2939,31 +2947,47 @@ test("Mermaid viewer supports touch pinch zoom without a persistent focus ring",
       .toBeGreaterThan(initialPercent * 1.5);
     const pinchedViewBox = await readViewBox();
     expect(pinchedViewBox[2]).toBeCloseTo(initialViewBox[2] * 0.6, 0);
-    expect(pinchedViewBox[0] + pinchedViewBox[2] / 2).toBeCloseTo(
-      initialViewBox[0] + initialViewBox[2] / 2,
-      0,
-    );
-    expect(pinchedViewBox[1] + pinchedViewBox[3] / 2).toBeCloseTo(
-      initialViewBox[1] + initialViewBox[3] / 2,
-      0,
-    );
+    expect(pinchedViewBox[0] + endRatio.x * pinchedViewBox[2]).toBeCloseTo(anchoredPoint[0], 0);
+    expect(pinchedViewBox[1] + endRatio.y * pinchedViewBox[3]).toBeCloseTo(anchoredPoint[1], 0);
     await expect(canvas).toHaveClass(/mermaid-canvas-pointer-focus/);
     await expect(dialog.locator(".mermaid-help")).toContainText("pinch to zoom");
 
     await canvas.dispatchEvent("pointerup", {
-      clientX: firstEnd,
-      clientY: centerY,
+      clientX: firstEndX,
+      clientY: endY,
       isPrimary: true,
       pointerId: 91,
       pointerType: "touch",
     });
-    await canvas.dispatchEvent("pointerup", {
-      clientX: secondEnd,
-      clientY: centerY,
+    const handoffDistance = { x: 30, y: 20 };
+    await canvas.dispatchEvent("pointermove", {
+      clientX: secondEndX + handoffDistance.x,
+      clientY: endY + handoffDistance.y,
       isPrimary: false,
       pointerId: 92,
       pointerType: "touch",
     });
+    const handedOffViewBox = await readViewBox();
+    const pinchedScale = bounds.width / pinchedViewBox[2];
+    expect(handedOffViewBox[0] - pinchedViewBox[0]).toBeCloseTo(-handoffDistance.x / pinchedScale);
+    expect(handedOffViewBox[1] - pinchedViewBox[1]).toBeCloseTo(-handoffDistance.y / pinchedScale);
+    await canvas.dispatchEvent("pointercancel", {
+      clientX: secondEndX + handoffDistance.x,
+      clientY: endY + handoffDistance.y,
+      isPrimary: false,
+      pointerId: 92,
+      pointerType: "touch",
+    });
+    await expect(canvas).not.toHaveClass(/mermaid-canvas-panning/);
+
+    await touchPage.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+    await expect(touchTrigger).toBeFocused();
+    await touchPage.keyboard.press("Enter");
+    await expect(canvas).toBeFocused();
+    await expect(canvas).not.toHaveClass(/mermaid-canvas-pointer-focus/);
+    await expect(canvas).toHaveCSS("outline-style", "solid");
+    await expect(canvas).toHaveCSS("outline-width", "2px");
   } finally {
     await touchContext.close();
   }
@@ -3039,10 +3063,35 @@ test("Mermaid viewer zooms, pans, and preserves its view across themes", async (
   const bounds = await canvas.boundingBox();
   if (!bounds) throw new Error("Mermaid canvas has no bounding box");
   const pointerRatio = { x: 0.75, y: 0.25 };
+  const fitButton = dialog.getByRole("button", { name: "Fit diagram" });
   const anchorBefore = [
     initialViewBox[0] + pointerRatio.x * initialViewBox[2],
     initialViewBox[1] + pointerRatio.y * initialViewBox[3],
   ];
+  await canvas.dispatchEvent("wheel", {
+    deltaMode: 1,
+    deltaY: -1,
+    clientX: bounds.x + bounds.width * pointerRatio.x,
+    clientY: bounds.y + bounds.height * pointerRatio.y,
+  });
+  const lineWheelScale = Math.exp(0.016);
+  const lineWheelViewBox = await readViewBox();
+  expect(lineWheelViewBox[2]).toBeCloseTo(initialViewBox[2] / lineWheelScale);
+  await fitButton.click();
+  await expect(zoom).toHaveText(`${initialPercent}%`);
+
+  await canvas.dispatchEvent("wheel", {
+    deltaMode: 2,
+    deltaY: -10,
+    clientX: bounds.x + bounds.width * pointerRatio.x,
+    clientY: bounds.y + bounds.height * pointerRatio.y,
+  });
+  const clampedWheelScale = Math.exp(0.5);
+  const clampedWheelViewBox = await readViewBox();
+  expect(clampedWheelViewBox[2]).toBeCloseTo(initialViewBox[2] / clampedWheelScale);
+  await fitButton.click();
+  await expect(zoom).toHaveText(`${initialPercent}%`);
+
   await canvas.dispatchEvent("wheel", {
     deltaY: -100,
     clientX: bounds.x + bounds.width * pointerRatio.x,
