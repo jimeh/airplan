@@ -117,7 +117,14 @@ function createButton(label: string, action: string, content: string) {
   return button;
 }
 
-function readSVGSize(svg: SVGSVGElement) {
+interface SVGGeometry {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+function readSVGGeometry(svg: SVGSVGElement): SVGGeometry {
   const values = svg
     .getAttribute("viewBox")
     ?.trim()
@@ -125,16 +132,20 @@ function readSVGSize(svg: SVGSVGElement) {
     .map(Number);
   if (
     values?.length === 4 &&
+    Number.isFinite(values[0]) &&
+    Number.isFinite(values[1]) &&
     Number.isFinite(values[2]) &&
     values[2] > 0 &&
     Number.isFinite(values[3]) &&
     values[3] > 0
   ) {
-    return { width: values[2], height: values[3] };
+    return { x: values[0], y: values[1], width: values[2], height: values[3] };
   }
   const width = Number.parseFloat(svg.getAttribute("width") || "");
   const height = Number.parseFloat(svg.getAttribute("height") || "");
   return {
+    x: 0,
+    y: 0,
     width: Number.isFinite(width) && width > 0 ? width : 800,
     height: Number.isFinite(height) && height > 0 ? height : 600,
   };
@@ -231,7 +242,7 @@ function createMermaidViewer(): MermaidViewer | null {
   canvas.setAttribute("role", "group");
   canvas.setAttribute(
     "aria-label",
-    "Zoomable Mermaid diagram. Scroll or use plus and minus to zoom. " +
+    "Zoomable Mermaid diagram. Scroll, pinch, or use plus and minus to zoom. " +
       "Drag or use arrow keys to pan.",
   );
   const surface = document.createElement("div");
@@ -241,7 +252,7 @@ function createMermaidViewer(): MermaidViewer | null {
 
   const help = document.createElement("p");
   help.className = "mermaid-help";
-  help.textContent = "Scroll to zoom · Drag to pan · 0 to fit";
+  help.textContent = "Scroll or pinch to zoom · Drag to pan · 0 to fit";
   shell.append(header, canvas, help);
   dialog.appendChild(shell);
   document.body.appendChild(dialog);
@@ -249,23 +260,31 @@ function createMermaidViewer(): MermaidViewer | null {
   let sourceBlock: HTMLPreElement | null = null;
   let returnFocus: HTMLButtonElement | null = null;
   let viewerSVG: SVGSVGElement | null = null;
-  let naturalWidth = 1;
-  let naturalHeight = 1;
+  let geometry: SVGGeometry = { x: 0, y: 0, width: 1, height: 1 };
   let scale = 1;
   let panX = 0;
   let panY = 0;
-  let activePointer: number | null = null;
+  const activePointers = new Map<number, { x: number; y: number }>();
   let pointerStartX = 0;
   let pointerStartY = 0;
   let pointerPanX = 0;
   let pointerPanY = 0;
+  let pinchDistance = 0;
+  let pinchMidpointX = 0;
+  let pinchMidpointY = 0;
 
-  function applyTransform() {
-    surface.style.transform = `translate(${panX}px, ${panY}px)`;
-    if (viewerSVG) {
-      viewerSVG.style.transform = `translate(-50%, -50%) scale(${scale})`;
-    }
+  function applyViewBox() {
     zoomValue.textContent = `${Math.round(scale * 100)}%`;
+    if (!viewerSVG) return;
+    const bounds = canvas.getBoundingClientRect();
+    const viewWidth = Math.max(bounds.width, 1) / scale;
+    const viewHeight = Math.max(bounds.height, 1) / scale;
+    const centerX = geometry.x + geometry.width / 2 + panX;
+    const centerY = geometry.y + geometry.height / 2 + panY;
+    viewerSVG.setAttribute(
+      "viewBox",
+      [centerX - viewWidth / 2, centerY - viewHeight / 2, viewWidth, viewHeight].join(" "),
+    );
   }
 
   function fitDiagram() {
@@ -273,50 +292,89 @@ function createMermaidViewer(): MermaidViewer | null {
     const availableWidth = Math.max(bounds.width - 48, 1);
     const availableHeight = Math.max(bounds.height - 48, 1);
     scale = clamp(
-      Math.min(availableWidth / naturalWidth, availableHeight / naturalHeight, 1),
+      Math.min(availableWidth / geometry.width, availableHeight / geometry.height, 1),
       0.05,
       8,
     );
     panX = 0;
     panY = 0;
-    applyTransform();
+    applyViewBox();
+  }
+
+  function setZoomBetweenPoints(
+    nextScale: number,
+    fromClientX: number,
+    fromClientY: number,
+    toClientX: number,
+    toClientY: number,
+  ) {
+    const clamped = clamp(nextScale, 0.05, 8);
+    const bounds = canvas.getBoundingClientRect();
+    const centerX = bounds.left + bounds.width / 2;
+    const centerY = bounds.top + bounds.height / 2;
+    panX += (fromClientX - centerX) / scale - (toClientX - centerX) / clamped;
+    panY += (fromClientY - centerY) / scale - (toClientY - centerY) / clamped;
+    scale = clamped;
+    applyViewBox();
   }
 
   function setZoom(nextScale: number, clientX?: number, clientY?: number) {
+    if (clientX !== undefined && clientY !== undefined) {
+      setZoomBetweenPoints(nextScale, clientX, clientY, clientX, clientY);
+      return;
+    }
     const clamped = clamp(nextScale, 0.05, 8);
     if (clamped === scale) return;
-    if (clientX !== undefined && clientY !== undefined) {
-      const bounds = canvas.getBoundingClientRect();
-      const offsetX = clientX - (bounds.left + bounds.width / 2) - panX;
-      const offsetY = clientY - (bounds.top + bounds.height / 2) - panY;
-      const ratio = clamped / scale;
-      panX += offsetX * (1 - ratio);
-      panY += offsetY * (1 - ratio);
-    }
     scale = clamped;
-    applyTransform();
+    applyViewBox();
+  }
+
+  function beginSinglePointerPan(pointer: { x: number; y: number }) {
+    pointerStartX = pointer.x;
+    pointerStartY = pointer.y;
+    pointerPanX = panX;
+    pointerPanY = panY;
+  }
+
+  function beginPinch() {
+    const [first, second] = Array.from(activePointers.values());
+    if (!first || !second) {
+      pinchDistance = 0;
+      return;
+    }
+    pinchDistance = Math.hypot(second.x - first.x, second.y - first.y);
+    pinchMidpointX = (first.x + second.x) / 2;
+    pinchMidpointY = (first.y + second.y) / 2;
   }
 
   function showSVG(svg: SVGSVGElement, reset: boolean) {
     const clone = cloneMermaidSVG(svg);
     viewerSVG = clone;
-    const size = readSVGSize(svg);
-    naturalWidth = size.width;
-    naturalHeight = size.height;
-    clone.style.width = `${naturalWidth}px`;
-    clone.style.height = `${naturalHeight}px`;
+    geometry = readSVGGeometry(svg);
+    clone.style.width = "100%";
+    clone.style.height = "100%";
     clone.style.maxWidth = "none";
     clone.style.maxHeight = "none";
     surface.replaceChildren(clone);
     if (reset) fitDiagram();
-    else applyTransform();
+    else applyViewBox();
+  }
+
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(() => applyViewBox()).observe(canvas);
+  } else {
+    window.addEventListener("resize", applyViewBox);
   }
 
   function closeViewer() {
     if (dialog.open) dialog.close();
   }
 
-  function openViewer(block: HTMLPreElement, trigger: HTMLButtonElement) {
+  function openViewer(
+    block: HTMLPreElement,
+    trigger: HTMLButtonElement,
+    pointerInitiated: boolean,
+  ) {
     const svg = block.querySelector<SVGSVGElement>("svg");
     if (!svg) return;
     sourceBlock = block;
@@ -325,6 +383,7 @@ function createMermaidViewer(): MermaidViewer | null {
     dialog.showModal();
     document.body.classList.add("mermaid-dialog-open");
     fitDiagram();
+    canvas.classList.toggle("mermaid-canvas-pointer-focus", pointerInitiated);
     canvas.focus();
   }
 
@@ -341,8 +400,8 @@ function createMermaidViewer(): MermaidViewer | null {
   });
   dialog.addEventListener("close", () => {
     document.body.classList.remove("mermaid-dialog-open");
-    activePointer = null;
-    canvas.classList.remove("mermaid-canvas-panning");
+    activePointers.clear();
+    canvas.classList.remove("mermaid-canvas-panning", "mermaid-canvas-pointer-focus");
     const target = returnFocus;
     sourceBlock = null;
     returnFocus = null;
@@ -351,6 +410,7 @@ function createMermaidViewer(): MermaidViewer | null {
     }
   });
   dialog.addEventListener("keydown", (event) => {
+    canvas.classList.remove("mermaid-canvas-pointer-focus");
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === "+" || event.key === "=") {
       event.preventDefault();
@@ -370,50 +430,86 @@ function createMermaidViewer(): MermaidViewer | null {
     if (event.target !== canvas) return;
     const panStep = event.shiftKey ? 120 : 40;
     const direction = {
-      ArrowLeft: [panStep, 0],
-      ArrowRight: [-panStep, 0],
-      ArrowUp: [0, panStep],
-      ArrowDown: [0, -panStep],
+      ArrowLeft: [-panStep, 0],
+      ArrowRight: [panStep, 0],
+      ArrowUp: [0, -panStep],
+      ArrowDown: [0, panStep],
     }[event.key];
     if (!direction) return;
     event.preventDefault();
-    panX += direction[0];
-    panY += direction[1];
-    applyTransform();
+    panX += direction[0] / scale;
+    panY += direction[1] / scale;
+    applyViewBox();
   });
   canvas.addEventListener(
     "wheel",
     (event) => {
       event.preventDefault();
-      setZoom(scale * (event.deltaY < 0 ? 1.2 : 1 / 1.2), event.clientX, event.clientY);
+      const deltaMultiplier =
+        event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? canvas.clientHeight : 1;
+      const delta = clamp(event.deltaY * deltaMultiplier, -500, 500);
+      setZoom(scale * Math.exp(-delta * 0.001), event.clientX, event.clientY);
     },
     { passive: false },
   );
   canvas.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) return;
-    activePointer = event.pointerId;
-    pointerStartX = event.clientX;
-    pointerStartY = event.clientY;
-    pointerPanX = panX;
-    pointerPanY = panY;
+    if (event.button !== 0 || activePointers.has(event.pointerId) || activePointers.size >= 2) {
+      return;
+    }
+    activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     canvas.classList.add("mermaid-canvas-panning");
+    canvas.classList.add("mermaid-canvas-pointer-focus");
     try {
       canvas.setPointerCapture(event.pointerId);
     } catch {}
+    if (activePointers.size === 1) {
+      beginSinglePointerPan({ x: event.clientX, y: event.clientY });
+    } else {
+      beginPinch();
+    }
   });
   canvas.addEventListener("pointermove", (event) => {
-    if (activePointer !== event.pointerId) return;
-    panX = pointerPanX + event.clientX - pointerStartX;
-    panY = pointerPanY + event.clientY - pointerStartY;
-    applyTransform();
+    const pointer = activePointers.get(event.pointerId);
+    if (!pointer) return;
+    pointer.x = event.clientX;
+    pointer.y = event.clientY;
+    if (activePointers.size === 1) {
+      panX = pointerPanX - (event.clientX - pointerStartX) / scale;
+      panY = pointerPanY - (event.clientY - pointerStartY) / scale;
+      applyViewBox();
+      return;
+    }
+    const [first, second] = Array.from(activePointers.values());
+    if (!first || !second) return;
+    const nextDistance = Math.hypot(second.x - first.x, second.y - first.y);
+    const nextMidpointX = (first.x + second.x) / 2;
+    const nextMidpointY = (first.y + second.y) / 2;
+    if (pinchDistance > 0 && nextDistance > 0) {
+      setZoomBetweenPoints(
+        scale * (nextDistance / pinchDistance),
+        pinchMidpointX,
+        pinchMidpointY,
+        nextMidpointX,
+        nextMidpointY,
+      );
+    }
+    pinchDistance = nextDistance;
+    pinchMidpointX = nextMidpointX;
+    pinchMidpointY = nextMidpointY;
   });
   function stopPanning(event: PointerEvent) {
-    if (activePointer !== event.pointerId) return;
+    if (!activePointers.has(event.pointerId)) return;
     try {
       canvas.releasePointerCapture(event.pointerId);
     } catch {}
-    activePointer = null;
-    canvas.classList.remove("mermaid-canvas-panning");
+    activePointers.delete(event.pointerId);
+    if (activePointers.size === 0) {
+      pinchDistance = 0;
+      canvas.classList.remove("mermaid-canvas-panning");
+      return;
+    }
+    const remaining = activePointers.values().next().value;
+    if (remaining) beginSinglePointerPan(remaining);
   }
   canvas.addEventListener("pointerup", stopPanning);
   canvas.addEventListener("pointercancel", stopPanning);
@@ -429,7 +525,9 @@ function createMermaidViewer(): MermaidViewer | null {
         trigger.setAttribute("aria-haspopup", "dialog");
         trigger.setAttribute("aria-controls", dialog.id);
         const activeTrigger = trigger;
-        trigger.addEventListener("click", () => openViewer(block, activeTrigger));
+        trigger.addEventListener("click", (event) =>
+          openViewer(block, activeTrigger, event.detail > 0),
+        );
         block.appendChild(trigger);
       }
       if (sourceBlock === block && dialog.open) {

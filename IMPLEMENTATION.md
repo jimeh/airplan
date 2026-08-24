@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.59.0.
+may contradict it. Targets spec version 0.60.0.
 
 ---
 
@@ -243,8 +243,13 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   module creates one native dialog viewer and enhances each rendered block
   with an explicit open control. The viewer clones the displayed SVG, rewrites
   every ID and local reference (including embedded styles and ARIA IDREFs), and
-  keeps an open clone synchronized with theme swaps while retaining its
-  transform. The pin manifest under `internal/deps` generates exported
+  changes the clone's `viewBox` for zoom and pan so Chromium redraws its vector
+  content instead of compositor-scaling a rasterized layer. Wheel deltas use a
+  continuous zoom curve, while the shared pointer path combines one-finger pan
+  with midpoint-anchored two-finger pinch zoom. Pointer-opened viewers suppress
+  Safari's keyboard-only canvas focus ring until keyboard input resumes. It keeps
+  an open clone synchronized with theme swaps while retaining its view. The pin manifest
+  under `internal/deps` generates exported
   constants; a networked updater observes a 72-hour minimum age, stays within
   the current major, verifies jsDelivr, and refreshes generated/rendered
   artifacts. Dependency-only updates do not alter this document or SPEC.md.
@@ -300,7 +305,7 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   from the floating Contents trigger. The complete-diff header keeps its return and raw links above
   the report, reuses metadata-backed revision pickers, and hides compact Pages
   navigation. This page structure uses
-  `RendererGeneration` 26.
+  `RendererGeneration` 28.
 - Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, safe theme CSS/catalog metadata, structured headings/ToC
