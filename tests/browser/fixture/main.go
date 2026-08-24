@@ -58,6 +58,19 @@ func main() {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	single, err := airplan.RenderMarkdown([]byte("# Single-page revision\n\nRevised\n"), airplan.RenderOptions{
+		Title: "Single-page revision", Slug: "single", SourceName: "single.md",
+		SourcePath: "./single.md", NoExternalAssets: true,
+		Revision: 2, RevisionCount: 2, PreviousRevision: 1,
+		RevisionChainID: "tttttttttttttttttttttttttt",
+		VersionsPath:    airplan.VersionsFilename,
+		DiffPath:        "./" + airplan.DiffFilename,
+		DiffText:        diff,
+	})
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	if err := os.WriteFile(outputPath, page, 0o644); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -67,6 +80,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err := os.WriteFile(filepath.Join(filepath.Dir(outputPath), "notes.md"), notesSource, 0o644); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(outputPath), "single.html"), single, 0o644); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

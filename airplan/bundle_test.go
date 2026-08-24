@@ -256,6 +256,7 @@ func TestRenderDocumentProjectsRevisionChangesPerPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Contains(bundle.Pages[0].HTML, []byte(`data-view="changes"`)) ||
+		!bytes.Contains(bundle.Pages[0].HTML, []byte(`class="all-changes-link"`)) ||
 		!bytes.Contains(bundle.Pages[0].HTML, []byte(`class="content all-changes-view"`)) ||
 		bytes.Contains(bundle.Pages[0].HTML, []byte(`Changes to server.go`)) {
 		t.Fatal("entry does not contain distinct page-local and complete changes")

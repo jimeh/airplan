@@ -270,7 +270,8 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 			Title: "Hi", SourceName: "plan.md", SourcePath: "./plan.md",
 			Revision: 2, RevisionCount: 3, PreviousRevision: 1,
 			VersionsPath: VersionsFilename, DiffPath: "./" + DiffFilename,
-			DiffText: "--- revision-1/plan.md\n+++ revision-2/plan.md\n@@ -1 +1 @@\n-old\n+new\n",
+			DiffText:       "--- revision-1/plan.md\n+++ revision-2/plan.md\n@@ -1 +1 @@\n-old\n+new\n",
+			AllChangesPath: "./plan.html#airplan-all-changes",
 		})
 		for _, fragment := range []string{
 			`<meta name="airplan-revision" content="2">`,
@@ -285,6 +286,9 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 			if !strings.Contains(out, fragment) {
 				t.Errorf("revision page missing %q", fragment)
 			}
+		}
+		if strings.Contains(out, `class="all-changes-link"`) {
+			t.Error("single-page revision exposes redundant All changes action")
 		}
 	})
 

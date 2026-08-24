@@ -118,7 +118,7 @@
   <section class="view-controls" aria-label="Document view and revision">
     <div class="revision-controls{{if not .Revision}} js-only{{end}}" data-revision-controls role="group" aria-label="Revision controls"{{if not .Revision}} hidden{{end}}>
     {{- if .Revision}}
-    {{- if gt .Revision 1}}
+    {{- if and (gt .Revision 1) (gt (len .Pages) 1)}}
     <a class="all-changes-link" href="{{.AllChangesPath}}">{{template "airplan-icon-changes"}}<span>All changes</span></a>
     {{- end}}
     <p class="revision-heading" data-revision-heading>Revision {{.Revision}}{{if .RevisionCount}} of {{.RevisionCount}}{{end}}</p>
