@@ -527,7 +527,7 @@ includes only the loaded page. Custom templates receive bundle data but no
 built-in navigation, transition CSS, or JavaScript.
 
 The title-led page structure, segmented path breadcrumb, directory-grouped
-managed-page navigation, revision-aware content modes, transition CSS, and
+managed-page navigation, revision-aware content modes, transition CSS,
 built-in control icon set, and sharp vector Mermaid viewer define renderer
 generation 27. Single-page output also uses generation 27 because
 the current writer has one renderer generation for all generated pages.
