@@ -219,7 +219,7 @@ Update Mise setup, browser tests, dependency audit, CI, README development
 instructions, AGENTS task descriptions, and any workflow cache keys that
 refer to npm or `package-lock.json`.
 
-Retain Node 24 in Mise for Playwright. Run Playwright's CLI through its installed
+Retain Node 26 in Mise for Playwright. Run Playwright's CLI through its installed
 package under Node if Bun's bin execution would change the runtime. Bun still
 owns dependency resolution and installation.
 

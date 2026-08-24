@@ -35,6 +35,10 @@ updates:
     groups:
       web-dependencies:
         patterns: ["*"]
+    ignore:
+      # The weekly Mermaid updater keeps the runtime manifest, browser-test
+      # package, generated Go, and render goldens in sync.
+      - dependency-name: mermaid
     commit-message:
       prefix: "chore(deps)"
 
