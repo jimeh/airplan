@@ -1,6 +1,6 @@
-// Command updatedemos refreshes README demo links when their origin storage
-// bytes differ from the repository's upload-mode golden pages and source files.
-// Reading through the storage API avoids false staleness from CDN transforms.
+// Command updatedemos refreshes README demo links when any published object in
+// origin storage differs from the repository's upload-mode fixtures. Reading
+// through the storage API avoids false staleness from CDN transforms.
 package main
 
 import (
@@ -15,7 +15,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -28,13 +27,18 @@ type demo struct {
 	id         string
 	reference  string
 	inputPaths []string
-	goldenPath string
 	pageName   string
 	args       []string
+	objects    []expectedDemoObject
 }
 
 type demoContent struct {
 	objects []demoObject
+}
+
+type expectedDemoObject struct {
+	name string
+	path string
 }
 
 type demoObject struct {
@@ -47,33 +51,60 @@ var repositoryDemos = []demo{
 		id:         "implementation plan",
 		reference:  "airplan-demo-implementation-plan",
 		inputPaths: []string{"airplan/testdata/implementation-plan.md"},
-		goldenPath: "airplan/testdata/TestRenderMarkdownGolden/" +
-			"implementation_plan.html",
-		pageName: "implementation-plan.html",
+		pageName:   "implementation-plan.html",
 		args: []string{
 			"--repo", "https://github.com/octo-org/identity-platform",
+		},
+		objects: []expectedDemoObject{
+			{
+				name: "implementation-plan.html",
+				path: "airplan/testdata/TestRenderMarkdownGolden/" +
+					"implementation_plan.html",
+			},
+			{
+				name: "implementation-plan.md",
+				path: "airplan/testdata/implementation-plan.md",
+			},
 		},
 	},
 	{
 		id:         "architecture overview",
 		reference:  "airplan-demo-how-it-works",
 		inputPaths: []string{"airplan/testdata/how-airplan-works.md"},
-		goldenPath: "airplan/testdata/TestRenderMarkdownGolden/" +
-			"how_airplan_works.html",
-		pageName: "how-airplan-works.html",
+		pageName:   "how-airplan-works.html",
 		args: []string{
 			"--repo", "https://github.com/jimeh/airplan",
+		},
+		objects: []expectedDemoObject{
+			{
+				name: "how-airplan-works.html",
+				path: "airplan/testdata/TestRenderMarkdownGolden/" +
+					"how_airplan_works.html",
+			},
+			{
+				name: "how-airplan-works.md",
+				path: "airplan/testdata/how-airplan-works.md",
+			},
 		},
 	},
 	{
 		id:         "Go API example",
 		reference:  "airplan-demo-go-api",
 		inputPaths: []string{"airplan/testdata/upload-example.go"},
-		goldenPath: "airplan/testdata/TestRenderMarkdownGolden/" +
-			"upload_example_go.html",
-		pageName: "upload-example.html",
+		pageName:   "upload-example.html",
 		args: []string{
 			"--title", "Upload with airplan's Go API",
+		},
+		objects: []expectedDemoObject{
+			{
+				name: "upload-example.html",
+				path: "airplan/testdata/TestRenderMarkdownGolden/" +
+					"upload_example_go.html",
+			},
+			{
+				name: "upload-example.go",
+				path: "airplan/testdata/upload-example.go",
+			},
 		},
 	},
 	{
@@ -84,12 +115,75 @@ var repositoryDemos = []demo{
 			"airplan/testdata/collection-demo/checks.json",
 			"airplan/testdata/collection-demo/release-notes.txt",
 		},
-		goldenPath: "airplan/testdata/TestRenderCollectionGolden/" +
-			"release_verification_evidence.html",
 		pageName: "index.html",
 		args: []string{
 			"--title", "Release verification evidence",
 			"--repo", "https://github.com/jimeh/airplan",
+		},
+		objects: []expectedDemoObject{
+			{
+				name: "index.html",
+				path: "airplan/testdata/TestRenderCollectionGolden/" +
+					"release_verification_evidence.html",
+			},
+			{
+				name: "verification-summary.svg",
+				path: "airplan/testdata/collection-demo/" +
+					"verification-summary.svg",
+			},
+			{
+				name: "checks.json",
+				path: "airplan/testdata/collection-demo/checks.json",
+			},
+			{
+				name: "release-notes.txt",
+				path: "airplan/testdata/collection-demo/release-notes.txt",
+			},
+		},
+	},
+	{
+		id:        "API rollout bundle",
+		reference: "airplan-demo-document-bundle",
+		inputPaths: []string{
+			"airplan/testdata/bundle-demo/implementation-plan.md",
+			"airplan/testdata/bundle-demo/docs/design.md",
+			"airplan/testdata/bundle-demo/examples/server.go",
+			"airplan/testdata/bundle-demo/images/request-flow.svg",
+		},
+		pageName: "implementation-plan.html",
+		args: []string{
+			"--repo", "https://github.com/jimeh/airplan",
+		},
+		objects: []expectedDemoObject{
+			{
+				name: "implementation-plan.html",
+				path: "airplan/testdata/TestRenderBundleDemoGolden/" +
+					"implementation_plan.html",
+			},
+			{
+				name: "implementation-plan.md",
+				path: "airplan/testdata/bundle-demo/implementation-plan.md",
+			},
+			{
+				name: "docs/design.html",
+				path: "airplan/testdata/TestRenderBundleDemoGolden/design.html",
+			},
+			{
+				name: "docs/design.md",
+				path: "airplan/testdata/bundle-demo/docs/design.md",
+			},
+			{
+				name: "examples/server.go.html",
+				path: "airplan/testdata/TestRenderBundleDemoGolden/server_go.html",
+			},
+			{
+				name: "examples/server.go",
+				path: "airplan/testdata/bundle-demo/examples/server.go",
+			},
+			{
+				name: "images/request-flow.svg",
+				path: "airplan/testdata/bundle-demo/images/request-flow.svg",
+			},
 		},
 	},
 }
@@ -123,6 +217,13 @@ type commandPublisher struct {
 	stderr io.Writer
 }
 
+type publishedResult struct {
+	URL    string                `json:"url"`
+	Pages  []airplan.PageResult  `json:"pages"`
+	Assets []airplan.AssetResult `json:"assets"`
+	Files  []airplan.FileResult  `json:"files"`
+}
+
 func (p commandPublisher) Publish(ctx context.Context, d demo) (string, error) {
 	args := append([]string{"--json"}, d.args...)
 	args = append(args, d.inputPaths...)
@@ -133,16 +234,109 @@ func (p commandPublisher) Publish(ctx context.Context, d demo) (string, error) {
 	if err := cmd.Run(); err != nil {
 		return "", fmt.Errorf("upload %s: %w", d.id, err)
 	}
-	var result struct {
-		URL string `json:"url"`
-	}
+	var result publishedResult
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		return "", fmt.Errorf("upload %s: decode result: %w", d.id, err)
 	}
-	if err := validatePageURL(result.URL, d); err != nil {
+	if err := validatePublishedResult(result, d); err != nil {
 		return "", fmt.Errorf("upload %s: %w", d.id, err)
 	}
 	return result.URL, nil
+}
+
+func validatePublishedResult(result publishedResult, d demo) error {
+	if err := validatePageURL(result.URL, d); err != nil {
+		return err
+	}
+	content, err := loadDemoContent(d)
+	if err != nil {
+		return err
+	}
+	expected := make(map[string]string, len(content.objects))
+	for _, object := range content.objects {
+		objectURL, objectErr := demoObjectURL(
+			result.URL, d.pageName, object.name,
+		)
+		if objectErr != nil {
+			return fmt.Errorf("expected object %q: %w", object.name, objectErr)
+		}
+		expected[objectURL] = object.name
+	}
+
+	var inventory []string
+	switch {
+	case len(result.Files) != 0:
+		if len(result.Pages) != 0 || len(result.Assets) != 0 {
+			return errors.New("published result mixes collection and document objects")
+		}
+		inventory = append(inventory, result.URL)
+		for _, file := range result.Files {
+			inventory = append(inventory, file.URL)
+		}
+	case len(result.Pages) != 0:
+		for _, page := range result.Pages {
+			inventory = append(inventory, page.URL)
+			if page.SourceURL != "" {
+				inventory = append(inventory, page.SourceURL)
+			}
+		}
+		for _, asset := range result.Assets {
+			inventory = append(inventory, asset.URL)
+		}
+	default:
+		return errors.New("published result is missing object inventory")
+	}
+
+	seen := make(map[string]bool, len(inventory))
+	for _, objectURL := range inventory {
+		if err := validatePublishedObjectURL(result.URL, objectURL); err != nil {
+			return err
+		}
+		if seen[objectURL] {
+			return fmt.Errorf("published result contains duplicate object URL %q", objectURL)
+		}
+		seen[objectURL] = true
+		if _, ok := expected[objectURL]; !ok {
+			return fmt.Errorf("published result contains unexpected object URL %q", objectURL)
+		}
+	}
+	for objectURL, name := range expected {
+		if !seen[objectURL] {
+			return fmt.Errorf("published result is missing object %q", name)
+		}
+	}
+	return nil
+}
+
+func validatePublishedObjectURL(pageURL, objectURL string) error {
+	page, err := url.Parse(pageURL)
+	if err != nil {
+		return err
+	}
+	object, err := url.Parse(objectURL)
+	if err != nil {
+		return fmt.Errorf("malformed published object URL %q: %w", objectURL, err)
+	}
+	if object.Scheme != "https" || object.Host == "" || object.User != nil {
+		return fmt.Errorf("published object URL %q must be absolute HTTPS", objectURL)
+	}
+	if object.RawQuery != "" || object.Fragment != "" {
+		return fmt.Errorf(
+			"published object URL %q must not contain a query or fragment",
+			objectURL,
+		)
+	}
+	if object.Scheme != page.Scheme || object.Host != page.Host {
+		return fmt.Errorf("published object URL %q has a different origin", objectURL)
+	}
+	root := strings.TrimSuffix(path.Dir(page.Path), "/") + "/"
+	clean := path.Clean(object.Path)
+	if !strings.HasPrefix(clean, root) {
+		return fmt.Errorf(
+			"published object URL %q is outside the upload directory", objectURL,
+		)
+	}
+	return nil
 }
 
 func main() {
@@ -310,31 +504,37 @@ func demoIsFresh(
 }
 
 func loadDemoContent(d demo) (demoContent, error) {
-	page, err := os.ReadFile(d.goldenPath)
-	if err != nil {
-		return demoContent{}, fmt.Errorf("read %s golden: %w", d.id, err)
-	}
-	content := demoContent{objects: []demoObject{
-		{name: d.pageName, body: page},
-	}}
-	seen := map[string]bool{d.pageName: true}
-	for _, inputPath := range d.inputPaths {
-		body, err := os.ReadFile(inputPath)
+	content := demoContent{objects: make([]demoObject, 0, len(d.objects))}
+	seen := make(map[string]bool, len(d.objects))
+	hasPage := false
+	for _, object := range d.objects {
+		if err := airplan.ValidateBundlePath(object.name); err != nil {
+			return demoContent{}, fmt.Errorf(
+				"%s has invalid object name %q: %w", d.id, object.name, err,
+			)
+		}
+		if seen[object.name] {
+			return demoContent{}, fmt.Errorf(
+				"%s has duplicate object name %q", d.id, object.name,
+			)
+		}
+		seen[object.name] = true
+		hasPage = hasPage || object.name == d.pageName
+		body, err := os.ReadFile(object.path)
 		if err != nil {
 			return demoContent{}, fmt.Errorf(
-				"read %s input %q: %w", d.id, inputPath, err,
+				"read %s object %q from %q: %w",
+				d.id, object.name, object.path, err,
 			)
 		}
-		name := filepath.Base(inputPath)
-		if seen[name] {
-			return demoContent{}, fmt.Errorf(
-				"%s has duplicate object name %q", d.id, name,
-			)
-		}
-		seen[name] = true
 		content.objects = append(content.objects, demoObject{
-			name: name, body: body,
+			name: object.name, body: body,
 		})
+	}
+	if !hasPage {
+		return demoContent{}, fmt.Errorf(
+			"%s does not declare entry page object %q", d.id, d.pageName,
+		)
 	}
 	return content, nil
 }
@@ -403,6 +603,12 @@ func replaceDemoURL(
 }
 
 func demoObjectURL(pageURL, pageName, objectName string) (string, error) {
+	if err := airplan.ValidateBundlePath(pageName); err != nil {
+		return "", fmt.Errorf("invalid entry page name %q: %w", pageName, err)
+	}
+	if err := airplan.ValidateBundlePath(objectName); err != nil {
+		return "", fmt.Errorf("invalid object name %q: %w", objectName, err)
+	}
 	if objectName == pageName {
 		return pageURL, nil
 	}
@@ -420,7 +626,7 @@ func validatePageURL(raw string, d demo) error {
 	if err != nil {
 		return err
 	}
-	if parsed.Scheme != "https" || parsed.Host == "" {
+	if parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
 		return errors.New("demo URL must be absolute HTTPS")
 	}
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
