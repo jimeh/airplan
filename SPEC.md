@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.60.0**
+**Spec version: 0.61.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -334,7 +334,9 @@ described below.
   wide, prose constrained to a readable measure around 78ch, comfortable
   line height, distinct heading/body/muted color roles, and section
   hierarchy carried primarily by type and spacing rather than repeated
-  divider rules. Code blocks and tables may use the full shell width so an
+  divider rules. When its content is shorter than the viewport, the built-in
+  page fills the viewport without adding empty document scroll range. Code
+  blocks and tables may use the full shell width so an
   80-column source line fits without horizontal scrolling at the default
   font size. Inline and block code use separate subtle surfaces; block code
   has a quiet border and thin horizontal scrollbar. Print uses a compact

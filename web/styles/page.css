@@ -1205,6 +1205,12 @@ pre.mermaid {
   white-space: pre-wrap;
 }
 
+/* stylelint-disable-next-line selector-class-pattern -- Mermaid owns this class name. */
+body > .mermaidTooltip {
+  top: 0;
+  left: 0;
+}
+
 pre.mermaid.mermaid-rendered {
   position: relative;
   display: flex;

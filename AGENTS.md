@@ -128,6 +128,10 @@ coverage has no equivalent local task on non-Windows hosts.
   page-specific. Keep new bake markers and assets covered by template
   round-trip and marker tests. Bun version bumps require `mise run test:browser`
   because its minifier output ships in rendered pages.
+- **Body-level hidden helpers need resting coordinates**: the document shell is
+  at least `100vh`, so an absolutely positioned helper appended to `body`
+  without `top` and `left` keeps a static position below the shell and creates
+  empty document scroll overflow.
 - **Generated template delimiters fail closed**: production JavaScript uses
   Bun syntax/identifier minification without whitespace collapsing, then
   rejects unexpected `{{` or `}}` bytes unchanged. CSS only separates adjacent
