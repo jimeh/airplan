@@ -5,6 +5,7 @@
   var lightThemeKey = "airplan-light-theme";
   var darkThemeKey = "airplan-dark-theme";
   var legacyModeKey = "airplan-theme";
+  var fixedNavbarKey = "airplan-fixed-navbar";
   function isColorMode(value) {
     return value === "system" || value === "light" || value === "dark";
   }
@@ -60,6 +61,12 @@
   function persistTheme(storage, slot, id) {
     safelyWrite(storage, slot === "light" ? lightThemeKey : darkThemeKey, id);
   }
+  function loadFixedNavbar(storage) {
+    return safelyRead(storage, fixedNavbarKey) !== "false";
+  }
+  function persistFixedNavbar(storage, fixed) {
+    safelyWrite(storage, fixedNavbarKey, fixed ? null : "false");
+  }
   function eventDetail(state) {
     return {
       mode: state.mode,
@@ -90,6 +97,7 @@
     const panel = d.querySelector("[data-airplan-appearance-panel]");
     const lightSelect = d.querySelector('select[data-airplan-theme-slot="light"]');
     const darkSelect = d.querySelector('select[data-airplan-theme-slot="dark"]');
+    const fixedNavbarToggle = d.querySelector("input[data-airplan-fixed-navbar]");
     const modeButtons = Array.from(d.querySelectorAll("[data-airplan-color-mode]"));
     if (panel)
       d.body.appendChild(panel);
@@ -146,7 +154,7 @@
       panel.hidden = !open;
       trigger.setAttribute("aria-expanded", String(open));
       if (open)
-        panel.querySelector("button,select")?.focus();
+        panel.querySelector("button,select,input")?.focus();
       else if (restoreFocus)
         trigger.focus();
     }
@@ -158,7 +166,8 @@
       const viewportWidth = d.documentElement.clientWidth;
       const panelWidth = Math.min(304, viewportWidth - 32);
       const desiredRight = Math.max(16, viewportWidth - triggerBounds.right);
-      panel.style.setProperty("--airplan-appearance-top", `${(toolbarBounds?.bottom ?? triggerBounds.bottom) + 8}px`);
+      const desiredTop = (toolbarBounds?.bottom ?? triggerBounds.bottom) + 8;
+      panel.style.setProperty("--airplan-appearance-top", `${Math.max(16, desiredTop)}px`);
       panel.style.setProperty("--airplan-appearance-right", `${Math.min(desiredRight, Math.max(16, viewportWidth - panelWidth - 16))}px`);
     }
     trigger?.addEventListener("click", () => setPanel(Boolean(panel?.hidden ?? true)));
@@ -176,6 +185,13 @@
     }
     lightSelect?.addEventListener("change", () => selectChanged("light", lightSelect));
     darkSelect?.addEventListener("change", () => selectChanged("dark", darkSelect));
+    fixedNavbarToggle?.addEventListener("change", () => {
+      const fixed = fixedNavbarToggle.checked;
+      persistFixedNavbar(storage, fixed);
+      root.dataset.airplanFixedNavbar = String(fixed);
+      window.dispatchEvent(new CustomEvent("airplan:navbarchange", { detail: { fixed } }));
+      positionPanel();
+    });
     themeMedia.addEventListener("change", () => {
       if (state.mode === "system")
         recompute();
@@ -211,6 +227,8 @@
       if (panel && !panel.hidden)
         positionPanel();
     });
+    if (fixedNavbarToggle)
+      fixedNavbarToggle.checked = loadFixedNavbar(storage);
     apply(state, false);
   })();
 
@@ -1065,7 +1083,8 @@
     }
     var topControls = d.querySelector(".top-controls");
     function publishToolbarHeight() {
-      var height = topControls ? topControls.getBoundingClientRect().height : 0;
+      var fixed = d.documentElement.dataset.airplanFixedNavbar !== "false";
+      var height = fixed && topControls ? topControls.getBoundingClientRect().height : 0;
       d.documentElement.style.setProperty("--airplan-sticky-height", height + "px");
     }
     if (topControls) {
@@ -1073,6 +1092,7 @@
         new ResizeObserver(publishToolbarHeight).observe(topControls);
       }
       window.addEventListener("resize", publishToolbarHeight);
+      window.addEventListener("airplan:navbarchange", publishToolbarHeight);
       publishToolbarHeight();
     }
     const copySource = d.querySelector(".copy-source");

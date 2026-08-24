@@ -4,11 +4,14 @@ import {
   createLatestRequestGuard,
   darkThemeKey,
   eventDetail,
+  fixedNavbarKey,
   legacyModeKey,
   lightThemeKey,
   loadThemeState,
+  loadFixedNavbar,
   modeKey,
   persistMode,
+  persistFixedNavbar,
   persistTheme,
   resolveThemeState,
   type StorageLike,
@@ -104,6 +107,17 @@ describe("reader theme state", () => {
     });
   });
 
+  test("keeps the navbar fixed by default and stores only the opt-out", () => {
+    const storage = new MemoryStorage();
+    expect(loadFixedNavbar(storage)).toBe(true);
+    persistFixedNavbar(storage, false);
+    expect(storage.getItem(fixedNavbarKey)).toBe("false");
+    expect(loadFixedNavbar(storage)).toBe(false);
+    persistFixedNavbar(storage, true);
+    expect(storage.getItem(fixedNavbarKey)).toBeNull();
+    expect(loadFixedNavbar(storage)).toBe(true);
+  });
+
   test("survives storage exceptions", () => {
     const broken: StorageLike = {
       getItem() {
@@ -122,6 +136,8 @@ describe("reader theme state", () => {
       theme: "dark-a",
     });
     expect(() => persistMode(broken, "light")).not.toThrow();
+    expect(loadFixedNavbar(broken)).toBe(true);
+    expect(() => persistFixedNavbar(broken, false)).not.toThrow();
   });
 
   test("creates the typed integration event detail", () => {

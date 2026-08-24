@@ -65,7 +65,7 @@ func TestCustomTemplateReceivesMermaidPolicyDataWithoutInjection(t *testing.T) {
 	tmpl, err := template.New("custom").Parse(
 		`{{.HasMermaid}}|{{.NoExternalAssets}}|{{.MermaidURL}}|` +
 			`{{.DefaultLightTheme}}|{{.DefaultDarkTheme}}|` +
-			`{{.AppearanceEnabled}}|` +
+			`{{.AppearanceEnabled}}|{{.FixedNavbarEnabled}}|` +
 			`<script>{{.ThemeCatalogJSON}}</script>|` +
 			`<script>{{.MermaidThemeJSON}}</script>|` +
 			`<style>{{.ThemeCSS}}{{.SyntaxCSS}}</style>|{{.RenderedHTML}}`,
@@ -86,7 +86,7 @@ func TestCustomTemplateReceivesMermaidPolicyDataWithoutInjection(t *testing.T) {
 	}
 	page := string(out)
 	if !strings.HasPrefix(page,
-		"true|true|https://assets.example.test/mermaid.mjs|github-light|github-dark|true|") {
+		"true|true|https://assets.example.test/mermaid.mjs|github-light|github-dark|true|true|") {
 		t.Fatalf("custom Mermaid data missing: %s", page)
 	}
 	for _, want := range []string{
@@ -117,8 +117,10 @@ func TestCustomTemplateOmitsMermaidPaletteWithoutDiagrams(t *testing.T) {
 	}
 }
 
-func TestCustomTemplateReceivesDisabledAppearanceState(t *testing.T) {
-	tmpl := template.Must(template.New("custom").Parse(`{{.AppearanceEnabled}}`))
+func TestCustomTemplateReceivesAppearanceCapabilities(t *testing.T) {
+	tmpl := template.Must(template.New("custom").Parse(
+		`{{.AppearanceEnabled}}|{{.FixedNavbarEnabled}}`,
+	))
 	bundle, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{Theme: "one-dark"})
 	if err != nil {
 		t.Fatal(err)
@@ -127,8 +129,8 @@ func TestCustomTemplateReceivesDisabledAppearanceState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(out) != "false" {
-		t.Fatalf("AppearanceEnabled = %q, want false", out)
+	if string(out) != "false|true" {
+		t.Fatalf("appearance capabilities = %q, want false|true", out)
 	}
 }
 

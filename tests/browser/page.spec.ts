@@ -1075,7 +1075,7 @@ test("configured subset is the only grouped appearance catalog", async ({ page }
   }
 });
 
-test("forced theme ignores stored preferences and omits appearance controls", async ({
+test("forced theme ignores stored theme preferences and retains document layout controls", async ({
   browser,
   page,
 }, testInfo) => {
@@ -1085,11 +1085,15 @@ test("forced theme ignores stored preferences and omits appearance controls", as
     localStorage.setItem("airplan-light-theme", "github-light");
     localStorage.setItem("airplan-dark-theme", "github-dark");
   });
-  for (const url of [fixedURL, fixedCollectionURL]) {
-    await page.goto(url);
-    await expect(page.locator("html")).toHaveAttribute("data-airplan-theme", "tokyo-night");
-    await expect(page.getByRole("button", { name: "Appearance" })).toHaveCount(0);
-  }
+  await page.goto(fixedURL);
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-theme", "tokyo-night");
+  await page.getByRole("button", { name: "Appearance" }).click();
+  await expect(page.getByRole("button", { name: "System", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Light theme", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("switch", { name: "Fixed navbar", exact: true })).toBeVisible();
+  await page.goto(fixedCollectionURL);
+  await expect(page.locator("html")).toHaveAttribute("data-airplan-theme", "tokyo-night");
+  await expect(page.getByRole("button", { name: "Appearance" })).toHaveCount(0);
   await page.goto(fixedURL);
   await expect(page.locator("pre.mermaid svg").first()).toHaveAttribute(
     "data-mermaid-theme",
@@ -1104,11 +1108,60 @@ test("forced theme ignores stored preferences and omits appearance controls", as
   try {
     const noJSPage = await noJS.newPage();
     await noJSPage.goto(fixedURL);
-    await expect(noJSPage.getByRole("button", { name: "Appearance" })).toHaveCount(0);
+    await expect(noJSPage.getByRole("button", { name: "Appearance" })).toBeHidden();
     await expect(noJSPage.locator("body")).toHaveCSS("background-color", "rgb(26, 27, 38)");
   } finally {
     await noJS.close();
   }
+});
+
+test("fixed navbar defaults on and persists its opt-out", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers navbar state");
+  await page.goto(baseURL);
+
+  const root = page.locator("html");
+  const toolbar = page.locator(".top-controls");
+  await expect(root).toHaveAttribute("data-airplan-fixed-navbar", "true");
+  await expect(toolbar).toHaveCSS("position", "sticky");
+  await page.evaluate(() => window.scrollTo(0, 400));
+  await expect
+    .poll(() => toolbar.evaluate((element) => element.getBoundingClientRect().top))
+    .toBeCloseTo(0, 0);
+  await page.getByRole("button", { name: "Appearance" }).click();
+  const fixedNavbar = page.getByRole("switch", { name: "Fixed navbar", exact: true });
+  await expect(fixedNavbar).toBeChecked();
+
+  await fixedNavbar.click();
+  await expect(root).toHaveAttribute("data-airplan-fixed-navbar", "false");
+  await expect(toolbar).toHaveCSS("position", "static");
+  await page.evaluate(() => window.scrollBy(0, 200));
+  await expect
+    .poll(() => toolbar.evaluate((element) => element.getBoundingClientRect().bottom))
+    .toBeLessThan(0);
+  await expect(fixedNavbar).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        getComputedStyle(document.documentElement).getPropertyValue("--airplan-sticky-height"),
+      ),
+    )
+    .toBe("0px");
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("airplan-fixed-navbar")))
+    .toBe("false");
+
+  await page.reload();
+  await expect(root).toHaveAttribute("data-airplan-fixed-navbar", "false");
+  await expect(toolbar).toHaveCSS("position", "static");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.getByRole("button", { name: "Appearance" }).click();
+  await expect(fixedNavbar).not.toBeChecked();
+  await fixedNavbar.click();
+  await expect(root).toHaveAttribute("data-airplan-fixed-navbar", "true");
+  await expect(toolbar).toHaveCSS("position", "sticky");
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem("airplan-fixed-navbar")))
+    .toBeNull();
 });
 
 test("appearance controls pair mode labels with icons and align custom select chevrons", async ({

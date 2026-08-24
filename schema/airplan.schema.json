@@ -83,7 +83,7 @@
         },
         "theme": {
           "type": "string",
-          "description": "Force one theme for every mode and omit appearance controls; overrides light_theme, dark_theme, and available_themes."
+          "description": "Force one theme for every mode and omit theme controls; overrides light_theme, dark_theme, and available_themes."
         },
         "available_themes": {
           "items": {
@@ -355,7 +355,7 @@
     },
     "theme": {
       "type": "string",
-      "description": "Force one theme for every mode and omit appearance controls; overrides light_theme, dark_theme, and available_themes."
+      "description": "Force one theme for every mode and omit theme controls; overrides light_theme, dark_theme, and available_themes."
     },
     "available_themes": {
       "items": {

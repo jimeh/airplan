@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.61.0.
+may contradict it. Targets spec version 0.62.0.
 
 ---
 
@@ -282,9 +282,11 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   pages add page-local diff projection, entry-only complete reports, and
   marker-validated same-logical-page revision selection. Collapsed Pages uses
   a native top-anchored popover while Contents retains its bottom-sheet dialog;
-  the document toolbar stays sticky with a full-width frosted layer and a
+  the document toolbar defaults to sticky with a full-width frosted layer and a
   centered inner row at every width, with Pages pinned left when the rails
-  collapse. Wide rail
+  collapse. The early appearance initializer applies the persisted navbar
+  choice before first paint. Runtime changes update the sticky offset used by
+  headings and side rails. Wide rail
   headings sit outside their scrollable lists, and the
   title-led document header owns page identity and a segmented path breadcrumb
   only when collapsed bundle navigation replaces the toolbar breadcrumb,
@@ -307,7 +309,7 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   from the floating Contents trigger. The complete-diff header keeps its return and raw links above
   the report, reuses metadata-backed revision pickers, and hides compact Pages
   navigation. This page structure uses
-  `RendererGeneration` 29.
+  `RendererGeneration` 30.
 - Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, safe theme CSS/catalog metadata, structured headings/ToC

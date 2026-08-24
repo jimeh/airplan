@@ -1,46 +1,49 @@
 (() => {
-  function u(e) {
+  function p(e) {
     return e === "system" || e === "light" || e === "dark";
   }
-  function m(e, o) {
+  function s(e, a) {
     try {
-      return e?.getItem(o) ?? null;
+      return e?.getItem(a) ?? null;
     } catch {
       return null;
     }
   }
-  function p(e, o, t) {
+  function f(e, a, t) {
     try {
       if (t === null)
-        e?.removeItem(o);
+        e?.removeItem(a);
       else
-        e?.setItem(o, t);
+        e?.setItem(a, t);
     } catch {}
   }
-  function g(e, o, t) {
-    let r = m(t, "airplan-color-mode");
+  function g(e, a, t) {
+    let r = s(t, "airplan-color-mode");
     if (r === null) {
-      let n = m(t, "airplan-theme");
-      if (r = n === "light" || n === "dark" ? n : "system", r !== "system")
-        p(t, "airplan-color-mode", r);
+      let o = s(t, "airplan-theme");
+      if (r = o === "light" || o === "dark" ? o : "system", r !== "system")
+        f(t, "airplan-color-mode", r);
     }
-    let h = u(r) ? r : "system", a = new Set(e.themes.map((n) => n.id)), i = m(t, "airplan-light-theme"), d = m(t, "airplan-dark-theme"), l = i !== null && a.has(i) ? i : e.defaultLight, s = d !== null && a.has(d) ? d : e.defaultDark;
-    return T(e, h, l, s, o);
+    let h = p(r) ? r : "system", n = new Set(e.themes.map((o) => o.id)), i = s(t, "airplan-light-theme"), d = s(t, "airplan-dark-theme"), l = i !== null && n.has(i) ? i : e.defaultLight, m = d !== null && n.has(d) ? d : e.defaultDark;
+    return y(e, h, l, m, a);
   }
-  function T(e, o, t, r, h) {
-    let a = new Map(e.themes.map((c) => [c.id, c])), i = a.has(t) ? t : e.defaultLight, d = a.has(r) ? r : e.defaultDark, l = o === "system" ? h ? "dark" : "light" : o, s = l === "light" ? i : d, n = a.get(s)?.variant ?? l;
-    return { mode: o, resolvedMode: l, lightTheme: i, darkTheme: d, theme: s, variant: n };
+  function y(e, a, t, r, h) {
+    let n = new Map(e.themes.map((c) => [c.id, c])), i = n.has(t) ? t : e.defaultLight, d = n.has(r) ? r : e.defaultDark, l = a === "system" ? h ? "dark" : "light" : a, m = l === "light" ? i : d, o = n.get(m)?.variant ?? l;
+    return { mode: a, resolvedMode: l, lightTheme: i, darkTheme: d, theme: m, variant: o };
+  }
+  function u(e) {
+    return s(e, "airplan-fixed-navbar") !== "false";
   }
 
   try {
     let e = window.__AIRPLAN_THEME_CATALOG__;
     if (e) {
-      let o;
+      let a;
       try {
-        o = window.localStorage;
+        a = window.localStorage;
       } catch {}
-      let t = g(e, matchMedia("(prefers-color-scheme: dark)").matches, o), r = document.documentElement;
-      r.dataset.airplanMode = t.mode, r.dataset.airplanResolvedMode = t.resolvedMode, r.dataset.airplanTheme = t.theme, r.dataset.airplanThemeVariant = t.variant, window.__airplanThemeState = t;
+      let t = g(e, matchMedia("(prefers-color-scheme: dark)").matches, a), r = document.documentElement;
+      r.dataset.airplanMode = t.mode, r.dataset.airplanResolvedMode = t.resolvedMode, r.dataset.airplanTheme = t.theme, r.dataset.airplanThemeVariant = t.variant, r.dataset.airplanFixedNavbar = String(u(a)), window.__airplanThemeState = t;
     }
   } catch {}
 })();

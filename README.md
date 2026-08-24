@@ -949,7 +949,7 @@ the shared credentials file.
 | `AIRPLAN_COLLECTION_TEMPLATE`       | Select a collection overview template         |
 | `AIRPLAN_LIGHT_THEME`               | Select the default light-mode slot theme      |
 | `AIRPLAN_DARK_THEME`                | Select the default dark-mode slot theme       |
-| `AIRPLAN_THEME`                     | Force one theme and omit appearance controls  |
+| `AIRPLAN_THEME`                     | Force one theme and omit theme controls       |
 | `AIRPLAN_NO_EXTERNAL_ASSETS`        | Disable airplan-managed external loads        |
 | `AIRPLAN_MERMAID_URL`               | Set an alternate HTTPS Mermaid module URL     |
 | `AIRPLAN_REPO`                      | Set `auto`, `none`, or a repository URL       |
@@ -978,9 +978,10 @@ dark_theme = "tokyo-night"
 
 Airplan adds a configured slot default missing from that list and warns on
 stderr. An explicit profile list replaces the root list. To publish a fixed
-theme with no appearance button, use `theme = "tokyo-night"` (or
-`AIRPLAN_THEME`); it takes priority over the list and slot defaults, warning
-when they are also explicitly configured.
+theme with no theme controls, use `theme = "tokyo-night"` (or
+`AIRPLAN_THEME`); the Appearance panel retains the Fixed navbar layout switch.
+The fixed theme takes priority over the list and slot defaults, warning when
+they are also explicitly configured.
 
 Built-ins are GitHub Light/Dark, Catppuccin Latte/Mocha, Rose Pine Dawn/Main,
 Solarized Light/Dark, Tokyo Night Day/Night, and One Dark. Custom themes are

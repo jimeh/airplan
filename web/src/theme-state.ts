@@ -50,6 +50,7 @@ export const modeKey = "airplan-color-mode";
 export const lightThemeKey = "airplan-light-theme";
 export const darkThemeKey = "airplan-dark-theme";
 export const legacyModeKey = "airplan-theme";
+export const fixedNavbarKey = "airplan-fixed-navbar";
 
 export function createLatestRequestGuard(): LatestRequestGuard {
   let latest = 0;
@@ -133,6 +134,14 @@ export function persistTheme(
   id: string,
 ): void {
   safelyWrite(storage, slot === "light" ? lightThemeKey : darkThemeKey, id);
+}
+
+export function loadFixedNavbar(storage?: StorageLike): boolean {
+  return safelyRead(storage, fixedNavbarKey) !== "false";
+}
+
+export function persistFixedNavbar(storage: StorageLike | undefined, fixed: boolean): void {
+  safelyWrite(storage, fixedNavbarKey, fixed ? null : "false");
 }
 
 export function eventDetail(state: ThemeState): AirplanThemeChangeDetail {

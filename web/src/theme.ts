@@ -1,6 +1,8 @@
 import {
   eventDetail,
+  loadFixedNavbar,
   loadThemeState,
+  persistFixedNavbar,
   persistMode,
   persistTheme,
   resolveThemeState,
@@ -18,6 +20,7 @@ declare global {
   interface WindowEventMap {
     "airplan:themechange": CustomEvent<ReturnType<typeof eventDetail>>;
     "airplan:themeprepare": CustomEvent<{ theme: string }>;
+    "airplan:navbarchange": CustomEvent<{ fixed: boolean }>;
   }
 }
 
@@ -42,6 +45,7 @@ declare global {
   const panel = d.querySelector<HTMLElement>("[data-airplan-appearance-panel]");
   const lightSelect = d.querySelector<HTMLSelectElement>('select[data-airplan-theme-slot="light"]');
   const darkSelect = d.querySelector<HTMLSelectElement>('select[data-airplan-theme-slot="dark"]');
+  const fixedNavbarToggle = d.querySelector<HTMLInputElement>("input[data-airplan-fixed-navbar]");
   const modeButtons = Array.from(
     d.querySelectorAll<HTMLButtonElement>("[data-airplan-color-mode]"),
   );
@@ -105,7 +109,7 @@ declare global {
     if (open) positionPanel();
     panel.hidden = !open;
     trigger.setAttribute("aria-expanded", String(open));
-    if (open) panel.querySelector<HTMLElement>("button,select")?.focus();
+    if (open) panel.querySelector<HTMLElement>("button,select,input")?.focus();
     else if (restoreFocus) trigger.focus();
   }
 
@@ -116,10 +120,8 @@ declare global {
     const viewportWidth = d.documentElement.clientWidth;
     const panelWidth = Math.min(304, viewportWidth - 32);
     const desiredRight = Math.max(16, viewportWidth - triggerBounds.right);
-    panel.style.setProperty(
-      "--airplan-appearance-top",
-      `${(toolbarBounds?.bottom ?? triggerBounds.bottom) + 8}px`,
-    );
+    const desiredTop = (toolbarBounds?.bottom ?? triggerBounds.bottom) + 8;
+    panel.style.setProperty("--airplan-appearance-top", `${Math.max(16, desiredTop)}px`);
     panel.style.setProperty(
       "--airplan-appearance-right",
       `${Math.min(desiredRight, Math.max(16, viewportWidth - panelWidth - 16))}px`,
@@ -145,6 +147,13 @@ declare global {
   }
   lightSelect?.addEventListener("change", () => selectChanged("light", lightSelect));
   darkSelect?.addEventListener("change", () => selectChanged("dark", darkSelect));
+  fixedNavbarToggle?.addEventListener("change", () => {
+    const fixed = fixedNavbarToggle.checked;
+    persistFixedNavbar(storage, fixed);
+    root.dataset.airplanFixedNavbar = String(fixed);
+    window.dispatchEvent(new CustomEvent("airplan:navbarchange", { detail: { fixed } }));
+    positionPanel();
+  });
   themeMedia.addEventListener("change", () => {
     if (state.mode === "system") recompute();
   });
@@ -176,5 +185,6 @@ declare global {
   window.addEventListener("scroll", () => {
     if (panel && !panel.hidden) positionPanel();
   });
+  if (fixedNavbarToggle) fixedNavbarToggle.checked = loadFixedNavbar(storage);
   apply(state, false);
 })();

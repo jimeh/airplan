@@ -5,6 +5,7 @@
   var lightThemeKey = "airplan-light-theme";
   var darkThemeKey = "airplan-dark-theme";
   var legacyModeKey = "airplan-theme";
+  var fixedNavbarKey = "airplan-fixed-navbar";
   function isColorMode(value) {
     return value === "system" || value === "light" || value === "dark";
   }
@@ -48,6 +49,9 @@
     const variant = known.get(theme)?.variant ?? resolvedMode;
     return { mode, resolvedMode, lightTheme: safeLight, darkTheme: safeDark, theme, variant };
   }
+  function loadFixedNavbar(storage) {
+    return safelyRead(storage, fixedNavbarKey) !== "false";
+  }
 
   // web/src/theme-init.ts
   try {
@@ -63,6 +67,7 @@
       root.dataset.airplanResolvedMode = state.resolvedMode;
       root.dataset.airplanTheme = state.theme;
       root.dataset.airplanThemeVariant = state.variant;
+      root.dataset.airplanFixedNavbar = String(loadFixedNavbar(storage));
       window.__airplanThemeState = state;
     }
   } catch {}
