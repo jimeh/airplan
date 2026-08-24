@@ -72,7 +72,7 @@ one cleanup unit.
 [airplan-demo-implementation-plan]: https://demo.airplan.dev/hxvyoxe3c7mgh3wmv5qgzj7hne/implementation-plan.html
 [airplan-demo-how-it-works]: https://demo.airplan.dev/xavyr3wcc6oz5ejyzyjcfvpcvq/how-airplan-works.html
 [airplan-demo-go-api]: https://demo.airplan.dev/wy6wbiw2j7ksasrrcarr65yvzq/upload-example.html
-[airplan-demo-document-bundle]: https://demo.airplan.dev/hxvyoxe3c7mgh3wmv5qgzj7hne/implementation-plan.html
+[airplan-demo-document-bundle]: https://demo.airplan.dev/fs3mokaqohxkplexeejujxr7z4/implementation-plan.html
 [airplan-demo-collection]: https://demo.airplan.dev/hb5muc7vawx4v3yhafcp7rd34q/index.html
 
 The exact behavior is defined in [SPEC.md](SPEC.md).
