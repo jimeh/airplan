@@ -978,9 +978,10 @@ dark_theme = "tokyo-night"
 
 Airplan adds a configured slot default missing from that list and warns on
 stderr. An explicit profile list replaces the root list. To publish a fixed
-theme with no appearance button, use `theme = "tokyo-night"` (or
-`AIRPLAN_THEME`); it takes priority over the list and slot defaults, warning
-when they are also explicitly configured.
+theme with no theme controls, use `theme = "tokyo-night"` (or
+`AIRPLAN_THEME`); the Appearance panel retains the Fixed navbar layout switch.
+The fixed theme takes priority over the list and slot defaults, warning when
+they are also explicitly configured.
 
 Built-ins are GitHub Light/Dark, Catppuccin Latte/Mocha, Rose Pine Dawn/Main,
 Solarized Light/Dark, Tokyo Night Day/Night, and One Dark. Custom themes are

@@ -209,7 +209,9 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		if !strings.Contains(out, `aria-controls="airplan-appearance-panel"`) || !strings.Contains(out, `data-airplan-fixed-navbar`) {
 			t.Fatal("single-theme page omits navbar appearance control")
 		}
-		if strings.Contains(out, `data-airplan-color-mode="system"`) || strings.Contains(out, `<select id="airplan-light-theme"`) {
+		if strings.Contains(out, `data-airplan-color-mode="system"`) ||
+			strings.Contains(out, `<select id="airplan-light-theme"`) ||
+			strings.Contains(out, `<select id="airplan-dark-theme"`) {
 			t.Fatal("single-theme page contains theme controls")
 		}
 		if !strings.Contains(out, `data-airplan-theme="one-dark"`) && !strings.Contains(out, `"defaultLight":"one-dark"`) {
