@@ -30,7 +30,7 @@ Considered alternatives:
   highlighting) is more work than goldmark + chroma.
 - **Node/Bun/Python as the application runtime**: runtime dependency or
   heavyweight bundles; fails the "single static binary, fast startup"
-  constraint. Bun and Node are development-only tools and are not shipped.
+  constraint. Bun is a development-only tool and is not shipped.
 
 **Web build tooling.** Bun owns package installation, the lockfile, TypeScript
 and CSS builds, and package scripts. Maintained browser assets and Playwright
@@ -38,10 +38,10 @@ tests are strict TypeScript under `web/` and `tests/browser/`. TypeScript 7,
 Oxlint with its type-aware backend, Oxfmt, and Stylelint are package-local and
 pinned by `bun.lock`. Bun emits deterministic readable and minified browser
 assets; only the generated JavaScript and CSS under
-`airplan/assets/generated/` are embedded in the Go binary. Node remains
-available solely as Playwright's supported runtime. `bunfig.toml` applies a
-seven-day minimum release age to every direct and transitive dependency with
-no standing exclusions. Its isolated linker keeps transitive package contents
+`airplan/assets/generated/` are embedded in the Go binary. Playwright runs under
+Bun, so the development toolchain does not install Node. `bunfig.toml` applies a
+three-day minimum release age to every direct and transitive dependency with no
+standing exclusions. Its isolated linker keeps transitive package contents
 under `node_modules/.bun/`, outside Go's `./...` package discovery boundary.
 
 Production JavaScript applies Bun's syntax and identifier minification while

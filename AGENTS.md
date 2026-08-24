@@ -192,8 +192,9 @@ coverage has no equivalent local task on non-Windows hosts.
   from squash-merged titles.
 - **Actions are SHA-pinned** (pinact); `mise run lint:workflows`
   fails on tag-pinned actions. `pinact run` re-pins after bumping.
-- **Dependency intake is delayed by seven days** for routine Go module, Bun,
-  and GitHub Actions updates. Security updates bypass the Dependabot cooldown.
+- **Dependency intake is delayed by three days** for routine Go module, Bun,
+  GitHub Actions, and Docker updates. Security updates bypass the Dependabot
+  cooldown.
   `mise run audit:deps` verifies Go modules, checks reachable Go
   vulnerabilities, and audits Bun development dependencies at high severity.
 - **Cross-compilation target variables belong on the build step**, not the CI
