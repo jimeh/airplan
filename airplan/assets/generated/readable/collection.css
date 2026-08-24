@@ -5,6 +5,10 @@
   --buncss-dark: ;
   color-scheme: light dark;
   --page-width: 54rem;
+  --compact-control-height: 2.3rem;
+  --floating-panel-bg: color-mix(in srgb, var(--bg) 96%, var(--surface-subtle));
+  --floating-panel-radius: 12px;
+  --floating-panel-shadow: 0 12px 32px color-mix(in srgb, var(--fg) 16%, transparent);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -80,8 +84,14 @@ body {
   gap: .5rem;
 }
 
+.toolbar > button, .toolbar > a, .toolbar > .toolbar-actions > button, .toolbar > .toolbar-actions > a, .toolbar > .appearance > .appearance-trigger {
+  min-width: 44px;
+  min-height: 44px;
+}
+
 .mode-toggle {
   display: inline-flex;
+  height: var(--compact-control-height);
   background: var(--control-track);
   border: 0;
   border-radius: 8px;
@@ -90,8 +100,16 @@ body {
 }
 
 .mode-toggle button {
+  display: inline-flex;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+  background: none;
   border: 0;
   border-radius: 6px;
+  justify-content: center;
+  align-items:  center;
+  gap: .4rem;
   padding: .3rem .55rem;
 }
 
@@ -134,22 +152,23 @@ body {
   width: 1px;
   height: 1rem;
   top: 50%;
-  left: -.825rem;
+  left: calc(-.5rem - .5px);
   transform: translateY(-50%);
 }
 
 .appearance-panel {
-  position: absolute;
+  position: fixed;
   z-index: 30;
+  top: var(--airplan-appearance-top, 4rem);
+  right: var(--airplan-appearance-right, 1rem);
   color: var(--fg);
-  background: var(--bg);
+  background: var(--floating-panel-bg);
   border: 1px solid var(--border);
-  box-shadow: 0 10px 30px color-mix(in srgb, var(--fg) 14%, transparent);
-  border-radius: 10px;
+  border-radius: var(--floating-panel-radius);
+  box-shadow: var(--floating-panel-shadow);
   width: min(19rem, 100vw - 2rem);
   padding: .85rem;
-  top: calc(100% + .5rem);
-  right: 0;
+  font-size: .85rem;
 }
 
 .appearance-heading {
@@ -179,6 +198,7 @@ body {
 
 .appearance-modes button {
   flex: 1;
+  min-width: 0;
 }
 
 .appearance-select {
@@ -189,13 +209,13 @@ body {
 .appearance-panel select {
   appearance: none;
   -webkit-appearance: none;
+  height: var(--compact-control-height);
   color: var(--fg);
   background: var(--surface-subtle);
   border: 1px solid var(--border);
   font: inherit;
   border-radius: 7px;
   width: 100%;
-  min-height: 2.1rem;
   padding: .3rem 2.25rem .3rem .5rem;
 }
 
@@ -219,6 +239,14 @@ body {
   flex: none;
   width: 16px;
   height: 16px;
+}
+
+.icon-check, .icon-x, .is-copied .icon-copy, .is-failed .icon-copy {
+  display: none;
+}
+
+.is-copied .icon-check, .is-failed .icon-x {
+  display: inline;
 }
 
 .sr-status {
@@ -249,11 +277,9 @@ body {
   }
 
   .appearance-panel {
-    position: fixed;
     width: auto;
-    top: 3.5rem;
-    left: .75rem;
-    right: .75rem;
+    left: 1rem;
+    right: 1rem;
   }
 }
 
@@ -363,6 +389,7 @@ h1 {
   border-radius: 8px;
   justify-content: center;
   align-items:  center;
+  gap: .4rem;
   min-height: 2.1rem;
   padding: .4rem .65rem;
 }

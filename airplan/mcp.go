@@ -1,7 +1,9 @@
 package airplan
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -18,23 +20,87 @@ import (
 )
 
 type mcpUploadDocumentInput struct {
-	Content       string `json:"content" jsonschema:"The UTF-8 document text to upload."`
-	Name          string `json:"name,omitempty" jsonschema:"Source filename used for format detection."`
-	Format        string `json:"format,omitempty" jsonschema:"Input format: md, html, or txt."`
-	Title         string `json:"title,omitempty"`
-	Slug          string `json:"slug,omitempty"`
-	Lang          string `json:"lang,omitempty"`
-	RepositoryURL string `json:"repository_url,omitempty"`
-	MaxSize       int64  `json:"max_size,omitempty"`
+	Content          string                  `json:"content" jsonschema:"The UTF-8 document text to upload."`
+	Name             string                  `json:"name,omitempty" jsonschema:"Source filename used for format detection."`
+	Format           string                  `json:"format,omitempty" jsonschema:"Input format: md, html, or txt."`
+	Title            string                  `json:"title,omitempty"`
+	Slug             string                  `json:"slug,omitempty"`
+	Lang             string                  `json:"lang,omitempty"`
+	RepositoryURL    string                  `json:"repository_url,omitempty"`
+	MaxSize          int64                   `json:"max_size,omitempty"`
+	Pages            []mcpDocumentPageInput  `json:"pages,omitempty"`
+	Assets           []mcpDocumentAssetInput `json:"assets,omitempty"`
+	MaxTotalPageSize int64                   `json:"max_total_page_size,omitempty"`
+	MaxAssetSize     int64                   `json:"max_asset_size,omitempty"`
+	MaxTotalSize     int64                   `json:"max_total_size,omitempty"`
+}
+
+type mcpDocumentPageInput struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+	Format  string `json:"format,omitempty"`
+	Title   string `json:"title,omitempty"`
+	Lang    string `json:"lang,omitempty"`
+}
+
+type mcpDocumentAssetInput struct {
+	Path          string `json:"path"`
+	ContentBase64 string `json:"content_base64" jsonschema:"Strict standard base64 asset bytes. The decoded aggregate limit is 32 MiB."`
+	ContentType   string `json:"content_type,omitempty"`
 }
 
 type mcpUpdateDocumentInput struct {
-	URLOrKey string `json:"url_or_key" jsonschema:"Any known capability URL or key in the document revision chain."`
-	Content  string `json:"content" jsonschema:"The complete UTF-8 Markdown source for the proposed revision."`
-	Name     string `json:"name,omitempty"`
-	Title    string `json:"title,omitempty"`
-	MaxSize  int64  `json:"max_size,omitempty"`
+	URLOrKey         string                  `json:"url_or_key" jsonschema:"Any known capability URL or key in the document revision chain."`
+	Content          string                  `json:"content" jsonschema:"The complete UTF-8 Markdown source for the proposed revision."`
+	Name             string                  `json:"name,omitempty"`
+	Title            string                  `json:"title,omitempty"`
+	MaxSize          int64                   `json:"max_size,omitempty"`
+	Pages            []mcpDocumentPageInput  `json:"pages,omitempty"`
+	Assets           []mcpDocumentAssetInput `json:"assets,omitempty"`
+	MaxTotalPageSize int64                   `json:"max_total_page_size,omitempty"`
+	MaxAssetSize     int64                   `json:"max_asset_size,omitempty"`
+	MaxTotalSize     int64                   `json:"max_total_size,omitempty"`
 }
+
+type mcpUploadDocumentFilesInput struct {
+	Paths            []string `json:"paths,omitempty" jsonschema:"Local file paths to infer as one document. Markdown entry selection and supporting roles follow the Airplan local path rules."`
+	EntryPath        string   `json:"entry_path,omitempty" jsonschema:"Explicit local document entry path. It may also appear in paths."`
+	PagePaths        []string `json:"page_paths,omitempty"`
+	AssetPaths       []string `json:"asset_paths,omitempty"`
+	Title            string   `json:"title,omitempty"`
+	Slug             string   `json:"slug,omitempty"`
+	MaxSize          int64    `json:"max_size,omitempty"`
+	MaxTotalPageSize int64    `json:"max_total_page_size,omitempty"`
+	MaxAssetSize     int64    `json:"max_asset_size,omitempty"`
+	MaxTotalSize     int64    `json:"max_total_size,omitempty"`
+}
+
+type mcpUploadPathsInput struct {
+	Paths            []string `json:"paths" jsonschema:"Local file paths to classify and upload together."`
+	Entrypoint       string   `json:"entrypoint,omitempty"`
+	PagePaths        []string `json:"page_paths,omitempty"`
+	AssetPaths       []string `json:"asset_paths,omitempty"`
+	Collection       bool     `json:"collection,omitempty" jsonschema:"Force collection mode instead of inferring from the paths."`
+	Title            string   `json:"title,omitempty"`
+	Slug             string   `json:"slug,omitempty"`
+	MaxSize          int64    `json:"max_size,omitempty"`
+	MaxTotalPageSize int64    `json:"max_total_page_size,omitempty"`
+	MaxAssetSize     int64    `json:"max_asset_size,omitempty"`
+	MaxTotalSize     int64    `json:"max_total_size,omitempty"`
+}
+
+type mcpUploadPathsOutput struct {
+	Kind       UploadKind      `json:"kind"`
+	Document   *DocumentResult `json:"document,omitempty"`
+	Collection *FilesResult    `json:"collection,omitempty"`
+}
+
+type mcpRevisionDocumentFilesInput struct {
+	URLOrKey string `json:"url_or_key"`
+	mcpUploadDocumentFilesInput
+}
+
+const maxMCPInlineAssetBytes = int64(32 << 20)
 
 type mcpUploadFilesInput struct {
 	Paths        []string `json:"paths" jsonschema:"Local file paths to upload as one collection."`
@@ -205,7 +271,7 @@ func NewMCPServerWithOptions(
 			"they improve clarity.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest,
 		input mcpUploadDocumentInput,
-	) (*mcp.CallToolResult, Result, error) {
+	) (*mcp.CallToolResult, DocumentResult, error) {
 		ctx, cancel := mcpOperationContext(ctx, client)
 		defer cancel()
 		repository := input.RepositoryURL
@@ -213,58 +279,177 @@ func NewMCPServerWithOptions(
 			var err error
 			repository, err = hostedRepositoryURL(repository)
 			if err != nil {
-				return nil, Result{}, errors.New(
+				return nil, DocumentResult{}, errors.New(
 					"airplan: repository_url must be none or an explicit repository URL",
 				)
 			}
 		}
-		result, err := client.Upload(ctx, Input{
-			Reader: strings.NewReader(input.Content), Name: input.Name,
-			Format: input.Format, Title: input.Title, Slug: input.Slug,
-			Lang: input.Lang, RepositoryURL: repository,
-			MaxSize: mcpDocumentLimit(input.MaxSize, !localFiles),
-		})
+		document, err := mcpInlineDocument(input, repository, !localFiles)
 		if err != nil {
-			return nil, Result{}, mcpOperationError(
+			return nil, DocumentResult{}, err
+		}
+		result, err := client.UploadDocument(ctx, document)
+		if err != nil {
+			return nil, DocumentResult{}, mcpOperationError(
 				ctx, err, !localFiles, options.Logger,
+			)
+		}
+		if result == nil {
+			return nil, DocumentResult{}, errors.New(
+				"airplan: document upload returned no result",
 			)
 		}
 		if !localFiles {
 			result.Warnings = serverSafeWarnings(result.Warnings)
 		}
-		return uploadToolContent(result), *result, nil
+		return uploadDocumentToolContent(result), *result, nil
 	})
 
-	mcp.AddTool(server, &mcp.Tool{
-		Name: "update_document",
-		Description: "Create a new linked Markdown revision from any known " +
-			"Airplan chain URL, resolving the latest member first. Returns the " +
-			"new revision URL; byte-identical content is a successful no-op.",
-	}, func(ctx context.Context, _ *mcp.CallToolRequest,
+	revisionHandler := func(ctx context.Context, _ *mcp.CallToolRequest,
 		input mcpUpdateDocumentInput,
-	) (*mcp.CallToolResult, UpdateDocumentResult, error) {
+	) (*mcp.CallToolResult, DocumentRevisionResult, error) {
 		ctx, cancel := mcpOperationContext(ctx, client)
 		defer cancel()
-		result, err := client.UpdateDocument(ctx, UpdateDocumentInput{
-			Target: input.URLOrKey,
-			Input: Input{
-				Reader: strings.NewReader(input.Content), Name: input.Name,
-				Format: "md", Title: input.Title,
-				MaxSize: mcpDocumentLimit(input.MaxSize, !localFiles),
-			},
-		})
+		document, err := mcpRevisionInlineDocument(input, !localFiles)
 		if err != nil {
-			return nil, UpdateDocumentResult{}, mcpOperationError(
+			return nil, DocumentRevisionResult{}, err
+		}
+		result, err := client.CreateDocumentRevision(ctx, CreateDocumentRevisionInput{Target: input.URLOrKey, Document: document})
+		if err != nil {
+			return nil, DocumentRevisionResult{}, mcpOperationError(
 				ctx, err, !localFiles, options.Logger,
+			)
+		}
+		if result == nil {
+			return nil, DocumentRevisionResult{}, errors.New(
+				"airplan: document revision returned no result",
 			)
 		}
 		if !localFiles {
 			result.Warnings = serverSafeWarnings(result.Warnings)
 		}
-		return uploadToolContent(&result.Result), *result, nil
-	})
+		return uploadDocumentToolContent(&result.DocumentResult), *result, nil
+	}
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "new_document_revision",
+		Description: "Create a complete new linked Markdown document revision from any known chain URL. Byte-identical content is a successful no-op.",
+	}, revisionHandler)
+	mcp.AddTool(server, &mcp.Tool{
+		Name:        "update_document",
+		Description: "Compatibility name for new_document_revision. Creates the same complete linked document revision.",
+	}, revisionHandler)
 
 	if localFiles {
+		mcp.AddTool(server, &mcp.Tool{
+			Name: "upload_paths",
+			Description: "Classify and upload local paths as a document or " +
+				"collection. Markdown or HTML selects document mode; other " +
+				"multi-file sets default to a collection. Available only over local stdio.",
+		}, func(ctx context.Context, _ *mcp.CallToolRequest,
+			input mcpUploadPathsInput,
+		) (*mcp.CallToolResult, mcpUploadPathsOutput, error) {
+			ctx, cancel := mcpOperationContext(ctx, client)
+			defer cancel()
+			plan, err := PlanLocalPaths(LocalPathPlanOptions{
+				Paths: input.Paths, Entrypoint: input.Entrypoint,
+				PagePaths: input.PagePaths, AssetPaths: input.AssetPaths,
+				ForceCollection: input.Collection,
+			})
+			if err != nil {
+				return nil, mcpUploadPathsOutput{}, err
+			}
+			if plan.Kind == UploadKindCollection {
+				opened, err := openMCPCollectionFiles(plan.CollectionPaths)
+				if err != nil {
+					return nil, mcpUploadPathsOutput{}, err
+				}
+				defer opened.close()
+				result, err := client.UploadFiles(ctx, FilesInput{
+					Files: opened.inputs, Title: input.Title,
+					MaxSize: input.MaxSize, MaxTotalSize: input.MaxTotalSize,
+				})
+				if err != nil {
+					return nil, mcpUploadPathsOutput{}, mcpOperationError(ctx, err, false, options.Logger)
+				}
+				if result == nil {
+					return nil, mcpUploadPathsOutput{}, errors.New(
+						"airplan: collection upload returned no result",
+					)
+				}
+				return uploadToolContent(&result.Result), mcpUploadPathsOutput{
+					Kind: UploadKindCollection, Collection: result,
+				}, nil
+			}
+			opened, err := openMCPPlannedDocument(plan, mcpUploadDocumentFilesInput{
+				Title: input.Title, Slug: input.Slug, MaxSize: input.MaxSize,
+				MaxTotalPageSize: input.MaxTotalPageSize,
+				MaxAssetSize:     input.MaxAssetSize, MaxTotalSize: input.MaxTotalSize,
+			})
+			if err != nil {
+				return nil, mcpUploadPathsOutput{}, err
+			}
+			defer opened.close()
+			result, err := client.UploadDocument(ctx, opened.input)
+			if err != nil {
+				return nil, mcpUploadPathsOutput{}, mcpOperationError(ctx, err, false, options.Logger)
+			}
+			if result == nil {
+				return nil, mcpUploadPathsOutput{}, errors.New(
+					"airplan: document upload returned no result",
+				)
+			}
+			return uploadDocumentToolContent(result), mcpUploadPathsOutput{
+				Kind: UploadKindDocument, Document: result,
+			}, nil
+		})
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "upload_document_files",
+			Description: "Upload local document paths using either inferred paths or an explicit entry with page and asset roles. Available only over local stdio.",
+		}, func(ctx context.Context, _ *mcp.CallToolRequest,
+			input mcpUploadDocumentFilesInput,
+		) (*mcp.CallToolResult, DocumentResult, error) {
+			ctx, cancel := mcpOperationContext(ctx, client)
+			defer cancel()
+			opened, err := openMCPDocumentFiles(input)
+			if err != nil {
+				return nil, DocumentResult{}, err
+			}
+			defer opened.close()
+			result, err := client.UploadDocument(ctx, opened.input)
+			if err != nil {
+				return nil, DocumentResult{}, mcpOperationError(ctx, err, false, options.Logger)
+			}
+			if result == nil {
+				return nil, DocumentResult{}, errors.New(
+					"airplan: document upload returned no result",
+				)
+			}
+			return uploadDocumentToolContent(result), *result, nil
+		})
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        "new_document_revision_files",
+			Description: "Create a complete document revision from inferred local paths or an explicit entry with page and asset roles. Available only over local stdio.",
+		}, func(ctx context.Context, _ *mcp.CallToolRequest,
+			input mcpRevisionDocumentFilesInput,
+		) (*mcp.CallToolResult, DocumentRevisionResult, error) {
+			ctx, cancel := mcpOperationContext(ctx, client)
+			defer cancel()
+			opened, err := openMCPRevisionDocumentFiles(input.mcpUploadDocumentFilesInput)
+			if err != nil {
+				return nil, DocumentRevisionResult{}, err
+			}
+			defer opened.close()
+			result, err := client.CreateDocumentRevision(ctx, CreateDocumentRevisionInput{Target: input.URLOrKey, Document: opened.input})
+			if err != nil {
+				return nil, DocumentRevisionResult{}, mcpOperationError(ctx, err, false, options.Logger)
+			}
+			if result == nil {
+				return nil, DocumentRevisionResult{}, errors.New(
+					"airplan: document revision returned no result",
+				)
+			}
+			return uploadDocumentToolContent(&result.DocumentResult), *result, nil
+		})
 		mcp.AddTool(server, &mcp.Tool{
 			Name: "upload_files",
 			Description: "Read the named local paths and persist them as one " +
@@ -274,37 +459,13 @@ func NewMCPServerWithOptions(
 		) (*mcp.CallToolResult, FilesResult, error) {
 			ctx, cancel := mcpOperationContext(ctx, client)
 			defer cancel()
-			files := make([]FileInput, 0, len(input.Paths))
-			opened := make([]*os.File, 0, len(input.Paths))
-			defer func() {
-				for _, file := range opened {
-					_ = file.Close()
-				}
-			}()
-			for _, path := range input.Paths {
-				file, err := os.Open(path)
-				if err != nil {
-					return nil, FilesResult{}, fmt.Errorf(
-						"airplan: open collection file %q: %w", path, err,
-					)
-				}
-				info, err := file.Stat()
-				if err != nil || !info.Mode().IsRegular() {
-					_ = file.Close()
-					if err == nil {
-						err = fmt.Errorf("not a regular file")
-					}
-					return nil, FilesResult{}, fmt.Errorf(
-						"airplan: inspect collection file %q: %w", path, err,
-					)
-				}
-				opened = append(opened, file)
-				files = append(files, FileInput{
-					Name: filepath.Base(path), Reader: file, Size: info.Size(),
-				})
+			opened, err := openMCPCollectionFiles(input.Paths)
+			if err != nil {
+				return nil, FilesResult{}, err
 			}
+			defer opened.close()
 			result, err := client.UploadFiles(ctx, FilesInput{
-				Files: files, Title: input.Title,
+				Files: opened.inputs, Title: input.Title,
 				MaxSize: input.MaxSize, MaxTotalSize: input.MaxTotalSize,
 			})
 			if err != nil {
@@ -650,6 +811,246 @@ func serverSafeManifestRecords(records []ManifestRecord) []ManifestRecord {
 	return safe
 }
 
+func mcpInlineDocument(input mcpUploadDocumentInput, repository string, hosted bool) (DocumentInput, error) {
+	name := input.Name
+	if name == "" {
+		name = "document.md"
+	}
+	document := DocumentInput{
+		Entry: PageInput{Reader: strings.NewReader(input.Content), Path: name, Format: input.Format, Title: input.Title, Lang: input.Lang},
+		Slug:  input.Slug, Title: input.Title,
+		MaxPageSize: mcpDocumentLimit(input.MaxSize, hosted),
+		MaxTotalPageSize: mcpHostedLimit(
+			input.MaxTotalPageSize, hosted, DefaultMaxTotalPageSize,
+		),
+		MaxAssetSize: mcpHostedLimit(
+			input.MaxAssetSize, hosted, DefaultMaxAssetSize,
+		),
+		MaxTotalSize: mcpHostedLimit(
+			input.MaxTotalSize, hosted, DefaultMaxDocumentAssetTotalSize,
+		),
+		RepositoryURL: repository,
+	}
+	for _, page := range input.Pages {
+		document.Pages = append(document.Pages, PageInput{Reader: strings.NewReader(page.Content), Path: page.Path, Format: page.Format, Title: page.Title, Lang: page.Lang})
+	}
+	var decodedTotal int64
+	for _, asset := range input.Assets {
+		decodedLen := int64(base64.StdEncoding.DecodedLen(len(asset.ContentBase64)))
+		if strings.HasSuffix(asset.ContentBase64, "==") {
+			decodedLen -= 2
+		} else if strings.HasSuffix(asset.ContentBase64, "=") {
+			decodedLen--
+		}
+		if decodedLen < 0 || decodedLen > maxMCPInlineAssetBytes-decodedTotal {
+			return DocumentInput{}, fmt.Errorf(
+				"airplan: inline assets exceed the decoded aggregate limit of %s",
+				formatSize(maxMCPInlineAssetBytes),
+			)
+		}
+		decoded, err := base64.StdEncoding.Strict().DecodeString(asset.ContentBase64)
+		if err != nil {
+			return DocumentInput{}, fmt.Errorf("airplan: asset %q content_base64 is invalid: %w", asset.Path, err)
+		}
+		decodedTotal += int64(len(decoded))
+		if decodedTotal > maxMCPInlineAssetBytes {
+			return DocumentInput{}, fmt.Errorf("airplan: inline assets exceed the decoded aggregate limit of %s", formatSize(maxMCPInlineAssetBytes))
+		}
+		document.Assets = append(document.Assets, AssetInput{Reader: bytes.NewReader(decoded), Path: asset.Path, Size: int64(len(decoded)), ContentType: asset.ContentType})
+	}
+	return document, nil
+}
+
+func mcpRevisionInlineDocument(input mcpUpdateDocumentInput, hosted bool) (DocumentInput, error) {
+	upload := mcpUploadDocumentInput{Content: input.Content, Name: input.Name, Format: "md", Title: input.Title, MaxSize: input.MaxSize, Pages: input.Pages, Assets: input.Assets, MaxTotalPageSize: input.MaxTotalPageSize, MaxAssetSize: input.MaxAssetSize, MaxTotalSize: input.MaxTotalSize}
+	document, err := mcpInlineDocument(upload, "", hosted)
+	if input.Name == "" {
+		document.Entry.Path = ""
+	}
+	return document, err
+}
+
+type mcpOpenedDocument struct {
+	input DocumentInput
+	files []*os.File
+}
+
+func (o *mcpOpenedDocument) close() {
+	for _, file := range o.files {
+		_ = file.Close()
+	}
+}
+
+func openMCPDocumentFiles(input mcpUploadDocumentFilesInput) (*mcpOpenedDocument, error) {
+	plan, err := PlanLocalPaths(LocalPathPlanOptions{
+		Paths: input.Paths, Entrypoint: input.EntryPath,
+		PagePaths: input.PagePaths, AssetPaths: input.AssetPaths,
+		ForceDocument: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return openMCPPlannedDocument(plan, input)
+}
+
+func openMCPRevisionDocumentFiles(input mcpUploadDocumentFilesInput) (*mcpOpenedDocument, error) {
+	plan, err := PlanLocalPaths(LocalPathPlanOptions{
+		Paths: input.Paths, Entrypoint: input.EntryPath,
+		PagePaths: input.PagePaths, AssetPaths: input.AssetPaths,
+		ForceDocument: true, EntryFormat: "md",
+	})
+	if err != nil {
+		return nil, err
+	}
+	return openMCPPlannedDocument(plan, input)
+}
+
+func openMCPPlannedDocument(
+	plan *LocalPathPlan,
+	input mcpUploadDocumentFilesInput,
+) (*mcpOpenedDocument, error) {
+	if plan == nil || plan.Kind != UploadKindDocument || plan.Entrypoint == "" {
+		return nil, errors.New("airplan: local document plan is invalid")
+	}
+	entryAbs, err := filepath.Abs(plan.Entrypoint)
+	if err != nil {
+		return nil, fmt.Errorf("airplan: resolve entry_path: %w", err)
+	}
+	entryReal, err := filepath.EvalSymlinks(entryAbs)
+	if err != nil {
+		return nil, fmt.Errorf("airplan: resolve entry_path: %w", err)
+	}
+	rootDeclared := filepath.Dir(entryAbs)
+	root, err := filepath.EvalSymlinks(rootDeclared)
+	if err != nil {
+		return nil, err
+	}
+	if !mcpPathWithinRoot(root, entryReal) {
+		return nil, fmt.Errorf(
+			"airplan: entry_path resolves outside its declared directory",
+		)
+	}
+	opened := &mcpOpenedDocument{input: DocumentInput{Slug: input.Slug, Title: input.Title, MaxPageSize: input.MaxSize, MaxTotalPageSize: input.MaxTotalPageSize, MaxAssetSize: input.MaxAssetSize, MaxTotalSize: input.MaxTotalSize}}
+	fail := func(err error) (*mcpOpenedDocument, error) {
+		opened.close()
+		return nil, err
+	}
+	entry, info, err := openMCPRegularFile(entryReal)
+	if err != nil {
+		return fail(err)
+	}
+	_ = info
+	opened.files = append(opened.files, entry)
+	opened.input.Entry = PageInput{Reader: entry, Path: filepath.Base(entryAbs), Title: input.Title}
+	for _, value := range plan.PagePaths {
+		file, _, logical, err := openMCPBundleMember(rootDeclared, root, value)
+		if err != nil {
+			return fail(err)
+		}
+		opened.files = append(opened.files, file)
+		opened.input.Pages = append(opened.input.Pages, PageInput{Reader: file, Path: logical})
+	}
+	for _, value := range plan.AssetPaths {
+		file, info, logical, err := openMCPBundleMember(rootDeclared, root, value)
+		if err != nil {
+			return fail(err)
+		}
+		opened.files = append(opened.files, file)
+		opened.input.Assets = append(opened.input.Assets, AssetInput{Reader: file, Path: logical, Size: info.Size()})
+	}
+	return opened, nil
+}
+
+type mcpOpenedFiles struct {
+	inputs []FileInput
+	files  []*os.File
+}
+
+func (o *mcpOpenedFiles) close() {
+	for _, file := range o.files {
+		_ = file.Close()
+	}
+}
+
+func openMCPCollectionFiles(paths []string) (*mcpOpenedFiles, error) {
+	if len(paths) == 0 {
+		return nil, errors.New("airplan: collection requires one or more named files")
+	}
+	opened := &mcpOpenedFiles{
+		inputs: make([]FileInput, 0, len(paths)),
+		files:  make([]*os.File, 0, len(paths)),
+	}
+	for _, path := range paths {
+		file, err := os.Open(path)
+		if err != nil {
+			opened.close()
+			return nil, fmt.Errorf("airplan: open collection file %q: %w", path, err)
+		}
+		info, err := file.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			_ = file.Close()
+			opened.close()
+			if err == nil {
+				err = errors.New("not a regular file")
+			}
+			return nil, fmt.Errorf("airplan: inspect collection file %q: %w", path, err)
+		}
+		opened.files = append(opened.files, file)
+		opened.inputs = append(opened.inputs, FileInput{
+			Name: filepath.Base(path), Reader: file, Size: info.Size(),
+		})
+	}
+	return opened, nil
+}
+
+func openMCPBundleMember(rootDeclared, root, value string) (*os.File, os.FileInfo, string, error) {
+	abs, err := filepath.Abs(value)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	relative, err := filepath.Rel(rootDeclared, abs)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+		return nil, nil, "", fmt.Errorf("airplan: local document path %q is declared outside the entry directory", value)
+	}
+	logical := filepath.ToSlash(relative)
+	if err := ValidateBundlePath(logical); err != nil {
+		return nil, nil, "", err
+	}
+	real, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if !mcpPathWithinRoot(root, real) {
+		return nil, nil, "", fmt.Errorf("airplan: local document path %q resolves outside the entry directory", value)
+	}
+	file, info, err := openMCPRegularFile(real)
+	return file, info, logical, err
+}
+
+func openMCPRegularFile(value string) (*os.File, os.FileInfo, error) {
+	file, err := os.Open(value)
+	if err != nil {
+		return nil, nil, err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, err
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, nil, fmt.Errorf("airplan: local document path is not a regular file")
+	}
+	return file, info, nil
+}
+
+func mcpPathWithinRoot(root, target string) bool {
+	relative, err := filepath.Rel(root, target)
+	return err == nil && relative != ".." &&
+		!strings.HasPrefix(relative, ".."+string(filepath.Separator)) &&
+		!filepath.IsAbs(relative)
+}
+
 func uploadToolContent(result *Result) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{
 		&mcp.TextContent{Text: result.URL},
@@ -658,6 +1059,17 @@ func uploadToolContent(result *Result) *mcp.CallToolResult {
 			Description: "Uploaded Airplan page",
 			MIMEType:    result.ContentType,
 		},
+	}}
+}
+
+func uploadDocumentToolContent(result *DocumentResult) *mcp.CallToolResult {
+	text := result.URL
+	if len(result.Pages) > 1 || len(result.Assets) > 0 {
+		text = fmt.Sprintf("%s\n%d pages, %d assets", result.URL, len(result.Pages), len(result.Assets))
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{
+		&mcp.TextContent{Text: text},
+		&mcp.ResourceLink{URI: result.URL, Name: result.Title, Description: "Uploaded Airplan document", MIMEType: result.ContentType},
 	}}
 }
 
@@ -730,7 +1142,9 @@ func safeMCPToolName(request mcp.Request) string {
 		return "unknown"
 	}
 	switch call.Params.Name {
-	case "upload_document", "update_document", "upload_files", "list_uploads", "inspect_upload",
+	case "upload_document", "new_document_revision", "update_document",
+		"upload_paths", "upload_document_files", "new_document_revision_files", "upload_files",
+		"list_uploads", "inspect_upload",
 		"delete_upload", "protect_upload", "unprotect_upload",
 		"sync_manifest", "preview_purge", "execute_purge",
 		"upgrade_document", "upgrade_documents":
@@ -815,13 +1229,17 @@ func mcpOperationError(
 }
 
 func mcpDocumentLimit(requested int64, hosted bool) int64 {
-	if !hosted {
+	return mcpHostedLimit(requested, hosted, DefaultMaxInputSize)
+}
+
+func mcpHostedLimit(requested int64, hosted bool, ceiling int64) int64 {
+	if !hosted || ceiling <= 0 {
 		return requested
 	}
-	if requested > 0 && requested < DefaultMaxInputSize {
+	if requested > 0 && requested < ceiling {
 		return requested
 	}
-	return DefaultMaxInputSize
+	return ceiling
 }
 
 func mcpOperationContext(

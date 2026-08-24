@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.40.0**
+**Spec version: 0.58.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -15,9 +15,9 @@ first implementation release does not by itself force spec 1.0.
 S3-compatible object storage under randomized, unguessable URL paths and
 prints the resulting public URLs. It can access storage directly or use a
 single-user self-hosted Airplan HTTP server that owns the S3 credentials.
-An agent can publish a plan as a readable page, or upload screenshots,
-recordings, and other artifacts as one collection with a generated overview
-page, then link the result from chat, an issue, or a pull request.
+An agent can publish one readable page, a document bundle containing managed
+pages and supporting assets, or a peer-file collection with a generated
+overview, then link the result from chat, an issue, or a pull request.
 
 This document specifies **behavior only**: what the tool does, its
 interfaces, and its on-the-wire and on-disk formats. It contains no
@@ -29,7 +29,9 @@ implementation is built lives in [IMPLEMENTATION.md](IMPLEMENTATION.md).
 Non-goals: no accounts, multi-user authorization, embedded manifest web UI,
 background sync daemon, remotely coordinated database, horizontal server
 replicas, recursive directory upload, media transcoding, thumbnail generation,
-or archive expansion. Airplan is not a public catalog or general pastebin.
+archive expansion, reference-based file-role inference, asset-content rewriting,
+client-side routing, offline caching, or page-level lifecycle operations.
+Airplan is not a public catalog or general pastebin.
 
 ---
 
@@ -42,18 +44,19 @@ CLI or MCP request
   → backend=s3: invoke the operation service in this process
   → backend=airplan: invoke the same service through REST
   → select document or collection mode
-  → preflight and render the primary HTML page
+  → preflight the complete document or collection
+  → render every managed page
   → generate one random upload directory
   → PUT the kind-specific ownership marker
-  → PUT source or collection files
-  → PUT the primary HTML page last
+  → PUT sources, assets, collection files, and non-entry pages
+  → PUT the document entry page or collection overview last
   → append one manifest entry where the operation service runs
   → return and print public URL(s)
 ```
 
 Upload output contract (critical for agent use):
 
-- **stdout**: for a document, the final public page URL and nothing else. For a
+- **stdout**: for a document, the entry page URL and nothing else. For a
   collection, one direct file URL per input in argument order followed by the
   overview URL. With `--json`, one JSON object and nothing else.
 - **stderr**: all logs, warnings, progress, errors.
@@ -70,20 +73,27 @@ Upload output contract (critical for agent use):
 `airplan [flags] [file ...]` — no file, or one `-`, reads a document from
 stdin. Collections require one or more named regular files.
 
-Airplan selects collection mode before rendering or storage mutation when any
-of these conditions hold:
+Airplan selects the upload kind before rendering or storage mutation:
 
-1. `--files` is set.
-2. More than one path is supplied.
-3. One named input has a recognized media or generic-binary extension. The
-   deterministic set includes common image, video, audio, PDF, and archive
-   formats; SVG is included even though it is text.
-4. One named input contains a NUL byte in its first 8 KiB or those bytes are
-   not valid UTF-8.
+1. `--collection` forces collection mode. `--files` is its compatibility
+   alias.
+2. `--entrypoint`, `--page`, `--asset`, or `--format md|html|txt` forces
+   document mode.
+3. One named input retains the existing document-versus-collection detection:
+   recognized media and opaque-resource extensions, a NUL byte in the first
+   8 KiB, or invalid UTF-8 in that prefix select collection mode; other
+   text-like inputs select document mode.
+4. Multiple named inputs containing at least one Markdown file select document
+   mode.
+5. Multiple named inputs with no Markdown but at least one HTML file select
+   document mode.
+6. Other multiple-file sets select collection mode.
 
-An explicit `--format md|html|txt` forces document mode and retains document
-validation. Stdin is always document mode. `--files` and `--format` are
-mutually exclusive.
+Stdin is always document mode. Collection forcing and document-only role or
+format flags are mutually exclusive. Local mode selection validates named
+regular files without opening FIFOs. Structured Go, REST, and inline MCP
+operations retain explicit document and collection entry points and never
+infer roles from transport filenames.
 
 ### Document input
 
@@ -104,13 +114,15 @@ Format detection:
    whitespace/BOM) → html, else md. Bare stdin defaulting to
    markdown is load-bearing: it is the primary agent path.
 
-Binary rejection: input containing a NUL byte within its first 8 KiB
-(git's binary heuristic) is rejected with an error before any upload,
-regardless of detected or forced format. airplan uploads UTF-8 text
-documents: input that is not valid UTF-8 is likewise rejected before
-any upload, regardless of detected or forced format. There is no
-bypass for either check. When input fails both checks, the invalid
-UTF-8 error takes precedence over the binary-input error.
+After Airplan selects document mode, input containing a NUL byte within its
+first 8 KiB (git's binary heuristic) is rejected with an error before any
+upload, regardless of detected or forced format. Airplan uploads UTF-8 text
+documents: document input that is not valid UTF-8 is likewise rejected before
+any upload, regardless of detected or forced format. There is no bypass for
+either check. When document input fails both checks, the invalid UTF-8 error
+takes precedence over the binary-input error. These document validation rules
+do not change the mode-selection rules above, which may infer collection mode
+from NUL or invalid UTF-8 bytes in named input.
 
 A zero-byte document is rejected before key generation or any upload.
 Whitespace-only input remains valid: airplan does not reinterpret authored
@@ -129,6 +141,79 @@ optional trailing `b`/`ib`; matching is case-insensitive (`10MB`, `512k`,
 removes the limit. There is deliberately no config key, so raising or removing
 the guard stays a per-invocation decision.
 
+### Document bundles
+
+A document has exactly one entry document. It may also declare managed pages
+and assets. A document with at least one non-entry page or asset is a document
+bundle, but its upload kind remains `document`. Collections remain unordered
+peer files with a generated overview.
+
+For local multi-file document inputs, `--entrypoint PATH` wins and adds the
+named file when it is not already positional. Without it, Markdown-led inputs
+prefer a root-level `README.md`, then a root-level `index.md`, matching those
+names case-insensitively, then the first Markdown file in argument order.
+HTML-only inputs prefer a root-level `index.html` or `index.htm`, then the first
+HTML file. A preferred root-level candidate qualifies only when its directory
+contains every supplied file. The selected entry's directory is the bundle
+root; any supplied path outside that directory fails instead of silently
+widening the root.
+
+With a Markdown entry, other Markdown files and complete valid UTF-8 text or
+source files become managed pages. HTML, recognized media and opaque-resource
+extensions, files containing NUL, and invalid UTF-8 become byte-exact assets.
+With an HTML or text entry, every non-entry file becomes an asset. In
+particular, multiple authored HTML files form one HTML document plus assets;
+Airplan does not render, rewrite, or provide navigation among them.
+
+`--page PATH` and `--asset PATH` explicitly add a supporting file or override
+the inferred role of a positional file. They cannot assign conflicting roles
+to one normalized path and are invalid with collection mode. Bundled stdin is
+rejected because it has no local bundle root. Additional managed pages require
+a Markdown entry and may contain Markdown or UTF-8 text/source. Airplan renders
+source code through the text renderer. Assets are opaque byte-for-byte objects
+that Airplan neither renders nor inspects internally. CLI adapters detect their
+content types with the same project-owned deterministic extension table and
+conservative sniff fallback used for collection members; structured callers
+may provide an explicit content type.
+
+For CLI operations, the entry file's directory is the bundle root. Every page
+and asset must be a regular file whose fully resolved path remains beneath the
+fully resolved root. Symlinks are accepted only when their target remains in
+that root. Recursive directory discovery is not supported.
+
+Each item has a stable logical path relative to the bundle root, using `/`
+separators. The entry logical path is its basename, including for direct Go,
+REST, and inline MCP callers; supporting page and asset paths may be nested.
+Logical paths must be relative and non-empty, and must not contain empty, `.`,
+`..`, reserved `.airplan-*`, backslash, NUL, control characters, or the
+Windows-reserved characters `<`, `>`, `:`, `"`, `|`, `?`, and `*`. Segments
+ending in a dot or space and Windows device basenames such as `CON`, `AUX`,
+`COM1`, and `LPT1`, including the `COM¹`-`COM³` and `LPT¹`-`LPT³` aliases,
+are invalid so every accepted bundle can be materialized portably. Airplan
+rejects duplicate normalized paths, case-folded collisions, generated-page
+collisions, file-versus-directory prefix conflicts, and any path that escapes
+the bundle root. It does not rename conflicting objects. URL assembly
+percent-encodes each segment separately and preserves `/`
+as hierarchy. Direct Go, REST, and inline MCP callers provide logical paths
+explicitly and do not invoke local filesystem inference.
+
+A document accepts at most 100 user-supplied items in total, including its
+entry, managed pages, and assets. `--max-size` remains the per-managed-page
+source limit and defaults to 10 MiB. `--max-total-page-size` defaults to 100 MiB
+across all managed source bytes. Generated HTML has a separate 100 MiB aggregate
+ceiling. `--max-asset-size` defaults to 1 GiB per asset, and
+`--max-total-size` applies to document assets with its existing 2 GiB default.
+Because a simple document has no assets, explicitly setting
+`--max-total-size` for a non-bundle document upload or preview is an error.
+CLI zero values disable their client-side limit. At the Go API boundary, a
+negative value disables a client-side limit. A server may advertise and enforce
+lower limits. Size failures identify the logical path and effective limit.
+
+CLI upload and output-directory preview spool managed source and generated HTML
+to mode-0600 temporary files. Asset handling remains seekable and stream-based.
+The public bundle API requires an exact size and `io.ReadSeeker` for each asset,
+and fails if an asset changes between validation and upload.
+
 ### Collection input
 
 Collection preflight completes before a random directory is generated or any
@@ -141,7 +226,10 @@ Member names are direct basenames, never paths. Empty names, `.`, `..`,
 `.airplan.json`, `.airplan-collection.json`, `index.html`, names containing
 slashes, backslashes, NUL, or control characters, and duplicate names are
 rejected. A collection may contain up to 100 files. Zero-byte members are
-valid.
+valid. Collection basenames deliberately retain these rules in every marker
+generation: document-only portability restrictions do not reject otherwise
+valid collection names such as `CON`, `aux.txt`, `notes.`, or names ending in a
+space.
 
 `--title` sets the overview title. Without it, a one-file collection uses the
 member basename; multiple files use `<first basename> and <N> more`.
@@ -153,9 +241,10 @@ above. Collection files are uploaded from seekable readers with their known
 sizes instead of being buffered wholly in memory. Growth after preflight cannot
 append undeclared bytes; unexpected truncation fails the upload.
 
-Content types use a deterministic extension mapping for common browser media,
-including PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV, MP3, M4A, Ogg, WAV,
-and PDF. Unknown extensions use conservative content sniffing, then
+Content types use a deterministic extension mapping for common browser media
+and resources, including HTML, CSS, JavaScript, JSON, XML, Markdown, browser
+fonts, WebAssembly, PNG, JPEG, GIF, WebP, AVIF, SVG, MP4, WebM, MOV, MP3, M4A,
+Ogg, WAV, and PDF. Unknown extensions use conservative content sniffing, then
 `application/octet-stream`. The original bytes are never sanitized, rewritten,
 transcoded, expanded, or otherwise interpreted.
 
@@ -258,19 +347,31 @@ described below.
   disable only revision navigation. A regular upload does not create this
   control object; the linked-revision feature creates it only when revision 2
   is uploaded. Custom templates do not gain this bootstrap automatically.
+- Every managed Markdown or text/source page in a linked bundle embeds the
+  immutable revision number, chain ID, exact logical page path, relative entry
+  page, and relative versions path. Revision discovery is therefore available
+  from child source pages as well as Markdown pages. Standalone text pages do
+  not gain revision discovery metadata.
 - A responsive table of contents is rendered from markdown headings:
   - H1, H2, and H3 headings are included. If an H1 is the first visible
     block in the document, it is treated as the document title and is
-    the only heading omitted from the built-in table of contents. Later
-    H1 headings remain top-level entries.
-  - Heading links and hierarchy work without JavaScript. On wide
-    screens the table of contents occupies a sticky rail beside the
-    centered document; on narrow screens it moves above the document.
-    As a progressive enhancement on layouts without the sticky rail, a
-    compact control keeps the table of contents reachable after its
-    inline version scrolls above the viewport.
+    the only heading omitted from the built-in table of contents. When its
+    text is also the resolved page title, the built-in page renders that title
+    once in the document header and suppresses the duplicate body heading.
+    Explicit or frontmatter titles that differ leave the authored H1 in the
+    body. Later H1 headings remain top-level entries.
+  - Heading links and hierarchy work without JavaScript. On wide screens the
+    table of contents occupies a sticky rail beside the centered document. Its
+    rail heading remains fixed while only the heading list scrolls. At
+    the rail-collapse breakpoint, progressive enhancement replaces the inline
+    list with a permanent bottom-right Contents trigger throughout the rendered
+    view. The trigger is hidden in Source, Changes, and All changes views
+    and while either transient navigation panel is open. Without native dialog
+    support or scripting, the inline list remains as the fallback.
   - In-page navigation scrolls smoothly by default. It becomes immediate
-    when the reader requests reduced motion.
+    when the reader requests reduced motion. Scroll highlighting keeps the
+    first entry active throughout the first 128 CSS pixels of document scroll,
+    even when a short document's bottom is already visible.
   - Scroll position highlighting is a progressive enhancement and
     respects `prefers-reduced-motion`. The table of contents is hidden
     in source view and omitted when fewer than two entries remain.
@@ -291,24 +392,50 @@ described below.
     identical catalog grouped into Light themes and Dark themes; variant never
     filters a slot, and a page-owned chevron keeps the select affordance aligned
     across browsers. Escape and outside activation dismiss the panel, Escape
-    restores focus, and narrow layouts keep it inset from viewport edges. With
+    restores focus, and narrow layouts keep it inset from viewport edges. Its
+    selectors retain the compact mode-track height across responsive
+    breakpoints, matching the other panel controls. The compact mode buttons
+    match the document's content-mode controls. With
     scripting disabled, uploader defaults follow the system preference and the
-    panel is absent. The appearance trigger follows the file controls. At wider sizes the rendered/source
-    toggle aligns left while file controls align right, with the theme toggle
-    at the far-right edge behind a quiet divider. At 48rem and below the
-    rendered/source and appearance controls share the first row at opposite edges,
-    with available file controls clustered and left-aligned below. When no
-    rendered/source toggle is available, the file controls instead occupy the
-    first row opposite the appearance control. Toolbar controls update immediately
+    panel is absent. The appearance trigger follows the file controls and stays
+    at the far-right edge behind a quiet divider. The global toolbar shows the
+    segmented current-page breadcrumb at the left on wide layouts and keeps
+    file actions and Appearance at the right. Bundle pages move that breadcrumb
+    into the document header as soon as Pages replaces it in the toolbar.
+    Single-page documents retain the toolbar breadcrumb at every width and
+    show a file icon before the path, and ellipsize its final segment before it
+    can displace the actions. Toolbar breadcrumbs share the action row's vertical
+    center. Breadcrumbs omit revision identity. A document
+    header below the toolbar owns the resolved
+    title, revision controls, All changes, and the Read, Source, and Changes
+    modes. The title always owns the full header width. A compact control rail
+    below it places content modes at the left and quiet, secondary revision
+    actions at the right. All changes precedes the revision selector, which
+    anchors the control rail's right edge. Both actions match the inset height
+    of a content-mode button rather than the taller outer mode track. On mobile,
+    revision actions occupy the first row and content modes the second. Each
+    breadcrumb represents every logical path segment separately and uses a
+    stack icon for a bundle root and a file icon for a single document. The
+    bundle-root stack is a normal link to the entry page. At every viewport width,
+    the frosted toolbar layer spans the full viewport while its control row
+    stays centered at the document width. The layer uses a 60% theme-background
+    tint with blur and contains file actions and Appearance; it additionally
+    contains the Pages trigger when the rails collapse, while the complete
+    document header stays with the content. The content-mode
+    eye, code, and diff icons remain visible beside the labels. Content-mode
+    labels use the same 0.85rem type scale as the file actions. Toolbar
+    and reader controls update immediately
     without color or background transitions when their active state or the
-    page theme changes. Reader state uses `airplan-color-mode`,
+    page theme changes. Inactive content-mode buttons have transparent
+    backgrounds; only the active mode uses the selected theme's control
+    background. Reader state uses `airplan-color-mode`,
     `airplan-light-theme`, and `airplan-dark-theme`. When the new mode key is
     absent, `airplan-theme=light|dark` seeds it. The complete appearance
     trigger and panel are omitted when the resolved selectable catalog has one
     entry. Explicit new-mode writes mirror
     that legacy key; System removes both mode keys. Unknown stored theme IDs are
     retained but inactive on pages whose catalogs do not contain them.
-  - Rendered/source toggle: switch between the rendered plan and a
+  - Read/source toggle: switch between the rendered plan and a
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter
     ships. (Embedding the source roughly doubles page weight —
@@ -339,6 +466,70 @@ described below.
     hidden in print styles. Clipboard API needs a secure context,
     which https links satisfy.
 
+### Managed page links and navigation
+
+Before rendering a document bundle, Airplan builds one complete map from
+logical managed-source paths to rendered-page paths. It rewrites an ordinary
+Markdown link only when the destination is relative, contains a path, resolves
+safely against the current source page, and exactly names a declared managed
+source. Airplan replaces only the path component with a relative link to the
+target's rendered page, preserving any query or fragment. It leaves images,
+assets, undeclared paths, absolute and protocol-relative URLs, `mailto:` links,
+same-page fragments, and raw HTML attributes unchanged. Source bytes remain
+exact because rewriting affects rendered HTML only.
+
+Markdown managed pages replace their final source extension with `.html`.
+Text and source-code pages append `.html` to the complete source path. For
+example, `docs/guide.md` becomes `docs/guide.html`, while `src/main.c` becomes
+`src/main.c.html`. Extensionless text also appends `.html`. Airplan rejects a
+bundle if generated page paths collide with another page, source, asset, or
+reserved control object.
+
+Every built-in page in a multi-page document receives the same ordered page
+inventory, its current logical identity, and the entry link. Wide layouts use
+the left rail for **Pages**, the center for the current document, and the right
+rail for **On this page**. Each rail keeps its heading outside the independently
+scrollable item list. Single-page documents retain the existing table of
+contents placement. The active page has a non-color indicator and
+`aria-current="page"`. Assets do not appear in the Pages rail. Compact previous
+and next links follow the page content. Narrow layouts reserve additional
+bottom clearance between these links and the floating Contents trigger. At
+narrow widths, an accessible toolbar
+control opens the Pages list. A normal no-JavaScript list remains above the
+document until the enhanced controller initializes successfully.
+
+Page links are ordinary anchors to complete standalone HTML documents. The
+built-in template opts both ends of same-origin navigation into browser-native
+cross-document View Transitions only under
+`prefers-reduced-motion: no-preference`:
+
+```css
+@media (prefers-reduced-motion: no-preference) {
+  @view-transition {
+    navigation: auto;
+  }
+}
+```
+
+Airplan does not intercept clicks, fetch destination pages, replace document
+regions, modify history, or cache pages. Browsers without cross-document View
+Transitions, readers who request reduced motion, cross-origin destinations,
+and destinations that do not opt in perform an ordinary navigation. A
+supported transition uses a restrained, short root crossfade; it does not
+prefetch or hide network latency. Each destination loads a fresh document and
+initializes its own theme controls,
+source and changes views, table of contents, copy buttons, print hooks, authored
+scripts, and Mermaid runtime. Page-local state such as Read/Source selection
+resets; existing persistent theme preferences continue across pages. Print
+includes only the loaded page. Custom templates receive bundle data but no
+built-in navigation, transition CSS, or JavaScript.
+
+The title-led page structure, segmented path breadcrumb, directory-grouped
+managed-page navigation, revision-aware content modes, transition CSS, and
+built-in control icon set define renderer generation 26. Single-page output
+also uses generation 26 because
+the current writer has one renderer generation for all generated pages.
+
 ### Plain-text input
 
 Text input (§2) shares the markdown page machinery: the same
@@ -358,7 +549,9 @@ A shared source file reads like a one-file gist.
   including its extension (`keygen.go`), else slug (no
   content-derived title — the document is never interpreted).
 - The page shows the original filename as a header bar attached to
-  the code block, so a shared file identifies itself. Omitted for
+  the code block with one continuous outline and no rounded interior corners.
+  The filename remains monospaced without inline-code background, border, or
+  padding, so a shared file identifies itself. Omitted for
   stdin input, where no filename exists.
 - The original file is uploaded alongside the page as
   `<random>/<slug>.<ext>` (`text/plain; charset=utf-8`, same cache
@@ -378,42 +571,55 @@ as-is (warn if combined).
 Template data contract (the stable API custom templates code
 against):
 
-| Field                         | Type      | Meaning                              |
-| ----------------------------- | --------- | ------------------------------------ |
-| `.Title`                      | string    | resolved title                       |
-| `.RenderedHTML`               | raw HTML  | rendered markdown or text page body  |
-| `.SourceText`                 | string    | original unmodified source           |
-| `.HighlightedSourceHTML`      | raw HTML  | syntax-highlighted original source   |
-| `.SyntaxCSS`                  | raw CSS   | styles required by highlighted HTML  |
-| `.Headings`                   | heading[] | all markdown headings                |
-| `.TOC`                        | heading[] | built-in H1-H3 ToC entries           |
-| `.Format`                     | string    | `md` or `txt`                        |
-| `.Language`                   | string    | resolved source-highlight language   |
-| `.SourceName`                 | string    | original basename; empty for stdin   |
-| `.SourcePath`                 | string    | relative path to the uploaded source |
-| `.Slug`                       | string    | resolved slug                        |
-| `.Indexable`                  | boolean   | whether indexing is allowed          |
-| `.HasMermaid`                 | boolean   | exact Mermaid fence was rendered     |
-| `.NoExternalAssets`           | boolean   | managed external loads are disabled  |
-| `.MermaidURL`                 | string    | resolved Mermaid module URL          |
-| `.FrontMatterText`            | string    | exact complete frontmatter block     |
-| `.FrontMatterFormat`          | string    | `yaml`, `toml`, or empty             |
-| `.FrontMatterTitle`           | string    | usable frontmatter title or empty    |
-| `.HighlightedFrontMatterHTML` | raw HTML  | highlighted frontmatter block        |
-| `.RepositoryURL`              | string    | resolved canonical repository URL    |
-| `.Revision`                   | integer   | this page's revision, or zero        |
-| `.RevisionCount`              | integer   | greatest live revision when rendered |
-| `.PreviousRevision`           | integer   | adjacent predecessor, or zero        |
-| `.VersionsPath`               | string    | relative versions metadata path      |
-| `.DiffPath`                   | string    | relative adjacent diff path          |
-| `.DiffText`                   | string    | inline adjacent diff, or empty       |
-| `.HighlightedDiffHTML`        | raw HTML  | highlighted inline adjacent diff     |
-| `.ThemeCSS`                   | raw CSS   | validated semantic screen/print CSS  |
-| `.ThemeCatalogJSON`           | safe JS   | validated browser catalog metadata   |
-| `.MermaidThemeJSON`           | safe JS   | palettes, or empty without Mermaid   |
-| `.DefaultLightTheme`          | string    | configured light-slot theme ID       |
-| `.DefaultDarkTheme`           | string    | configured dark-slot theme ID        |
-| `.AppearanceEnabled`          | boolean   | catalog has more than one theme      |
+| Field                          | Type      | Meaning                                |
+| ------------------------------ | --------- | -------------------------------------- |
+| `.Title`                       | string    | resolved title                         |
+| `.RenderedHTML`                | raw HTML  | rendered markdown or text page body    |
+| `.SourceText`                  | string    | original unmodified source             |
+| `.HighlightedSourceHTML`       | raw HTML  | syntax-highlighted original source     |
+| `.SyntaxCSS`                   | raw CSS   | styles required by highlighted HTML    |
+| `.Headings`                    | heading[] | all markdown headings                  |
+| `.TOC`                         | heading[] | built-in H1-H3 ToC entries             |
+| `.Format`                      | string    | `md` or `txt`                          |
+| `.Language`                    | string    | resolved source-highlight language     |
+| `.SourceName`                  | string    | original basename; empty for stdin     |
+| `.SourcePath`                  | string    | relative path to the uploaded source   |
+| `.Slug`                        | string    | resolved slug                          |
+| `.Indexable`                   | boolean   | whether indexing is allowed            |
+| `.HasMermaid`                  | boolean   | exact Mermaid fence was rendered       |
+| `.NoExternalAssets`            | boolean   | managed external loads are disabled    |
+| `.MermaidURL`                  | string    | resolved Mermaid module URL            |
+| `.FrontMatterText`             | string    | exact complete frontmatter block       |
+| `.FrontMatterFormat`           | string    | `yaml`, `toml`, or empty               |
+| `.FrontMatterTitle`            | string    | usable frontmatter title or empty      |
+| `.HighlightedFrontMatterHTML`  | raw HTML  | highlighted frontmatter block          |
+| `.RepositoryURL`               | string    | resolved canonical repository URL      |
+| `.Revision`                    | integer   | this page's revision, or zero          |
+| `.RevisionCount`               | integer   | greatest live revision when rendered   |
+| `.PreviousRevision`            | integer   | adjacent predecessor, or zero          |
+| `.VersionsPath`                | string    | relative versions metadata path        |
+| `.DiffPath`                    | string    | relative adjacent diff path            |
+| `.DiffText`                    | string    | inline adjacent diff, or empty         |
+| `.HighlightedDiffHTML`         | raw HTML  | highlighted inline adjacent diff       |
+| `.RevisionChainID`             | string    | immutable linked-revision chain ID     |
+| `.PageChanged`                 | boolean   | current page has adjacent changes      |
+| `.PageDiffText`                | string    | page-local inline diff, or empty       |
+| `.HighlightedPageDiffHTML`     | raw HTML  | highlighted page-local diff            |
+| `.CompleteDiffText`            | string    | entry-only complete inline report      |
+| `.HighlightedCompleteDiffHTML` | raw HTML  | highlighted complete report            |
+| `.HasCompleteDiff`             | boolean   | entry owns an adjacent complete report |
+| `.AllChangesPath`              | string    | relative entry all-changes URL         |
+| `.ThemeCSS`                    | raw CSS   | validated semantic screen/print CSS    |
+| `.ThemeCatalogJSON`            | safe JS   | validated browser catalog metadata     |
+| `.MermaidThemeJSON`            | safe JS   | palettes, or empty without Mermaid     |
+| `.DefaultLightTheme`           | string    | configured light-slot theme ID         |
+| `.DefaultDarkTheme`            | string    | configured dark-slot theme ID          |
+| `.AppearanceEnabled`           | boolean   | catalog has more than one theme        |
+| `.Pages`                       | page[]    | ordered managed-page navigation        |
+| `.PageNavigation`              | nav[]     | directory-grouped managed-page tree    |
+| `.CurrentPage`                 | page      | current managed page                   |
+| `.Entrypoint`                  | string    | relative URL to the entry page         |
+| `.Assets`                      | asset[]   | ordered declared asset inventory       |
 
 Each heading has `.Level` (1–6), `.ID`, `.Text`, and `.IsTitle`.
 `.IsTitle` is true only for a leading H1 that the built-in table of
@@ -423,9 +629,28 @@ HTML, so custom templates retain control of markup and presentation.
 `.SourcePath` is empty when the source isn't uploaded
 (`--no-source`); templates must handle both cases.
 
+Each bundle page has `.Path`, `.Title`, `.URL`, and `.Current`. Each asset has
+`.Path`, `.URL`, and `.ContentType`. Path values are normalized logical paths.
+URL values are already escaped relative URLs for the current page, so templates
+must not reconstruct them from logical paths. For a simple document, `.Pages`
+contains its managed entry, `.CurrentPage` is that entry, and `.Assets` is
+empty. An authored HTML entry does not execute a document template.
+
+`.PageNavigation` derives a directory tree from `.Pages` without changing the
+ordered page sequence. Each navigation item has `.Name`, `.Path`, `.Title`,
+`.URL`, `.Current`, `.IsDirectory`, and `.Children`. Directory items have empty
+title and URL values, contain their ordered child items, and are current when a
+descendant page is current. Page items have no children. Names are path
+basenames or directory segments, while paths remain complete logical paths.
+Root items and children retain their first-appearance order from `.Pages`.
+The built-in page renders directories as static visual groups. Directory labels
+are not controls, and every managed page remains visible without JavaScript or
+stored client state.
+
 A custom template takes full responsibility for the page: page styles,
 noindex meta, theme UI/runtime, and any interactivity. Theme fields are safe
 opt-in data; Airplan never injects its theme assets into a custom template.
+Airplan also does not inject Pages navigation or View Transition behavior.
 `.SyntaxCSS` is supplied because it is coupled to the generated highlighting classes; the built-in page's
 own CSS and JavaScript are baked directly into its template rather than
 exposed as data. `airplan template` prints a source-friendly, self-contained
@@ -455,8 +680,9 @@ kind:
 - PDF, archive, text, and unknown members use compact file rows without empty
   preview panels;
 - every member shows its filename, content type, human-readable size, and
-  `Open`, `Download`, and `Copy link` actions;
-- an overview copy action returns the absolute `index.html` URL;
+  icon-and-label `Open`, `Download`, and `Copy link` actions;
+- icon-and-label overview actions copy the absolute `index.html` URL and open
+  repository context when available;
 - open and download links work without JavaScript, while copy buttons are a
   progressive enhancement;
 - relative member URLs remain correct under custom domains and key prefixes;
@@ -552,10 +778,11 @@ already is the original file.
 
 ## 5. Upload Behavior
 
-- Every new upload writes ownership marker version 5. Current readers manage
-  versions 1 through 5; writers emit only version 5. Marker versions describe
-  wire-schema generations; `kind` distinguishes documents from collections.
-  Older clients fail closed on new v5 uploads.
+- Every new upload writes ownership marker version 6, including simple
+  documents and collections. Current readers manage versions 1 through 6;
+  writers emit only version 6. Marker versions describe wire-schema
+  generations; `kind` distinguishes documents from collections. Older clients
+  fail closed on v6 rather than partially managing an unfamiliar inventory.
 
 - The exact marker basename supplies an untrusted LIST-only kind hint:
 
@@ -571,37 +798,78 @@ already is the original file.
 
 - Markers are UTF-8 JSON uploaded with
   `Content-Type: application/json` and `Cache-Control: no-store`, and are at
-  most 64 KiB. A v5 document marker is:
+  most 256 KiB. A v6 document-bundle marker is:
 
   ```json
   {
     "schema": "airplan-upload",
-    "version": 5,
+    "version": 6,
     "directory": "vq3nhk2p7r4wzt5c6ydjm3xhqd",
     "created_at": "2026-07-21T12:00:00Z",
     "kind": "document",
-    "slug": "plan",
+    "slug": "readme",
     "format": "md",
+    "entrypoint": "readme.html",
+    "pages": [
+      {
+        "path": "README.md",
+        "page": "readme.html",
+        "source": "readme.md",
+        "format": "md",
+        "title": "Project plan",
+        "lang": ""
+      },
+      {
+        "path": "examples/server.go",
+        "page": "examples/server.go.html",
+        "source": "examples/server.go",
+        "format": "txt",
+        "title": "server.go",
+        "lang": "go"
+      }
+    ],
     "objects": [
       {
-        "name": "plan.html",
+        "name": "readme.html",
         "role": "page",
         "bytes": 18432,
         "content_type": "text/html; charset=utf-8",
         "sha256": "5cd8d993f5ea9ad07d1290e673e32b6ae3e7078190cacceb5f3655071753b6e4"
       },
       {
-        "name": "plan.md",
+        "name": "readme.md",
         "role": "source",
         "bytes": 4096,
-        "content_type": "text/markdown; charset=utf-8"
+        "content_type": "text/markdown; charset=utf-8",
+        "sha256": "6b18a340498a1f92dcd0c5f7972eb637824284101242890bc96d09c3d90213d4"
+      },
+      {
+        "name": "examples/server.go.html",
+        "role": "page",
+        "bytes": 12288,
+        "content_type": "text/html; charset=utf-8",
+        "sha256": "306b1920cab6f3942857a1aa53fdb705527691b06b23163fa939b530865b65d0"
+      },
+      {
+        "name": "examples/server.go",
+        "role": "source",
+        "bytes": 3072,
+        "content_type": "text/plain; charset=utf-8",
+        "sha256": "26c0b5acaf8f6ee44fb98d81c88301bbfbad03d912eb4656760692a7a0337315"
+      },
+      {
+        "name": "images/flow.svg",
+        "role": "asset",
+        "bytes": 8192,
+        "content_type": "image/svg+xml",
+        "sha256": "2e998d54018f9b8dc83afc8bfc5ca5b8ec879570d378b8a5f9e628708f72dbb3"
       }
     ],
-    "title": "Refactor auth",
+    "title": "Project plan",
     "repo": "https://github.com/acme/service",
     "producer": { "name": "airplan", "version": "0.8.0" },
     "render": {
-      "generation": 3,
+      "generation": 5,
       "template": { "kind": "builtin" },
       "indexable": false,
       "no_external_assets": false,
@@ -615,13 +883,13 @@ already is the original file.
   }
   ```
 
-  A v5 collection uses the same declared-object model and records template
+  A v6 collection uses the same declared-object model and records template
   kind `builtin_collection` or `custom_collection`:
 
   ```json
   {
     "schema": "airplan-upload",
-    "version": 5,
+    "version": 6,
     "directory": "vq3nhk2p7r4wzt5c6ydjm3xhqd",
     "created_at": "2026-07-21T12:00:00Z",
     "kind": "collection",
@@ -637,14 +905,15 @@ already is the original file.
         "name": "login.png",
         "role": "file",
         "bytes": 184320,
-        "content_type": "image/png"
+        "content_type": "image/png",
+        "sha256": "89fe02549fe45528407144333147173dfd967a9276e52ecbde8f742deb9880e0"
       }
     ],
     "title": "Login flow",
     "repo": "https://github.com/acme/service",
     "producer": { "name": "airplan", "version": "0.8.0" },
     "render": {
-      "generation": 3,
+      "generation": 5,
       "template": { "kind": "builtin_collection" },
       "indexable": false,
       "no_external_assets": false,
@@ -658,7 +927,7 @@ already is the original file.
   ```
 
 - `schema`, `version`, `directory`, `created_at`, `kind`, `objects`, and
-  `producer` are required in v4 and v5. `schema` is exactly `airplan-upload`;
+  `producer` are required in v4 through v6. `schema` is exactly `airplan-upload`;
   `producer.name` is `airplan`, and `producer.version` is the resolved release
   string or `dev`. `directory` matches the
   containing random directory; `created_at` is RFC 3339 UTC. `repo`, when
@@ -668,7 +937,7 @@ already is the original file.
   render recipe. `generation` is a positive page-capability generation, not
   the marker or release version. Custom template recipes store kind `custom`
   or `custom_collection` and the lowercase SHA-256 of the exact template bytes;
-  no local path or template source is stored. Version 5 generated-page recipes
+  no local path or template source is stored. Versions 5 and 6 generated-page recipes
   additionally require `themes`: the selected slot IDs and lowercase SHA-256
   of the canonical normalized catalog embedded in the page. Full custom theme
   definitions and local configuration paths are not stored. Both default theme
@@ -678,21 +947,32 @@ already is the original file.
   `themes`; current readers preserve their complete producer, render,
   revision, digest, and role data while upgrading them.
 
-- `objects` is non-empty, has unique safe direct basenames, and contains
-  exactly one positive-size HTML `page`. Every object declares `name`, `role`,
-  `bytes`, and a syntactically valid normalized `content_type`. A document has
-  a required valid `slug`, required `format` (`md`, `html`, or `txt`), no
-  `file` objects, and at most one positive-size `source` following the existing
-  document filename rules. A collection omits `slug` and `format`, uses
-  `index.html` as its page, declares no source, and contains one through 100
-  `file` objects whose sizes may be zero. Unknown roles or kinds are invalid.
+- In v6, `objects` is the authoritative ownership and deletion inventory. It is
+  non-empty and has unique validated relative paths. Every object declares
+  `name`, `role`, `bytes`, a normalized `content_type`, and `sha256`, the
+  lowercase 64-hex-character SHA-256 of its exact bytes. Roles are `page`,
+  `source`, `asset`, `file`, and the revision-only `diff`. This digest rule
+  covers every document page, source, asset, and diff, plus collection members
+  and `index.html`. An optional native S3 full-object SHA-256 may provide an
+  extra transport check but does not replace the marker digest. ETags are never
+  content digests for this purpose.
 
-  In v4 and v5, the page object additionally requires `sha256`, the lowercase
-  64-hex-character SHA-256 of the exact uploaded page bytes. This durable
-  content identity lets interrupted marker-first operations detect and repair
-  an old page even when it has the same byte length as the replacement. Other
-  objects omit it. Versions 1 through 3 treat `sha256` as an unknown field and
-  never expose it as trusted marker data.
+  A v6 document has a valid `slug`, `format` (`md`, `html`, or `txt`), and
+  `entrypoint`. It has no `file` objects. `pages` is ordered and pairs each
+  managed logical source path with its rendered object, optional uploaded
+  source, format, title, and normalized highlight language. It includes the
+  entry when Airplan renders that entry. Authored HTML has an `entrypoint`, an
+  empty `pages` array, no source, and may have assets. Assets need no parallel
+  descriptor array because their logical path, role, size, content type, and
+  digest already live in `objects`. The legacy in-memory page/source view and
+  top-level title, slug, and format continue to describe the entry.
+
+  A v6 collection omits `slug`, `format`, `entrypoint`, and `pages`; has exactly
+  one page object named `index.html`; declares no source or asset objects; and
+  has one through 100 `file` objects. File and asset sizes may be zero, while
+  pages and sources remain positive. Unknown roles or kinds are invalid. V4 and
+  v5 retain their original direct-basename and single-page rules. Their page
+  object alone requires `sha256`; older object roles omit it.
 
 - Unknown marker fields are ignored for forward-compatible extensions.
   Duplicate field names, invalid UTF-8, malformed JSON, unsupported versions,
@@ -701,7 +981,7 @@ already is the original file.
   visible to LIST-only discovery but cannot be inspected as valid, fetched,
   deleted, purged, or synced.
 
-- Marker versions 1 through 5 are supported through the current declared-object
+- Marker versions 1 through 6 are supported through the current declared-object
   model. Versions 1 through 4 are decoded into it after their original wire
   rules validate. Version 1 omits `page_bytes` and `repo`; version 2 requires
   positive `page_bytes` and may include `repo`.
@@ -726,9 +1006,10 @@ already is the original file.
   The body is advisory context only. `reason` is optional, at most 256
   Unicode characters, valid UTF-8, and free of control characters; readers
   drop reasons that violate any of these while the upload stays protected.
-  Marker v4 and v5 reserve every direct basename beginning `.airplan-`, in addition
-  to `.airplan.json`; collection member filenames and v4/v5 marker-declared object
-  names must not use that namespace, or a member could forge a control object.
+  Marker v4 and v5 reserve every direct basename beginning `.airplan-`, in
+  addition to `.airplan.json`. Marker v6 reserves such a segment at any path
+  depth. Collection member filenames and v4-v6 marker-declared object names must
+  not use that namespace, or a member could forge a control object.
   The sole payload exception is `.airplan-changes.diff` with role `diff`, and
   only for a linked Markdown revision greater than 1; every other
   marker-declared `.airplan-` payload remains invalid.
@@ -739,21 +1020,29 @@ already is the original file.
   sentinel is an ordinary extra object — it counts toward listed object and
   byte totals and never affects upload completeness.
 
-- Every payload uses `Cache-Control: no-store`. Primary pages use
-  `Content-Type: text/html; charset=utf-8`; collection members use their
-  declared content types. Airplan does not force browser-viewable media to
-  download because direct image and video URLs are part of the intended use.
-  `x-amz-meta-title` remains convenience metadata; the marker title is
-  authoritative for remote management.
+- Every payload uses `Cache-Control: no-store`. Rendered pages use
+  `Content-Type: text/html; charset=utf-8`; sources, assets, and collection
+  members use their declared content types. Airplan does not force
+  browser-viewable media to download because direct image and video URLs are
+  part of the intended use. `x-amz-meta-title` remains convenience metadata;
+  the marker title is authoritative for remote management.
 
-- Document order is `.airplan.json` → optional source → page. Collection
-  order is `.airplan-collection.json` → files in argument order →
-  `index.html`. Any PUT failure fails the command and writes no local upload
-  record or stdout URL. Marker-first creation leaves interrupted uploads
-  discoverable; page-last creation prevents an overview from appearing before
-  its declared payloads. An upload is complete only when every declared object
-  exists with its declared size. Extra unrecognized objects do not affect
-  completeness.
+- Document order is `.airplan.json`, sources and assets, non-entry rendered
+  pages, then the entry page. Collection order is
+  `.airplan-collection.json`, files in argument order, then `index.html`.
+  Airplan preflights the complete object graph, marker size, formats, limits,
+  paths, generated names, and collisions before the first remote write. It
+  hashes each seekable asset and collection member during preflight, hashes the
+  transmitted bytes again, and fails before publishing the entry or overview
+  if they differ. Upload concurrency is bounded and the entry remains an
+  explicit final barrier.
+
+  Any PUT failure fails the command and writes no local upload record or stdout
+  URL. Marker-first creation leaves interrupted objects discoverable and owned;
+  Airplan does not attempt rollback deletion. Entry-last creation prevents a
+  reported document from appearing before its declared dependencies. An upload
+  is complete only when every declared object exists with its declared size and
+  digest. Extra unrecognized objects do not affect completeness.
 
 - After complete storage, Airplan assembles result URLs and best-effort appends
   one manifest upload record. A manifest warning does not revoke an otherwise
@@ -774,32 +1063,38 @@ already is the original file.
 airplan [flags] [file ...]
 ```
 
-No file, or one `-`, reads a document from stdin. Multiple paths are one
-collection.
+No file, or one `-`, reads a document from stdin. Multiple named paths use the
+local inference rules in §2.
 
-| Flag                      | Default        | Notes                              |
-| ------------------------- | -------------- | ---------------------------------- |
-| `--files`                 | off            | force named inputs into collection |
-| `--format`                | auto           | document-only `md`\|`html`\|`txt`  |
-| `--slug S`                | from filename  | document-only URL filename         |
-| `--title T`               | from content   | document or collection title       |
-| `--template P`            | built-in       | document template                  |
-| `--collection-template P` | built-in       | collection overview template       |
-| `--no-source`             | off            | document-only source suppression   |
-| `--indexable`             | off            | omit noindex on the primary page   |
-| `--no-external-assets`    | off            | document-only managed load control |
-| `--mermaid-url URL`       | pinned URL     | document-only Mermaid module       |
-| `--repo VALUE`            | `auto`         | `auto`, `none`, or repository URL  |
-| `--max-size N`            | mode-specific  | 10MiB document; 1GiB per file      |
-| `--max-total-size N`      | 2GiB           | collection total; 0 = no limit     |
-| `--timeout D`             | 30s            | operation timeout; 0 = none        |
-| `--lang L`                | from filename  | document text highlight language   |
-| `--json`                  | off            | JSON object on stdout              |
-| `--profile P`             | config default | named profile from config file     |
-| `--config PATH`           | XDG default    | alternate config file              |
-| `--manifest PATH`         | state default  | local S3 operation manifest        |
-| `--open`                  | off            | open the primary page              |
-| `--version`               |                |                                    |
+| Flag                      | Default        | Notes                                  |
+| ------------------------- | -------------- | -------------------------------------- |
+| `--collection`            | off            | force named inputs into collection     |
+| `--files`                 | off            | compatibility alias for `--collection` |
+| `--entrypoint PATH`       | inferred       | select and include document entry      |
+| `--page PATH`             | none           | repeatable managed-page override       |
+| `--asset PATH`            | none           | repeatable byte-exact asset override   |
+| `--format`                | auto           | document-only `md`\|`html`\|`txt`      |
+| `--slug S`                | from filename  | document-only URL filename             |
+| `--title T`               | from content   | document or collection title           |
+| `--template P`            | built-in       | document template                      |
+| `--collection-template P` | built-in       | collection overview template           |
+| `--no-source`             | off            | document-only source suppression       |
+| `--indexable`             | off            | omit noindex on generated pages        |
+| `--no-external-assets`    | off            | document-only managed load control     |
+| `--mermaid-url URL`       | pinned URL     | document-only Mermaid module           |
+| `--repo VALUE`            | `auto`         | `auto`, `none`, or repository URL      |
+| `--max-size N`            | mode-specific  | 10 MiB page; 1 GiB collection member   |
+| `--max-total-page-size N` | 100 MiB        | document managed-source total          |
+| `--max-asset-size N`      | 1 GiB          | document per-asset limit               |
+| `--max-total-size N`      | 2 GiB          | document assets or collection total    |
+| `--timeout D`             | 30s            | operation timeout; 0 = no limit        |
+| `--lang L`                | from filename  | entry text highlight language          |
+| `--json`                  | off            | JSON object on stdout                  |
+| `--profile P`             | config default | named profile from config file         |
+| `--config PATH`           | XDG default    | alternate config file                  |
+| `--manifest PATH`         | state default  | local S3 operation manifest            |
+| `--open`                  | off            | open the entry or collection overview  |
+| `--version`               |                |                                        |
 
 Plus flag overrides for every connection setting (`--endpoint`,
 `--bucket`, `--region`, `--public-base-url`, `--key-prefix`) for
@@ -820,9 +1115,11 @@ unaffected — the upload succeeded and the URL was already printed.
 
 Flags explicitly used in the wrong mode fail before storage mutation.
 `--format`, `--lang`, `--slug`, `--template`, `--no-source`,
-`--no-external-assets`, and `--mermaid-url` are document-only. `--files`,
-`--collection-template`, and `--max-total-size` are collection-only.
-`--open` always opens the primary page: a document page or collection
+`--no-external-assets`, and `--mermaid-url` are document-only. `--collection`,
+its `--files` compatibility alias, and `--collection-template` are
+collection-only. `--entrypoint`, `--page`, `--asset`,
+`--max-total-page-size`, and `--max-asset-size` are document-only.
+`--open` always opens the entry page or collection
 overview, never an arbitrary member.
 
 Released binaries report their release version under `--version`.
@@ -874,31 +1171,39 @@ airplan login.png demo.webm
 # → https://plans.example.com/vq3n.../index.html
 
 cat plan.md | airplan --slug refactor-auth
-airplan --files README.md
+airplan --collection README.md
 airplan --json report.html
 airplan --profile personal --open plan.md
+
+airplan README.md docs/design.md examples/server.go \
+  images/flow.svg recordings/demo.mp4
+
+# Override an ambiguous UTF-8 file that should remain an asset.
+airplan README.md docs/design.md assets/status.json \
+  --asset assets/status.json
 ```
 
 ### Document upgrades
 
 `airplan upgrade <url|key>` upgrades one marker-managed, source-backed
-Markdown document in place. Its page URL, source bytes, original `created_at`,
-repository context, and purge-protection sentinel remain unchanged. The
-operation re-renders the page and writes a complete marker v5 with producer,
-theme identity,
-render provenance. HTML, text, collections, and source-less Markdown are
-ineligible. A marker produced by a newer renderer generation is never
+Markdown document in place. It re-renders every managed page in a bundle while
+preserving stable public URLs, source and asset bytes, original `created_at`,
+repository context, revision identity, and purge-protection sentinel. The
+operation writes a complete marker v6 with producer, theme, render provenance,
+and desired object digests. Authored HTML, text-entry documents, collections,
+source-less Markdown, and structurally incomplete bundle graphs are ineligible.
+A marker produced by a newer renderer generation is never
 implicitly downgraded. A custom-template document is eligible only when the
 configured custom template has the marker-declared SHA-256. `--force` plus the
 currently configured template and theme choices explicitly authorizes
 replacing a stored built-in/custom template or theme recipe; `--template PATH`
 selects a custom replacement and `--template=` selects the built-in template.
-Without force, a template or v5 theme-recipe mismatch remains ineligible. A
+Without force, a template or v5/v6 theme-recipe mismatch remains ineligible. A
 changed theme configuration therefore requires
-`airplan upgrade --force <url|key>` before `airplan update` can proceed against
-that revision. Planning remains read-only even when a configured template
-cannot be loaded or parsed; execution reports that error before writing any
-object.
+`airplan upgrade --force <url|key>` before `airplan new-revision` can proceed
+against that revision. Planning remains read-only even when a configured
+template cannot be loaded or parsed; execution reports that error before
+writing any object.
 
 `upgrade --check` performs read-only classification. `--force` explicitly
 re-renders an otherwise current target. Planning returns `upgradeable`,
@@ -906,15 +1211,45 @@ re-renders an otherwise current target. Planning returns `upgradeable`,
 marker, producer, and renderer versions. Execution always replans from live
 storage before deciding to no-op or mutate. A fresh `current` classification
 no-ops; `missing`, `invalid`, or `ineligible` refuses execution. A
-still-upgradeable target must exactly match the submitted marker and page ETags,
-and execution rechecks the source ETag and bytes before mutation. Planning fails
-closed when the storage service omits a required ETag and rejects a fetched page
-larger than 40 MiB rather than classifying truncated bytes.
-It conditionally writes the marker first and page last; storage HTTP 409/412 is
+still-upgradeable target must exactly match the submitted marker and all page
+and source ETags. Execution rechecks source identities before mutation.
+Planning fails closed when storage omits a required ETag or a bounded read
+cannot establish an object's digest. Planning streams page and source bodies
+through bounded hashing and retains only their sizes, digests, and ETags; it
+does not create payload spools. V6 planning accepts generated pages within the
+separate 100 MiB aggregate generated-HTML ceiling, including an entry larger
+than the legacy single-page upgrade bound. A v6 source read is bounded by its
+marker-declared size and the 100 MiB aggregate managed-source ceiling rather
+than the legacy 10 MiB per-source fallback. A marker-declared adjacent diff
+larger than 32 MiB is rejected before its body is fetched; accepted diff reads
+remain bounded to that limit. Execution streams the exact planned page and
+source generation into a private mode-`0700` directory containing mode-`0600`
+payload files, removes it on success or failure, creates no spool for a fresh
+no-op, and re-hashes every source immediately before the first marker or page
+mutation.
+
+Execution renders every managed page and calculates the desired v6 marker. It
+conditionally writes that marker once when it differs. A retry that finds the
+exact desired marker does not perform an identity PUT. Airplan then compares
+each non-entry page's actual digest, using a native full-object SHA-256 when
+available and otherwise downloading and hashing it. It skips matching pages and
+conditionally replaces mismatches against the ETags observed during planning;
+a missing declared page is recreated with an absence condition.
+After rechecking the marker and non-entry pages, it applies the same comparison
+to the entry and writes that page last. Storage HTTP 409/412 is
 a conflict that requires a new plan. The REST
 API exposes the same condition as problem code `upgrade_conflict` with status 409. It verifies the
 result before success and appends a manifest `upgrade` event. It never creates,
 deletes, or modifies `.airplan-versions.json`.
+
+An in-place bundle upgrade is resumable, not failure-atomic. A failed attempt
+may leave the desired marker with a temporary mix of old and new rendered pages
+at stable URLs. The upload remains owned but incomplete. Inspection reports
+digest mismatches, and retry repairs only mismatched pages. Airplan never
+rewrites the marker after each page. Concurrent writers with different desired
+markers contend on the conditional marker write; repairers for the same desired
+marker may converge, while conditional page writes prevent either from
+overwriting an unobserved change.
 
 Once schema, renderer, page-size repair, and force decisions are satisfied,
 strictly comparable semantic producer versions provide a final classification:
@@ -943,30 +1278,50 @@ that parseable result on stdout and make the command non-zero.
 
 ### Linked Markdown revisions
 
-`airplan update <url|key> [file|-]` accepts only a complete, marker-managed,
-source-backed Markdown document. It resolves any supplied chain member to the
-latest live revision, compares exact UTF-8 source bytes, and uploads a complete
-ordinary document under a new random directory. A named input must resolve to
-the existing document slug; stdin or an omitted name preserves it implicitly.
-Local input size, emptiness, UTF-8, and binary validation completes before an
-eligible predecessor is upgraded or repaired. Update may then apply the same
-in-place upgrade machinery to an eligible older marker or renderer generation
-before comparing source bytes; this prerequisite maintenance is part of the
-requested update and remains independently recoverable.
-Update fails closed when the target or latest live revision's v5 theme recipe
-does not match the active catalog and defaults; the explicit remedy is
-`airplan upgrade --force <url|key>` followed by retrying the update. Historical
-members read only as metadata-repair witnesses do not need to match the active
-theme recipe because they are not re-rendered.
-Identical content is a
-successful no-op returning the existing latest URL. An already-consistent
-chain performs no storage or manifest writes; an identical-source retry may
-first repair interrupted predecessor promotion or metadata replication.
-Revision numbers are positive integers beginning at 1 and never reused.
+`airplan new-revision <url|key> [file ...]` is the canonical revision command.
+`airplan update` is a warning-free compatibility alias for the same command,
+with identical flags, stdout, stderr, no-op behavior, and exit status. No
+removal is scheduled for the alias.
 
-A standalone upload has no `.airplan-versions.json`. Its first real update
+Revision creation accepts only a complete, marker-managed, source-backed
+document whose entry remains Markdown. It resolves any supplied chain member
+to the latest live revision and uploads a complete replacement document under
+a new random directory. Named inputs use the same entry and role inference as
+new uploads. Positional paths plus `--entrypoint`, `--page`, and `--asset`
+resupply the complete bundle;
+omitted pages and assets are removals, never inherited state. A named entry must
+resolve to the existing document slug. Stdin or an omitted name preserves the
+predecessor entry's exact logical path and remains valid only for a one-entry
+replacement.
+
+Local path, size, count, emptiness, UTF-8, binary, and collision validation
+completes before an eligible predecessor is upgraded or repaired. Before
+deciding that an identical document is a no-op or allocating a revision,
+Airplan verifies every marker-declared rendered page needed by the complete
+document and repairs missing or mismatched pages through the same in-place
+upgrade machinery. Revision creation may likewise upgrade an eligible older
+marker or renderer generation. This prerequisite maintenance is part of the
+requested operation and remains independently recoverable. It fails closed
+when the target or latest live revision's v5/v6 theme recipe does not match the
+active catalog and defaults. The explicit remedy is
+`airplan upgrade --force <url|key>` followed by retrying `new-revision`.
+Historical members read only as metadata-repair witnesses do not need to match
+the active theme recipe because Airplan does not re-render them.
+
+Airplan compares normalized page and asset descriptors plus stored SHA-256
+digests before rendering or uploading unchanged large objects when practical.
+A page path, format, title, language, source-byte, or order change is material.
+An asset path, content type, size, byte, or visible-order change is material.
+Entry metadata that changes rendered output is material. A byte-identical
+logical bundle is a successful no-op returning the existing latest entry URL
+without consuming a revision number. An already-consistent chain performs no
+storage or manifest writes, although an identical retry may first repair an
+interrupted predecessor promotion or metadata replication. Revision numbers
+are positive integers beginning at 1 and never reused.
+
+A standalone upload has no `.airplan-versions.json`. Its first real revision
 conditionally creates that object in the predecessor and candidate, promotes
-the predecessor marker to revision 1, and creates revision 2. Later updates
+the predecessor marker to revision 1, and creates revision 2. Later revisions
 append linearly using the latest metadata ETag as the serialization point; a
 stale concurrent writer receives a conflict and its unannounced candidate is
 deleted. REST reports this as `revision_conflict` with status 409. After that
@@ -997,30 +1352,51 @@ A revision-2 candidate beside a still-live standalone predecessor fails closed
 because no versions object exists on which cleanup can safely contend. A
 standalone deletion reservation or missing predecessor is durable proof that
 the first-link candidate lost. Candidate rollback uses a fresh bounded cleanup
-context so cancellation of the update request does not by itself strand the
+context so cancellation of the revision request does not by itself strand the
 marker-first upload.
 
-A first update and a concurrent standalone delete contend on a conditional
+A first revision and a concurrent standalone delete contend on a conditional
 reservation at the predecessor's versions key. The delete reservation is not
 valid versions metadata and remains as a tiny permanent deletion tombstone
 after payload and marker removal. It keeps stale, preflighted updates from
-subsequently winning `If-None-Match`; an update that observes it fails closed.
+subsequently winning `If-None-Match`; a revision operation that observes it
+fails closed.
 Marker-based listing and sync ignore the otherwise empty tombstone-only prefix.
 These tombstones intentionally accumulate and Airplan lifecycle commands never
 remove them. Thus exactly one transition can win, including when both
 operations first observed the standalone marker.
 
-Every linked v4 or v5 Markdown marker contains an immutable `revision` descriptor
+Every linked v4 through v6 Markdown marker contains an immutable `revision` descriptor
 with a 26-character lowercase RFC 4648 base32 `chain_id`, positive `number`,
 and, after revision 1, the previous page URL. Revisions greater than 1 declare
 exactly one `diff` object named `.airplan-changes.diff`, content type
 `text/plain; charset=utf-8`; standalone documents and revision 1 declare none.
-The adjacent unified diff has stable `revision-N/plan.md` headers, three context
-lines, deterministic LF output, and preserves final-newline distinctions. It is
-bounded to 32 MiB and generated before remote mutation. At most 512 KiB is
-embedded for server-highlighted display; larger diffs retain the Changes view
-and its raw sibling-object link without embedding the diff body in the page.
-The immutable `--- revision-N/plan.md` header remains the authoritative
+The adjacent deterministic diff combines explicitly typed logical-path
+sections. Bundle-level metadata, page-order, and asset-order sections precede
+sorted page and asset path sections. Each current report begins with
+`# airplan revisions: N -> M` and `# airplan diff format: 2`. Page and asset
+section headings are respectively `# airplan page: <json-string>` and
+`# airplan asset: <json-string>`, where the JSON string is the exact logical
+path. A role transition at one logical path emits both typed sections in page,
+then asset order, so page-to-asset and asset-to-page transitions remain
+unambiguous. Page sections contain fixed-prefix JSON descriptor summaries for
+additions, removals, or format/title/language changes and unified diffs with
+three context lines for changed UTF-8 sources. Renames appear as remove plus
+add. Binary asset sections use fixed-prefix canonical JSON descriptors to
+summarize content type, size, and digest changes without embedding asset bytes.
+Output uses LF and preserves
+final-newline distinctions in source sections. It is bounded to 32 MiB and
+generated before remote mutation. The 512 KiB inline limit applies separately
+to each page-local section and to the complete report. A larger page section
+retains that page's Changes view and raw sibling-object link; a larger complete
+report retains All changes and its raw link.
+The range remains parseable when a revision changes only metadata or assets and
+there are no unified source headers. When a page section has unified source
+headers, both headers must repeat that section's exact logical path and the
+envelope's adjacent revision numbers. Upgrade accepts unversioned generation-4
+structured reports and legacy single-page diffs, but rejects malformed typed
+sections or mismatched nested headers before mutation.
+Each immutable `--- revision-N/<logical-path>` header remains the authoritative
 predecessor number when that predecessor has since become a metadata tombstone
 and its URL is no longer present in the chain index; re-rendering must not infer
 `current revision - 1` across an assignment gap.
@@ -1039,29 +1415,83 @@ refused before candidate upload with `ErrRevisionHistoryFull`; REST reports
 `revision_history_full` (422). A missing object means standalone; invalid
 metadata disables only revision navigation, not an otherwise complete payload.
 
+The revision index stores each revision's entry URL, not a page map. Exact,
+case-sensitive logical source path is page identity across revisions. Selecting
+another revision from a child page fetches that target directory's public v6
+marker with `no-store`, bounds it to 256 KiB, and validates its directory,
+document and revision identity, producer and render provenance, portable unique
+object inventory with exact roles, sizes, digests, and content types, and each
+page descriptor's generated-page/source relationship. Object URL construction
+percent-encodes each validated path segment while preserving directory
+separators. It then navigates normally to the exact matching page. Missing pages and every marker
+fetch or validation failure fall back to the already validated target entry
+URL. Ordinary content fragments are retained only for a matching page. The
+reserved `#airplan-all-changes` fragment always selects the target entry for
+revisions greater than 1 and is dropped when selecting revision 1.
+
 The built-in page fetches metadata relative to itself with `no-store` and a
-per-load nonce. Valid metadata turns the muted revision indicator above the
-rendered content into the sole revision selector, adding a small downward
-chevron while retaining its existing typography. Older pages use a
-content-width stale-warning treatment labeled `Revision N of M`; the latest
-page is labeled `Revision N (Latest)`. The whole indicator opens a native
-select, including a one-option selector when deletion leaves one live chain
-member; the toolbar contains no revision control and there are no previous,
+per-load nonce. Valid metadata turns the document header's revision indicator
+into the sole revision selector, adding a small downward chevron. Older pages
+use an amber stale treatment labeled `Revision N of M`; the latest page is
+labeled `Revision N (Latest)`. The whole indicator opens a native select,
+including a one-option selector when deletion leaves one live chain member;
+the global toolbar contains no revision control and there are no previous,
 next, or latest shortcut links.
-Valid metadata also adds the server-highlighted Changes view and raw diff
-link. It validates same-origin Airplan-shaped URLs and inserts metadata text
-through DOM text APIs. Failure leaves the document, source, theme, ToC, print,
-and Mermaid behavior intact. Anyone who can read one chain URL learns every
-linked capability URL; this is intentional.
+Valid metadata also adds an icon-labeled `All changes` action beside the selector for every revision
+greater than 1. Markdown pages expose Read and Source modes plus Changes
+only when that logical page was added or its source, format, title, or language
+changed. Managed text pages expose Source plus the same optional Changes mode.
+Page reorder alone appears only in the complete report. Changes is page-local;
+the entry page does not absorb child changes. `All changes` is the complete
+adjacent report and opens only on the entry page through
+`#airplan-all-changes`. It replaces the document header with a complete-diff
+header containing a breadcrumb-style return to the entry page, adjacent
+revision context, the same metadata-backed revision selector, and an
+icon-labeled raw-diff action. Selecting another revision keeps Bundle history
+open when that target has a complete report and returns to its entry page for
+revision 1. The global toolbar
+identifies this state as Bundle history. The view hides the page rails, the
+collapsed Pages trigger, and content modes while active. The return and
+raw-diff actions precede the report so they remain practical for long diffs.
+These are normal anchors and
+navigations; the runtime does not replace document HTML or manage history.
+
+The document toolbar is sticky, translucent, blurred, and safe-area aware at
+every viewport width. Its frosted layer spans the full viewport and has no
+bottom rule. A centered inner row keeps a consistent document width so trailing
+file and Appearance actions do not shift when the page rails collapse. At the
+collapsed-rail breakpoint, Pages stays aligned to its left edge. The toolbar's
+content row remains 3.5rem tall across viewport
+sizes, plus any safe-area inset. It retains applicable Copy/Download/Raw actions
+and Appearance, plus Pages when the rails are collapsed. These toolbar actions
+remain 44px targets across widths. At the mobile
+action breakpoint the file-action labels become visually hidden. The
+title, content modes, and revision actions remain together in the document
+header below the toolbar. Revision actions render above content modes on
+mobile, and extra bottom content padding separates the previous/next links from
+the fixed Contents trigger. Fragment offsets include the toolbar's measured
+height. Pages progressively enhances into a native
+floating popover below its trigger, with the same border, radius, background,
+and shadow language as Appearance, ordinary navigation links, light
+dismiss, Escape handling, and focus restoration. It is visually and
+behaviorally distinct from the bottom-sheet Contents dialog, and only one may
+be open. Without native popover support or scripting, the inline Pages list
+remains available.
+
+Revision metadata validation uses same-origin Airplan-shaped URLs and inserts
+metadata text through DOM text APIs. Failure leaves the document, source,
+theme, ToC, print, and Mermaid behavior intact. Anyone who can read one chain
+URL learns every linked capability URL; this is intentional.
 
 `get --diff` fetches the declared adjacent diff from a directory target and is
 mutually exclusive with `--source`. `show` exposes revision identity, latest
 revision/URL, diff state, validated versions metadata, and a separate advisory
 metadata error. Manifest projections may carry `revision_chain_id`, `revision`,
-and `latest_revision`; sync reconstructs them from v4/v5 markers and bounded
+and `latest_revision`; sync reconstructs them from v4-v6 markers and bounded
 metadata reads.
 
-Successful `update --json` output extends the six-field document-upload JSON
+Successful `new-revision --json` or alias `update --json` output extends the
+document-upload JSON
 schema with `revision`, `latest_revision`, `previous_url`, `diff_url`, and
 `unchanged`. It does not expose the library result's management or provenance
 fields. A newly appended revision includes both URLs and `unchanged: false`;
@@ -1105,18 +1535,42 @@ Marker-based listing and sync ignore the resulting tombstone-only prefix.
 
 ```json
 {
-  "url": "https://plans.example.com/vq3n.../plan.html",
-  "key": "vq3nhk2p7r4wzt5c6ydjm3xhqd/plan.html",
-  "source_url": "https://plans.example.com/vq3n.../plan.md",
+  "url": "https://plans.example.com/vq3n.../readme.html",
+  "key": "vq3nhk2p7r4wzt5c6ydjm3xhqd/readme.html",
+  "source_url": "https://plans.example.com/vq3n.../readme.md",
+  "pages": [
+    {
+      "path": "README.md",
+      "format": "md",
+      "title": "Project plan",
+      "url": "https://plans.example.com/vq3n.../readme.html",
+      "key": "vq3n.../readme.html",
+      "source_url": "https://plans.example.com/vq3n.../readme.md",
+      "source_key": "vq3n.../readme.md",
+      "bytes": 18432,
+      "source_bytes": 4096
+    }
+  ],
+  "assets": [
+    {
+      "path": "images/flow.svg",
+      "url": "https://plans.example.com/vq3n.../images/flow.svg",
+      "key": "vq3n.../images/flow.svg",
+      "bytes": 8192,
+      "content_type": "image/svg+xml"
+    }
+  ],
   "bucket": "plans",
   "bytes": 18432,
   "content_type": "text/html; charset=utf-8"
 }
 ```
 
-`source_url` is omitted for HTML input and under `--no-source`.
-`bytes` and `content_type` describe the uploaded page object (the
-one `url` points at), not the markdown source.
+Top-level `url`, `key`, `source_url`, `bytes`, and `content_type` remain entry
+aliases for compatibility. `source_url` is omitted for HTML input and under
+`--no-source`. `pages` is ordered and includes the managed entry; `assets` is
+ordered as declared. These arrays are omitted when empty. Page `source_url`,
+`source_key`, and `source_bytes` are omitted when source inclusion is disabled.
 
 Collection `--json` output remains one line and one object. `url`, `key`,
 `bytes`, and `content_type` describe `index.html`; `files` maps members in
@@ -1160,14 +1614,16 @@ airplan list|ls [--remote] [--json] [--columns SET] [--wide] [--reverse]
                 [--protected|--no-protected]
                 [-p NAME|--profile NAME|--profile=] [-A|--all-profiles]
 airplan show [--json] <url|key>
-airplan get [--output PATH] [--source|--diff] <url|key>
+airplan get [--output PATH] [--source|--diff|--page PATH|--asset PATH] <url|key>
 airplan delete [--force] <url|key>
 airplan protect [--reason TEXT] <url|key>
 airplan unprotect <url|key>
 airplan upgrade [--check] [--force] [--template PATH] [--json] <url|key>
 airplan upgrade --all [--dry-run] [--yes] [--concurrency N]
                 [--all-profiles] [--json]
-airplan update [--title TITLE] [--max-size SIZE] [--json] [--open] <url|key> [file|-]
+airplan new-revision [--entrypoint PATH] [--page PATH]... [--asset PATH]...
+                     [--json] [--open] <url|key> [file ...]
+# `update` is an accepted alias for `new-revision`
 airplan purge [--remote] [--older-than 30d|2026-01-01] [--include-versioned]
               [--all] [--dry-run] [--yes] [--concurrency N]
 airplan sync [--config PATH] [--profile NAME] [--concurrency N]
@@ -1194,12 +1650,14 @@ collection overview template.
 resulting HTML to stdout or to `--output PATH`. It supports the rendering
 flags `--format`, `--lang`, `--slug`, `--title`, `--template`,
 `--indexable`, `--no-external-assets`, `--mermaid-url`, `--repo`, and
-`--max-size`,
+`--max-size`, plus document-bundle `--entrypoint`, `--page`, `--asset`,
+`--max-total-page-size`, `--max-asset-size`, and `--max-total-size`,
 plus `--config` and `--profile` for
 resolving template settings. It does not validate S3 connection fields,
-access the network, upload source, or write the manifest. Consequently
-`.SourcePath` is empty in a preview, while markdown's embedded source
-view remains available. HTML input receives the same conservative
+access the network or write the manifest. A one-page stdout or file preview has
+an empty `.SourcePath`, while Markdown's embedded source view remains
+available. An output-directory preview supplies and writes the same relative
+source paths as an upload unless `--no-source` is set. HTML input receives the same conservative
 noindex injection as an upload. `file` omitted or `-` reads stdin;
 `--output -` is equivalent to the stdout default. An output path that
 resolves to the input file is rejected without modifying the input. File output
@@ -1207,10 +1665,21 @@ is written completely to a temporary file beside the destination and then
 atomically renamed into place; any failure before the rename leaves an existing
 destination unchanged.
 
-`preview --files` or multiple named inputs renders a collection overview. It
+A preview with pages or assets requires `--output-dir DIR`; it cannot write a
+complete bundle to stdout or one `--output` file. `--output-dir` and `--output`
+are mutually exclusive. The directory contains the same relative rendered
+pages, included sources, and byte-identical assets as storage, but no ownership
+marker or remote-management objects. Airplan stages the complete tree in a
+sibling temporary directory and renames it into place. It refuses any existing
+destination, including an empty directory. Failure leaves no plausible partial
+bundle at the requested path.
+
+`preview --collection` renders a collection overview. Unforced multiple named
+inputs use the same local kind and role inference as upload. Collection preview
 supports `--title`, `--collection-template`, `--indexable`, `--repo`,
 `--max-size`, and `--max-total-size`, performs the same collection preflight,
-and accesses neither storage nor the manifest. The output uses the same
+and rejects the document-only `--max-total-page-size` and `--max-asset-size`.
+It accesses neither storage nor the manifest. The output uses the same
 relative member paths as an upload. Airplan does not copy or inline member
 files for preview, so media resolves locally when the output is saved beside
 the inputs; callers may stage files together when inputs came from different
@@ -1222,11 +1691,14 @@ Local `list --wide` and explicit `--columns airplan,renderer` expose optional
 manifest producer and renderer provenance as `AIRPLAN` and `RENDERER`. Older
 records render a dash. These columns are unavailable to LIST-only `--remote`
 output because it does not fetch marker bodies.
+Document rows remain `kind=document`. Wide and JSON local output may include
+marker-derived managed-page and asset counts; the default compact columns do
+not change.
 
 `list`/`purge` operate on the operation service's manifest by default, or
 on its live bucket listing with `--remote`. With an `airplan` backend those
 operations execute on the server. `show` inspects one remote
-marker directory. For v4 and v5 markers its human and JSON output includes the
+marker directory. For v4 through v6 markers its human and JSON output includes the
 producer release and renderer generation when present. `get` fetches only objects declared by a valid remote
 ownership marker. `delete` takes an explicit URL or key, but it only
 operates on a directory carrying a valid airplan ownership marker; it
@@ -1645,6 +2117,8 @@ Scheme:
 [<key_prefix>/]<random>/<slug>.<ext>   (text input's original file,
                                         unless --no-source; <ext>
                                         per §3)
+[<key_prefix>/]<random>/<logical path>       (managed source or asset)
+[<key_prefix>/]<random>/<rendered page path> (managed page; mapping per §3)
 
 # collection
 [<key_prefix>/]<random>/.airplan-collection.json
@@ -1657,7 +2131,8 @@ establishes Airplan's authority over everything under that directory; filename
 shape without a marker never establishes ownership. Both marker names create a
 conflict and grant no authority. Management commands treat the directory as
 one deletion unit, so page, source or members, marker, extras, and any
-partial-upload remnants never get separated.
+partial-upload remnants never get separated. Nested document paths do not
+create separate ownership units.
 
 - `<random>`: 16 bytes from a cryptographically secure random source
   (never a seeded PRNG), encoded lowercase base32 (RFC 4648
@@ -1676,6 +2151,11 @@ partial-upload remnants never get separated.
   and member basenames provide the human-readable direct URLs. Names are
   percent-encoded when assembled into public URLs but remain unencoded object
   key segments in storage, JSON, and manifest data.
+- Supporting document pages, sources, and assets preserve their validated
+  bundle-relative logical hierarchy. The entry alone keeps the existing
+  slug-derived object names. A logical entry path such as `README.md` can
+  therefore use `readme.html` and `readme.md`, while a supporting
+  `docs/design.md` uses `docs/design.html` and `docs/design.md`.
 - `.html` extension: helps any static host / CDN infer content type
   and makes saved files open correctly.
 
@@ -1685,6 +2165,11 @@ Example keys:
 vq3nhk2p7r4wzt5c6ydjm3xhqd/.airplan.json
 vq3nhk2p7r4wzt5c6ydjm3xhqd/refactor-auth.html
 vq3nhk2p7r4wzt5c6ydjm3xhqd/refactor-auth.md
+vq3nhk2p7r4wzt5c6ydjm3xhqd/docs/design.html
+vq3nhk2p7r4wzt5c6ydjm3xhqd/docs/design.md
+vq3nhk2p7r4wzt5c6ydjm3xhqd/examples/server.go.html
+vq3nhk2p7r4wzt5c6ydjm3xhqd/examples/server.go
+vq3nhk2p7r4wzt5c6ydjm3xhqd/images/flow.svg
 gaj4jmvi6dverjkoy6khas2ble/.airplan-collection.json
 gaj4jmvi6dverjkoy6khas2ble/Screenshot 1.png
 gaj4jmvi6dverjkoy6khas2ble/index.html
@@ -1739,8 +2224,8 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
- "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":5,
- "producer_version":"0.8.0","renderer_version":3}
+ "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":6,
+ "producer_version":"0.8.0","renderer_version":10}
 {"type":"upload","time":"2026-07-21T12:03:00Z",
  "created_at":"2026-07-21T12:03:00Z",
  "key":"gaj4.../index.html",
@@ -1748,8 +2233,8 @@ conforming implementations can share a manifest:
  "url":"https://plans.example.com/gaj4.../index.html",
  "bucket":"plans","profile":"work","kind":"collection",
  "title":"login.png and 1 more","bytes":9216,"objects":4,
- "total_bytes":203512,"marker_version":5,
- "producer_version":"0.8.0","renderer_version":3}
+ "total_bytes":203512,"marker_version":6,
+ "producer_version":"0.8.0","renderer_version":10}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
  "bucket":"plans","profile":"work","reason":"deleted"}
@@ -1766,8 +2251,8 @@ conforming implementations can share a manifest:
  "url":"https://plans.example.com/vq3n.../plan.html",
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
- "bytes":19200,"marker_version":5,"producer_version":"0.8.0",
- "renderer_version":3}
+ "bytes":19200,"marker_version":6,"producer_version":"0.8.0",
+ "renderer_version":10}
 {"type":"link","time":"2026-08-15T10:05:00Z",
  "created_at":"2026-07-21T12:00:00Z",
  "key":"vq3n.../plan.html","source_key":"vq3n.../plan.md",
@@ -1775,8 +2260,8 @@ conforming implementations can share a manifest:
  "url":"https://plans.example.com/vq3n.../plan.html",
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
- "bytes":19200,"objects":4,"total_bytes":20120,"marker_version":5,
- "producer_version":"0.8.0","renderer_version":3,
+ "bytes":19200,"objects":4,"total_bytes":20120,"marker_version":6,
+ "producer_version":"0.8.0","renderer_version":10,
  "revision_chain_id":"d2x4...","revision":1,"latest_revision":2}
 ```
 
@@ -1791,7 +2276,7 @@ conforming implementations can share a manifest:
   marker declares, and `total_bytes` sums their declared sizes; both are
   optional and absent together on history written before airplan recorded
   them, and on uploads whose marker cannot declare every counted size. Marker
-  v3, v4, and v5 always qualify; marker v2 qualifies only when it declares no source;
+  v3 through v6 always qualify; marker v2 qualifies only when it declares no source;
   marker v1 and v2-with-source do not. When present, both fields are positive;
   a record with only one field or an explicit zero is invalid. They are
   additive: `bytes` keeps its own meaning and is never repurposed. `title` is
@@ -1799,10 +2284,10 @@ conforming implementations can share a manifest:
   root-level settings. `marker_key` is the exact kind-specific ownership key.
   `repo` preserves canonical repository metadata. The full collection
   inventory remains only in the remote marker.
-- Current writers always include `marker_version: 5`; its absence identifies
+- Current writers always include `marker_version: 6`; its absence identifies
   legacy pre-marker history. Readers infer `kind: document` and derive its
   slug from the page key for valid older records that omit those fields. The
-  renderer-3 theme recipe remains in the remote v5 marker and is not duplicated
+  renderer theme recipe remains in the remote v5/v6 marker and is not duplicated
   in this local projection.
 - New `delete` tombstones include `marker_key`, `bucket`, the receiving
   `profile`, and reason `deleted` or `remote_missing`. Their identity is
@@ -1860,7 +2345,7 @@ conforming implementations can share a manifest:
   Readers retain an otherwise-valid upload with no `marker_version`
   as legacy history, but it never authorizes delete or purge. An
   unsupported nonzero `marker_version` is invalid and skipped with a
-  warning. Marker versions 1 through 5 are managed; pre-marker entries remain
+  warning. Marker versions 1 through 6 are managed; pre-marker entries remain
   visible as read-only legacy history and are never pruned by `sync`.
 
 Concurrent invocations are expected (parallel agents on one
@@ -2026,11 +2511,12 @@ machine) and must be safe:
   because ordinary remote listing never reads it.
 - `airplan show <url|key>` performs targeted inspection of one remote marker
   directory. The target may be its random directory, either marker name, or
-  any direct child. `show` lists the directory, requires exactly one ownership
+  any nested child. `show` lists the directory, requires exactly one ownership
   marker, fetches and validates it, and reports every declared object's
   existence and size plus total directory object count and bytes. A valid
   marker is `complete` only when every declared object exists with its declared
-  size; otherwise it is `incomplete`. Extra objects do not affect state. A
+  size and, for v6, its declared digest; otherwise it is `incomplete`. Extra
+  objects do not affect state. A
   present invalid marker, including a dual-marker conflict, produces a
   successful `invalid` inspection but grants no authority. A missing marker is
   an error. Storage, authentication, timeout, cancellation, and other request
@@ -2038,23 +2524,30 @@ machine) and must be safe:
 - `show --json` emits one object. All states contain `state`, `dir`,
   `marker_key`, `objects`, and `bytes`. Valid states additionally
   contain `time`, `kind`, `marker_version`, `page`, `title` when non-empty,
-  and `repo` when present; documents also expose `format` and optional
-  `source`, while collections expose an ordered `files` array. Valid states
+  and `repo` when present; documents also expose `format`, optional
+  entry `source`, ordered `pages`, and ordered `assets`, while collections
+  expose an ordered `files` array. Valid states
   also expose purge protection: `protected` is true when the directory
   listing contains the sentinel (§5), with advisory `protected_at` and
   `protect_reason` from a best-effort sentinel body read — an unreadable or
   malformed body leaves the upload protected with the listing timestamp and
   no reason. The human detail block reports the same state as a `PROTECTED`
-  row, `no` or `yes (reason: ...)`. Declared object
-  entries contain `key`, `url`, `exists`, `expected_bytes`, and `bytes`, with
-  `bytes` omitted when missing. An invalid result
+  row, `no` or `yes (reason: ...)`. Declared object entries contain `key`,
+  `url`, `name`, `role`, `exists`, `bytes`, `expected_bytes`, `expected_known`,
+  `sha256`, and `expected_sha256`. Empty digest values indicate that the
+  observed or legacy-declared digest is unavailable. Version 2 page
+  declarations derive known expected bytes from `page_bytes`. An invalid result
   additionally contains `error`, a stable coarse code:
   `oversized`, `malformed_json`, `unsupported_version`, `invalid_fields`, or
   `conflicting_markers`; it never exposes untrusted marker fields. Human
   output presents the same information as a labeled detail block.
-- `airplan get <url|key>` fetches one object from a marker-managed upload;
-  `--source` selects the declared source and `--diff` selects the declared
-  adjacent revision diff. The selectors are mutually exclusive.
+- `airplan get <url|key>` fetches one object from a marker-managed upload.
+  A directory or marker target selects the entry page by default. `--source`
+  selects the entry source, `--diff` selects the adjacent revision diff,
+  `--page PATH` selects the rendered page for that logical path, and
+  `--asset PATH` selects that logical asset. `--page PATH --source` selects the
+  managed page's original source. `--page`, `--asset`, and `--diff` are
+  mutually exclusive; `--source` is valid alone or with `--page`.
   Full URLs, bare keys, random directories, configured prefixes, and
   path-style endpoint URLs obey the same connection, bucket, and prefix
   rules as `delete`. Before returning bytes, `get` concurrently probes both
@@ -2062,12 +2555,12 @@ machine) and must be safe:
   absent, and validates the existing marker. This preserves object-read-only
   credentials without requiring LIST permission. A timeout, authorization
   failure, or ambiguous probe fails closed. A random-directory target selects
-  the primary page, the document source under `--source`, or the adjacent diff
-  under `--diff`; requesting either capability when it is not declared is an
-  error. An explicit declared
-  page, document source, collection file, or existing marker fetches that exact
-  object. Any undeclared child is rejected, as is `--source` with an explicit
-  child. A missing selected object is an error naming its full key.
+  the entry page, selected document page or asset, source under `--source`, or
+  adjacent diff under `--diff`; requesting an undeclared capability is an
+  error. An explicit declared page, source, asset, diff, collection file, or
+  existing marker fetches that exact object. Any undeclared child is rejected,
+  as is any selector when the target already names an explicit child. A missing
+  selected object is an error naming its full key.
   Raw fetched bytes, with no added newline or other output, go to stdout by
   default. `--output PATH` writes the complete bytes to a temporary file
   beside the destination and atomically renames it into place; `--output -`
@@ -2077,8 +2570,10 @@ machine) and must be safe:
   not require whole-object buffering. `get` never writes the local manifest or
   changes remote storage.
 - `airplan delete <url|key>` only deletes a marker-managed upload. The target
-  may be the random directory, its existing marker, or any page, source, or
-  collection file declared by the valid marker. Other siblings are rejected.
+  may be the random directory, its existing marker, or any page, source, asset,
+  diff, or collection file declared by the valid marker. Other siblings are
+  rejected. A child target identifies the owner; deletion always removes the
+  complete document bundle or collection.
   Before any deletion, Airplan resolves exactly one marker by the same
   fail-closed dual probe as `get` and validates it. Missing, conflicting,
   malformed, oversized, unsupported, or inconsistent ownership touches no
@@ -2110,6 +2605,10 @@ machine) and must be safe:
   Any payload or marker failure leaves the local upload untombstoned so retry
   can resume while the marker still establishes ownership. A successful marker
   deletion is followed by the append-only local tombstone.
+- Delete, purge, protect, unprotect, sync, inspection, and bulk upgrade treat a
+  v6 marker's complete nested object inventory as one owned lifecycle unit.
+  There is no page-level or asset-level protection, deletion, retention, or
+  revision history.
 - `airplan protect [--reason TEXT] <url|key>` marks one marker-managed
   upload as purge-protected by writing its sentinel (§5);
   `airplan unprotect <url|key>` removes it. Both accept the same targets as
@@ -2240,7 +2739,7 @@ machine) and must be safe:
   connection, never the marker.
   Sync also completes local history in place: for each active, scoped,
   marker-managed record that is missing both `objects` and `total_bytes` and
-  carries a v3, v4, or v5 marker version, or a v2 marker version without a source, it
+  carries a v3 through v6 marker version, or a v2 marker version without a source, it
   fetches and inspects that marker and, only
   for a `complete` inspection, appends an enriched upload record carrying the
   record's original time and identity plus the declared totals. Append-only
@@ -2259,7 +2758,7 @@ machine) and must be safe:
   invalid, or without declared sizes, is counted as deferred and named in a
   warning, and a later sync retries it. Otherwise one unreadable marker would
   fail every later run, because the record keeps qualifying.
-  A complete source-backed v4 or v5 Markdown record without a revision projection is
+  A complete source-backed v4 through v6 Markdown record without a revision projection is
   also inspected because another writer may have promoted its marker from
   standalone to revision 1. A discovered complete versions index appends a
   `link` projection with chain, revision, and latest values. A still-standalone
@@ -2298,7 +2797,7 @@ machine) and must be safe:
   deliberately leaves suppressed.
   Enriched records complete uploads already in history, so they are never
   counted as additions. `unchanged` counts scoped records already complete
-  locally, including an inspected v4 or v5 Markdown record that remains standalone;
+  locally, including an inspected v4 through v6 Markdown record that remains standalone;
   a totals-enrichment candidate is reported as enriched or deferred and never
   also as unchanged. A partial failure exits nonzero after
   writing the result. Sync provides eventual active-inventory convergence;
@@ -2353,6 +2852,18 @@ machine) and must be safe:
   execute active content when opened, while media content types intentionally
   allow browsers and external proxies to render the originals. Only upload
   trusted artifacts.
+- Document assets are also uploaded byte-for-byte. SVG, HTML, JavaScript, and
+  other active assets may execute when opened or embedded according to browser
+  rules. Airplan does not sanitize them or add a Content Security Policy. A
+  useful CSP would require a separate compatibility design for authored HTML,
+  scripts, Mermaid, themes, and custom templates.
+- Every child page and asset URL shares the entry's capability boundary. Anyone
+  who learns one declared child URL can identify and manage the complete owner
+  when they also have valid Airplan credentials.
+- Temporary source, generated-page, and multipart files use mode 0600 where the
+  platform exposes POSIX permission bits. Airplan closes and removes them after
+  success, cancellation, parsing failure, limit failure, or operation failure.
+  REST and hosted MCP responses never expose server-local paths.
 - Screenshots and recordings may reveal tokens, usernames, private messages,
   browser chrome, or unrelated desktop content. Review captures before upload.
   Filenames are also exposed in direct public URLs and the overview page.
@@ -2407,6 +2918,119 @@ and key prefix even when its file also contains records for other local
 profiles. Direct local S3 `list` uses its resolved profile by default and
 requires `--all-profiles` for an all-history view. `serve` requires an `s3`
 profile and rejects an `airplan` profile, preventing proxy chains and loops.
+
+### Public Go document API
+
+The public Go API models a complete document explicitly:
+
+```go
+type PageInput struct {
+    Reader io.Reader
+    Path   string
+    Format string
+    Title  string
+    Lang   string
+}
+
+type AssetInput struct {
+    Reader      io.ReadSeeker
+    Path        string
+    Size        int64
+    ContentType string
+}
+
+type DocumentInput struct {
+    Entry            PageInput
+    Pages            []PageInput
+    Assets           []AssetInput
+    Slug             string
+    Title            string
+    MaxPageSize      int64
+    MaxTotalPageSize int64
+    MaxAssetSize     int64
+    MaxTotalSize     int64
+    RepositoryURL    string
+}
+
+func (c *Client) UploadDocument(
+    ctx context.Context,
+    in DocumentInput,
+) (*DocumentResult, error)
+
+// InvalidDocumentInputError reports bundle path, generated-name, and explicit
+// asset content-type validation failures. Callers classify it with errors.As.
+
+type PageResult struct {
+    Path        string `json:"path"`
+    Format      string `json:"format"`
+    Title       string `json:"title,omitempty"`
+    URL         string `json:"url"`
+    Key         string `json:"key"`
+    SourceURL   string `json:"source_url,omitempty"`
+    SourceKey   string `json:"source_key,omitempty"`
+    Bytes       int64  `json:"bytes"`
+    SourceBytes int64  `json:"source_bytes,omitempty"`
+}
+
+type AssetResult struct {
+    Path        string `json:"path"`
+    URL         string `json:"url"`
+    Key         string `json:"key"`
+    Bytes       int64  `json:"bytes"`
+    ContentType string `json:"content_type"`
+}
+
+type DocumentResult struct {
+    Result
+    Pages  []PageResult  `json:"pages,omitempty"`
+    Assets []AssetResult `json:"assets,omitempty"`
+}
+```
+
+`PageInput.Path` and `AssetInput.Path` are validated logical paths. Local
+filesystem containment belongs to CLI and local-file MCP adapters, not the
+library. `DocumentResult` embeds the existing `Result`; its fields remain entry
+aliases. It adds ordered `Pages []PageResult` and `Assets []AssetResult` with
+the JSON fields described in §6. `Client.Upload(ctx, Input)` remains available
+and wraps one entry. Existing collection types and `UploadFiles` do not change.
+
+The canonical complete-replacement revision operation is:
+
+```go
+type CreateDocumentRevisionInput struct {
+    Target   string
+    Document DocumentInput
+}
+
+type DocumentRevisionResult struct {
+    DocumentResult
+    PreviousURL string `json:"previous_url,omitempty"`
+    DiffURL     string `json:"diff_url,omitempty"`
+    Unchanged   bool   `json:"unchanged"`
+}
+
+func (c *Client) CreateDocumentRevision(
+    ctx context.Context,
+    in CreateDocumentRevisionInput,
+) (*DocumentRevisionResult, error)
+```
+
+`DocumentRevisionResult` embeds `DocumentResult` and adds `PreviousURL`,
+`DiffURL`, and `Unchanged`. `UpdateDocument(UpdateDocumentInput)` and
+`UpdateDocumentResult` remain source-compatible one-entry wrappers. Their Go
+documentation marks them deprecated. Compatibility results may add the
+canonical page and asset arrays, but their established entry aliases and
+runtime behavior do not change. No `UpdateDocumentBundle` operation exists.
+
+`RenderDocument(ctx, DocumentInput, DocumentRenderOptions)` returns a
+`RenderedDocumentBundle` containing every generated page and declared copy
+operation without storage or manifest writes. It rejects generated HTML above
+the 100 MiB aggregate limit. `MaterializeDocument(ctx, DocumentInput,
+DocumentRenderOptions, destination)` uses the same renderer with mode-0600
+temporary source and generated-page sinks, then atomically publishes a new
+directory and returns non-fatal rendering warnings. Upload and output-directory
+preview use this temporary-file pipeline. `RenderInput` remains the single-page
+wrapper.
 
 ### Server process
 
@@ -2531,6 +3155,7 @@ endpoints require `Authorization: Bearer <token>`:
 ```text
 GET    /api/v1/capabilities
 POST   /api/v1/uploads/documents
+POST   /api/v1/uploads/documents/revisions
 POST   /api/v1/uploads/documents/update
 POST   /api/v1/uploads/collections
 POST   /api/v1/uploads/inspect
@@ -2550,17 +3175,30 @@ POST   /api/v1/purge
 ```
 
 Document and collection uploads use bounded streaming
-`multipart/form-data`. The server applies the stricter of its hard limits and
-portable client-requested limits. Collection members are spooled to temporary
-files, mode 0600 on platforms with POSIX permission bits, so the existing
-seekable collection API can be used without whole-collection buffering; all
-temporary files are removed after success, failure, cancellation, or shutdown.
+`multipart/form-data`. A document request contains, in order, one JSON
+`metadata` part, one `document` entry part, zero or more repeated `pages` parts,
+and zero or more repeated `assets` parts. Metadata contains the ordered logical
+descriptors that bind repeated parts. Part filenames are diagnostic only and
+never override logical paths. Missing, extra, reordered, or count-mismatched
+parts are invalid. The metadata part is limited to 256 KiB and the client
+preflights that limit before streaming.
+
+The server applies the stricter of its hard limits and portable
+client-requested limits. It measures and spools document pages, assets, and
+collection members to temporary files, mode 0600 on platforms with POSIX
+permission bits, while enforcing per-part, aggregate, and complete-request
+limits. All temporary files are removed after success, failure, cancellation,
+or shutdown. Generated clients use `io.Pipe` and `multipart.Writer`; they do not
+assemble large assets in memory and do not retry an ambiguous partially sent
+body.
 
 Inspect, get, delete, protect, and unprotect take `url_or_key` in a JSON
-request body. The server
-resolves it against its complete S3 configuration and permits only objects
-declared by exactly one valid Airplan ownership marker. Get streams its
-response with the stored object's content type. Capability URLs are not placed
+request body. The server resolves it against its complete S3 configuration and
+permits only objects declared by exactly one valid Airplan ownership marker.
+Get streams its
+response with the stored object's content type. Get accepts the same optional
+`source`, `diff`, `page`, and `asset` selectors and fail-closed mutual
+exclusivity rules as the Go and CLI operation. Capability URLs are not placed
 in query strings. Upload, list,
 inspection, and purge-preview results expose the randomized directory as an
 opaque `upload_id`. `GET /api/v1/uploads` returns service-scoped manifest
@@ -2584,13 +3222,44 @@ delete-time skip as `protected: true` rather than a failure, and sync results
 include `protection_records`. The capabilities operation list includes
 `protect_upload` and `unprotect_upload` so clients can detect the feature.
 
-Document update uses bounded streaming `multipart/form-data` with metadata
-containing the target and optional name, title, and size limit. Refusal maps a
-missing upload to `upload_not_found` (404), an unreconcilable chain to
+`POST /api/v1/uploads/documents/revisions` is the canonical document-revision
+operation and has OpenAPI operation ID `createDocumentRevision`.
+`POST /api/v1/uploads/documents/update` remains the deprecated
+`updateDocument` compatibility operation. Both routes accept the same media
+types and `CreateDocumentRevisionMetadata` schema, return the same
+`DocumentRevisionResult`, and invoke one implementation.
+
+Document upload and revision metadata includes entry metadata, ordered page and
+asset descriptors, `max_page_size`, `max_total_page_size`, `max_asset_size`, and
+`max_total_size`. Revision metadata retains `target`, `name`, `title`, and the
+legacy `max_size` spelling. Document upload also continues accepting its legacy
+`max_size`. If both `max_size` and `max_page_size` are present, they must be
+equal. Results for upload, revision, show, and inspection add ordered `pages`
+and `assets`; existing top-level document fields remain entry aliases and
+`files` remains collection-only.
+
+Revision refusal maps a missing upload to `upload_not_found` (404), an
+unreconcilable chain to
 `invalid_upload` (422), an ineligible document to `invalid_target` (422), and a
 lost append serialization race to `revision_conflict` (409). A chain whose
 bounded replicated index cannot fit another assigned revision maps to
 `revision_history_full` (422) before candidate upload.
+
+`GET /api/v1/capabilities` advertises document-bundle support, canonical
+revision-route support, the maximum document item count, per-page source,
+aggregate managed-source, aggregate generated-page, per-asset,
+aggregate-asset, metadata-part, and complete multipart request sizes. The
+complete request envelope must accommodate every request allowed by the
+advertised logical limits plus multipart overhead.
+
+A new client checks capabilities before opening or streaming a bundle request
+and reports that the server needs an upgrade when bundle support is absent. It
+may send the legacy one-document shape to an old server. Old clients may send
+single documents to a new server. The HTTP transport selects the canonical
+revision route only when the server advertises it; otherwise it sends an
+existing one-entry request to the compatibility route. It never probes by
+streaming to one route and replaying the body after a 404. Bundle requests
+always require the separate document-bundle capability.
 
 Purge is two-phase. `/purge/preview` applies the source and filters without
 deleting and returns explicit `upload_id` candidates. The CLI displays them
@@ -2624,9 +3293,8 @@ commit is ambiguous without persistent idempotency state.
 `airplan mcp` is a stdio MCP server. Its upload listing tool accepts the same
 selection arguments as `list` — `newer_than`, `older_than`, `limit`, `kind`,
 `slug`, and boolean `protected`, with the same meanings and the same time
-parser (§9). It
-constructs the normal public client,
-so it works with either backend. MCP frames are its only stdout content;
+parser (§9). It constructs the normal public client, so it works with either
+backend. MCP frames are its only stdout content;
 warnings and logs use stderr. `airplan serve` exposes the same tool
 implementation at `/mcp` using MCP Streamable HTTP. Deprecated HTTP+SSE is not
 supported.
@@ -2638,27 +3306,57 @@ safe enumeration error.
 
 The minimal tool set is:
 
-| Tool                | Stdio | HTTP | Effect                             |
-| ------------------- | ----- | ---- | ---------------------------------- |
-| `upload_document`   | yes   | yes  | Upload supplied text content       |
-| `update_document`   | yes   | yes  | Append a linked Markdown revision  |
-| `upload_files`      | yes   | no   | Upload local paths as a collection |
-| `list_uploads`      | yes   | yes  | List manifest or storage records   |
-| `inspect_upload`    | yes   | yes  | Validate one marker-managed upload |
-| `upgrade_document`  | yes   | yes  | Preview/apply one document upgrade |
-| `upgrade_documents` | yes   | yes  | Preview/apply exact bulk plans     |
-| `delete_upload`     | yes   | yes  | Delete one explicit upload         |
-| `protect_upload`    | yes   | yes  | Mark one upload purge-protected    |
-| `unprotect_upload`  | yes   | yes  | Remove purge protection            |
-| `sync_manifest`     | yes   | yes  | Preview or apply reconciliation    |
-| `preview_purge`     | yes   | yes  | Return explicit purge candidates   |
-| `execute_purge`     | yes   | yes  | Delete reviewed upload IDs         |
+| Tool                          | Stdio | HTTP | Effect                                 |
+| ----------------------------- | ----- | ---- | -------------------------------------- |
+| `upload_document`             | yes   | yes  | Upload inline entry, pages, and assets |
+| `new_document_revision`       | yes   | yes  | Create a complete document revision    |
+| `update_document`             | yes   | yes  | Compatibility revision name            |
+| `upload_paths`                | yes   | no   | Infer and upload a local file set      |
+| `upload_document_files`       | yes   | no   | Upload a document bundle from paths    |
+| `new_document_revision_files` | yes   | no   | Create a document revision from paths  |
+| `upload_files`                | yes   | no   | Upload local paths as a collection     |
+| `list_uploads`                | yes   | yes  | List manifest or storage records       |
+| `inspect_upload`              | yes   | yes  | Validate one marker-managed upload     |
+| `upgrade_document`            | yes   | yes  | Preview/apply one document upgrade     |
+| `upgrade_documents`           | yes   | yes  | Preview/apply exact bulk plans         |
+| `delete_upload`               | yes   | yes  | Delete one explicit upload             |
+| `protect_upload`              | yes   | yes  | Mark one upload purge-protected        |
+| `unprotect_upload`            | yes   | yes  | Remove purge protection                |
+| `sync_manifest`               | yes   | yes  | Preview or apply reconciliation        |
+| `preview_purge`               | yes   | yes  | Return explicit purge candidates       |
+| `execute_purge`               | yes   | yes  | Delete reviewed upload IDs             |
+
+The `upload_document` tool accepts entry `content` and `name`, optional ordered
+UTF-8 `pages` with logical paths and rendering metadata, and optional ordered
+`assets` with logical paths, strict standard `content_base64`, and content
+types. `new_document_revision` accepts the same complete-bundle fields plus the
+existing `url_or_key` target field. `update_document` remains visible as a
+compatibility tool with the same input schema, output schema, handler, and
+behavior. Its description identifies the canonical name. No removal is
+scheduled.
+
+Inline assets have a 32 MiB decoded aggregate limit. The Streamable HTTP JSON
+body limit remains independently authoritative, so escaped text can reach the
+encoded request ceiling before decoded assets reach their limit. Invalid base64
+fails before the operation service runs. REST or local-file tools are the path
+for larger media. Document tool results contain structured entry, page, and
+asset data; human content leads with the entry URL and summarizes counts.
 
 The `upload_document` tool description identifies GFM, highlighted code,
 Mermaid fences, GitHub-style alerts, frontmatter, footnotes, and responsive
 columns as optional Markdown affordances to use when they improve clarity.
 
-Hosted MCP omits file collection upload because MCP has no portable
+When local-file access is enabled, `upload_paths` accepts ordered `paths`,
+optional `entrypoint`, `page_paths`, and `asset_paths` overrides, plus a
+`collection` force switch. It applies the CLI's local inference rules and
+returns a discriminated document or collection result. The compatibility tools
+remain explicit: `upload_document_files` accepts optional inferred `paths` or
+`entry_path`, `page_paths`, and `asset_paths`, while
+`new_document_revision_files` accepts the same paths plus `url_or_key`. They
+apply the CLI's bundle-root and path rules without base64 buffering. There is
+no update-named alias for the newly introduced local-file revision tool.
+
+Hosted MCP omits all local-file upload tools because MCP has no portable
 client-to-server file upload and server-local paths are unsafe. No transport
 exposes template dumping, configuration inspection, credentials, server
 configuration, arbitrary S3 objects, or filesystem browsing.
@@ -2682,4 +3380,6 @@ Authorization header are unsupported. A present `Origin` header must exactly
 match an allowed origin or receives 403. An absent Origin is accepted for
 non-browser agent clients, and the default allowlist is empty. Streamable HTTP
 POST bodies are limited to 61 MiB, enough for the maximum JSON-escaped default
-document input plus bounded protocol metadata; oversized bodies receive 413.
+single-page input and the decoded inline-asset ceiling plus bounded protocol
+metadata. It may reject a multi-page inline document before the document-level
+source limit; oversized bodies receive 413.

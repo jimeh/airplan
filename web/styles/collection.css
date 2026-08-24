@@ -87,6 +87,7 @@ h1 {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 0.4rem;
   min-height: 2.1rem;
   border: 0;
   border-radius: 8px;

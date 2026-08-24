@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jimeh/airplan/internal/httpapi"
@@ -212,6 +213,68 @@ func TestAirplanBackendForwardsDiffDownloadSelection(t *testing.T) {
 	}
 }
 
+func TestAirplanBackendForwardsBundleDownloadSelectors(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		opts GetOptions
+	}{
+		{name: "page source", opts: GetOptions{Page: "guides/start.md", Source: true}},
+		{name: "asset", opts: GetOptions{Asset: "images/flow.svg"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(
+				func(w http.ResponseWriter, r *http.Request) {
+					var request httpapi.GetUploadRequest
+					if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+						t.Fatal(err)
+					}
+					if request.URLOrKey != "bundle" || request.Page != test.opts.Page ||
+						request.Asset != test.opts.Asset || request.Source != test.opts.Source {
+						t.Fatalf("request = %+v", request)
+					}
+					w.Header().Set("X-Airplan-Object-Key", "bundle/object")
+					_, _ = io.WriteString(w, "body")
+				},
+			))
+			t.Cleanup(server.Close)
+			client, err := New(context.Background(), &Config{
+				Backend: BackendAirplan, APIURL: server.URL,
+				APIToken: "01234567890123456789012345678901", Repository: "none",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := client.GetUpload(
+				context.Background(), "bundle", test.opts,
+			); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
+
+func TestHTTPInspectionPreservesObjectIdentityAndDigests(t *testing.T) {
+	wire := wireInspectedObject(&InspectedObject{
+		Name: "guide.html", Role: MarkerRolePage, Key: "dir/guide.html",
+		Exists: true, SHA256: strings.Repeat("a", 64),
+		ExpectedSHA256: strings.Repeat("b", 64),
+	})
+	body, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded httpapi.InspectedObject
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	got := coreInspectedObject(&decoded)
+	if got.Name != "guide.html" || got.Role != MarkerRolePage ||
+		got.SHA256 != strings.Repeat("a", 64) ||
+		got.ExpectedSHA256 != strings.Repeat("b", 64) {
+		t.Fatalf("inspection object = %+v", got)
+	}
+}
+
 func TestAirplanBackendDropsInvalidProtectionReasons(t *testing.T) {
 	const invalid = "keep\n\x1b[31mPROTECTED no"
 	inspection := coreInspection(httpapi.UploadInspection{
@@ -376,7 +439,7 @@ func TestTransportPreservesStableCapacityErrors(t *testing.T) {
 	}
 }
 
-func TestAirplanBackendPreservesServerMultipartSizeRefusal(t *testing.T) {
+func TestAirplanBackendPreflightsAdvertisedPageLimit(t *testing.T) {
 	const token = "01234567890123456789012345678901"
 	handler, err := httpapi.NewHandler(&HTTPOperations{Client: &Client{}},
 		httpapi.Options{Token: token, MaxDocumentBytes: 3})
@@ -397,9 +460,7 @@ func TestAirplanBackendPreservesServerMultipartSizeRefusal(t *testing.T) {
 		Input:  Input{Reader: strings.NewReader("four"), Name: "plan.md"},
 	})
 	var problem *httpapi.ProblemError
-	if !errors.Is(err, ErrInputTooLarge) || !errors.As(err, &problem) ||
-		problem.Problem.Code != "request_too_large" ||
-		problem.Problem.Status != http.StatusRequestEntityTooLarge {
+	if !errors.Is(err, ErrInputTooLarge) || errors.As(err, &problem) {
 		t.Fatalf("error = %v, problem = %+v", err, problem)
 	}
 }
@@ -480,6 +541,119 @@ func TestPortableUploadLimit(t *testing.T) {
 	}
 }
 
+func TestAirplanBackendNegotiatesCanonicalRevisionBeforeReading(t *testing.T) {
+	const token = "01234567890123456789012345678901"
+	var capabilitySeen atomic.Bool
+	var unexpectedPath atomic.Value
+	reader := &capabilityGuardReader{
+		check:  capabilitySeen.Load,
+		Reader: strings.NewReader("# Revised\n"),
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/capabilities":
+			capabilitySeen.Store(true)
+			writeBundleCapabilities(t, w, true)
+		case "/api/v1/uploads/documents/revisions":
+			_, _ = io.Copy(io.Discard, r.Body)
+			w.WriteHeader(http.StatusCreated)
+			_, _ = io.WriteString(w, `{"id":"revision","kind":"document","url":"https://example/revision/plan.html","key":"revision/plan.html","bucket":"plans","bytes":1,"content_type":"text/html","created_at":"2026-08-19T00:00:00Z","marker_version":6,"marker_key":"revision/.airplan.json","warnings":[],"unchanged":false}`)
+		default:
+			unexpectedPath.Store(r.URL.Path)
+			http.Error(w, "unexpected path", http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL, APIToken: token,
+		Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := client.CreateDocumentRevision(context.Background(),
+		CreateDocumentRevisionInput{
+			Target: "old/plan.html",
+			Document: DocumentInput{Entry: PageInput{
+				Reader: reader, Path: "plan.md", Format: "md",
+			}},
+		})
+	if path, ok := unexpectedPath.Load().(string); ok {
+		t.Fatalf("unexpected path %q", path)
+	}
+	if err != nil || result.ID != "revision" || !reader.read.Load() {
+		t.Fatalf("result = %+v, read = %t, error = %v", result, reader.read.Load(), err)
+	}
+}
+
+func TestAirplanBackendRejectsBundleBeforeReadingWhenCapabilityAbsent(t *testing.T) {
+	const token = "01234567890123456789012345678901"
+	reader := &capabilityGuardReader{
+		check: func() bool { return true }, Reader: strings.NewReader("# Entry\n"),
+	}
+	var posts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/capabilities" {
+			_, _ = io.WriteString(w, `{"api_version":"v1","server_version":"old","operations":["upload_document"],"upload_formats":["md"],"limits":{"document_bytes":10485760,"collection_file_bytes":1073741824,"collection_total_bytes":2147483648},"marker_versions":[5]}`)
+			return
+		}
+		posts.Add(1)
+	}))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL, APIToken: token,
+		Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{Reader: reader, Path: "README.md", Format: "md"},
+		Pages: []PageInput{{Reader: strings.NewReader("page"), Path: "page.md"}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "upgrade the server") ||
+		reader.read.Load() || posts.Load() != 0 {
+		t.Fatalf("error = %v, read = %t, posts = %d", err, reader.read.Load(), posts.Load())
+	}
+}
+
+type capabilityGuardReader struct {
+	Reader io.Reader
+	check  func() bool
+	read   atomic.Bool
+}
+
+func (r *capabilityGuardReader) Read(buffer []byte) (int, error) {
+	if !r.check() {
+		return 0, errors.New("reader opened before capability negotiation")
+	}
+	r.read.Store(true)
+	return r.Reader.Read(buffer)
+}
+
+func writeBundleCapabilities(t *testing.T, w http.ResponseWriter, canonical bool) {
+	t.Helper()
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"api_version": "v1", "server_version": "new",
+		"operations":     []string{"upload_document", "create_document_revision"},
+		"upload_formats": []string{"md", "html", "txt"},
+		"limits": map[string]any{
+			"document_bytes": 10 << 20, "collection_file_bytes": 1 << 30,
+			"collection_total_bytes": 2 << 30,
+		},
+		"marker_versions": []int{6},
+		"document_bundle": map[string]any{
+			"managed_pages": true, "assets": true,
+			"canonical_revision_route": canonical, "max_items": 100,
+			"max_page_bytes": 10 << 20, "max_total_page_bytes": 100 << 20,
+			"max_generated_page_bytes": 100 << 20, "max_asset_bytes": 1 << 30,
+			"max_total_asset_bytes": int64(2) << 30,
+			"max_metadata_bytes":    256 << 10,
+			"max_request_bytes":     int64(2)<<30 + 116<<20,
+		},
+	})
+}
+
 func TestAirplanBackendPreflightsCollectionFiles(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
@@ -552,5 +726,43 @@ func TestAirplanBackendRejectsTruncatedCollectionFile(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "truncated") {
 		t.Fatalf("error = %v, want truncated input", err)
+	}
+}
+
+func TestValidateBundleCapabilityAcceptsLowerGeneratedPageLimit(t *testing.T) {
+	capability := httpapi.DocumentBundleCapabilities{
+		ManagedPages: true, Assets: true, MaxItems: MaxDocumentItems,
+		MaxPageBytes: 1 << 20, MaxTotalPageBytes: 2 << 20,
+		MaxGeneratedPageBytes: 1,
+		MaxAssetBytes:         1 << 20, MaxTotalAssetBytes: 2 << 20,
+		MaxMetadataBytes: 1 << 20, MaxRequestBytes: 4 << 20,
+	}
+	upload := httpapi.DocumentUpload{
+		Metadata: httpapi.DocumentMetadata{Name: "plan.md"}, DocumentSize: 1,
+	}
+	if err := validateBundleCapability(capability, upload); err != nil {
+		t.Fatalf("lower generated-page capability was rejected: %v", err)
+	}
+}
+
+func TestValidateBundleCapabilityRejectsNegativeAssetSize(t *testing.T) {
+	capability := httpapi.DocumentBundleCapabilities{
+		ManagedPages: true, Assets: true, MaxItems: MaxDocumentItems,
+		MaxPageBytes: 1 << 20, MaxTotalPageBytes: 2 << 20,
+		MaxGeneratedPageBytes: 2 << 20,
+		MaxAssetBytes:         1 << 20, MaxTotalAssetBytes: 2 << 20,
+		MaxMetadataBytes: 1 << 20, MaxRequestBytes: 4 << 20,
+	}
+	upload := httpapi.DocumentUpload{
+		Metadata: httpapi.DocumentMetadata{Name: "plan.md"}, DocumentSize: 1,
+		Assets: []httpapi.DocumentAsset{{
+			DocumentAssetDescriptor: httpapi.DocumentAssetDescriptor{
+				Path: "asset.bin", Size: -1,
+			},
+		}},
+	}
+	err := validateBundleCapability(capability, upload)
+	if err == nil || !strings.Contains(err.Error(), "invalid size") {
+		t.Fatalf("error = %v", err)
 	}
 }

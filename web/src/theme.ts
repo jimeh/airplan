@@ -45,6 +45,7 @@ declare global {
   const modeButtons = Array.from(
     d.querySelectorAll<HTMLButtonElement>("[data-airplan-color-mode]"),
   );
+  if (panel) d.body.appendChild(panel);
 
   function populateSelect(select: HTMLSelectElement | null): void {
     if (!select || select.options.length > 0) return;
@@ -101,10 +102,28 @@ declare global {
 
   function setPanel(open: boolean, restoreFocus = false): void {
     if (!panel || !trigger) return;
+    if (open) positionPanel();
     panel.hidden = !open;
     trigger.setAttribute("aria-expanded", String(open));
     if (open) panel.querySelector<HTMLElement>("button,select")?.focus();
     else if (restoreFocus) trigger.focus();
+  }
+
+  function positionPanel(): void {
+    if (!panel || !trigger) return;
+    const triggerBounds = trigger.getBoundingClientRect();
+    const toolbarBounds = trigger.closest<HTMLElement>(".toolbar")?.getBoundingClientRect();
+    const viewportWidth = d.documentElement.clientWidth;
+    const panelWidth = Math.min(304, viewportWidth - 32);
+    const desiredRight = Math.max(16, viewportWidth - triggerBounds.right);
+    panel.style.setProperty(
+      "--airplan-appearance-top",
+      `${(toolbarBounds?.bottom ?? triggerBounds.bottom) + 8}px`,
+    );
+    panel.style.setProperty(
+      "--airplan-appearance-right",
+      `${Math.min(desiredRight, Math.max(16, viewportWidth - panelWidth - 16))}px`,
+    );
   }
 
   trigger?.addEventListener("click", () => setPanel(Boolean(panel?.hidden ?? true)));
@@ -150,6 +169,12 @@ declare global {
         if (d.activeElement === d.body || panel.contains(d.activeElement)) trigger.focus();
       });
     }
+  });
+  window.addEventListener("resize", () => {
+    if (panel && !panel.hidden) positionPanel();
+  });
+  window.addEventListener("scroll", () => {
+    if (panel && !panel.hidden) positionPanel();
   });
   apply(state, false);
 })();

@@ -5,7 +5,7 @@
   "scripts": {
     "build:web": "bun run web/build.ts",
     "build:web:check": "bun run web/build.ts --check",
-    "format": "oxfmt web tests/browser playwright.config.ts package.json tsconfig.json tsconfig.tooling.json .oxlintrc.json .oxfmtrc.json .stylelintrc.json bunfig.toml mise.toml README.md IMPLEMENTATION.md SPEC.md THIRD_PARTY_THEMES.md AGENTS.md",
+    "format": "oxfmt web tests/browser playwright.config.ts package.json tsconfig.json tsconfig.tooling.json .oxlintrc.json .oxfmtrc.json .stylelintrc.json bunfig.toml mise.toml README.md IMPLEMENTATION.md SPEC.md THIRD_PARTY_ASSETS.md THIRD_PARTY_THEMES.md AGENTS.md",
     "format:check": "bun run format --check",
     "lint:css": "stylelint 'web/styles/**/*.css'",
     "lint:ts": "oxlint web tests/browser playwright.config.ts && oxlint --type-aware --tsconfig tsconfig.json web/src && oxlint --type-aware --tsconfig tsconfig.tooling.json web/build.ts web/*.test.ts tests/browser playwright.config.ts",
@@ -15,6 +15,7 @@
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
+    "@primer/octicons": "19.33.0",
     "@types/bun": "1.3.14",
     "@types/node": "24.13.3",
     "oxfmt": "0.63.0",

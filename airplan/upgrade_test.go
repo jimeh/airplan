@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -88,6 +89,233 @@ func TestUpgradeDocumentMigratesV3WithoutVersionsMetadata(t *testing.T) {
 	}
 }
 
+func TestUpgradeDocumentRepairsBundlePagesEntryLastWithoutIdentityMarkerPut(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	result, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry:         PageInput{Reader: strings.NewReader("# Entry\n\n[Details](docs/details.md)\n"), Path: "plan.md"},
+		Pages:         []PageInput{{Reader: strings.NewReader("# Details\n"), Path: "docs/details.md"}},
+		RepositoryURL: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerBody, ok := store.get(result.MarkerKey)
+	if !ok {
+		t.Fatal("marker missing")
+	}
+	marker, err := DecodeUploadMarker(markerBody, result.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(marker.Pages) != 2 {
+		t.Fatalf("pages = %+v", marker.Pages)
+	}
+	entryKey := result.ID + "/" + marker.Entrypoint
+	childKey := result.ID + "/" + marker.Pages[1].Page
+	store.set(entryKey, []byte("stale entry"))
+	store.set(childKey, []byte("stale child"))
+	store.mu.Lock()
+	store.puts = 0
+	store.putKeys = nil
+	store.putAttempts = 0
+	store.events = nil
+	store.mu.Unlock()
+
+	plan, err := client.PlanUpgradeDocument(context.Background(), result.URL, UpgradeDocumentOptions{})
+	if err != nil || plan.State != UpgradeStateUpgradeable || plan.Reason != "rendered page requires repair" {
+		t.Fatalf("plan = %+v, error = %v", plan, err)
+	}
+	payloads, err := client.spoolUpgradePayloads(context.Background(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer payloads.cleanup()
+	if err := client.materializeUpgradeSpooled(context.Background(), plan, payloads); err != nil {
+		t.Fatal(err)
+	}
+	defer plan.newBundle.cleanup()
+	if !bytes.Equal(plan.markerBody, plan.newMarker) {
+		t.Fatal("repair-only upgrade produced a different desired marker")
+	}
+	upgraded, err := client.UpgradeDocument(context.Background(), *plan)
+	if err != nil || !upgraded.Upgraded {
+		t.Fatalf("upgrade = %+v, error = %v", upgraded, err)
+	}
+	store.mu.Lock()
+	putKeys := append([]string(nil), store.putKeys...)
+	store.mu.Unlock()
+	if len(putKeys) != 2 || putKeys[0] != childKey || putKeys[1] != entryKey {
+		t.Fatalf("put order = %q, want child then entry with no marker PUT", putKeys)
+	}
+}
+
+func TestUpgradeDocumentReprojectsStructuredBundleDiff(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{Reader: strings.NewReader("# Entry\n\nOriginal.\n"), Path: "README.md"},
+		Pages: []PageInput{
+			{Reader: strings.NewReader("# Stable\n"), Path: "stable.md"},
+			{Reader: strings.NewReader("package main\n"), Path: "server.go", Lang: "Go"},
+		},
+		RepositoryURL: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.CreateDocumentRevision(context.Background(), CreateDocumentRevisionInput{
+		Target: first.URL,
+		Document: DocumentInput{
+			Entry: PageInput{Reader: strings.NewReader("# Entry\n\nRevised.\n"), Path: "README.md"},
+			Pages: []PageInput{
+				{Reader: strings.NewReader("# Stable\n"), Path: "stable.md"},
+				{Reader: strings.NewReader("package main\n\nfunc main() {}\n"), Path: "server.go", Lang: "Go"},
+			},
+			RepositoryURL: "none",
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, page := range second.Pages {
+		store.set(page.Key, []byte("stale page"))
+	}
+	store.mu.Lock()
+	store.puts = 0
+	store.putKeys = nil
+	store.putAttempts = 0
+	store.events = nil
+	store.mu.Unlock()
+
+	plan, err := client.PlanUpgradeDocument(context.Background(), second.URL, UpgradeDocumentOptions{})
+	if err != nil || plan.State != UpgradeStateUpgradeable {
+		t.Fatalf("upgrade plan = %+v, error = %v", plan, err)
+	}
+	result, err := client.UpgradeDocument(context.Background(), *plan)
+	if err != nil || !result.Upgraded {
+		t.Fatalf("upgrade = %+v, error = %v", result, err)
+	}
+	entry, _ := store.get(second.Pages[0].Key)
+	stable, _ := store.get(second.Pages[1].Key)
+	server, _ := store.get(second.Pages[2].Key)
+	if !bytes.Contains(entry, []byte(`Changes to README.md`)) ||
+		!bytes.Contains(entry, []byte(`class="content all-changes-view"`)) {
+		t.Fatal("upgraded entry lost its local or complete diff projection")
+	}
+	if bytes.Contains(stable, []byte(`data-view="changes"`)) {
+		t.Fatal("upgraded unchanged page exposes a Changes mode")
+	}
+	if !bytes.Contains(server, []byte(`Changes to server.go`)) ||
+		bytes.Contains(server, []byte(`class="content all-changes-view"`)) {
+		t.Fatal("upgraded source page has the wrong diff projection")
+	}
+	store.mu.Lock()
+	putKeys := append([]string(nil), store.putKeys...)
+	events := append([]string(nil), store.events...)
+	store.mu.Unlock()
+	if len(putKeys) == 0 || putKeys[len(putKeys)-1] != second.Key {
+		t.Fatalf("upgrade put order = %q, want entry last", putKeys)
+	}
+	childPut, markerGet, childVerify, entryPut := -1, -1, -1, -1
+	for index, event := range events {
+		switch {
+		case event == "PUT "+second.Pages[1].Key && childPut < 0:
+			childPut = index
+		case event == "GET "+second.MarkerKey && childPut >= 0:
+			markerGet = index
+		case event == "GET "+second.Pages[1].Key && markerGet >= 0:
+			childVerify = index
+		case event == "PUT "+second.Key:
+			entryPut = index
+		}
+	}
+	if childPut < 0 || markerGet <= childPut || childVerify <= markerGet ||
+		entryPut <= childVerify {
+		t.Fatalf(
+			"upgrade events = %q, want child PUT, marker GET, child GET, entry PUT",
+			events,
+		)
+	}
+
+	validDiff, ok := store.get(second.ID + "/" + DiffFilename)
+	if !ok {
+		t.Fatal("revision diff is missing")
+	}
+	corruptedDiff := append([]byte(nil), validDiff...)
+	changedAt := bytes.Index(corruptedDiff, []byte("Original"))
+	if changedAt < 0 {
+		t.Fatal("revision diff lacks a safe same-size corruption target")
+	}
+	corruptedDiff[changedAt] = 'X'
+	store.set(second.ID+"/"+DiffFilename, corruptedDiff)
+	store.mu.Lock()
+	store.puts = 0
+	store.mu.Unlock()
+	corruptedPlan, err := client.PlanUpgradeDocument(
+		context.Background(), second.URL, UpgradeDocumentOptions{},
+	)
+	if err != nil || corruptedPlan.State != UpgradeStateInvalid ||
+		corruptedPlan.Reason != "revision diff is missing or invalid" {
+		t.Fatalf("same-size corrupted plan = %+v, error = %v", corruptedPlan, err)
+	}
+	store.mu.Lock()
+	putsAfterCorruption := store.puts
+	store.mu.Unlock()
+	if putsAfterCorruption != 0 {
+		t.Fatalf("same-size corrupted plan performed %d PUTs, want 0", putsAfterCorruption)
+	}
+	store.set(second.ID+"/"+DiffFilename, validDiff)
+
+	malformedDiff := []byte("# airplan revisions: 1 -> 2\n" + revisionDiffFormatHeader +
+		"# airplan page: \"README.md\"\n" +
+		"--- revision-1/README.md\n+++ revision-2/README.md\n" +
+		"@@ -1,2 +1 @@\n-old\n\\ No newline at end of file\n-old-after-eof\n+new\n")
+	markerBody, ok := store.get(second.MarkerKey)
+	if !ok {
+		t.Fatal("revision marker is missing")
+	}
+	marker, err := DecodeUploadMarker(markerBody, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range marker.Objects {
+		if marker.Objects[index].Role == MarkerRoleDiff {
+			marker.Objects[index].Bytes = int64(len(malformedDiff))
+			marker.Objects[index].SHA256 = contentSHA256(malformedDiff)
+		}
+	}
+	malformedMarker, err := EncodeUploadMarker(*marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(second.MarkerKey, malformedMarker)
+	store.set(second.ID+"/"+DiffFilename, malformedDiff)
+	store.set(second.Key, []byte("stale entry"))
+	store.mu.Lock()
+	store.puts = 0
+	store.putKeys = nil
+	store.putAttempts = 0
+	store.mu.Unlock()
+
+	malformedPlan, err := client.PlanUpgradeDocument(
+		context.Background(), second.URL, UpgradeDocumentOptions{},
+	)
+	if err != nil || malformedPlan.State != UpgradeStateUpgradeable {
+		t.Fatalf("malformed upgrade plan = %+v, error = %v", malformedPlan, err)
+	}
+	if _, err := client.UpgradeDocument(context.Background(), *malformedPlan); err == nil ||
+		!strings.Contains(err.Error(), "content after newline marker") {
+		t.Fatalf("malformed upgrade error = %v", err)
+	}
+	store.mu.Lock()
+	puts := store.puts
+	store.mu.Unlock()
+	if puts != 0 {
+		t.Fatalf("malformed upgrade performed %d PUTs, want 0", puts)
+	}
+}
+
 func TestUpgradeManifestEventPreservesRevisionAndCompleteProjection(t *testing.T) {
 	store := newUpgradeStore(t)
 	manifest := filepath.Join(t.TempDir(), "manifest.jsonl")
@@ -112,10 +340,15 @@ func TestUpgradeManifestEventPreservesRevisionAndCompleteProjection(t *testing.T
 			ChainID: chain, Number: 2,
 			PreviousURL: "https://plans.example.com/" + strings.Repeat("p", 26) + "/plan.html",
 		},
+		Entrypoint: "plan.html",
+		Pages: []MarkerPage{{
+			Path: "plan.md", Page: "plan.html", Source: "plan.md",
+			Format: "md", Title: "Revised", Lang: "",
+		}},
 		Objects: []MarkerObject{
 			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
-			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
-			{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType, SHA256: contentSHA256(source)},
+			{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diff)), ContentType: diffContentType, SHA256: contentSHA256(diff)},
 		},
 	}
 	markerBody, err := EncodeUploadMarker(marker)
@@ -166,7 +399,8 @@ func TestPlanUpgradeLegacyMarkerWithUndeclaredSourceSize(t *testing.T) {
 		context.Background(), dir, UpgradeDocumentOptions{},
 	)
 	if err != nil || plan.State != UpgradeStateUpgradeable ||
-		!bytes.Equal(plan.sourceBody, source) {
+		plan.sourceSizes["plan.md"] != int64(len(source)) ||
+		plan.sourceDigests["plan.md"] != contentSHA256(source) {
 		t.Fatalf("legacy upgrade plan = %+v, %v", plan, err)
 	}
 	result, err := client.UpgradeDocument(context.Background(), *plan)
@@ -218,6 +452,102 @@ func TestUpgradeSourceReadLimitUsesDefaultForLegacyUndeclaredSize(t *testing.T) 
 	marker.Objects[0].Bytes = 123
 	if got := upgradeSourceReadLimit(marker); got != 123 {
 		t.Fatalf("declared source read limit = %d, want 123", got)
+	}
+}
+
+func TestPlanUpgradeAllowsLargeV6SourceWithinAggregateLimit(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	result, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("# Plan\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerBody, _ := store.get(result.MarkerKey)
+	marker, err := DecodeUploadMarker(markerBody, result.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	source := bytes.Repeat([]byte("x"), int(DefaultMaxInputSize)+1)
+	for index := range marker.Objects {
+		if marker.Objects[index].Role == MarkerRoleSource {
+			marker.Objects[index].Bytes = int64(len(source))
+			marker.Objects[index].SHA256 = contentSHA256(source)
+		}
+	}
+	markerBody, err = EncodeUploadMarker(*marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(result.MarkerKey, markerBody)
+	store.set(result.SourceKey, source)
+	plan, err := client.PlanUpgradeDocument(
+		context.Background(), result.URL, UpgradeDocumentOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := plan.sourceSizes[marker.Source]; got != int64(len(source)) {
+		t.Fatalf("planned source size = %d, want %d", got, len(source))
+	}
+
+	marker.Objects = append(marker.Objects, MarkerObject{
+		Role: MarkerRoleSource, Bytes: DefaultMaxTotalPageSize,
+	})
+	if err := validateUpgradeDeclaredPayloadSizes(marker); err == nil ||
+		!strings.Contains(err.Error(), "maximum total source size") {
+		t.Fatalf("aggregate error = %v", err)
+	}
+}
+
+func TestPlanUpgradeRejectsOversizedDeclaredRevisionDiffBeforeRead(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	first, err := client.Upload(context.Background(), Input{
+		Reader: strings.NewReader("one\n"), Name: "plan.md",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.UpdateDocument(context.Background(), UpdateDocumentInput{
+		Target: first.URL, Input: Input{Reader: strings.NewReader("two\n")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	markerBody, _ := store.get(second.MarkerKey)
+	marker, err := DecodeUploadMarker(markerBody, second.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := range marker.Objects {
+		if marker.Objects[index].Role == MarkerRoleDiff {
+			marker.Objects[index].Bytes = MaxDiffSize + 1
+		}
+	}
+	markerBody, err = EncodeUploadMarker(*marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(second.MarkerKey, markerBody)
+	store.mu.Lock()
+	store.getKeyAttempts[second.ID+"/"+DiffFilename] = 0
+	store.mu.Unlock()
+	plan, err := client.PlanUpgradeDocument(
+		context.Background(), second.URL, UpgradeDocumentOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.State != UpgradeStateInvalid ||
+		!strings.Contains(plan.Reason, "diff is missing or invalid") {
+		t.Fatalf("plan = %+v", plan)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if got := store.getKeyAttempts[second.ID+"/"+DiffFilename]; got != 0 {
+		t.Fatalf("oversized diff GET attempts = %d, want 0", got)
 	}
 }
 
@@ -311,13 +641,23 @@ func TestUpgradeRetryRepairsEqualLengthPageAfterMarkerFirstInterruption(t *testi
 	store := newUpgradeStore(t)
 	dir := strings.Repeat("i", 26)
 	source := []byte("# Plan\n")
-	wantPage, err := RenderMarkdown(source, RenderOptions{
-		Title: "Plan", Slug: "plan", SourceName: "plan.md",
-		SourcePath: "./plan.md", MermaidURL: DefaultMermaidURL,
+	bundle, err := RenderDocument(context.Background(), DocumentInput{
+		Entry: PageInput{
+			Reader: bytes.NewReader(source), Path: "plan.md", Format: "md",
+			Title: "Plan",
+		},
+		Slug: "plan", Title: "Plan", MaxPageSize: -1,
+		MaxTotalPageSize: -1,
+	}, DocumentRenderOptions{
+		RenderInputOptions: RenderInputOptions{
+			IncludeSource: true, MermaidURL: DefaultMermaidURL,
+		},
+		MaxGeneratedPageSize: -1,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	wantPage := bundle.Pages[0].HTML
 	oldPage := []byte(strings.Repeat("x", len(wantPage)))
 	marker, err := EncodeUploadMarker(UploadMarker{
 		Schema: MarkerSchema, Version: 3, Directory: dir,
@@ -562,6 +902,131 @@ func TestPlanUpgradeRejectsOversizedFetchedPage(t *testing.T) {
 	}
 }
 
+func TestPlanUpgradeAcceptsV6EntryAboveLegacyPageLimitWithoutSpooling(t *testing.T) {
+	spoolRoot := t.TempDir()
+	t.Setenv("TMPDIR", spoolRoot)
+	t.Setenv("TMP", spoolRoot)
+	t.Setenv("TEMP", spoolRoot)
+	store := newUpgradeStore(t)
+	dir := strings.Repeat("l", 26)
+	page := bytes.Repeat([]byte("x"), int(maxUpgradePageSize)+1)
+	source := []byte("# Plan\n")
+	markerBody, err := EncodeUploadMarker(UploadMarker{
+		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
+		CreatedAt: time.Now().UTC().Truncate(time.Second), Kind: UploadKindDocument,
+		Slug: "plan", Format: "md", Producer: Producer{Name: "airplan", Version: "0.8.0"},
+		Render:     documentRenderRecipe(&Config{MermaidURL: DefaultMermaidURL}, ""),
+		Entrypoint: "plan.html",
+		Pages: []MarkerPage{{
+			Path: "plan.md", Page: "plan.html", Source: "plan.md",
+			Format: "md", Lang: "",
+		}},
+		Objects: []MarkerObject{
+			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType, SHA256: contentSHA256(source)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.set(dir+"/"+MarkerFilename, markerBody)
+	store.mu.Lock()
+	store.objects[dir+"/plan.html"] = page
+	store.etags[dir+"/plan.html"]++
+	store.mu.Unlock()
+	store.set(dir+"/plan.md", source)
+
+	plan, err := store.client(t, "").PlanUpgradeDocument(
+		context.Background(), dir, UpgradeDocumentOptions{},
+	)
+	if err != nil || plan.State != UpgradeStateCurrent {
+		t.Fatalf("plan = %+v, error = %v", plan, err)
+	}
+	if plan.pageSizes["plan.html"] != int64(len(page)) ||
+		plan.pageDigests["plan.html"] != contentSHA256(page) ||
+		plan.newBundle != nil || plan.newMarker != nil {
+		t.Fatalf("plan retained unexpected execution state: %+v", plan)
+	}
+	assertNoUpgradeSpools(t, spoolRoot)
+}
+
+func TestUpgradeExecutionUsesPrivateSpoolsAndCleansUp(t *testing.T) {
+	spoolRoot := t.TempDir()
+	t.Setenv("TMPDIR", spoolRoot)
+	t.Setenv("TMP", spoolRoot)
+	t.Setenv("TEMP", spoolRoot)
+	store := newUpgradeStore(t)
+	dir := strings.Repeat("q", 26)
+	seedV3UpgradeDocument(t, store, dir)
+	client := store.client(t, "")
+	plan, err := client.PlanUpgradeDocument(
+		context.Background(), dir, UpgradeDocumentOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloads, err := client.spoolUpgradePayloads(context.Background(), plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		info, statErr := os.Stat(payloads.spool.dir)
+		if statErr != nil || info.Mode().Perm() != 0o700 {
+			t.Fatalf("spool directory = %v, error = %v", info, statErr)
+		}
+		entries, readErr := os.ReadDir(payloads.spool.dir)
+		if readErr != nil || len(entries) != 2 {
+			t.Fatalf("spool entries = %v, error = %v", entries, readErr)
+		}
+		for _, entry := range entries {
+			info, statErr := entry.Info()
+			if statErr != nil || info.Mode().Perm() != 0o600 {
+				t.Fatalf("spool file %q = %v, error = %v", entry.Name(), info, statErr)
+			}
+		}
+	}
+	payloads.cleanup()
+	assertNoUpgradeSpools(t, spoolRoot)
+
+	store.failPutAttempt = store.putAttempts + 1
+	if _, err := client.UpgradeDocument(context.Background(), *plan); err == nil {
+		t.Fatal("upgrade storage failure unexpectedly succeeded")
+	}
+	assertNoUpgradeSpools(t, spoolRoot)
+	store.failPutAttempt = 0
+
+	result, err := client.UpgradeDocument(context.Background(), *plan)
+	if err != nil || !result.Upgraded {
+		t.Fatalf("result = %+v, error = %v", result, err)
+	}
+	assertNoUpgradeSpools(t, spoolRoot)
+
+	currentDir := strings.Repeat("j", 26)
+	seedCurrentUpgradeDocument(t, store, currentDir, "0.8.0",
+		documentRenderRecipe(&Config{MermaidURL: DefaultMermaidURL}, ""))
+	current, err := client.PlanUpgradeDocument(
+		context.Background(), currentDir, UpgradeDocumentOptions{},
+	)
+	if err != nil || current.State != UpgradeStateCurrent {
+		t.Fatalf("current plan = %+v, error = %v", current, err)
+	}
+	if result, err := client.UpgradeDocument(context.Background(), *current); err != nil || result.Upgraded {
+		t.Fatalf("current result = %+v, error = %v", result, err)
+	}
+	assertNoUpgradeSpools(t, spoolRoot)
+}
+
+func assertNoUpgradeSpools(t *testing.T, root string) {
+	t.Helper()
+	matches, err := filepath.Glob(filepath.Join(root, "airplan-document-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("upgrade spools remain: %q", matches)
+	}
+}
+
 func TestBulkUpgradeRejectsInvalidConcurrency(t *testing.T) {
 	client := newUpgradeStore(t).client(t, filepath.Join(t.TempDir(), "manifest.jsonl"))
 	if _, err := client.PlanBulkUpgrade(context.Background(),
@@ -605,6 +1070,32 @@ func TestUpgradeDocumentRejectsStalePlan(t *testing.T) {
 	}
 	if got, _ := store.get(dir + "/plan.html"); string(got) != string(page) {
 		t.Fatal("page changed after marker conflict")
+	}
+}
+
+func TestUpgradeDocumentRechecksSourceIdentityImmediatelyBeforeMutation(t *testing.T) {
+	store := newUpgradeStore(t)
+	dir := strings.Repeat("i", 26)
+	seedV3UpgradeDocument(t, store, dir)
+	client := store.client(t, "")
+	plan, err := client.PlanUpgradeDocument(
+		context.Background(), dir, UpgradeDocumentOptions{},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceKey := dir + "/plan.md"
+	store.mu.Lock()
+	store.replaceBeforeGetKey = sourceKey
+	store.replaceBeforeGetAttempt = store.getKeyAttempts[sourceKey] + 3
+	store.replaceBeforeGetBody = []byte("# Changed during render\n")
+	store.mu.Unlock()
+	_, err = client.UpgradeDocument(context.Background(), *plan)
+	if !errors.Is(err, ErrConflict) {
+		t.Fatalf("error = %v, want source identity conflict", err)
+	}
+	if store.puts != 0 {
+		t.Fatalf("source identity conflict performed %d writes", store.puts)
 	}
 }
 
@@ -821,9 +1312,11 @@ func seedCurrentUpgradeDocument(
 		Schema: MarkerSchema, Version: MarkerVersion, Directory: dir,
 		CreatedAt: time.Now().UTC().Truncate(time.Second), Kind: UploadKindDocument,
 		Slug: "plan", Format: "md", Producer: Producer{Name: "airplan", Version: producer},
-		Render: recipe, Objects: []MarkerObject{
+		Render: recipe, Entrypoint: "plan.html",
+		Pages: []MarkerPage{{Path: "plan.md", Page: "plan.html", Source: "plan.md", Format: "md", Lang: ""}},
+		Objects: []MarkerObject{
 			{Name: "plan.html", Role: MarkerRolePage, Bytes: int64(len(page)), ContentType: pageContentType, SHA256: contentSHA256(page)},
-			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType},
+			{Name: "plan.md", Role: MarkerRoleSource, Bytes: int64(len(source)), ContentType: sourceContentType, SHA256: contentSHA256(source)},
 		},
 	})
 	if err != nil {
@@ -855,6 +1348,7 @@ type upgradeStore struct {
 	etags                   map[string]int
 	puts                    int
 	putKeys                 []string
+	events                  []string
 	putAttempts             int
 	failPutAttempt          int
 	failPutKey              string
@@ -873,6 +1367,10 @@ type upgradeStore struct {
 	pauseGetAfterCommit     bool
 	failHeadKey             string
 	getAttempts             int
+	getKeyAttempts          map[string]int
+	replaceBeforeGetKey     string
+	replaceBeforeGetAttempt int
+	replaceBeforeGetBody    []byte
 	conditionalBarrier      chan struct{}
 	conditionalBarrierCount int
 	pauseIfNoneKey          string
@@ -894,7 +1392,10 @@ type upgradeStore struct {
 }
 
 func newUpgradeStore(t *testing.T) *upgradeStore {
-	s := &upgradeStore{t: t, objects: map[string][]byte{}, etags: map[string]int{}}
+	s := &upgradeStore{
+		t: t, objects: map[string][]byte{}, etags: map[string]int{},
+		getKeyAttempts: map[string]int{},
+	}
 	s.server = httptest.NewServer(http.HandlerFunc(s.handle))
 	t.Cleanup(s.server.Close)
 	return s
@@ -1031,6 +1532,10 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if (r.Method == http.MethodGet && r.URL.Query().Get("list-type") != "2") ||
+		r.Method == http.MethodPut {
+		s.events = append(s.events, r.Method+" "+key)
+	}
 	switch r.Method {
 	case http.MethodGet:
 		if r.URL.Query().Get("list-type") == "2" {
@@ -1048,6 +1553,12 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.getAttempts++
+		s.getKeyAttempts[key]++
+		if key == s.replaceBeforeGetKey &&
+			s.getKeyAttempts[key] == s.replaceBeforeGetAttempt {
+			s.objects[key] = append([]byte(nil), s.replaceBeforeGetBody...)
+			s.etags[key]++
+		}
 		if s.failGetKey == key {
 			w.WriteHeader(http.StatusInternalServerError)
 			return

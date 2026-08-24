@@ -1,6 +1,10 @@
 :root {
   color-scheme: light dark;
   --page-width: 54rem;
+  --compact-control-height: 2.3rem;
+  --floating-panel-bg: color-mix(in srgb, var(--bg) 96%, var(--surface-subtle));
+  --floating-panel-radius: 12px;
+  --floating-panel-shadow: 0 12px 32px color-mix(in srgb, var(--fg) 16%, transparent);
 }
 
 * {
@@ -69,11 +73,21 @@ body {
   gap: 0.5rem;
 }
 
+.toolbar > button,
+.toolbar > a,
+.toolbar > .toolbar-actions > button,
+.toolbar > .toolbar-actions > a,
+.toolbar > .appearance > .appearance-trigger {
+  min-width: 44px;
+  min-height: 44px;
+}
+
 /* Mode controls, not action buttons: quiet inset tracks whose active
    segments sit as raised pills. */
 .mode-toggle {
   display: inline-flex;
   gap: 2px;
+  height: var(--compact-control-height);
   padding: 2px;
   background: var(--control-track);
   border: 0;
@@ -81,9 +95,17 @@ body {
 }
 
 .mode-toggle button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  color: var(--muted);
+  background: transparent;
   border: 0;
   border-radius: 6px;
   padding: 0.3rem 0.55rem;
+  font: inherit;
+  cursor: pointer;
 }
 
 .mode-toggle button:hover {
@@ -124,8 +146,8 @@ body {
   content: "";
   position: absolute;
   top: 50%;
-  /* Balance against the preceding action's 0.65rem inline padding. */
-  left: -0.825rem;
+  /* Center the 1px rule in the 1rem gap created by toolbar gap plus margin. */
+  left: calc(-0.5rem - 0.5px);
   width: 1px;
   height: 1rem;
   background: var(--control-divider);
@@ -133,17 +155,18 @@ body {
 }
 
 .appearance-panel {
-  position: absolute;
+  position: fixed;
   z-index: 30;
-  top: calc(100% + 0.5rem);
-  right: 0;
+  top: var(--airplan-appearance-top, 4rem);
+  right: var(--airplan-appearance-right, 1rem);
   width: min(19rem, calc(100vw - 2rem));
   padding: 0.85rem;
   color: var(--fg);
-  background: var(--bg);
+  background: var(--floating-panel-bg);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 10px 30px color-mix(in srgb, var(--fg) 14%, transparent);
+  border-radius: var(--floating-panel-radius);
+  box-shadow: var(--floating-panel-shadow);
+  font-size: 0.85rem;
 }
 
 .appearance-heading {
@@ -173,6 +196,7 @@ body {
 
 .appearance-modes button {
   flex: 1;
+  min-width: 0;
 }
 
 .appearance-select {
@@ -184,7 +208,7 @@ body {
   appearance: none;
   -webkit-appearance: none;
   width: 100%;
-  min-height: 2.1rem;
+  height: var(--compact-control-height);
   padding: 0.3rem 2.25rem 0.3rem 0.5rem;
   color: var(--fg);
   background: var(--surface-subtle);
@@ -215,6 +239,21 @@ body {
   flex: none;
 }
 
+.icon-check,
+.icon-x {
+  display: none;
+}
+
+.is-copied .icon-copy,
+.is-failed .icon-copy {
+  display: none;
+}
+
+.is-copied .icon-check,
+.is-failed .icon-x {
+  display: inline;
+}
+
 .sr-status {
   position: absolute;
   width: 1px;
@@ -242,10 +281,8 @@ body {
   }
 
   .appearance-panel {
-    position: fixed;
-    top: 3.5rem;
-    right: 0.75rem;
-    left: 0.75rem;
+    right: 1rem;
+    left: 1rem;
     width: auto;
   }
 }

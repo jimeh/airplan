@@ -91,6 +91,8 @@
     const lightSelect = d.querySelector('select[data-airplan-theme-slot="light"]');
     const darkSelect = d.querySelector('select[data-airplan-theme-slot="dark"]');
     const modeButtons = Array.from(d.querySelectorAll("[data-airplan-color-mode]"));
+    if (panel)
+      d.body.appendChild(panel);
     function populateSelect(select) {
       if (!select || select.options.length > 0)
         return;
@@ -139,12 +141,25 @@
     function setPanel(open, restoreFocus = false) {
       if (!panel || !trigger)
         return;
+      if (open)
+        positionPanel();
       panel.hidden = !open;
       trigger.setAttribute("aria-expanded", String(open));
       if (open)
         panel.querySelector("button,select")?.focus();
       else if (restoreFocus)
         trigger.focus();
+    }
+    function positionPanel() {
+      if (!panel || !trigger)
+        return;
+      const triggerBounds = trigger.getBoundingClientRect();
+      const toolbarBounds = trigger.closest(".toolbar")?.getBoundingClientRect();
+      const viewportWidth = d.documentElement.clientWidth;
+      const panelWidth = Math.min(304, viewportWidth - 32);
+      const desiredRight = Math.max(16, viewportWidth - triggerBounds.right);
+      panel.style.setProperty("--airplan-appearance-top", `${(toolbarBounds?.bottom ?? triggerBounds.bottom) + 8}px`);
+      panel.style.setProperty("--airplan-appearance-right", `${Math.min(desiredRight, Math.max(16, viewportWidth - panelWidth - 16))}px`);
     }
     trigger?.addEventListener("click", () => setPanel(Boolean(panel?.hidden ?? true)));
     modeButtons.forEach((button) => button.addEventListener("click", () => {
@@ -188,6 +203,14 @@
         });
       }
     });
+    window.addEventListener("resize", () => {
+      if (panel && !panel.hidden)
+        positionPanel();
+    });
+    window.addEventListener("scroll", () => {
+      if (panel && !panel.hidden)
+        positionPanel();
+    });
     apply(state, false);
   })();
 
@@ -205,13 +228,18 @@
         return;
       }
       navigator.clipboard.writeText(url).then(function() {
+        const label = button.querySelector(".action-label");
+        if (!label)
+          return;
         var pending = pendingRestores.get(button);
         if (pending)
           window.clearTimeout(pending.timer);
-        var old = pending ? pending.label : button.textContent;
-        button.textContent = "Copied";
+        var old = pending ? pending.label : label.textContent || "Copy link";
+        label.textContent = "Copied";
+        button.classList.add("is-copied");
         var timer = window.setTimeout(function() {
-          button.textContent = old;
+          label.textContent = old;
+          button.classList.remove("is-copied");
           pendingRestores.delete(button);
         }, 1200);
         pendingRestores.set(button, { label: old, timer });

@@ -57,7 +57,7 @@ func TestTemplateCommandOutputCanBeUsedAsCustomTemplate(t *testing.T) {
 		"{{.CSS}}", "{{.JS}}", "airplan:shared-css",
 		"airplan:page-css", "airplan:theme-init-js",
 		"airplan:theme-js", "airplan:page-js", "airplan:mermaid-js",
-		"airplan:theme-toggle",
+		"airplan:theme-toggle", "airplan:icon-templates",
 	} {
 		if strings.Contains(dumped.String(), internal) {
 			t.Fatalf("dumped template contains internal marker %q", internal)
@@ -104,6 +104,7 @@ func TestCollectionTemplateCommandOutputCanBeUsedAsCustomTemplate(t *testing.T) 
 		"airplan:shared-css", "airplan:collection-css",
 		"airplan:theme-init-js", "airplan:theme-js",
 		"airplan:collection-js", "airplan:theme-toggle",
+		"airplan:icon-templates",
 	} {
 		if strings.Contains(dumped.String(), internal) {
 			t.Fatalf("dumped collection template contains internal marker %q", internal)
@@ -152,6 +153,7 @@ func assertDumpedSharedThemeAssets(t *testing.T, dumped string) {
 			"runtime theme behavior",
 			`window.dispatchEvent(new CustomEvent("airplan:themechange"`,
 		},
+		{"generated Octicon templates", `define "airplan-icon-theme-system"`},
 	} {
 		if !strings.Contains(dumped, sentinel.value) {
 			t.Errorf("dumped template missing %s sentinel %q",

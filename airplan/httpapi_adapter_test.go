@@ -25,8 +25,8 @@ func TestWireVersionsMetadataPreservesSchemaAndVersion(t *testing.T) {
 	}
 }
 
-func TestSupportedMarkerVersionsAdvertiseV1ThroughV5(t *testing.T) {
-	if got, want := supportedMarkerVersions(), []int{1, 2, 3, 4, 5}; !reflect.DeepEqual(got, want) {
+func TestSupportedMarkerVersionsAdvertiseV1ThroughV6(t *testing.T) {
+	if got, want := supportedMarkerVersions(), []int{1, 2, 3, 4, 5, 6}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("supported marker versions = %v, want %v", got, want)
 	}
 }
@@ -51,6 +51,165 @@ func TestHTTPAPIUpdatesDocumentThroughOperationFacade(t *testing.T) {
 	if result.Revision != 2 || result.LatestRevision != 2 || result.Unchanged || result.DiffURL == "" {
 		t.Fatalf("result = %#v", result)
 	}
+}
+
+func TestHTTPAPIUploadsDocumentBundleThroughOperationFacade(t *testing.T) {
+	store := newUpgradeStore(t)
+	operations := &HTTPOperations{Client: store.client(t, ""), ServerVersion: "test"}
+	result, err := operations.UploadDocument(context.Background(), httpapi.DocumentUpload{
+		Metadata: httpapi.DocumentMetadata{
+			Name: "README.md", Format: "md",
+			Pages:  []httpapi.DocumentPageDescriptor{{Path: "src/main.go", Format: "txt"}},
+			Assets: []httpapi.DocumentAssetDescriptor{{Path: "images/flow.svg", Size: 5, ContentType: "image/svg+xml"}},
+		},
+		Document: strings.NewReader("# Entry\n"),
+		Pages: []httpapi.DocumentPage{{
+			DocumentPageDescriptor: httpapi.DocumentPageDescriptor{Path: "src/main.go", Format: "txt"},
+			Reader:                 strings.NewReader("package main\n"), Size: 13,
+		}},
+		Assets: []httpapi.DocumentAsset{{
+			DocumentAssetDescriptor: httpapi.DocumentAssetDescriptor{Path: "images/flow.svg", Size: 5, ContentType: "image/svg+xml"},
+			Reader:                  bytes.NewReader([]byte("asset")),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Pages) != 2 || result.Pages[1].Path != "src/main.go" ||
+		len(result.Assets) != 1 || result.Assets[0].Path != "images/flow.svg" {
+		t.Fatalf("bundle result = %+v", result)
+	}
+}
+
+func TestHTTPAPIRejectsInvalidBundleAsUnprocessableUpload(t *testing.T) {
+	store := newUpgradeStore(t)
+	const token = "01234567890123456789012345678901"
+	handler, err := httpapi.NewHandler(
+		&HTTPOperations{Client: store.client(t, ""), ServerVersion: "test"},
+		httpapi.Options{Token: token},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	apiClient, err := httpapi.NewClient(server.URL, token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = apiClient.UploadDocumentBundle(context.Background(), httpapi.DocumentUpload{
+		Metadata: httpapi.DocumentMetadata{
+			Name:   "notes.md",
+			Assets: []httpapi.DocumentAssetDescriptor{{Path: "notes.html", Size: 5}},
+		},
+		Document: strings.NewReader("# Notes\n"),
+		Assets: []httpapi.DocumentAsset{{
+			DocumentAssetDescriptor: httpapi.DocumentAssetDescriptor{
+				Path: "notes.html", Size: 5,
+			},
+			Reader: strings.NewReader("asset"),
+		}},
+	})
+	var problem *httpapi.ProblemError
+	if !errors.As(err, &problem) ||
+		problem.Problem.Status != http.StatusUnprocessableEntity ||
+		problem.Problem.Code != "invalid_upload" {
+		t.Fatalf("error = %v, want 422 invalid_upload", err)
+	}
+	if store.puts != 0 {
+		t.Fatalf("storage PUTs = %d, want 0", store.puts)
+	}
+}
+
+func TestHTTPAPIDocumentBundleMatchesDirectPipeline(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	asset := []byte("asset")
+	direct, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{
+			Reader: strings.NewReader("# Entry\n\n[Page](docs/page.md)\n"),
+			Path:   "README.md",
+		},
+		Pages: []PageInput{{
+			Reader: strings.NewReader("# Page\n"), Path: "docs/page.md",
+		}},
+		Assets: []AssetInput{{
+			Reader: bytes.NewReader(asset), Path: "images/data.bin",
+			Size: int64(len(asset)), ContentType: "application/octet-stream",
+		}},
+		RepositoryURL: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const token = "01234567890123456789012345678901"
+	handler, err := httpapi.NewHandler(
+		&HTTPOperations{Client: client, ServerVersion: "test"},
+		httpapi.Options{Token: token},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+	apiClient, err := httpapi.NewClient(server.URL, token, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote, err := apiClient.UploadDocumentBundle(context.Background(), httpapi.DocumentUpload{
+		Metadata: httpapi.DocumentMetadata{
+			Name:  "README.md",
+			Pages: []httpapi.DocumentPageDescriptor{{Path: "docs/page.md"}},
+			Assets: []httpapi.DocumentAssetDescriptor{{
+				Path: "images/data.bin", Size: int64(len(asset)),
+				ContentType: "application/octet-stream",
+			}},
+		},
+		Document: strings.NewReader("# Entry\n\n[Page](docs/page.md)\n"),
+		Pages: []httpapi.DocumentPage{{
+			DocumentPageDescriptor: httpapi.DocumentPageDescriptor{Path: "docs/page.md"},
+			Reader:                 strings.NewReader("# Page\n"),
+			Size:                   int64(len("# Page\n")),
+		}},
+		Assets: []httpapi.DocumentAsset{{
+			DocumentAssetDescriptor: httpapi.DocumentAssetDescriptor{
+				Path: "images/data.bin", Size: int64(len(asset)),
+				ContentType: "application/octet-stream",
+			},
+			Reader: bytes.NewReader(asset),
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remote.Pages) != len(direct.Pages) ||
+		len(remote.Assets) != len(direct.Assets) {
+		t.Fatalf("direct = %+v, REST = %+v", direct, remote)
+	}
+	directMarker := decodeStoredMarker(t, store, direct.MarkerKey, direct.ID)
+	remoteMarker := decodeStoredMarker(t, store, remote.MarkerKey, remote.ID)
+	directMarker.Directory, remoteMarker.Directory = "", ""
+	directMarker.CreatedAt, remoteMarker.CreatedAt = time.Time{}, time.Time{}
+	if !reflect.DeepEqual(directMarker, remoteMarker) {
+		t.Fatalf("direct marker = %+v\nREST marker = %+v", directMarker, remoteMarker)
+	}
+}
+
+func decodeStoredMarker(
+	t *testing.T, store *upgradeStore, key, directory string,
+) *UploadMarker {
+	t.Helper()
+	body, ok := store.get(key)
+	if !ok {
+		t.Fatalf("marker %q is missing", key)
+	}
+	marker, err := DecodeUploadMarker(body, directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return marker
 }
 
 func TestHTTPAPIUpdateRefusesIneligibleAndMissingTargetsWithTypedStatuses(t *testing.T) {
@@ -143,7 +302,7 @@ func TestHTTPAPIExecuteUpgradeReplansFabricatedCurrentState(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := `{"target":"` + strings.Repeat("m", 26) +
-		`","state":"current","target_marker_version":5,` +
+		`","state":"current","target_marker_version":6,` +
 		`"target_producer_version":"0.8.0","target_renderer_generation":1}`
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/upgrades/execute",
 		bytes.NewBufferString(body))
@@ -567,6 +726,66 @@ func TestAPIOperationErrorClassifiesRevisionHistoryCapacity(t *testing.T) {
 	}
 }
 
+func TestAPIOperationErrorClassifiesInvalidDocumentInput(t *testing.T) {
+	got := apiOperationError(invalidDocumentInput(errors.New(
+		"schema-valid generated path collision detail",
+	)))
+	var problem *httpapi.ProblemError
+	if !errors.As(got, &problem) ||
+		problem.Problem.Status != http.StatusUnprocessableEntity ||
+		problem.Problem.Code != "invalid_upload" ||
+		strings.Contains(problem.Problem.Detail, "collision detail") {
+		t.Fatalf("problem = %+v, error = %v", problem, got)
+	}
+}
+
+func TestAPIOperationErrorClassifiesInvalidDocumentPageCombinations(t *testing.T) {
+	tests := []DocumentInput{
+		{
+			Entry: PageInput{
+				Reader: strings.NewReader("<!doctype html><title>Entry</title>"),
+				Path:   "entry.html",
+			},
+			Pages: []PageInput{{
+				Reader: strings.NewReader("# Child\n"), Path: "child.md",
+			}},
+			RepositoryURL: "none",
+		},
+		{
+			Entry: PageInput{
+				Reader: strings.NewReader("plain text\n"), Path: "entry.txt",
+			},
+			Pages: []PageInput{{
+				Reader: strings.NewReader("# Child\n"), Path: "child.md",
+			}},
+			RepositoryURL: "none",
+		},
+		{
+			Entry: PageInput{
+				Reader: strings.NewReader("# Entry\n"), Path: "entry.md",
+			},
+			Pages: []PageInput{{
+				Reader: strings.NewReader("<!doctype html><title>Child</title>"),
+				Path:   "child.html",
+			}},
+			RepositoryURL: "none",
+		},
+	}
+	for _, input := range tests {
+		_, err := RenderDocument(context.Background(), input,
+			DocumentRenderOptions{RenderInputOptions: RenderInputOptions{
+				Repository: "none",
+			}})
+		got := apiOperationError(err)
+		var problem *httpapi.ProblemError
+		if !errors.As(got, &problem) ||
+			problem.Problem.Status != http.StatusUnprocessableEntity ||
+			problem.Problem.Code != "invalid_upload" {
+			t.Fatalf("problem = %+v, error = %v", problem, got)
+		}
+	}
+}
+
 func TestAPIOperationErrorClassifiesUpdateRefusals(t *testing.T) {
 	tests := []struct {
 		kind   updateRefusalKind
@@ -634,6 +853,13 @@ func TestHostedEndpointsRejectSemanticInvalidTargets(t *testing.T) {
 	}
 	storageServer := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Query().Get("list-type") == "2" {
+				writeListXML(t, w, []objectInfo{
+					{Key: dir + "/" + MarkerFilename, Size: int64(len(marker))},
+					{Key: dir + "/plan.html", Size: 7},
+				})
+				return
+			}
 			switch r.URL.Path {
 			case "/plans/" + dir + "/" + MarkerFilename:
 				w.Header().Set("Content-Type", markerContentType)

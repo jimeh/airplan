@@ -46,52 +46,19 @@ func TestResolveVersion(t *testing.T) {
 	}
 }
 
-func TestSelectCollectionModeHandlesUTF8SniffBoundary(t *testing.T) {
-	dir := t.TempDir()
-	for _, tt := range []struct {
-		name       string
-		body       []byte
-		collection bool
-	}{
-		{
-			name: "complete rune across boundary",
-			body: append(
-				[]byte(strings.Repeat("a", inputSniffSize-1)),
-				[]byte("漢\n")...,
-			),
-		},
-		{
-			name: "malformed rune across boundary",
-			body: append(
-				[]byte(strings.Repeat("a", inputSniffSize-1)),
-				[]byte{0xe6, 0xff}...,
-			),
-			collection: true,
-		},
-		{
-			name:       "nul byte",
-			body:       []byte("text\x00more"),
-			collection: true,
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			path := filepath.Join(dir, strings.ReplaceAll(tt.name, " ", "-")+".dat")
-			if err := os.WriteFile(path, tt.body, 0o600); err != nil {
-				t.Fatal(err)
-			}
-			got, err := selectCollectionMode([]string{path}, &rootOptions{})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got != tt.collection {
-				t.Fatalf("collection = %v, want %v", got, tt.collection)
-			}
-		})
-	}
-}
-
 func TestCommandAliasesAndQoLShorthands(t *testing.T) {
 	root := newRootCmd()
+	revision, _, err := root.Find([]string{"new-revision"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revision.Name() != "new-revision" || len(revision.Aliases) != 1 || revision.Aliases[0] != "update" {
+		t.Fatalf("revision command = %q aliases %v", revision.Name(), revision.Aliases)
+	}
+	compatibility, _, err := root.Find([]string{"update"})
+	if err != nil || compatibility != revision {
+		t.Fatalf("update alias resolved to %v, error = %v", compatibility, err)
+	}
 	list, _, err := root.Find([]string{"list"})
 	if err != nil {
 		t.Fatal(err)
@@ -187,6 +154,10 @@ func TestRootJSONOutputShape(t *testing.T) {
 		if got.SourceURL == "" {
 			t.Fatal("source_url is empty")
 		}
+		if len(got.Pages) != 1 || got.Pages[0].URL != got.URL ||
+			got.Pages[0].SourceBytes != int64(len("# Launch\n\nBody\n")) {
+			t.Fatalf("pages = %+v", got.Pages)
+		}
 		assertJSONResult(t, fake, got)
 	})
 
@@ -216,8 +187,33 @@ func TestRootJSONOutputShape(t *testing.T) {
 		if got.SourceURL != "" {
 			t.Fatalf("SourceURL = %q, want empty", got.SourceURL)
 		}
+		if len(got.Pages) != 1 || got.Pages[0].SourceURL != "" {
+			t.Fatalf("pages = %+v", got.Pages)
+		}
 		assertJSONResult(t, fake, got)
 	})
+}
+
+func TestSingleDocumentUploadRejectsBundleOnlyLimits(t *testing.T) {
+	for _, test := range []struct {
+		flag string
+		want string
+	}{
+		{flag: "--max-total-page-size=1MiB", want: "only valid for document bundles"},
+		{flag: "--max-asset-size=1MiB", want: "only valid for document bundles"},
+		{flag: "--max-total-size=1MiB", want: "only valid for document bundles or collections"},
+	} {
+		t.Run(test.flag, func(t *testing.T) {
+			fake := newFakeS3(t)
+			_, _, err := executeRoot(t, fake, "# Plan\n", test.flag, "-")
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("error = %v", err)
+			}
+			if uploads := fake.uploads(); len(uploads) != 0 {
+				t.Fatalf("uploads = %d, want 0", len(uploads))
+			}
+		})
+	}
 }
 
 func TestAirplanBackendRejectsServerOwnedFlagsBeforeInput(t *testing.T) {
@@ -303,6 +299,117 @@ func TestRootUploadsFileCollectionWithOrderedOutput(t *testing.T) {
 	if len(got.Files) != 2 || got.Files[0].Name != "shot one.png" ||
 		!strings.HasSuffix(got.URL, "/index.html") {
 		t.Fatalf("json = %s", stdout)
+	}
+}
+
+func TestRootInfersDocumentBundleFromPositionalFiles(t *testing.T) {
+	fake := newFakeS3(t)
+	root := t.TempDir()
+	files := map[string]string{
+		"README.md":          "# Entry\n\n[Guide](docs/guide.md)\n",
+		"docs/guide.md":      "# Guide\n",
+		"examples/main.go":   "package main\n",
+		"assets/status.json": `{"ok":true}`,
+		"assets/flow.svg":    "<svg></svg>",
+	}
+	paths := make(map[string]string, len(files))
+	for name, body := range files {
+		value := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(value), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(value, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		paths[name] = value
+	}
+
+	stdout, _, err := executeRoot(t, fake, "",
+		"--json",
+		paths["docs/guide.md"], paths["examples/main.go"],
+		paths["assets/status.json"], paths["assets/flow.svg"],
+		paths["README.md"], "--asset", paths["assets/status.json"],
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		URL    string                `json:"url"`
+		Pages  []airplan.PageResult  `json:"pages"`
+		Assets []airplan.AssetResult `json:"assets"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Pages) != 3 || got.Pages[0].Path != "README.md" ||
+		got.Pages[1].Path != "docs/guide.md" ||
+		got.Pages[2].Path != "examples/main.go" {
+		t.Fatalf("pages = %+v", got.Pages)
+	}
+	if len(got.Assets) != 2 || got.Assets[0].Path != "assets/status.json" ||
+		got.Assets[1].Path != "assets/flow.svg" {
+		t.Fatalf("assets = %+v", got.Assets)
+	}
+	if !strings.HasSuffix(got.URL, "/readme.html") {
+		t.Fatalf("URL = %q", got.URL)
+	}
+	puts := fake.uploads()
+	if len(puts) == 0 || !strings.HasSuffix(puts[0].path, "/"+airplan.MarkerFilename) {
+		t.Fatalf("PUTs = %+v", puts)
+	}
+
+	fake = newFakeS3(t)
+	stdout, _, err = executeRoot(t, fake, "", "--collection", "--json",
+		paths["README.md"], paths["docs/guide.md"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var collection struct {
+		Files []airplan.FileResult `json:"files"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &collection); err != nil {
+		t.Fatal(err)
+	}
+	if len(collection.Files) != 2 {
+		t.Fatalf("collection = %s", stdout)
+	}
+}
+
+func TestRootTreatsMultipleHTMLFilesAsDocumentWithAssets(t *testing.T) {
+	fake := newFakeS3(t)
+	root := t.TempDir()
+	index := filepath.Join(root, "index.html")
+	help := filepath.Join(root, "help.html")
+	stylesheet := filepath.Join(root, "site.css")
+	for name, body := range map[string]string{
+		index:      "<!doctype html><link rel=\"stylesheet\" href=\"site.css\"><a href=\"help.html\">Help</a>",
+		help:       "<!doctype html><p>Help</p>",
+		stylesheet: "body { color: canvastext; }",
+	} {
+		if err := os.WriteFile(name, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	stdout, _, err := executeRoot(t, fake, "", "--json", help, stylesheet, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		URL    string                `json:"url"`
+		Pages  []airplan.PageResult  `json:"pages"`
+		Assets []airplan.AssetResult `json:"assets"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(got.URL, "/index.html") || len(got.Pages) != 1 ||
+		got.Pages[0].Path != "index.html" {
+		t.Fatalf("document result = %s", stdout)
+	}
+	if len(got.Assets) != 2 || got.Assets[0].Path != "help.html" ||
+		got.Assets[1].Path != "site.css" {
+		t.Fatalf("assets = %+v", got.Assets)
 	}
 }
 
@@ -530,12 +637,13 @@ func TestRootOpenFlagInvokesLauncher(t *testing.T) {
 }
 
 type rootJSON struct {
-	URL         string `json:"url"`
-	Key         string `json:"key"`
-	SourceURL   string `json:"source_url"`
-	Bucket      string `json:"bucket"`
-	Bytes       int64  `json:"bytes"`
-	ContentType string `json:"content_type"`
+	URL         string               `json:"url"`
+	Key         string               `json:"key"`
+	SourceURL   string               `json:"source_url"`
+	Bucket      string               `json:"bucket"`
+	Bytes       int64                `json:"bytes"`
+	ContentType string               `json:"content_type"`
+	Pages       []airplan.PageResult `json:"pages"`
 }
 
 type fakeS3 struct {

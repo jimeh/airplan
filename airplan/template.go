@@ -114,13 +114,31 @@ type TemplateData struct {
 	// Revision fields describe the immutable context baked into a linked page.
 	// RevisionCount is the greatest live revision known at render time; live
 	// metadata may later discover a newer value without rewriting this page.
-	Revision            int
-	RevisionCount       int
-	PreviousRevision    int
-	VersionsPath        string
-	DiffPath            string
-	DiffText            string
-	HighlightedDiffHTML template.HTML
+	Revision                    int
+	RevisionCount               int
+	PreviousRevision            int
+	VersionsPath                string
+	DiffPath                    string
+	DiffText                    string
+	HighlightedDiffHTML         template.HTML
+	RevisionChainID             string
+	PageChanged                 bool
+	PageDiffText                string
+	HighlightedPageDiffHTML     template.HTML
+	CompleteDiffText            string
+	HasCompleteDiff             bool
+	HighlightedCompleteDiffHTML template.HTML
+	AllChangesPath              string
+
+	// Pages, PageNavigation, CurrentPage, CurrentPageBreadcrumbs, Entrypoint,
+	// and Assets describe the document. Ordinary single-page rendering exposes
+	// one current entry page and no assets.
+	Pages                  []DocumentTemplatePage
+	PageNavigation         []DocumentTemplateNavigationItem
+	CurrentPage            DocumentTemplatePage
+	CurrentPageBreadcrumbs []string
+	Entrypoint             string
+	Assets                 []DocumentTemplateAsset
 }
 
 // LoadTemplate parses a custom page template from path. The template

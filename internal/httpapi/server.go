@@ -21,26 +21,37 @@ import (
 
 const (
 	defaultDocumentBytes        = int64(10 << 20)
+	defaultTotalPageBytes       = int64(100 << 20)
+	defaultGeneratedPageBytes   = int64(100 << 20)
+	defaultAssetBytes           = int64(1 << 30)
+	defaultDocumentAssetBytes   = int64(2 << 30)
 	defaultCollectionFileBytes  = int64(1 << 30)
 	defaultCollectionTotalBytes = int64(2 << 30)
 	defaultJSONBodyBytes        = int64(1 << 20)
 	defaultBodyOverheadBytes    = int64(16 << 20)
 	defaultCollectionFiles      = 100
+	defaultDocumentItems        = 100
 )
 
 // Options sets HTTP transport policy. Zero size values use conservative
 // defaults; callers cannot disable a server hard limit.
 type Options struct {
-	Token                   string
-	Logger                  *slog.Logger
-	TempDir                 string
-	OpenAPI                 []byte
-	MaxRequestBodyBytes     int64
-	MaxJSONBodyBytes        int64
-	MaxDocumentBytes        int64
-	MaxCollectionFileBytes  int64
-	MaxCollectionTotalBytes int64
-	MaxCollectionFiles      int
+	Token                      string
+	Logger                     *slog.Logger
+	TempDir                    string
+	OpenAPI                    []byte
+	MaxRequestBodyBytes        int64
+	MaxJSONBodyBytes           int64
+	MaxDocumentBytes           int64
+	MaxTotalPageBytes          int64
+	MaxGeneratedPageBytes      int64
+	MaxAssetBytes              int64
+	MaxDocumentAssetTotalBytes int64
+	MaxMetadataBytes           int64
+	MaxDocumentItems           int
+	MaxCollectionFileBytes     int64
+	MaxCollectionTotalBytes    int64
+	MaxCollectionFiles         int
 }
 
 // Server implements the OpenAPI-generated strict server interface around the
@@ -180,6 +191,7 @@ func (s *Server) Handler() (http.Handler, error) {
 
 func isMultipartUploadPath(path string) bool {
 	return path == "/api/v1/uploads/documents" ||
+		path == "/api/v1/uploads/documents/revisions" ||
 		path == "/api/v1/uploads/documents/update" ||
 		path == "/api/v1/uploads/collections"
 }
@@ -214,6 +226,17 @@ func (s *Server) GetCapabilities(
 		CollectionFileBytes:  s.options.MaxCollectionFileBytes,
 		CollectionTotalBytes: s.options.MaxCollectionTotalBytes,
 	}
+	result.DocumentBundle = &generated.DocumentBundleCapabilities{
+		ManagedPages: true, Assets: true, CanonicalRevisionRoute: true,
+		MaxItems:              s.options.MaxDocumentItems,
+		MaxPageBytes:          s.options.MaxDocumentBytes,
+		MaxTotalPageBytes:     s.options.MaxTotalPageBytes,
+		MaxGeneratedPageBytes: s.options.MaxGeneratedPageBytes,
+		MaxAssetBytes:         s.options.MaxAssetBytes,
+		MaxTotalAssetBytes:    s.options.MaxDocumentAssetTotalBytes,
+		MaxMetadataBytes:      s.options.MaxMetadataBytes,
+		MaxRequestBytes:       s.options.MaxRequestBodyBytes,
+	}
 	return generated.GetCapabilities200JSONResponse(result), nil
 }
 
@@ -226,6 +249,7 @@ func (s *Server) UploadDocument(
 		return nil, err
 	}
 	defer cleanup()
+	ctx = withGeneratedPageLimit(ctx, s.options.MaxGeneratedPageBytes)
 	result, err := s.operations.UploadDocument(ctx, upload)
 	if err != nil {
 		return nil, err
@@ -252,16 +276,34 @@ func (s *Server) UploadCollection(
 func (s *Server) UpdateDocument(
 	ctx context.Context, request generated.UpdateDocumentRequestObject,
 ) (generated.UpdateDocumentResponseObject, error) {
-	upload, cleanup, err := s.parseUpdateDocumentUpload(request.Body)
+	upload, cleanup, err := s.parseDocumentRevisionUpload(request.Body)
 	if err != nil {
 		return nil, err
 	}
 	defer cleanup()
-	result, err := s.operations.UpdateDocument(ctx, upload)
+	ctx = withGeneratedPageLimit(ctx, s.options.MaxGeneratedPageBytes)
+	result, err := s.operations.CreateDocumentRevision(ctx, upload)
 	if err != nil {
 		return nil, err
 	}
 	return generated.UpdateDocument201JSONResponse(result), nil
+}
+
+// CreateDocumentRevision implements the canonical revision operation.
+func (s *Server) CreateDocumentRevision(
+	ctx context.Context, request generated.CreateDocumentRevisionRequestObject,
+) (generated.CreateDocumentRevisionResponseObject, error) {
+	upload, cleanup, err := s.parseDocumentRevisionUpload(request.Body)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	ctx = withGeneratedPageLimit(ctx, s.options.MaxGeneratedPageBytes)
+	result, err := s.operations.CreateDocumentRevision(ctx, upload)
+	if err != nil {
+		return nil, err
+	}
+	return generated.CreateDocumentRevision201JSONResponse(result), nil
 }
 
 func (s *Server) PlanDocumentUpgrade(
@@ -539,6 +581,24 @@ func applyOptionDefaults(options *Options) {
 	if options.MaxDocumentBytes == 0 {
 		options.MaxDocumentBytes = defaultDocumentBytes
 	}
+	if options.MaxTotalPageBytes == 0 {
+		options.MaxTotalPageBytes = defaultTotalPageBytes
+	}
+	if options.MaxGeneratedPageBytes == 0 {
+		options.MaxGeneratedPageBytes = defaultGeneratedPageBytes
+	}
+	if options.MaxAssetBytes == 0 {
+		options.MaxAssetBytes = defaultAssetBytes
+	}
+	if options.MaxDocumentAssetTotalBytes == 0 {
+		options.MaxDocumentAssetTotalBytes = defaultDocumentAssetBytes
+	}
+	if options.MaxMetadataBytes == 0 {
+		options.MaxMetadataBytes = defaultMaxMetadataBytes
+	}
+	if options.MaxDocumentItems == 0 {
+		options.MaxDocumentItems = defaultDocumentItems
+	}
 	if options.MaxCollectionFileBytes == 0 {
 		options.MaxCollectionFileBytes = defaultCollectionFileBytes
 	}
@@ -552,14 +612,20 @@ func applyOptionDefaults(options *Options) {
 		options.MaxCollectionFiles = defaultCollectionFiles
 	}
 	if options.MaxRequestBodyBytes == 0 {
-		options.MaxRequestBodyBytes = options.MaxCollectionTotalBytes +
-			defaultBodyOverheadBytes
+		documentEnvelope := options.MaxTotalPageBytes +
+			options.MaxDocumentAssetTotalBytes
+		payload := max(options.MaxCollectionTotalBytes, documentEnvelope)
+		options.MaxRequestBodyBytes = payload + defaultBodyOverheadBytes
 	}
 }
 
 func validateOptions(options Options) error {
 	if options.MaxRequestBodyBytes <= 0 || options.MaxJSONBodyBytes <= 0 ||
 		options.MaxDocumentBytes <= 0 ||
+		options.MaxTotalPageBytes <= 0 ||
+		options.MaxGeneratedPageBytes <= 0 || options.MaxAssetBytes <= 0 ||
+		options.MaxDocumentAssetTotalBytes <= 0 ||
+		options.MaxMetadataBytes <= 0 || options.MaxDocumentItems <= 0 ||
 		options.MaxCollectionFileBytes <= 0 ||
 		options.MaxCollectionTotalBytes <= 0 ||
 		options.MaxCollectionFiles <= 0 {
@@ -569,6 +635,30 @@ func validateOptions(options Options) error {
 		return errors.New(
 			"airplan collection file limit exceeds collection total limit",
 		)
+	}
+	if options.MaxDocumentBytes > options.MaxTotalPageBytes {
+		return errors.New("airplan document page limit exceeds document page total limit")
+	}
+	if options.MaxAssetBytes > options.MaxDocumentAssetTotalBytes {
+		return errors.New("airplan document asset limit exceeds document asset total limit")
+	}
+	if options.MaxDocumentBytes > defaultDocumentBytes ||
+		options.MaxTotalPageBytes > defaultTotalPageBytes ||
+		options.MaxAssetBytes > defaultAssetBytes ||
+		options.MaxDocumentAssetTotalBytes > defaultDocumentAssetBytes ||
+		options.MaxDocumentItems > defaultDocumentItems {
+		return errors.New("airplan HTTP document limits exceed core limits")
+	}
+	if options.MaxGeneratedPageBytes > defaultGeneratedPageBytes {
+		return errors.New("airplan HTTP generated page limit exceeds the core limit")
+	}
+	if options.MaxMetadataBytes != defaultMaxMetadataBytes {
+		return errors.New("airplan HTTP metadata limit must match the protocol limit")
+	}
+	documentEnvelope := options.MaxTotalPageBytes + options.MaxDocumentAssetTotalBytes
+	minimumPayload := max(options.MaxCollectionTotalBytes, documentEnvelope)
+	if options.MaxRequestBodyBytes < minimumPayload+defaultBodyOverheadBytes {
+		return errors.New("airplan HTTP request limit cannot contain advertised upload limits")
 	}
 	return nil
 }

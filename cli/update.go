@@ -11,26 +11,35 @@ import (
 )
 
 type updateOptions struct {
-	config, profile string
-	title, maxSize  string
-	json, open      bool
+	config, profile  string
+	title, maxSize   string
+	maxTotalPageSize string
+	maxAssetSize     string
+	maxTotalSize     string
+	pages            []string
+	assets           []string
+	entrypoint       string
+	json, open       bool
 }
 
 type updateJSONResult struct {
 	jsonResult
-	Revision       int    `json:"revision,omitempty"`
-	LatestRevision int    `json:"latest_revision,omitempty"`
-	PreviousURL    string `json:"previous_url,omitempty"`
-	DiffURL        string `json:"diff_url,omitempty"`
-	Unchanged      bool   `json:"unchanged"`
+	Pages          []airplan.PageResult  `json:"pages,omitempty"`
+	Assets         []airplan.AssetResult `json:"assets,omitempty"`
+	Revision       int                   `json:"revision,omitempty"`
+	LatestRevision int                   `json:"latest_revision,omitempty"`
+	PreviousURL    string                `json:"previous_url,omitempty"`
+	DiffURL        string                `json:"diff_url,omitempty"`
+	Unchanged      bool                  `json:"unchanged"`
 }
 
 func newUpdateCmd() *cobra.Command {
 	opts := &updateOptions{}
 	cmd := &cobra.Command{
-		Use:   "update <url|key> [markdown-file]",
-		Short: "Upload a new linked Markdown revision",
-		Args:  cobra.RangeArgs(1, 2), SilenceUsage: true, SilenceErrors: true,
+		Use:     "new-revision <url|key> [file ...]",
+		Aliases: []string{"update"},
+		Short:   "Upload a new linked Markdown revision",
+		Args:    cobra.MinimumNArgs(1), SilenceUsage: true, SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error { return runUpdate(cmd, args, opts) },
 	}
 	f := cmd.Flags()
@@ -38,6 +47,12 @@ func newUpdateCmd() *cobra.Command {
 	f.StringVarP(&opts.profile, "profile", "p", "", "config profile name")
 	f.StringVarP(&opts.title, "title", "t", "", "page title for the new revision")
 	f.StringVar(&opts.maxSize, "max-size", "10MiB", "input limit; 0 = no limit")
+	f.StringVar(&opts.maxTotalPageSize, "max-total-page-size", "100MiB", "managed-source total limit; 0 = no limit")
+	f.StringVar(&opts.maxAssetSize, "max-asset-size", "1GiB", "per-asset limit; 0 = no limit")
+	f.StringVar(&opts.maxTotalSize, "max-total-size", "2GiB", "asset total limit; 0 = no limit")
+	f.StringArrayVar(&opts.pages, "page", nil, "managed page file (repeatable; overrides inferred role)")
+	f.StringArrayVar(&opts.assets, "asset", nil, "supporting asset file (repeatable; overrides inferred role)")
+	f.StringVar(&opts.entrypoint, "entrypoint", "", "document entry file")
 	f.BoolVarP(&opts.json, "json", "j", false, "print one JSON result")
 	f.BoolVarP(&opts.open, "open", "o", false, "open the new revision URL")
 	return cmd
@@ -56,20 +71,56 @@ func runUpdate(cmd *cobra.Command, args []string, opts *updateOptions) error {
 	if maxSize == 0 {
 		maxSize = -1
 	}
-	in := airplan.Input{Format: "md", Title: opts.title, MaxSize: maxSize}
-	if len(args) == 1 || args[1] == "-" {
-		in.Reader = cmd.InOrStdin()
+	maxTotalPages, err := parsePreviewSize("max-total-page-size", opts.maxTotalPageSize)
+	if err != nil {
+		return err
+	}
+	maxAsset, err := parsePreviewSize("max-asset-size", opts.maxAssetSize)
+	if err != nil {
+		return err
+	}
+	maxTotal, err := parsePreviewSize("max-total-size", opts.maxTotalSize)
+	if err != nil {
+		return err
+	}
+	document := airplan.DocumentInput{
+		Title: opts.title, MaxPageSize: maxSize,
+		MaxTotalPageSize: maxTotalPages, MaxAssetSize: maxAsset,
+		MaxTotalSize: maxTotal,
+	}
+	stdin := len(args) == 1 || (len(args) == 2 && args[1] == "-")
+	if stdin && opts.entrypoint == "" && len(opts.pages) == 0 && len(opts.assets) == 0 {
+		document.Entry = airplan.PageInput{
+			Reader: cmd.InOrStdin(), Format: "md",
+			Title: opts.title,
+		}
 	} else {
-		file, _, openErr := openRegularInput(args[1], "update input")
+		plan, planErr := airplan.PlanLocalPaths(airplan.LocalPathPlanOptions{
+			Paths: args[1:], Entrypoint: opts.entrypoint,
+			PagePaths: opts.pages, AssetPaths: opts.assets,
+			ForceDocument: true, EntryFormat: "md",
+		})
+		if planErr != nil {
+			return planErr
+		}
+		opened, openErr := openDocumentBundle(
+			plan.Entrypoint, plan.PagePaths, plan.AssetPaths,
+		)
 		if openErr != nil {
 			return openErr
 		}
-		defer func() { _ = file.Close() }()
-		in.Reader, in.Name = file, args[1]
+		defer opened.close()
+		document = opened.input
+		document.Entry.Format = "md"
+		document.Entry.Title = opts.title
+		document.Title = opts.title
+		document.MaxPageSize = maxSize
+		document.MaxTotalPageSize = maxTotalPages
+		document.MaxAssetSize = maxAsset
+		document.MaxTotalSize = maxTotal
 	}
-	result, err := client.UpdateDocument(ctx, airplan.UpdateDocumentInput{
-		Target: args[0], Input: in,
-	})
+	result, err := client.CreateDocumentRevision(ctx,
+		airplan.CreateDocumentRevisionInput{Target: args[0], Document: document})
 	if err != nil {
 		if errors.Is(err, airplan.ErrInputTooLarge) {
 			return fmt.Errorf("%w (raise or remove the limit with --max-size)", err)
@@ -86,6 +137,7 @@ func runUpdate(cmd *cobra.Command, args []string, opts *updateOptions) error {
 				Bucket: result.Bucket, Bytes: result.Bytes,
 				ContentType: result.ContentType,
 			},
+			Pages: result.Pages, Assets: result.Assets,
 			Revision: result.Revision, LatestRevision: result.LatestRevision,
 			PreviousURL: result.PreviousURL, DiffURL: result.DiffURL,
 			Unchanged: result.Unchanged,

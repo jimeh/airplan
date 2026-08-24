@@ -15,8 +15,10 @@ import (
 // supplies this transport and never constructs storage locally.
 type operationTransport interface {
 	Upload(context.Context, Input) (*Result, error)
+	UploadDocument(context.Context, DocumentInput) (*DocumentResult, error)
 	UploadFiles(context.Context, FilesInput) (*FilesResult, error)
 	UpdateDocument(context.Context, UpdateDocumentInput) (*UpdateDocumentResult, error)
+	CreateDocumentRevision(context.Context, CreateDocumentRevisionInput) (*DocumentRevisionResult, error)
 	PlanUpgradeDocument(context.Context, string, UpgradeDocumentOptions) (*UpgradeDocumentPlan, error)
 	UpgradeDocument(context.Context, UpgradeDocumentPlan) (*UpgradeDocumentResult, error)
 	PlanBulkUpgrade(context.Context, BulkUpgradeOptions) (*BulkUpgradePlan, error)
@@ -421,8 +423,8 @@ func (c *Client) Purge(
 			continue
 		}
 		if !req.IncludeVersioned {
-			inspection, inspectErr := c.InspectUpload(ctx,
-				BuildKey(c.cfg.KeyPrefix, id, ""))
+			inspection, inspectErr := c.inspectUploadLocal(ctx,
+				BuildKey(c.cfg.KeyPrefix, id, ""), false)
 			if inspectErr != nil && !errors.Is(inspectErr, errOwnershipMarkerMissing) {
 				item.Error = inspectErr.Error()
 				failed++

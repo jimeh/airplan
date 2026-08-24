@@ -57,7 +57,7 @@
 
 </script>
 <style>
-:root{--buncss-light:initial;--buncss-dark: ;color-scheme:light dark;--page-width:54rem}@media (prefers-color-scheme:dark){:root{--buncss-light: ;--buncss-dark:initial} }*{box-sizing:border-box}body{background:var(--bg);color:var(--fg);-webkit-text-size-adjust:100%;margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif,Apple Color Emoji,Segoe UI Emoji;font-size:16px;line-height:1.7}.toolbar{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items: center;gap:.5rem;width:100%;padding:.75rem 1.25rem 0;font-size:.85rem}.toolbar:not(:has(>:not([hidden]))){display:none}.toolbar a,.toolbar button{display:inline-flex;white-space:nowrap;font:inherit;color:var(--muted);text-decoration:none;cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;gap:.4rem;padding:.4rem .65rem}.toolbar a:hover,.toolbar button:hover{color:var(--fg);background:var(--control-hover)}.toolbar a:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar button:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar-actions{display:inline-flex;align-items: center;gap:.5rem}.mode-toggle{display:inline-flex;background:var(--control-track);border:0;border-radius:8px;gap:2px;padding:2px}.mode-toggle button{border:0;border-radius:6px;padding:.3rem .55rem}.mode-toggle button:hover{color:var(--fg)}.mode-toggle button.active{color:var(--fg);background:var(--control-active);box-shadow:0 1px 2px #0003}.appearance-trigger{width:1.85rem;padding-inline-start:0;padding-inline-end:0}.appearance-resolved-icon{display:none}:root[data-airplan-resolved-mode=light] .appearance-resolved-icon[data-airplan-resolved-icon=light],:root[data-airplan-resolved-mode=dark] .appearance-resolved-icon[data-airplan-resolved-icon=dark]{display:block}.appearance{position:relative}.appearance:not(:first-child){margin-left:.5rem}.appearance:not(:first-child):before{content:"";position:absolute;background:var(--control-divider);width:1px;height:1rem;top:50%;left:-.825rem;transform:translateY(-50%)}.appearance-panel{position:absolute;z-index:30;color:var(--fg);background:var(--bg);border:1px solid var(--border);box-shadow:0 10px 30px color-mix(in srgb,var(--fg)14%,transparent);border-radius:10px;width:min(19rem,100vw - 2rem);padding:.85rem;top:calc(100% + .5rem);right:0}.appearance-heading{color:var(--heading);margin-bottom:.75rem;font-weight:600}.appearance-field{display:grid;gap:.35rem}.appearance-field+.appearance-field{margin-top:.75rem}.appearance-label{color:var(--muted);font-size:.78rem;font-weight:600}.appearance-modes{width:100%}.appearance-modes button{flex:1}.appearance-select{position:relative;display:grid}.appearance-panel select{appearance:none;-webkit-appearance:none;color:var(--fg);background:var(--surface-subtle);border:1px solid var(--border);font:inherit;border-radius:7px;width:100%;min-height:2.1rem;padding:.3rem 2.25rem .3rem .5rem}.appearance-panel select:focus-visible{outline:2px solid var(--link);outline-offset:2px}.appearance-select .appearance-select-icon{position:absolute;color:var(--muted);pointer-events:none;width:.875rem;height:.875rem;top:50%;right:.7rem;transform:translateY(-50%)}.icon{flex:none;width:16px;height:16px}.sr-status{position:absolute;overflow:hidden;clip-path:inset(50%);white-space:nowrap;width:1px;height:1px}[hidden]{display:none!important}@media (max-width:36rem){.toolbar{padding-inline-start:1rem;padding-inline-end:1rem}.appearance:not(:first-child){margin-left:0}.appearance:not(:first-child):before{display:none}.appearance-panel{position:fixed;width:auto;top:3.5rem;left:.75rem;right:.75rem} }@media print{:root,:root[data-airplan-theme]{--buncss-light:initial;--buncss-dark: ;color-scheme:light}.toolbar{display:none!important} }.page-shell{width:min(100%,var(--page-width));min-height:100vh;margin:0 auto;padding-bottom:4rem}header,.files{margin-inline-start:1.5rem;margin-inline-end:1.5rem}header{border-bottom:1px solid var(--border);padding:1.5rem 0 1.75rem}h1{color:var(--heading);letter-spacing:-.025em;overflow-wrap:anywhere;margin:.35em 0;font-size:2em;font-weight:700;line-height:1.25}.summary{color:var(--muted);margin:0;font-size:.9rem}.files{list-style:none;padding:0}.file{border-bottom:1px solid var(--border);padding:1.5rem 0 1.75rem}.file-header{display:flex;justify-content:space-between;align-items: flex-start;gap:1rem}.details{min-width:0}.details h2{color:var(--heading);overflow-wrap:anywhere;margin:0;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.95rem;font-weight:600;line-height:1.5}.meta{color:var(--muted);overflow-wrap:anywhere;margin-top:.2rem;font-size:.8rem}.actions{display:flex;flex-wrap:wrap;flex:none;justify-content:flex-end;gap:.15rem;margin:-.35rem 0 0;font-size:.82rem}.actions a,.actions button{display:inline-flex;color:var(--muted);font:inherit;text-decoration:none;white-space:nowrap;cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;min-height:2.1rem;padding:.4rem .65rem}.actions a:hover,.actions button:hover{background:var(--control-hover);color:var(--fg)}.actions :where(a,button):focus-visible{outline:2px solid var(--link);outline-offset:2px}.actions a:first-child{color:var(--link)}.preview{display:flex;overflow:hidden;background:var(--surface-subtle);border-radius:8px;justify-content:center;align-items: center;margin-top:1rem}.preview--audio{border:1px solid var(--border)}.preview-link{display:block;width:100%}.preview-link:focus-visible{outline:2px solid var(--link);outline-offset:-2px}.preview img{display:block;width:100%;height:auto}.preview video{display:block;object-fit:contain;width:100%;max-height:70vh}.preview audio{width:min(100% - 2rem,40rem);margin:1.5rem 1rem}@media (max-width:36rem){.toolbar{display:grid;grid-template-columns:max-content 1fr max-content;justify-content:stretch}.collection-actions{grid-column:1/3;grid-row:1;justify-self:start}.toolbar .appearance{grid-column:3;grid-row:1;justify-self:end}header,.files{margin-inline-start:1.25rem;margin-inline-end:1.25rem}header{padding-top:1rem}h1{font-size:1.75em}.file-header{display:block}.actions{justify-content:flex-start;margin:.65rem 0 -.35rem -.65rem} }
+:root{--buncss-light:initial;--buncss-dark: ;color-scheme:light dark;--page-width:54rem;--compact-control-height:2.3rem;--floating-panel-bg:color-mix(in srgb,var(--bg)96%,var(--surface-subtle));--floating-panel-radius:12px;--floating-panel-shadow:0 12px 32px color-mix(in srgb,var(--fg)16%,transparent)}@media (prefers-color-scheme:dark){:root{--buncss-light: ;--buncss-dark:initial} }*{box-sizing:border-box}body{background:var(--bg);color:var(--fg);-webkit-text-size-adjust:100%;margin:0;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif,Apple Color Emoji,Segoe UI Emoji;font-size:16px;line-height:1.7}.toolbar{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items: center;gap:.5rem;width:100%;padding:.75rem 1.25rem 0;font-size:.85rem}.toolbar:not(:has(>:not([hidden]))){display:none}.toolbar a,.toolbar button{display:inline-flex;white-space:nowrap;font:inherit;color:var(--muted);text-decoration:none;cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;gap:.4rem;padding:.4rem .65rem}.toolbar a:hover,.toolbar button:hover{color:var(--fg);background:var(--control-hover)}.toolbar a:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar button:focus-visible{outline:2px solid var(--link);outline-offset:2px}.toolbar-actions{display:inline-flex;align-items: center;gap:.5rem}.toolbar>button,.toolbar>a,.toolbar>.toolbar-actions>button,.toolbar>.toolbar-actions>a,.toolbar>.appearance>.appearance-trigger{min-width:44px;min-height:44px}.mode-toggle{display:inline-flex;height:var(--compact-control-height);background:var(--control-track);border:0;border-radius:8px;gap:2px;padding:2px}.mode-toggle button{display:inline-flex;color:var(--muted);font:inherit;cursor:pointer;background:0 0;border:0;border-radius:6px;justify-content:center;align-items: center;gap:.4rem;padding:.3rem .55rem}.mode-toggle button:hover{color:var(--fg)}.mode-toggle button.active{color:var(--fg);background:var(--control-active);box-shadow:0 1px 2px #0003}.appearance-trigger{width:1.85rem;padding-inline-start:0;padding-inline-end:0}.appearance-resolved-icon{display:none}:root[data-airplan-resolved-mode=light] .appearance-resolved-icon[data-airplan-resolved-icon=light],:root[data-airplan-resolved-mode=dark] .appearance-resolved-icon[data-airplan-resolved-icon=dark]{display:block}.appearance{position:relative}.appearance:not(:first-child){margin-left:.5rem}.appearance:not(:first-child):before{content:"";position:absolute;background:var(--control-divider);width:1px;height:1rem;top:50%;left:calc(-.5rem - .5px);transform:translateY(-50%)}.appearance-panel{position:fixed;z-index:30;top:var(--airplan-appearance-top,4rem);right:var(--airplan-appearance-right,1rem);color:var(--fg);background:var(--floating-panel-bg);border:1px solid var(--border);border-radius:var(--floating-panel-radius);box-shadow:var(--floating-panel-shadow);width:min(19rem,100vw - 2rem);padding:.85rem;font-size:.85rem}.appearance-heading{color:var(--heading);margin-bottom:.75rem;font-weight:600}.appearance-field{display:grid;gap:.35rem}.appearance-field+.appearance-field{margin-top:.75rem}.appearance-label{color:var(--muted);font-size:.78rem;font-weight:600}.appearance-modes{width:100%}.appearance-modes button{flex:1;min-width:0}.appearance-select{position:relative;display:grid}.appearance-panel select{appearance:none;-webkit-appearance:none;height:var(--compact-control-height);color:var(--fg);background:var(--surface-subtle);border:1px solid var(--border);font:inherit;border-radius:7px;width:100%;padding:.3rem 2.25rem .3rem .5rem}.appearance-panel select:focus-visible{outline:2px solid var(--link);outline-offset:2px}.appearance-select .appearance-select-icon{position:absolute;color:var(--muted);pointer-events:none;width:.875rem;height:.875rem;top:50%;right:.7rem;transform:translateY(-50%)}.icon{flex:none;width:16px;height:16px}.icon-check,.icon-x,.is-copied .icon-copy,.is-failed .icon-copy{display:none}.is-copied .icon-check,.is-failed .icon-x{display:inline}.sr-status{position:absolute;overflow:hidden;clip-path:inset(50%);white-space:nowrap;width:1px;height:1px}[hidden]{display:none!important}@media (max-width:36rem){.toolbar{padding-inline-start:1rem;padding-inline-end:1rem}.appearance:not(:first-child){margin-left:0}.appearance:not(:first-child):before{display:none}.appearance-panel{width:auto;left:1rem;right:1rem} }@media print{:root,:root[data-airplan-theme]{--buncss-light:initial;--buncss-dark: ;color-scheme:light}.toolbar{display:none!important} }.page-shell{width:min(100%,var(--page-width));min-height:100vh;margin:0 auto;padding-bottom:4rem}header,.files{margin-inline-start:1.5rem;margin-inline-end:1.5rem}header{border-bottom:1px solid var(--border);padding:1.5rem 0 1.75rem}h1{color:var(--heading);letter-spacing:-.025em;overflow-wrap:anywhere;margin:.35em 0;font-size:2em;font-weight:700;line-height:1.25}.summary{color:var(--muted);margin:0;font-size:.9rem}.files{list-style:none;padding:0}.file{border-bottom:1px solid var(--border);padding:1.5rem 0 1.75rem}.file-header{display:flex;justify-content:space-between;align-items: flex-start;gap:1rem}.details{min-width:0}.details h2{color:var(--heading);overflow-wrap:anywhere;margin:0;font-family:ui-monospace,SFMono-Regular,SF Mono,Menlo,Consolas,Liberation Mono,monospace;font-size:.95rem;font-weight:600;line-height:1.5}.meta{color:var(--muted);overflow-wrap:anywhere;margin-top:.2rem;font-size:.8rem}.actions{display:flex;flex-wrap:wrap;flex:none;justify-content:flex-end;gap:.15rem;margin:-.35rem 0 0;font-size:.82rem}.actions a,.actions button{display:inline-flex;color:var(--muted);font:inherit;text-decoration:none;white-space:nowrap;cursor:pointer;background:0 0;border:0;border-radius:8px;justify-content:center;align-items: center;gap:.4rem;min-height:2.1rem;padding:.4rem .65rem}.actions a:hover,.actions button:hover{background:var(--control-hover);color:var(--fg)}.actions :where(a,button):focus-visible{outline:2px solid var(--link);outline-offset:2px}.actions a:first-child{color:var(--link)}.preview{display:flex;overflow:hidden;background:var(--surface-subtle);border-radius:8px;justify-content:center;align-items: center;margin-top:1rem}.preview--audio{border:1px solid var(--border)}.preview-link{display:block;width:100%}.preview-link:focus-visible{outline:2px solid var(--link);outline-offset:-2px}.preview img{display:block;width:100%;height:auto}.preview video{display:block;object-fit:contain;width:100%;max-height:70vh}.preview audio{width:min(100% - 2rem,40rem);margin:1.5rem 1rem}@media (max-width:36rem){.toolbar{display:grid;grid-template-columns:max-content 1fr max-content;justify-content:stretch}.collection-actions{grid-column:1/3;grid-row:1;justify-self:start}.toolbar .appearance{grid-column:3;grid-row:1;justify-self:end}header,.files{margin-inline-start:1.25rem;margin-inline-end:1.25rem}header{padding-top:1rem}h1{font-size:1.75em}.file-header{display:block}.actions{justify-content:flex-start;margin:.65rem 0 -.35rem -.65rem} }
 
 :root{color-scheme:light;--bg:#ffffff;--fg:#1f2328;--heading:#1f2328;--subheading:#474b4f;--muted:#59636e;--link:#0969da;--border:#d1d9e0;--surface-subtle:#f6f8fa;--code-inline-bg:#fafbfc;--code-bg:#f6f8fa;--code-border:#dee4e9;--control-track:#f6f8fa;--control-active:#eff1f3;--control-hover:#f6f7f8;--control-divider:#dde3e8;--on-link:#ffffff;--info:#0969da;--success:#1a7f37;--important:#8250df;--warning:#9a6700;--danger:#cf222e;--alert-info-bg:#e1edfb;--alert-success-bg:#e4f0e7;--alert-important-bg:#f0eafb;--alert-warning-bg:#f3ede0;--alert-danger-bg:#f9e4e6;--dialog-backdrop:#00000080}
 @media screen and (prefers-color-scheme:dark){:root:not([data-airplan-theme]){color-scheme:dark;--bg:#0d1117;--fg:#e6edf3;--heading:#e6edf3;--subheading:#bfc5cb;--muted:#9198a1;--link:#4493f8;--border:#3d444d;--surface-subtle:#151b23;--code-inline-bg:#11171e;--code-bg:#151b23;--code-border:#2f363e;--control-track:#151b23;--control-active:#212830;--control-hover:#181e25;--control-divider:#313740;--on-link:#0d1117;--info:#58a6ff;--success:#3fb950;--important:#a371f7;--warning:#d29922;--danger:#f85149;--alert-info-bg:#162333;--alert-success-bg:#13251e;--alert-important-bg:#1f1d32;--alert-warning-bg:#252118;--alert-danger-bg:#29191d;--dialog-backdrop:#00000080}
@@ -82,22 +82,14 @@ body{background:#fff;color:#1f2328}}
 <div class="page-shell">
 <nav class="toolbar" aria-label="Collection controls">
   <div class="collection-actions toolbar-actions">
-    <button type="button" data-copy-overview>Copy page link</button>
-    <a href="https://github.com/jimeh/airplan">Repository</a>
+    <button type="button" data-copy-overview><svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg><svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg><span class="action-label">Copy page link</span></button>
+    <a href="https://github.com/jimeh/airplan"><svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.249.249 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z"/></svg><span>Repository</span></a>
   </div>
 <div class="appearance js-only" hidden>
   <button class="appearance-trigger" type="button"
     data-airplan-appearance-trigger aria-expanded="false"
     aria-controls="airplan-appearance-panel" aria-label="Appearance"
-    title="Appearance"><svg class="icon appearance-resolved-icon"
-    data-airplan-resolved-icon="light" aria-hidden="true"
-    viewBox="0 0 16 16" fill="none" stroke="currentColor"
-    stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8"
-    r="2.75"/><path
-    d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.23 3.23l1.06 1.06M11.71 11.71l1.06 1.06M12.77 3.23l-1.06 1.06M4.29 11.71l-1.06 1.06"/></svg><svg
-    class="icon appearance-resolved-icon" data-airplan-resolved-icon="dark"
-    aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path
-    d="M6.2 1.35a.75.75 0 0 1 .56.9A5.45 5.45 0 0 0 13.75 8.7a.75.75 0 0 1 .93.51.75.75 0 0 1-.22.77A7.15 7.15 0 1 1 5.43 1.46a.75.75 0 0 1 .77-.11Zm-1.18 1.9a5.65 5.65 0 1 0 7.54 7.13 6.95 6.95 0 0 1-7.54-7.13Z"/></svg></button>
+    title="Appearance"><svg class="icon appearance-resolved-icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" data-airplan-resolved-icon="light"><path d="M8 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0-1.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Zm5.657-8.157a.75.75 0 0 1 0 1.061l-1.061 1.06a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l1.06-1.06a.75.75 0 0 1 1.06 0Zm-9.193 9.193a.75.75 0 0 1 0 1.06l-1.06 1.061a.75.75 0 1 1-1.061-1.06l1.06-1.061a.75.75 0 0 1 1.061 0ZM8 0a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V.75A.75.75 0 0 1 8 0ZM3 8a.75.75 0 0 1-.75.75H.75a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 3 8Zm13 0a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 16 8Zm-8 5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 13Zm3.536-1.464a.75.75 0 0 1 1.06 0l1.061 1.06a.75.75 0 0 1-1.06 1.061l-1.061-1.06a.75.75 0 0 1 0-1.061ZM2.343 2.343a.75.75 0 0 1 1.061 0l1.06 1.061a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-1.06-1.06a.75.75 0 0 1 0-1.06Z"/></svg><svg class="icon appearance-resolved-icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" data-airplan-resolved-icon="dark"><path d="M9.598 1.591a.749.749 0 0 1 .785-.175 7.001 7.001 0 1 1-8.967 8.967.75.75 0 0 1 .961-.96 5.5 5.5 0 0 0 7.046-7.046.75.75 0 0 1 .175-.786Zm1.616 1.945a7 7 0 0 1-7.678 7.678 5.499 5.499 0 1 0 7.678-7.678Z"/></svg></button>
   <div class="appearance-panel" id="airplan-appearance-panel"
     data-airplan-appearance-panel role="group" aria-label="Appearance settings"
     hidden>
@@ -107,41 +99,22 @@ body{background:#fff;color:#1f2328}}
       <div class="mode-toggle appearance-modes" role="group"
         aria-labelledby="airplan-mode-label">
         <button type="button" data-airplan-color-mode="system"
-          aria-pressed="true"><svg class="icon" aria-hidden="true"
-          viewBox="0 0 16 16" fill="none" stroke="currentColor"
-          stroke-width="1.5" stroke-linecap="round"
-          stroke-linejoin="round"><rect x="1.5" y="2.5" width="13"
-          height="9" rx="1.25"/><path
-          d="M5.5 14h5M8 11.5V14"/></svg><span>System</span></button>
+          aria-pressed="true"><svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M14.25 1c.966 0 1.75.784 1.75 1.75v7.5A1.75 1.75 0 0 1 14.25 12h-3.727c.099 1.041.52 1.872 1.292 2.757A.752.752 0 0 1 11.25 16h-6.5a.75.75 0 0 1-.565-1.243c.772-.885 1.192-1.716 1.292-2.757H1.75A1.75 1.75 0 0 1 0 10.25v-7.5C0 1.784.784 1 1.75 1ZM1.75 2.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25ZM9.018 12H6.982a5.72 5.72 0 0 1-.765 2.5h3.566a5.72 5.72 0 0 1-.765-2.5Z"/></svg><span>System</span></button>
         <button type="button" data-airplan-color-mode="light"
-          aria-pressed="false"><svg class="icon" aria-hidden="true"
-          viewBox="0 0 16 16" fill="none" stroke="currentColor"
-          stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8"
-          r="2.75"/><path
-          d="M8 1.25v1.5M8 13.25v1.5M1.25 8h1.5M13.25 8h1.5M3.23 3.23l1.06 1.06M11.71 11.71l1.06 1.06M12.77 3.23l-1.06 1.06M4.29 11.71l-1.06 1.06"/></svg><span>Light</span></button>
+          aria-pressed="false"><svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M8 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0-1.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Zm5.657-8.157a.75.75 0 0 1 0 1.061l-1.061 1.06a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l1.06-1.06a.75.75 0 0 1 1.06 0Zm-9.193 9.193a.75.75 0 0 1 0 1.06l-1.06 1.061a.75.75 0 1 1-1.061-1.06l1.06-1.061a.75.75 0 0 1 1.061 0ZM8 0a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V.75A.75.75 0 0 1 8 0ZM3 8a.75.75 0 0 1-.75.75H.75a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 3 8Zm13 0a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 16 8Zm-8 5a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 13Zm3.536-1.464a.75.75 0 0 1 1.06 0l1.061 1.06a.75.75 0 0 1-1.06 1.061l-1.061-1.06a.75.75 0 0 1 0-1.061ZM2.343 2.343a.75.75 0 0 1 1.061 0l1.06 1.061a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-1.06-1.06a.75.75 0 0 1 0-1.06Z"/></svg><span>Light</span></button>
         <button type="button" data-airplan-color-mode="dark"
-          aria-pressed="false"><svg class="icon" aria-hidden="true"
-          viewBox="0 0 16 16" fill="currentColor"><path
-          d="M6.2 1.35a.75.75 0 0 1 .56.9A5.45 5.45 0 0 0 13.75 8.7a.75.75 0 0 1 .93.51.75.75 0 0 1-.22.77A7.15 7.15 0 1 1 5.43 1.46a.75.75 0 0 1 .77-.11Zm-1.18 1.9a5.65 5.65 0 1 0 7.54 7.13 6.95 6.95 0 0 1-7.54-7.13Z"/></svg><span>Dark</span></button>
+          aria-pressed="false"><svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M9.598 1.591a.749.749 0 0 1 .785-.175 7.001 7.001 0 1 1-8.967 8.967.75.75 0 0 1 .961-.96 5.5 5.5 0 0 0 7.046-7.046.75.75 0 0 1 .175-.786Zm1.616 1.945a7 7 0 0 1-7.678 7.678 5.499 5.499 0 1 0 7.678-7.678Z"/></svg><span>Dark</span></button>
       </div>
     </div>
     <label class="appearance-field" for="airplan-light-theme">
       <span class="appearance-label">Light theme</span>
       <span class="appearance-select"><select id="airplan-light-theme"
-        data-airplan-theme-slot="light"></select><svg
-        class="icon appearance-select-icon" data-airplan-select-icon
-        aria-hidden="true" viewBox="0 0 16 16" fill="none"
-        stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-        stroke-linejoin="round"><path d="m4 6 4 4 4-4"/></svg></span>
+        data-airplan-theme-slot="light"></select><svg class="icon appearance-select-icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" data-airplan-select-icon=""><path d="M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z"/></svg></span>
     </label>
     <label class="appearance-field" for="airplan-dark-theme">
       <span class="appearance-label">Dark theme</span>
       <span class="appearance-select"><select id="airplan-dark-theme"
-        data-airplan-theme-slot="dark"></select><svg
-        class="icon appearance-select-icon" data-airplan-select-icon
-        aria-hidden="true" viewBox="0 0 16 16" fill="none"
-        stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
-        stroke-linejoin="round"><path d="m4 6 4 4 4-4"/></svg></span>
+        data-airplan-theme-slot="dark"></select><svg class="icon appearance-select-icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor" data-airplan-select-icon=""><path d="M12.78 5.22a.749.749 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.06 0L3.22 6.28a.749.749 0 1 1 1.06-1.06L8 8.939l3.72-3.719a.749.749 0 0 1 1.06 0Z"/></svg></span>
     </label>
   </div>
 </div>
@@ -158,9 +131,9 @@ body{background:#fff;color:#1f2328}}
         <div class="meta">image/svg&#43;xml · 1.5 KiB</div>
       </div>
       <div class="actions">
-        <a href="./verification-summary.svg">Open</a>
-        <a href="./verification-summary.svg" download>Download</a>
-        <button type="button" data-copy="./verification-summary.svg">Copy link</button>
+        <a href="./verification-summary.svg"><svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z"/></svg><span>Open</span></a>
+        <a href="./verification-summary.svg" download><svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg><span>Download</span></a>
+        <button type="button" data-copy="./verification-summary.svg"><svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg><svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg><span class="action-label">Copy link</span></button>
       </div>
     </div>
     <div class="preview preview--image">
@@ -173,12 +146,12 @@ body{background:#fff;color:#1f2328}}
     <div class="file-header">
       <div class="details">
         <h2>checks.json</h2>
-        <div class="meta">text/plain; charset=utf-8 · 89 B</div>
+        <div class="meta">application/json · 89 B</div>
       </div>
       <div class="actions">
-        <a href="./checks.json">Open</a>
-        <a href="./checks.json" download>Download</a>
-        <button type="button" data-copy="./checks.json">Copy link</button>
+        <a href="./checks.json"><svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z"/></svg><span>Open</span></a>
+        <a href="./checks.json" download><svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg><span>Download</span></a>
+        <button type="button" data-copy="./checks.json"><svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg><svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg><span class="action-label">Copy link</span></button>
       </div>
     </div>
   </li>
@@ -189,9 +162,9 @@ body{background:#fff;color:#1f2328}}
         <div class="meta">text/plain; charset=utf-8 · 131 B</div>
       </div>
       <div class="actions">
-        <a href="./release-notes.txt">Open</a>
-        <a href="./release-notes.txt" download>Download</a>
-        <button type="button" data-copy="./release-notes.txt">Copy link</button>
+        <a href="./release-notes.txt"><svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M3.75 2h3.5a.75.75 0 0 1 0 1.5h-3.5a.25.25 0 0 0-.25.25v8.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.25 14h-8.5A1.75 1.75 0 0 1 2 12.25v-8.5C2 2.784 2.784 2 3.75 2Zm6.854-1h4.146a.25.25 0 0 1 .25.25v4.146a.25.25 0 0 1-.427.177L13.03 4.03 9.28 7.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.75-3.75-1.543-1.543A.25.25 0 0 1 10.604 1Z"/></svg><span>Open</span></a>
+        <a href="./release-notes.txt" download><svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14Z"/><path d="M7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06l1.97 1.969Z"/></svg><span>Download</span></a>
+        <button type="button" data-copy="./release-notes.txt"><svg class="icon icon-copy" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/><path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/></svg><svg class="icon icon-check" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg><span class="action-label">Copy link</span></button>
       </div>
     </div>
   </li>
@@ -199,46 +172,46 @@ body{background:#fff;color:#1f2328}}
 </div>
 <script>
 (() => {
-  function q(e) {
+  function P(e) {
     return e === "system" || e === "light" || e === "dark";
   }
-  function s(e, n) {
+  function T(e, a) {
     try {
-      return e?.getItem(n) ?? null;
+      return e?.getItem(a) ?? null;
     } catch {
       return null;
     }
   }
-  function E(e, n, o) {
+  function E(e, a, c) {
     try {
-      if (o === null)
-        e?.removeItem(n);
+      if (c === null)
+        e?.removeItem(a);
       else
-        e?.setItem(n, o);
+        e?.setItem(a, c);
     } catch {}
   }
-  function A(e, n, o) {
-    let a = s(o, "airplan-color-mode");
-    if (a === null) {
-      let p = s(o, "airplan-theme");
-      if (a = p === "light" || p === "dark" ? p : "system", a !== "system")
-        E(o, "airplan-color-mode", a);
+  function x(e, a, c) {
+    let o = T(c, "airplan-color-mode");
+    if (o === null) {
+      let p = T(c, "airplan-theme");
+      if (o = p === "light" || p === "dark" ? p : "system", o !== "system")
+        E(c, "airplan-color-mode", o);
     }
-    let u = q(a) ? a : "system", r = new Set(e.themes.map((p) => p.id)), i = s(o, "airplan-light-theme"), d = s(o, "airplan-dark-theme"), c = i !== null && r.has(i) ? i : e.defaultLight, m = d !== null && r.has(d) ? d : e.defaultDark;
-    return L(e, u, c, m, n);
+    let m = P(o) ? o : "system", d = new Set(e.themes.map((p) => p.id)), i = T(c, "airplan-light-theme"), r = T(c, "airplan-dark-theme"), n = i !== null && d.has(i) ? i : e.defaultLight, h = r !== null && d.has(r) ? r : e.defaultDark;
+    return C(e, m, n, h, a);
   }
-  function L(e, n, o, a, u) {
-    let r = new Map(e.themes.map((v) => [v.id, v])), i = r.has(o) ? o : e.defaultLight, d = r.has(a) ? a : e.defaultDark, c = n === "system" ? u ? "dark" : "light" : n, m = c === "light" ? i : d, p = r.get(m)?.variant ?? c;
-    return { mode: n, resolvedMode: c, lightTheme: i, darkTheme: d, theme: m, variant: p };
+  function C(e, a, c, o, m) {
+    let d = new Map(e.themes.map((v) => [v.id, v])), i = d.has(c) ? c : e.defaultLight, r = d.has(o) ? o : e.defaultDark, n = a === "system" ? m ? "dark" : "light" : a, h = n === "light" ? i : r, p = d.get(h)?.variant ?? n;
+    return { mode: a, resolvedMode: n, lightTheme: i, darkTheme: r, theme: h, variant: p };
   }
-  function H(e, n) {
-    if (n === "system")
+  function A(e, a) {
+    if (a === "system")
       E(e, "airplan-color-mode", null), E(e, "airplan-theme", null);
     else
-      E(e, "airplan-color-mode", n), E(e, "airplan-theme", n);
+      E(e, "airplan-color-mode", a), E(e, "airplan-theme", a);
   }
-  function x(e, n, o) {
-    E(e, n === "light" ? "airplan-light-theme" : "airplan-dark-theme", o);
+  function y(e, a, c) {
+    E(e, a === "light" ? "airplan-light-theme" : "airplan-dark-theme", c);
   }
   function B(e) {
     return {
@@ -250,113 +223,132 @@ body{background:#fff;color:#1f2328}}
   }
 
   (function() {
-    let e = document, n = e.documentElement;
+    let e = document, a = e.documentElement;
     e.querySelectorAll(".js-only").forEach((t) => {
       t.hidden = !1;
     });
-    let o = window.__AIRPLAN_THEME_CATALOG__;
-    if (!o)
+    let c = window.__AIRPLAN_THEME_CATALOG__;
+    if (!c)
       return;
-    let a = o, u = window.matchMedia("(prefers-color-scheme: dark)"), r;
+    let o = c, m = window.matchMedia("(prefers-color-scheme: dark)"), d;
     try {
-      r = window.localStorage;
+      d = window.localStorage;
     } catch {}
-    let i = window.__airplanThemeState ?? A(a, u.matches, r), d = e.querySelector("[data-airplan-appearance-trigger]"), c = e.querySelector("[data-airplan-appearance-panel]"), m = e.querySelector('select[data-airplan-theme-slot="light"]'), p = e.querySelector('select[data-airplan-theme-slot="dark"]'), v = Array.from(e.querySelectorAll("[data-airplan-color-mode]"));
-    function b(t) {
+    let i = window.__airplanThemeState ?? x(o, m.matches, d), r = e.querySelector("[data-airplan-appearance-trigger]"), n = e.querySelector("[data-airplan-appearance-panel]"), h = e.querySelector('select[data-airplan-theme-slot="light"]'), p = e.querySelector('select[data-airplan-theme-slot="dark"]'), v = Array.from(e.querySelectorAll("[data-airplan-color-mode]"));
+    if (n)
+      e.body.appendChild(n);
+    function M(t) {
       if (!t || t.options.length > 0)
         return;
-      for (let [l, f] of [
+      for (let [l, s] of [
         ["light", "Light themes"],
         ["dark", "Dark themes"]
       ]) {
-        let h = e.createElement("optgroup");
-        h.label = f;
-        for (let T of a.themes) {
-          if (T.variant !== l)
+        let u = e.createElement("optgroup");
+        u.label = s;
+        for (let f of o.themes) {
+          if (f.variant !== l)
             continue;
-          let C = e.createElement("option");
-          C.value = T.id, C.textContent = T.name, h.append(C);
+          let b = e.createElement("option");
+          b.value = f.id, b.textContent = f.name, u.append(b);
         }
-        if (h.children.length > 0)
-          t.append(h);
+        if (u.children.length > 0)
+          t.append(u);
       }
     }
-    b(m), b(p);
+    M(h), M(p);
     function _(t, l = !0) {
-      if (i = t, window.__airplanThemeState = i, n.dataset.airplanMode = i.mode, n.dataset.airplanResolvedMode = i.resolvedMode, n.dataset.airplanTheme = i.theme, n.dataset.airplanThemeVariant = i.variant, v.forEach((f) => {
-        let h = f.dataset.airplanColorMode === i.mode;
-        f.classList.toggle("active", h), f.setAttribute("aria-pressed", String(h));
-      }), m)
-        m.value = i.lightTheme;
+      if (i = t, window.__airplanThemeState = i, a.dataset.airplanMode = i.mode, a.dataset.airplanResolvedMode = i.resolvedMode, a.dataset.airplanTheme = i.theme, a.dataset.airplanThemeVariant = i.variant, v.forEach((s) => {
+        let u = s.dataset.airplanColorMode === i.mode;
+        s.classList.toggle("active", u), s.setAttribute("aria-pressed", String(u));
+      }), h)
+        h.value = i.lightTheme;
       if (p)
         p.value = i.darkTheme;
       if (l)
         window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: B(i) }));
     }
-    function S(t = {}) {
-      _(L(a, t.mode ?? i.mode, t.lightTheme ?? i.lightTheme, t.darkTheme ?? i.darkTheme, u.matches));
+    function w(t = {}) {
+      _(C(o, t.mode ?? i.mode, t.lightTheme ?? i.lightTheme, t.darkTheme ?? i.darkTheme, m.matches));
     }
-    function w(t, l = !1) {
-      if (!c || !d)
+    function L(t, l = !1) {
+      if (!n || !r)
         return;
-      if (c.hidden = !t, d.setAttribute("aria-expanded", String(t)), t)
-        c.querySelector("button,select")?.focus();
+      if (t)
+        S();
+      if (n.hidden = !t, r.setAttribute("aria-expanded", String(t)), t)
+        n.querySelector("button,select")?.focus();
       else if (l)
-        d.focus();
+        r.focus();
     }
-    d?.addEventListener("click", () => w(Boolean(c?.hidden ?? !0))), v.forEach((t) => t.addEventListener("click", () => {
+    function S() {
+      if (!n || !r)
+        return;
+      let t = r.getBoundingClientRect(), l = r.closest(".toolbar")?.getBoundingClientRect(), s = e.documentElement.clientWidth, u = Math.min(304, s - 32), f = Math.max(16, s - t.right);
+      n.style.setProperty("--airplan-appearance-top", `${(l?.bottom ?? t.bottom) + 8}px`), n.style.setProperty("--airplan-appearance-right", `${Math.min(f, Math.max(16, s - u - 16))}px`);
+    }
+    r?.addEventListener("click", () => L(Boolean(n?.hidden ?? !0))), v.forEach((t) => t.addEventListener("click", () => {
       let l = t.dataset.airplanColorMode;
       if (!l)
         return;
-      H(r, l), S({ mode: l });
+      A(d, l), w({ mode: l });
     }));
-    function M(t, l) {
-      x(r, t, l.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: l.value } })), S(t === "light" ? { lightTheme: l.value } : { darkTheme: l.value });
+    function H(t, l) {
+      y(d, t, l.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: l.value } })), w(t === "light" ? { lightTheme: l.value } : { darkTheme: l.value });
     }
-    m?.addEventListener("change", () => M("light", m)), p?.addEventListener("change", () => M("dark", p)), u.addEventListener("change", () => {
+    h?.addEventListener("change", () => H("light", h)), p?.addEventListener("change", () => H("dark", p)), m.addEventListener("change", () => {
       if (i.mode === "system")
-        S();
+        w();
     }), e.addEventListener("keydown", (t) => {
-      if (t.key === "Escape" && c && !c.hidden)
-        t.preventDefault(), w(!1, !0);
+      if (t.key === "Escape" && n && !n.hidden)
+        t.preventDefault(), L(!1, !0);
     }), e.addEventListener("pointerdown", (t) => {
-      if (!c || c.hidden || !d)
+      if (!n || n.hidden || !r)
         return;
       let l = t.target;
-      if (!(l instanceof Node) || c.contains(l) || d.contains(l))
+      if (!(l instanceof Node) || n.contains(l) || r.contains(l))
         return;
-      let h = (l instanceof Element ? l : l.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), T = c.contains(e.activeElement) && !h;
-      if (w(!1), T)
+      let u = (l instanceof Element ? l : l.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), f = n.contains(e.activeElement) && !u;
+      if (L(!1), f)
         setTimeout(() => {
-          if (e.activeElement === e.body || c.contains(e.activeElement))
-            d.focus();
+          if (e.activeElement === e.body || n.contains(e.activeElement))
+            r.focus();
         });
+    }), window.addEventListener("resize", () => {
+      if (n && !n.hidden)
+        S();
+    }), window.addEventListener("scroll", () => {
+      if (n && !n.hidden)
+        S();
     }), _(i, !1);
   })();
 
   (function() {
-    var e = document, n = new WeakMap;
-    e.addEventListener("click", function(o) {
-      let a = o.target instanceof Element ? o.target.closest("[data-copy],[data-copy-overview]") : null;
-      if (!a)
+    var e = document, a = new WeakMap;
+    e.addEventListener("click", function(c) {
+      let o = c.target instanceof Element ? c.target.closest("[data-copy],[data-copy-overview]") : null;
+      if (!o)
         return;
-      var u = a.hasAttribute("data-copy-overview") ? location.href : new URL(a.dataset.copy || "", e.baseURI).href;
+      var m = o.hasAttribute("data-copy-overview") ? location.href : new URL(o.dataset.copy || "", e.baseURI).href;
       if (!navigator.clipboard) {
-        prompt("Copy link", u);
+        prompt("Copy link", m);
         return;
       }
-      navigator.clipboard.writeText(u).then(function() {
-        var r = n.get(a);
-        if (r)
-          window.clearTimeout(r.timer);
-        var i = r ? r.label : a.textContent;
-        a.textContent = "Copied";
-        var d = window.setTimeout(function() {
-          a.textContent = i, n.delete(a);
+      navigator.clipboard.writeText(m).then(function() {
+        let d = o.querySelector(".action-label");
+        if (!d)
+          return;
+        var i = a.get(o);
+        if (i)
+          window.clearTimeout(i.timer);
+        var r = i ? i.label : d.textContent || "Copy link";
+        d.textContent = "Copied", o.classList.add("is-copied");
+        var n = window.setTimeout(function() {
+          d.textContent = r, o.classList.remove("is-copied"), a.delete(o);
         }, 1200);
-        n.set(a, { label: i, timer: d });
+        a.set(o, { label: r, timer: n });
       }, function() {
-        prompt("Copy link", u);
+        prompt("Copy link", m);
       });
     });
   })();

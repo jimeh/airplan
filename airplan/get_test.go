@@ -84,6 +84,70 @@ func TestGetUploadSelectsMarkerManagedObjects(t *testing.T) {
 	}
 }
 
+func TestGetUploadSelectsBundlePagesAssetsSourcesAndChildren(t *testing.T) {
+	dir := "abcdefghijklmnopqrstuvwxyz"
+	marker := validBundleMarkerV6()
+	marker.Directory = dir
+	markerBody, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := map[string][]byte{dir + "/" + MarkerFilename: markerBody}
+	for _, object := range marker.Objects {
+		objects[dir+"/"+object.Name] = []byte(object.Name)
+	}
+
+	for _, test := range []struct {
+		name   string
+		target string
+		opts   GetOptions
+		want   string
+	}{
+		{name: "entry from directory", target: dir, want: marker.Entrypoint},
+		{name: "entry source", target: dir, opts: GetOptions{Source: true}, want: marker.Pages[0].Source},
+		{name: "page selector", target: dir, opts: GetOptions{Page: marker.Pages[1].Path}, want: marker.Pages[1].Page},
+		{name: "page source selector", target: dir, opts: GetOptions{Page: marker.Pages[1].Path, Source: true}, want: marker.Pages[1].Source},
+		{name: "asset selector", target: dir, opts: GetOptions{Asset: "images/flow.svg"}, want: "images/flow.svg"},
+		{name: "managed page child", target: dir + "/" + marker.Pages[1].Page, want: marker.Pages[1].Page},
+		{name: "managed source child", target: dir + "/" + marker.Pages[1].Source, want: marker.Pages[1].Source},
+		{name: "asset child", target: dir + "/images/flow.svg", want: "images/flow.svg"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client := newInspectTestClient(t, newGetServer(t, objects).URL)
+			got, err := client.GetUpload(context.Background(), test.target, test.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantKey := dir + "/" + test.want
+			if got.Key != wantKey || string(got.Body) != test.want {
+				t.Fatalf("result = %+v, want %q with body %q", got, wantKey, test.want)
+			}
+		})
+	}
+}
+
+func TestGetUploadRejectsMutuallyExclusiveBundleSelectors(t *testing.T) {
+	dir := "abcdefghijklmnopqrstuvwxyz"
+	marker := validBundleMarkerV6()
+	marker.Directory = dir
+	markerBody, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objects := map[string][]byte{dir + "/" + MarkerFilename: markerBody}
+	for _, opts := range []GetOptions{
+		{Page: marker.Pages[1].Path, Asset: "images/flow.svg"},
+		{Asset: "images/flow.svg", Source: true},
+		{Page: marker.Pages[1].Path, Diff: true},
+	} {
+		client := newInspectTestClient(t, newGetServer(t, objects).URL)
+		if _, err := client.GetUpload(context.Background(), dir, opts); err == nil ||
+			!strings.Contains(err.Error(), "selectors are mutually exclusive") {
+			t.Fatalf("options = %+v, error = %v", opts, err)
+		}
+	}
+}
+
 func TestGetUploadRejectsInvalidSelection(t *testing.T) {
 	dir := "abcdefghijklmnopqrstuvwxyz"
 	markerBody := getTestMarker(t, dir, "plan.md")

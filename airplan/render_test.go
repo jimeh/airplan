@@ -87,7 +87,7 @@ func TestPageRevisionNavigationUsesValidatedInMemoryURL(t *testing.T) {
 	if strings.Contains(readablePageJS, "window.location.assign(select.value)") {
 		t.Fatal("revision navigation rereads an attacker-mutable URL from the DOM")
 	}
-	if !strings.Contains(readablePageJS, "[selected].safeURL") {
+	if !strings.Contains(readablePageJS, "target.safeURL") {
 		t.Fatal("revision navigation does not use the validated in-memory URL")
 	}
 }
@@ -244,11 +244,11 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 
 		last := -1
 		for _, fragment := range []string{
-			`class="viewtoggle`,
 			`class="copy-source`,
 			`class="download`,
 			`class="raw`,
 			`class="appearance`,
+			`class="viewtoggle`,
 		} {
 			position := strings.Index(out, fragment)
 			if position <= last {
@@ -277,6 +277,7 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 			`data-revision-heading`,
 			`Revision 2 of 3`,
 			`data-view="changes"`,
+			`title="Changes from revision 1"><svg class="icon"`,
 			`class="content changes-view"`,
 			`href="./.airplan-changes.diff"`,
 			`Changes from revision 1`,
@@ -531,7 +532,7 @@ func TestRenderMarkdownInteractivity(t *testing.T) {
 
 	for name, frag := range map[string]string{
 		"view toggle":           `class="viewtoggle mode-toggle js-only" hidden`,
-		"rendered label":        `<span>Rendered</span>`,
+		"read label":            `<span>Read</span>`,
 		"source label":          `<span>Source</span>`,
 		"pressed state":         `aria-pressed="true"`,
 		"copy source":           `class="copy-source js-only" hidden`,
@@ -586,6 +587,38 @@ func TestRenderMarkdownTableOfContents(t *testing.T) {
 			t.Errorf("ToC missing %q", fragment)
 		}
 	}
+}
+
+func TestRenderMarkdownTitleLedHeader(t *testing.T) {
+	t.Run("matching leading heading is suppressed in the body", func(t *testing.T) {
+		out := render(t, []byte("# Document title\n\nBody.\n"),
+			RenderOptions{Title: "Document title"})
+		for _, fragment := range []string{
+			`<header class="document-header">`,
+			`<h1>Document title</h1>`,
+			`<main class="content has-leading-title" id="rendered">`,
+		} {
+			if !strings.Contains(out, fragment) {
+				t.Errorf("title-led page missing %q", fragment)
+			}
+		}
+	})
+
+	t.Run("explicit title preserves a different authored heading", func(t *testing.T) {
+		out := render(t, []byte("# Authored heading\n\nBody.\n"),
+			RenderOptions{Title: "Explicit title"})
+		if strings.Contains(out, `class="content has-leading-title"`) {
+			t.Error("explicit title unexpectedly suppressed the authored heading")
+		}
+		for _, fragment := range []string{
+			`<h1>Explicit title</h1>`,
+			`<h1 id="authored-heading">Authored heading</h1>`,
+		} {
+			if !strings.Contains(out, fragment) {
+				t.Errorf("explicit-title page missing %q", fragment)
+			}
+		}
+	})
 }
 
 func TestRenderMarkdownIncludesNonLeadingH1InTableOfContents(t *testing.T) {
@@ -650,5 +683,54 @@ func TestRenderCustomTemplate(t *testing.T) {
 	}
 	if strings.Contains(got, `<div class="viewtoggle`) {
 		t.Error("custom template output contains built-in markup")
+	}
+}
+
+func TestRenderCustomTemplateReceivesPageAwareRevisionData(t *testing.T) {
+	tmpl := template.Must(template.New("revision").Parse(
+		`{{.RevisionChainID}}|{{.CurrentPage.Path}}|{{.PageChanged}}|` +
+			`{{.PageDiffText}}|{{if .HighlightedPageDiffHTML}}page-html{{end}}|` +
+			`{{.CompleteDiffText}}|{{if .HighlightedCompleteDiffHTML}}all-html{{end}}|` +
+			`{{.HasCompleteDiff}}|{{.AllChangesPath}}`,
+	))
+	out, err := RenderMarkdown([]byte("# X\n"), RenderOptions{
+		Title: "X", Slug: "x", Template: tmpl,
+		Revision: 2, PreviousRevision: 1, RevisionChainID: strings.Repeat("a", 26),
+		CurrentLogicalPath: "README.md", CurrentRenderedPath: "x.html",
+		Entrypoint: "x.html", DiffPath: "./" + DiffFilename,
+		PageChanged: true, PageDiffText: "page diff", CompleteDiffText: "all diff",
+		HasCompleteDiff: true, AllChangesPath: "x.html#airplan-all-changes",
+		structuredDiff: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		strings.Repeat("a", 26), "README.md|true|page diff|page-html",
+		"all diff|all-html|true|x.html#airplan-all-changes",
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("custom revision output lacks %q: %s", want, out)
+		}
+	}
+}
+
+func TestRenderCustomTemplateReceivesHighlightedLegacyDiff(t *testing.T) {
+	tmpl := template.Must(template.New("legacy-diff").Parse(
+		`{{.DiffText}}|{{if .HighlightedDiffHTML}}legacy-html{{end}}|` +
+			`{{if .HighlightedPageDiffHTML}}page-html{{end}}|` +
+			`{{if .HighlightedCompleteDiffHTML}}all-html{{end}}`,
+	))
+	diff := "--- revision-1/plan.md\n+++ revision-2/plan.md\n@@ -1 +1 @@\n-old\n+new\n"
+	out, err := RenderMarkdown([]byte("# X\n"), RenderOptions{
+		Title: "X", Slug: "x", Template: tmpl, DiffText: diff,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"revision-1/plan.md", "legacy-html|page-html|all-html"} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("custom legacy diff output lacks %q: %s", want, out)
+		}
 	}
 }

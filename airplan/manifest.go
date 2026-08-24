@@ -878,6 +878,13 @@ func manifestUploadMatchesTarget(rec ManifestRecord, target string) bool {
 			path.Base(targetURL.Path) != ".." {
 			return true
 		}
+		if manifestV6DocumentChildMatches(
+			rec,
+			strings.Trim(targetURL.Path, "/"),
+			strings.Trim(path.Dir(recordURL.Path), "/"),
+		) {
+			return true
+		}
 	}
 
 	candidates := []string{
@@ -895,6 +902,11 @@ func manifestUploadMatchesTarget(rec ManifestRecord, target string) bool {
 				return true
 			}
 		}
+		if manifestV6DocumentChildMatches(
+			rec, targetKey, strings.TrimSuffix(dirPrefix, "/"),
+		) {
+			return true
+		}
 	}
 	for _, candidate := range candidates {
 		if candidate == "" {
@@ -906,6 +918,19 @@ func manifestUploadMatchesTarget(rec ManifestRecord, target string) bool {
 		}
 	}
 	return false
+}
+
+func manifestV6DocumentChildMatches(
+	rec ManifestRecord, target, directory string,
+) bool {
+	if rec.Kind != string(UploadKindDocument) || rec.MarkerVersion < 6 {
+		return false
+	}
+	relative := strings.TrimPrefix(target, directory+"/")
+	if relative == target || relative == "" {
+		return false
+	}
+	return validMarkerObjectPath(relative) || relative == DiffFilename
 }
 
 func isHTTPURL(value *url.URL) bool {

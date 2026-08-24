@@ -27,6 +27,25 @@ func TestPrintInspectionShowsRevisionErrorWithoutResolvedRevision(t *testing.T) 
 	}
 }
 
+func TestPrintInspectionSkipsNilManagedObjects(t *testing.T) {
+	var output bytes.Buffer
+	err := printInspection(&output, &airplan.UploadInspection{
+		State: airplan.UploadComplete,
+		Page: &airplan.InspectedObject{
+			Key: "plan.html", URL: "https://example.test/plan.html",
+		},
+		Pages:  []airplan.InspectedPage{{}},
+		Assets: []*airplan.InspectedObject{nil},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(output.String(), "MANAGED PAGE") ||
+		strings.Contains(output.String(), "ASSET") {
+		t.Fatalf("nil objects were printed:\n%s", output.String())
+	}
+}
+
 func TestShowCommandHumanAndJSON(t *testing.T) {
 	createdAt := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)
 	body, err := airplan.EncodeUploadMarker(airplan.UploadMarker{

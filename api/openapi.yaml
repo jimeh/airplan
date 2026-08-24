@@ -75,6 +75,16 @@ paths:
                 document:
                   type: string
                   format: binary
+                pages:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                assets:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
             encoding:
               metadata:
                 contentType: application/json
@@ -87,9 +97,9 @@ paths:
                 $ref: "#/components/schemas/UploadResult"
         default:
           $ref: "#/components/responses/Problem"
-  /api/v1/uploads/documents/update:
+  /api/v1/uploads/documents/revisions:
     post:
-      operationId: updateDocument
+      operationId: createDocumentRevision
       tags: [uploads]
       requestBody:
         required: true
@@ -101,10 +111,20 @@ paths:
               required: [metadata, document]
               properties:
                 metadata:
-                  $ref: "#/components/schemas/UpdateDocumentMetadata"
+                  $ref: "#/components/schemas/CreateDocumentRevisionMetadata"
                 document:
                   type: string
                   format: binary
+                pages:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                assets:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
             encoding:
               metadata:
                 contentType: application/json
@@ -114,7 +134,48 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/UpdateDocumentResult"
+                $ref: "#/components/schemas/DocumentRevisionResult"
+        default:
+          $ref: "#/components/responses/Problem"
+  /api/v1/uploads/documents/update:
+    post:
+      operationId: updateDocument
+      tags: [uploads]
+      deprecated: true
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [metadata, document]
+              properties:
+                metadata:
+                  $ref: "#/components/schemas/CreateDocumentRevisionMetadata"
+                document:
+                  type: string
+                  format: binary
+                pages:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                assets:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+            encoding:
+              metadata:
+                contentType: application/json
+      responses:
+        "201":
+          description: A linked document revision was uploaded or repaired.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DocumentRevisionResult"
         default:
           $ref: "#/components/responses/Problem"
   /api/v1/uploads/collections:
@@ -523,6 +584,36 @@ components:
           items:
             type: integer
             minimum: 1
+        document_bundle:
+          $ref: "#/components/schemas/DocumentBundleCapabilities"
+          x-go-type-skip-optional-pointer: false
+    DocumentBundleCapabilities:
+      type: object
+      additionalProperties: false
+      required:
+        - managed_pages
+        - assets
+        - canonical_revision_route
+        - max_items
+        - max_page_bytes
+        - max_total_page_bytes
+        - max_generated_page_bytes
+        - max_asset_bytes
+        - max_total_asset_bytes
+        - max_metadata_bytes
+        - max_request_bytes
+      properties:
+        managed_pages: {type: boolean}
+        assets: {type: boolean}
+        canonical_revision_route: {type: boolean}
+        max_items: {type: integer, minimum: 1}
+        max_page_bytes: {type: integer, format: int64, minimum: 1}
+        max_total_page_bytes: {type: integer, format: int64, minimum: 1}
+        max_generated_page_bytes: {type: integer, format: int64, minimum: 1}
+        max_asset_bytes: {type: integer, format: int64, minimum: 1}
+        max_total_asset_bytes: {type: integer, format: int64, minimum: 1}
+        max_metadata_bytes: {type: integer, format: int64, minimum: 1}
+        max_request_bytes: {type: integer, format: int64, minimum: 1}
     UpgradeState:
       type: string
       enum: [upgradeable, current, ineligible, invalid, missing]
@@ -563,6 +654,12 @@ components:
         marker_etag: {type: string}
         page_etag: {type: string}
         source_etag: {type: string}
+        page_etags:
+          type: object
+          additionalProperties: {type: string}
+        source_etags:
+          type: object
+          additionalProperties: {type: string}
         force: {type: boolean}
     UpgradeDocumentResult:
       type: object
@@ -661,6 +758,50 @@ components:
           type: integer
           format: int64
           minimum: 1
+          deprecated: true
+        max_page_size:
+          type: integer
+          format: int64
+          minimum: 1
+        max_total_page_size:
+          type: integer
+          format: int64
+          minimum: 1
+        max_asset_size:
+          type: integer
+          format: int64
+          minimum: 1
+        max_total_size:
+          type: integer
+          format: int64
+          minimum: 1
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentPageDescriptor"
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentAssetDescriptor"
+    DocumentPageDescriptor:
+      type: object
+      additionalProperties: false
+      required: [path]
+      properties:
+        path: {type: string, minLength: 1}
+        format:
+          type: string
+          enum: [md, txt]
+        title: {type: string}
+        lang: {type: string}
+    DocumentAssetDescriptor:
+      type: object
+      additionalProperties: false
+      required: [path, size]
+      properties:
+        path: {type: string, minLength: 1}
+        size: {type: integer, format: int64, minimum: 0}
+        content_type: {type: string}
     CollectionMetadata:
       type: object
       additionalProperties: false
@@ -700,6 +841,10 @@ components:
         diff:
           type: boolean
           default: false
+        page:
+          type: string
+        asset:
+          type: string
     DeleteRequest:
       type: object
       additionalProperties: false
@@ -823,7 +968,15 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FileResult"
-    UpdateDocumentMetadata:
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/PageResult"
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetResult"
+    CreateDocumentRevisionMetadata:
       type: object
       additionalProperties: false
       required: [target]
@@ -839,7 +992,38 @@ components:
           type: integer
           format: int64
           minimum: 1
-    UpdateDocumentResult:
+          deprecated: true
+        max_page_size:
+          type: integer
+          format: int64
+          minimum: 1
+        max_total_page_size:
+          type: integer
+          format: int64
+          minimum: 1
+        max_asset_size:
+          type: integer
+          format: int64
+          minimum: 1
+        max_total_size:
+          type: integer
+          format: int64
+          minimum: 1
+        format:
+          type: string
+          enum: [md, html, txt]
+        slug: {type: string}
+        lang: {type: string}
+        repository_url: {type: string, format: uri}
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentPageDescriptor"
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/DocumentAssetDescriptor"
+    DocumentRevisionResult:
       type: object
       additionalProperties: false
       required:
@@ -887,6 +1071,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/FileResult"
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/PageResult"
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/AssetResult"
         previous_url: {type: string, format: uri}
         diff_url: {type: string, format: uri}
         unchanged: {type: boolean}
@@ -908,6 +1100,30 @@ components:
           minimum: 0
         content_type:
           type: string
+    PageResult:
+      type: object
+      additionalProperties: false
+      required: [path, format, url, key, bytes]
+      properties:
+        path: {type: string}
+        format: {type: string}
+        title: {type: string}
+        url: {type: string, format: uri}
+        key: {type: string}
+        source_url: {type: string, format: uri}
+        source_key: {type: string}
+        bytes: {type: integer, format: int64, minimum: 0}
+        source_bytes: {type: integer, format: int64, minimum: 0}
+    AssetResult:
+      type: object
+      additionalProperties: false
+      required: [path, url, key, bytes, content_type]
+      properties:
+        path: {type: string}
+        url: {type: string, format: uri}
+        key: {type: string}
+        bytes: {type: integer, format: int64, minimum: 0}
+        content_type: {type: string}
     VersionsRevision:
       type: object
       additionalProperties: false
@@ -943,8 +1159,13 @@ components:
     InspectedObject:
       type: object
       additionalProperties: false
-      required: [key, exists, bytes, expected_bytes, expected_known]
+      required: [name, role, key, exists, bytes, expected_bytes, expected_known, sha256, expected_sha256]
       properties:
+        name:
+          type: string
+        role:
+          type: string
+          enum: [page, source, file, diff, asset]
         key:
           type: string
         url:
@@ -962,6 +1183,10 @@ components:
           minimum: 0
         expected_known:
           type: boolean
+        sha256:
+          type: string
+        expected_sha256:
+          type: string
     UploadInspection:
       type: object
       additionalProperties: false
@@ -1039,6 +1264,14 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/InspectedObject"
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/InspectedPage"
+        assets:
+          type: array
+          items:
+            $ref: "#/components/schemas/InspectedObject"
         protected:
           type: boolean
         protected_at:
@@ -1053,6 +1286,20 @@ components:
             type: string
         error:
           type: string
+    InspectedPage:
+      type: object
+      additionalProperties: false
+      required: [path, format, lang, page]
+      properties:
+        path: {type: string}
+        format: {type: string}
+        title: {type: string}
+        lang: {type: string}
+        page:
+          $ref: "#/components/schemas/InspectedObject"
+        source:
+          $ref: "#/components/schemas/InspectedObject"
+          x-go-type-skip-optional-pointer: false
     DeleteResult:
       type: object
       additionalProperties: false

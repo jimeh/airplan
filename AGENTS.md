@@ -65,6 +65,8 @@ coverage has no equivalent local task on non-Windows hosts.
   contract-sensitive, including deletions and moves out of those paths. Local
   policy findings fail; PR CI reports them as warnings while signal quality
   matures. Git and parsing errors always fail.
+  The checker reads the current contract from `HEAD`, not the working tree or
+  index, so run it after committing the contract change.
 - **CLI tests must clear `AIRPLAN_*` selectors**: worktree-local
   `mise.local.toml` commonly exports `AIRPLAN_PROFILE`, so `mise run check`
   runs `go test` with it set while a bare `go test` may not. Local listing
@@ -156,6 +158,9 @@ coverage has no equivalent local task on non-Windows hosts.
   `globalSetup` builds `bin/airplan-browser` once for the whole run, because
   hooks carry a 30s timeout that a cold Go cache overruns and every project
   would otherwise repeat the build. Global setup has no such deadline.
+- **Top-level browser and handoff checks are not worktree-concurrent**: run
+  `mise run check` and `mise run test:browser` sequentially. Browser result
+  cleanup can remove `test-results/` while the formatter is scanning it.
 - **Print disclosures**: Chromium hides closed `details` content through its
   `::details-content` box. Forced child display can expose hidden, script, or
   style content; use the pseudo-element fallback plus `beforeprint`/`afterprint`
@@ -254,6 +259,11 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Real R2 release smoke tests may use `AIRPLAN_TIMEOUT=60s`** when
   local firewall approval could interrupt the sequence. The product
   default remains 30 seconds.
+- **Unsigned macOS development binaries may be denied R2 access** even when
+  the public URL and an installed Developer ID-signed Airplan binary work.
+  Confirm the signature difference before diagnosing storage. For a local
+  smoke or demo refresh, sign a temporary build with an available Developer ID
+  identity and verify it; never overwrite the managed installation.
 
 ## Layout
 

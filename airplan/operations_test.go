@@ -113,6 +113,49 @@ func TestPurgeStandaloneGuardSurvivesInspectDeleteRace(t *testing.T) {
 	}
 }
 
+func TestPurgeStandaloneVersionGuardDoesNotReadPayloadBodies(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	assetBody := []byte("asset")
+	uploaded, err := client.UploadDocument(context.Background(), DocumentInput{
+		Entry: PageInput{
+			Reader: strings.NewReader("# Plan\n"), Path: "plan.md",
+		},
+		Assets: []AssetInput{{
+			Reader: bytes.NewReader(assetBody), Path: "asset.bin",
+			Size: int64(len(assetBody)),
+		}},
+		RepositoryURL: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloadKeys := []string{uploaded.Key, uploaded.SourceKey, uploaded.Assets[0].Key}
+	store.mu.Lock()
+	before := make(map[string]int, len(payloadKeys))
+	for _, key := range payloadKeys {
+		before[key] = store.getKeyAttempts[key]
+	}
+	store.mu.Unlock()
+
+	result, err := client.Purge(context.Background(), PurgeRequest{
+		UploadIDs: []string{uploaded.ID},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 1 || result.Items[0].Deleted == nil {
+		t.Fatalf("purge result = %+v", result)
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	for _, key := range payloadKeys {
+		if got := store.getKeyAttempts[key]; got != before[key] {
+			t.Errorf("payload GETs for %q = %d -> %d", key, before[key], got)
+		}
+	}
+}
+
 type unorderedListTransport struct {
 	operationTransport
 	list *ManifestList

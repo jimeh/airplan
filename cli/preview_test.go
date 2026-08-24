@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -81,6 +82,141 @@ func TestPreviewRendersCollectionWithCustomTemplate(t *testing.T) {
 	}
 }
 
+func TestPreviewMaterializesDocumentBundle(t *testing.T) {
+	isolateEnv(t)
+	root := t.TempDir()
+	entry := filepath.Join(root, "plan.md")
+	page := filepath.Join(root, "docs", "design.md")
+	asset := filepath.Join(root, "images", "flow.svg")
+	for name, body := range map[string]string{
+		entry: "# Plan\n\n[Design](docs/design.md)\n",
+		page:  "# Design\n",
+		asset: "<svg>flow</svg>",
+	} {
+		if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(name, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	destination := filepath.Join(root, "preview")
+	cmd := newRootCmd()
+	var stdout bytes.Buffer
+	cmd.SetOut(&stdout)
+	cmd.SetArgs([]string{
+		"preview", "--repo", "none", "--page", page, "--asset", asset,
+		"--output-dir", destination, entry,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+	for name, fragment := range map[string]string{
+		"plan.html":        `href="docs/design.html"`,
+		"plan.md":          "# Plan",
+		"docs/design.html": `<meta name="airplan-versions" content="../.airplan-versions.json">`,
+		"docs/design.md":   "# Design",
+		"images/flow.svg":  "<svg>flow</svg>",
+	} {
+		body, err := os.ReadFile(filepath.Join(destination, filepath.FromSlash(name)))
+		if err != nil || !bytes.Contains(body, []byte(fragment)) {
+			t.Fatalf("%s = %q, error = %v; want %q", name, body, err, fragment)
+		}
+	}
+	second := newRootCmd()
+	second.SetArgs([]string{
+		"preview", "--repo", "none", "--page", page, "--asset", asset,
+		"--output-dir", destination, entry,
+	})
+	if err := second.Execute(); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("second preview error = %v", err)
+	}
+}
+
+func TestPreviewInfersDocumentBundleFromPositionalFiles(t *testing.T) {
+	isolateEnv(t)
+	root := t.TempDir()
+	entry := filepath.Join(root, "README.md")
+	page := filepath.Join(root, "guide.md")
+	asset := filepath.Join(root, "flow.svg")
+	for name, body := range map[string]string{
+		entry: "# Entry\n", page: "# Guide\n", asset: "<svg></svg>",
+	} {
+		if err := os.WriteFile(name, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	destination := filepath.Join(root, "preview")
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{
+		"preview", "--repo", "none", "--output-dir", destination,
+		page, asset, entry,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"readme.html", "guide.html", "flow.svg"} {
+		if _, err := os.Stat(filepath.Join(destination, name)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestPreviewOutputDirNoSource(t *testing.T) {
+	isolateEnv(t)
+	root := t.TempDir()
+	entry := filepath.Join(root, "plan.md")
+	if err := os.WriteFile(entry, []byte("# Plan\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(root, "preview")
+	cmd := newRootCmd()
+	cmd.SetArgs([]string{
+		"preview", "--repo", "none", "--no-source", "--output-dir", destination,
+		entry,
+	})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "plan.html")); err != nil {
+		t.Fatalf("generated page: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "plan.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("source exists under --no-source: %v", err)
+	}
+}
+
+func TestDocumentPreviewRemovesPrivateStagingAfterCopyFailure(t *testing.T) {
+	isolateEnv(t)
+	root := t.TempDir()
+	destination := filepath.Join(root, "preview")
+	_, err := airplan.MaterializeDocument(context.Background(),
+		airplan.DocumentInput{
+			Entry: airplan.PageInput{
+				Reader: strings.NewReader("# Plan\n"), Path: "plan.md",
+			},
+			Assets: []airplan.AssetInput{{
+				Path: "asset.bin", Reader: bytes.NewReader(nil), Size: 1,
+			}},
+		}, airplan.DocumentRenderOptions{}, destination)
+	if err == nil {
+		t.Fatalf("error = %v", err)
+	}
+	if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("failed preview destination exists: %v", err)
+	}
+	matches, err := filepath.Glob(filepath.Join(root, ".airplan-preview-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 0 {
+		t.Fatalf("preview staging remains after failure: %v", matches)
+	}
+}
+
 func TestDocumentPreviewRejectsNamedNonRegularInput(t *testing.T) {
 	isolateEnv(t)
 	cmd := newRootCmd()
@@ -96,7 +232,6 @@ func TestDocumentPreviewRejectsNamedNonRegularInput(t *testing.T) {
 func TestDocumentPreviewRejectsCollectionOnlyFlags(t *testing.T) {
 	for _, flag := range []string{
 		"--collection-template=collection.tmpl",
-		"--max-total-size=1MiB",
 	} {
 		t.Run(flag, func(t *testing.T) {
 			isolateEnv(t)
@@ -106,6 +241,32 @@ func TestDocumentPreviewRejectsCollectionOnlyFlags(t *testing.T) {
 			err := cmd.Execute()
 			if err == nil || !strings.Contains(
 				err.Error(), "only valid for collection previews",
+			) {
+				t.Fatalf("error = %v", err)
+			}
+		})
+	}
+}
+
+func TestSingleDocumentPreviewRejectsMaxTotalSize(t *testing.T) {
+	for _, outputDir := range []bool{false, true} {
+		t.Run(fmt.Sprintf("output-dir=%t", outputDir), func(t *testing.T) {
+			isolateEnv(t)
+			dir := t.TempDir()
+			input := filepath.Join(dir, "plan.md")
+			if err := os.WriteFile(input, []byte("# Plan\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"preview", "--max-total-size=1MiB"}
+			if outputDir {
+				args = append(args, "--output-dir", filepath.Join(dir, "preview"))
+			}
+			args = append(args, input)
+			cmd := newRootCmd()
+			cmd.SetArgs(args)
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(
+				err.Error(), "only valid for document bundle or collection previews",
 			) {
 				t.Fatalf("error = %v", err)
 			}
@@ -230,6 +391,28 @@ func TestPreviewExternalAssetFlagExplicitFalseOverridesEnvironment(t *testing.T)
 	}
 	if !strings.Contains(stdout.String(), "cdn.jsdelivr.net/npm/mermaid@") {
 		t.Fatal("explicit false did not re-enable Mermaid module loading")
+	}
+}
+
+func TestCollectionPreviewRejectsDocumentBundleSizeFlags(t *testing.T) {
+	for _, flag := range []string{
+		"--max-total-page-size=1MiB", "--max-asset-size=1MiB",
+	} {
+		t.Run(flag, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "file.txt")
+			if err := os.WriteFile(file, []byte("body"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			isolateEnv(t)
+			cmd := newRootCmd()
+			cmd.SetArgs([]string{"preview", "--collection", flag, file})
+			err := cmd.Execute()
+			if err == nil || !strings.Contains(
+				err.Error(), "only valid for document previews",
+			) {
+				t.Fatalf("error = %v", err)
+			}
+		})
 	}
 }
 
@@ -457,7 +640,8 @@ func TestPreviewCustomTemplateReceivesCanonicalData(t *testing.T) {
 		`<title>{{.Title}}</title>`,
 		`<i>{{.Format}}|{{.Language}}|{{.SourceName}}|`,
 		`{{len .Headings}}|{{len .TOC}}|{{.Indexable}}|`,
-		`{{.SourcePath}}</i><pre>{{.SourceText}}</pre>`,
+		`{{.SourcePath}}|{{len .Pages}}|{{.CurrentPage.Path}}|`,
+		`{{.Entrypoint}}</i><pre>{{.SourceText}}</pre>`,
 		`<style>{{.SyntaxCSS}}</style>`,
 		`<main>{{.RenderedHTML}}</main>`,
 		`<aside>{{.HighlightedSourceHTML}}</aside>`,
@@ -479,7 +663,7 @@ func TestPreviewCustomTemplateReceivesCanonicalData(t *testing.T) {
 	got := stdout.String()
 	for _, fragment := range []string{
 		"<title>Plan</title>",
-		"md|md|plan.md|3|2|true|",
+		"md|md|plan.md|3|2|true||1|plan.md|plan.html",
 		"# Plan",
 		`<h2 id="first">First</h2>`,
 		`class="chroma"`,
