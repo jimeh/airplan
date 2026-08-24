@@ -256,6 +256,8 @@ body {
   white-space: nowrap;
   width: 1px;
   height: 1px;
+  top: 0;
+  left: 0;
 }
 
 [hidden] {
@@ -1490,6 +1492,11 @@ pre code {
 pre.mermaid {
   white-space: pre-wrap;
   max-width: 100%;
+}
+
+body > .mermaidTooltip {
+  top: 0;
+  left: 0;
 }
 
 pre.mermaid.mermaid-rendered {

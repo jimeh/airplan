@@ -495,6 +495,12 @@ test("short documents keep the first ToC item active near the page top", async (
   await page.setViewportSize({ width: 1400, height: 800 });
   await page.goto(shortURL);
 
+  const viewportGeometry = await page.evaluate(() => ({
+    clientHeight: document.documentElement.clientHeight,
+    scrollHeight: document.documentElement.scrollHeight,
+  }));
+  expect(viewportGeometry.scrollHeight).toBe(viewportGeometry.clientHeight);
+
   const tocLinks = page.locator("#toc .toc-list a");
   await expect(tocLinks).toHaveCount(2);
   await expect(tocLinks.first()).toHaveClass(/active/);

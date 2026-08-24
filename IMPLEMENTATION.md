@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.60.0.
+may contradict it. Targets spec version 0.61.0.
 
 ---
 
@@ -268,7 +268,9 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   built-ins. Both commands therefore emit complete, standalone, reusable
   templates without exposing internal bake markers. Collection overview and
   member actions use the same generated icon-and-label controls as document
-  actions, including the copy-to-copied state transition.
+  actions, including the copy-to-copied state transition. Body-level hidden
+  helpers have explicit resting coordinates so they cannot extend the document
+  beyond its full-viewport shell.
 - Built-in multi-page navigation remains server-rendered. Rendering derives a
   directory tree from the ordered page list while preserving that flat list for
   previous/next sequencing. Directories are static visual groups, and every page
@@ -305,7 +307,7 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   from the floating Contents trigger. The complete-diff header keeps its return and raw links above
   the report, reuses metadata-backed revision pickers, and hides compact Pages
   navigation. This page structure uses
-  `RendererGeneration` 28.
+  `RendererGeneration` 29.
 - Document templates: Go `html/template`. Canonical template data exposes the
   raw source string, rendered and highlighted `template.HTML`, Chroma's
   `template.CSS`, safe theme CSS/catalog metadata, structured headings/ToC

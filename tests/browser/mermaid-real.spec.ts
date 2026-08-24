@@ -8,13 +8,14 @@ import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 import { binaryPath, cleanEnv, repoRoot } from "./airplan-binary.ts";
 
 const execFileAsync = promisify(execFile);
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturePath = join(here, "testdata", "real-mermaid.md");
+const shortFixturePath = join(here, "testdata", "scroll-overflow.md");
 const manifestPath = join(repoRoot, "internal", "deps", "mermaid.json");
 const packageJSONPath = join(repoRoot, "package.json");
 
@@ -46,21 +47,29 @@ test.beforeAll(async () => {
 
   tempRoot = await mkdtemp(join(tmpdir(), "airplan-real-mermaid-"));
   const outputPath = join(tempRoot, "index.html");
+  const shortOutputPath = join(tempRoot, "short.html");
   await execFileAsync(
     binaryPath,
     ["preview", "--repo", "none", "--output", outputPath, fixturePath],
     { cwd: repoRoot, env: cleanEnv() },
   );
+  await execFileAsync(
+    binaryPath,
+    ["preview", "--repo", "none", "--output", shortOutputPath, shortFixturePath],
+    { cwd: repoRoot, env: cleanEnv() },
+  );
   const html = await readFile(outputPath);
+  const shortHTML = await readFile(shortOutputPath);
   expect(html.toString()).toContain(`${mermaidDistURL}mermaid.esm.min.mjs`);
 
   server = createServer((request, response) => {
-    if (request.url !== "/") {
+    const body = request.url === "/" ? html : request.url === "/short" ? shortHTML : null;
+    if (body === null) {
       response.writeHead(404).end();
       return;
     }
     response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    response.end(html);
+    response.end(body);
   });
   await new Promise<void>((resolveListen, reject) => {
     server.once("error", reject);
@@ -78,6 +87,24 @@ test.afterAll(async () => {
   }
   if (tempRoot) await rm(tempRoot, { recursive: true, force: true });
 });
+
+async function routeMermaidRuntime(page: Page) {
+  const mermaidDistPath = new URL(mermaidDistURL).pathname;
+  await page.route(`${mermaidDistURL}**`, async (route) => {
+    const requestURL = new URL(route.request().url());
+    const relativePath = decodeURIComponent(requestURL.pathname.slice(mermaidDistPath.length));
+    const localPath = resolve(mermaidDistRoot, relativePath);
+    if (!localPath.startsWith(`${mermaidDistRoot}${sep}`)) {
+      await route.abort();
+      return;
+    }
+    await route.fulfill({
+      contentType: "text/javascript; charset=utf-8",
+      headers: { "Access-Control-Allow-Origin": "*" },
+      path: localPath,
+    });
+  });
+}
 
 test("renders the pinned Mermaid runtime and keeps diagrams interactive", async ({
   page,
@@ -104,21 +131,7 @@ test("renders the pinned Mermaid runtime and keeps diagrams interactive", async 
     }
   });
 
-  const mermaidDistPath = new URL(mermaidDistURL).pathname;
-  await page.route(`${mermaidDistURL}**`, async (route) => {
-    const requestURL = new URL(route.request().url());
-    const relativePath = decodeURIComponent(requestURL.pathname.slice(mermaidDistPath.length));
-    const localPath = resolve(mermaidDistRoot, relativePath);
-    if (!localPath.startsWith(`${mermaidDistRoot}${sep}`)) {
-      await route.abort();
-      return;
-    }
-    await route.fulfill({
-      contentType: "text/javascript; charset=utf-8",
-      headers: { "Access-Control-Allow-Origin": "*" },
-      path: localPath,
-    });
-  });
+  await routeMermaidRuntime(page);
 
   await page.goto(baseURL);
 
@@ -157,4 +170,22 @@ test("renders the pinned Mermaid runtime and keeps diagrams interactive", async 
   await expect(viewer).toBeVisible();
   await expect(viewer.locator(".mermaid-surface > svg")).toContainText("Rendered plan");
   expect(browserErrors, "the real Mermaid runtime emitted browser errors").toEqual([]);
+});
+
+test("short documents do not overflow after the real Mermaid runtime loads", async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "one project covers the real runtime");
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await routeMermaidRuntime(page);
+  await page.goto(`${baseURL}/short`);
+
+  await expect(page.locator("pre.mermaid > svg")).toHaveCount(1);
+  await expect(page.locator("body > .mermaidTooltip")).toHaveCount(1);
+  const viewportGeometry = await page.evaluate(() => ({
+    clientHeight: document.documentElement.clientHeight,
+    scrollHeight: document.documentElement.scrollHeight,
+  }));
+  expect(viewportGeometry.scrollHeight).toBe(viewportGeometry.clientHeight);
 });
