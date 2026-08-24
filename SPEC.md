@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.59.0**
+**Spec version: 0.60.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -312,8 +312,10 @@ described below.
   explicit control that opens its currently displayed SVG in one reused native
   dialog. Inline diagrams remain passive. The viewer initially fits the
   diagram without enlarging it beyond its natural size, supports 5%–800% zoom
-  through buttons, pointer-anchored wheel input, and `+`/`-`/`0` keys, and
-  supports drag and arrow-key panning with a larger Shift step. The cloned SVG
+  through buttons, delta-proportional pointer-anchored wheel input, two-pointer
+  pinch input, and `+`/`-`/`0` keys, and supports one-pointer drag and arrow-key
+  panning with a larger Shift step. Pointer activation does not leave the
+  keyboard-only canvas focus indicator visible. The cloned SVG
   remains vector-rendered throughout that range so diagram lines and labels
   stay sharp at high magnification. Escape,
   backdrop, and close controls dismiss it and restore focus. Theme changes
@@ -529,7 +531,7 @@ built-in navigation, transition CSS, or JavaScript.
 The title-led page structure, segmented path breadcrumb, directory-grouped
 managed-page navigation, revision-aware content modes, transition CSS,
 built-in control icon set, and sharp vector Mermaid viewer define renderer
-generation 27. Single-page output also uses generation 27 because
+generation 28. Single-page output also uses generation 28 because
 the current writer has one renderer generation for all generated pages.
 
 ### Plain-text input

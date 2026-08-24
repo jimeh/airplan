@@ -1560,6 +1560,10 @@ pre.mermaid:hover > .mermaid-open, pre.mermaid:focus-within > .mermaid-open {
   outline-offset: 2px;
 }
 
+.mermaid-canvas.mermaid-canvas-pointer-focus:focus {
+  outline: none;
+}
+
 .mermaid-open .icon {
   width: 15px;
   height: 15px;

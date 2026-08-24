@@ -2848,6 +2848,127 @@ test("Mermaid opener media behavior follows input and motion preferences", async
   }
 });
 
+test("Mermaid viewer supports touch pinch zoom without a persistent focus ring", async ({
+  browser,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "desktop-light",
+    "one project covers touch viewer interactions",
+  );
+
+  const touchContext = await browser.newContext({
+    colorScheme: "dark",
+    hasTouch: true,
+    viewport: { width: 390, height: 844 },
+  });
+  try {
+    const touchPage = await touchContext.newPage();
+    await touchPage.route(mermaidURL, (route) =>
+      route.fulfill({
+        body: mermaidModule,
+        contentType: "application/javascript",
+        status: 200,
+      }),
+    );
+    await touchPage.goto(baseURL);
+    await touchPage
+      .getByRole("button", {
+        name: "Open diagram viewer",
+      })
+      .first()
+      .click();
+
+    const dialog = touchPage.locator("[data-airplan-mermaid-dialog]");
+    const canvas = dialog.locator("[data-airplan-mermaid-canvas]");
+    const viewerSVG = dialog.locator(".mermaid-surface > svg");
+    const zoom = dialog.locator("[data-airplan-mermaid-zoom-value]");
+    await expect(canvas).toBeFocused();
+    await expect(canvas).toHaveCSS("outline-style", "none");
+
+    const initialPercent = Number.parseInt((await zoom.textContent()) || "", 10);
+    const readViewBox = async (): Promise<[number, number, number, number]> => {
+      const value = await viewerSVG.getAttribute("viewBox");
+      const numbers = value?.trim().split(/\s+/).map(Number);
+      if (numbers?.length !== 4 || numbers.some((number) => !Number.isFinite(number))) {
+        throw new Error(`invalid Mermaid viewer viewBox: ${value}`);
+      }
+      return numbers as [number, number, number, number];
+    };
+    const initialViewBox = await readViewBox();
+    const bounds = await canvas.boundingBox();
+    if (!bounds) throw new Error("Mermaid touch canvas has no bounding box");
+    const centerY = bounds.y + bounds.height / 2;
+    const firstStart = bounds.x + bounds.width * 0.35;
+    const secondStart = bounds.x + bounds.width * 0.65;
+    const firstEnd = bounds.x + bounds.width * 0.25;
+    const secondEnd = bounds.x + bounds.width * 0.75;
+
+    await canvas.dispatchEvent("pointerdown", {
+      button: 0,
+      clientX: firstStart,
+      clientY: centerY,
+      isPrimary: true,
+      pointerId: 91,
+      pointerType: "touch",
+    });
+    await canvas.dispatchEvent("pointerdown", {
+      button: 0,
+      clientX: secondStart,
+      clientY: centerY,
+      isPrimary: false,
+      pointerId: 92,
+      pointerType: "touch",
+    });
+    await canvas.dispatchEvent("pointermove", {
+      clientX: firstEnd,
+      clientY: centerY,
+      isPrimary: true,
+      pointerId: 91,
+      pointerType: "touch",
+    });
+    await canvas.dispatchEvent("pointermove", {
+      clientX: secondEnd,
+      clientY: centerY,
+      isPrimary: false,
+      pointerId: 92,
+      pointerType: "touch",
+    });
+
+    await expect
+      .poll(async () => Number.parseInt((await zoom.textContent()) || "", 10))
+      .toBeGreaterThan(initialPercent * 1.5);
+    const pinchedViewBox = await readViewBox();
+    expect(pinchedViewBox[2]).toBeCloseTo(initialViewBox[2] * 0.6, 0);
+    expect(pinchedViewBox[0] + pinchedViewBox[2] / 2).toBeCloseTo(
+      initialViewBox[0] + initialViewBox[2] / 2,
+      0,
+    );
+    expect(pinchedViewBox[1] + pinchedViewBox[3] / 2).toBeCloseTo(
+      initialViewBox[1] + initialViewBox[3] / 2,
+      0,
+    );
+    await expect(canvas).toHaveClass(/mermaid-canvas-pointer-focus/);
+    await expect(dialog.locator(".mermaid-help")).toContainText("pinch to zoom");
+
+    await canvas.dispatchEvent("pointerup", {
+      clientX: firstEnd,
+      clientY: centerY,
+      isPrimary: true,
+      pointerId: 91,
+      pointerType: "touch",
+    });
+    await canvas.dispatchEvent("pointerup", {
+      clientX: secondEnd,
+      clientY: centerY,
+      isPrimary: false,
+      pointerId: 92,
+      pointerType: "touch",
+    });
+  } finally {
+    await touchContext.close();
+  }
+});
+
 test("Mermaid viewer zooms, pans, and preserves its view across themes", async ({
   page,
 }, testInfo) => {
@@ -2927,10 +3048,11 @@ test("Mermaid viewer zooms, pans, and preserves its view across themes", async (
     clientX: bounds.x + bounds.width * pointerRatio.x,
     clientY: bounds.y + bounds.height * pointerRatio.y,
   });
-  await expect(zoom).toHaveText(`${Math.round(initialPercent * 1.2)}%`);
+  const wheelScale = Math.exp(0.1);
+  await expect(zoom).toHaveText(`${Math.round(initialPercent * wheelScale)}%`);
   const anchoredViewBox = await readViewBox();
-  expect(anchoredViewBox[2]).toBeCloseTo(initialViewBox[2] / 1.2);
-  expect(anchoredViewBox[3]).toBeCloseTo(initialViewBox[3] / 1.2);
+  expect(anchoredViewBox[2]).toBeCloseTo(initialViewBox[2] / wheelScale);
+  expect(anchoredViewBox[3]).toBeCloseTo(initialViewBox[3] / wheelScale);
   expect(anchoredViewBox[0] + pointerRatio.x * anchoredViewBox[2]).toBeCloseTo(anchorBefore[0], 0);
   expect(anchoredViewBox[1] + pointerRatio.y * anchoredViewBox[3]).toBeCloseTo(anchorBefore[1], 0);
   const activeScale = bounds.width / anchoredViewBox[2];
@@ -2987,7 +3109,7 @@ test("Mermaid viewer zooms, pans, and preserves its view across themes", async (
   await expect(viewerSVG).not.toHaveAttribute("style", /transform/);
 
   await page.keyboard.press("+");
-  await expect(zoom).not.toHaveText(`${Math.round(initialPercent * 1.2)}%`);
+  await expect(zoom).not.toHaveText(`${Math.round(initialPercent * wheelScale)}%`);
   for (let index = 0; index < 40; index += 1) {
     await page.keyboard.press("-");
   }
