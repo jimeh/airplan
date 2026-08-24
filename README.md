@@ -949,7 +949,7 @@ the shared credentials file.
 | `AIRPLAN_COLLECTION_TEMPLATE`       | Select a collection overview template         |
 | `AIRPLAN_LIGHT_THEME`               | Select the default light-mode slot theme      |
 | `AIRPLAN_DARK_THEME`                | Select the default dark-mode slot theme       |
-| `AIRPLAN_THEME`                     | Force one theme and omit appearance controls  |
+| `AIRPLAN_THEME`                     | Force one theme and omit theme controls       |
 | `AIRPLAN_NO_EXTERNAL_ASSETS`        | Disable airplan-managed external loads        |
 | `AIRPLAN_MERMAID_URL`               | Set an alternate HTTPS Mermaid module URL     |
 | `AIRPLAN_REPO`                      | Set `auto`, `none`, or a repository URL       |

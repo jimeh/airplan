@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.61.0**
+**Spec version: 0.62.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -391,7 +391,10 @@ described below.
   no framework. Mermaid's conditional module is the only airplan-managed
   external script:
   - Appearance settings: one icon-only accessible trigger opens a compact
-    panel with a System/Light/Dark mode control and independent Light theme and
+    panel. Document pages include a Fixed navbar switch, on by default, that
+    controls whether the document toolbar remains visible while scrolling.
+    Turning it off lets the toolbar scroll with the page. Theme-selectable pages
+    also include a System/Light/Dark mode control and independent Light theme and
     Dark theme selects. The mode buttons pair their labels with the established
     system, sun, and moon icons. The trigger displays a sun or moon for the
     resolved mode, including while System is selected. Both selects contain the
@@ -435,12 +438,15 @@ described below.
     page theme changes. Inactive content-mode buttons have transparent
     backgrounds; only the active mode uses the selected theme's control
     background. Reader state uses `airplan-color-mode`,
-    `airplan-light-theme`, and `airplan-dark-theme`. When the new mode key is
-    absent, `airplan-theme=light|dark` seeds it. The complete appearance
-    trigger and panel are omitted when the resolved selectable catalog has one
-    entry. Explicit new-mode writes mirror
-    that legacy key; System removes both mode keys. Unknown stored theme IDs are
-    retained but inactive on pages whose catalogs do not contain them.
+    `airplan-light-theme`, `airplan-dark-theme`, and `airplan-fixed-navbar`.
+    The navbar key is absent for the default fixed state and stores `false` for
+    the opt-out. When the new mode key is absent,
+    `airplan-theme=light|dark` seeds it. The theme controls are omitted when the
+    resolved selectable catalog has one entry. Document pages retain the
+    appearance trigger for the navbar setting; collection pages omit the
+    complete trigger and panel. Explicit new-mode writes mirror that legacy
+    key; System removes both mode keys. Unknown stored theme IDs are retained
+    but inactive on pages whose catalogs do not contain them.
   - Read/source toggle: switch between the rendered plan and a
     syntax-highlighted view of the original markdown. The source is
     highlighted at render time, so no client-side highlighter
@@ -577,55 +583,56 @@ as-is (warn if combined).
 Template data contract (the stable API custom templates code
 against):
 
-| Field                          | Type      | Meaning                                |
-| ------------------------------ | --------- | -------------------------------------- |
-| `.Title`                       | string    | resolved title                         |
-| `.RenderedHTML`                | raw HTML  | rendered markdown or text page body    |
-| `.SourceText`                  | string    | original unmodified source             |
-| `.HighlightedSourceHTML`       | raw HTML  | syntax-highlighted original source     |
-| `.SyntaxCSS`                   | raw CSS   | styles required by highlighted HTML    |
-| `.Headings`                    | heading[] | all markdown headings                  |
-| `.TOC`                         | heading[] | built-in H1-H3 ToC entries             |
-| `.Format`                      | string    | `md` or `txt`                          |
-| `.Language`                    | string    | resolved source-highlight language     |
-| `.SourceName`                  | string    | original basename; empty for stdin     |
-| `.SourcePath`                  | string    | relative path to the uploaded source   |
-| `.Slug`                        | string    | resolved slug                          |
-| `.Indexable`                   | boolean   | whether indexing is allowed            |
-| `.HasMermaid`                  | boolean   | exact Mermaid fence was rendered       |
-| `.NoExternalAssets`            | boolean   | managed external loads are disabled    |
-| `.MermaidURL`                  | string    | resolved Mermaid module URL            |
-| `.FrontMatterText`             | string    | exact complete frontmatter block       |
-| `.FrontMatterFormat`           | string    | `yaml`, `toml`, or empty               |
-| `.FrontMatterTitle`            | string    | usable frontmatter title or empty      |
-| `.HighlightedFrontMatterHTML`  | raw HTML  | highlighted frontmatter block          |
-| `.RepositoryURL`               | string    | resolved canonical repository URL      |
-| `.Revision`                    | integer   | this page's revision, or zero          |
-| `.RevisionCount`               | integer   | greatest live revision when rendered   |
-| `.PreviousRevision`            | integer   | adjacent predecessor, or zero          |
-| `.VersionsPath`                | string    | relative versions metadata path        |
-| `.DiffPath`                    | string    | relative adjacent diff path            |
-| `.DiffText`                    | string    | inline adjacent diff, or empty         |
-| `.HighlightedDiffHTML`         | raw HTML  | highlighted inline adjacent diff       |
-| `.RevisionChainID`             | string    | immutable linked-revision chain ID     |
-| `.PageChanged`                 | boolean   | current page has adjacent changes      |
-| `.PageDiffText`                | string    | page-local inline diff, or empty       |
-| `.HighlightedPageDiffHTML`     | raw HTML  | highlighted page-local diff            |
-| `.CompleteDiffText`            | string    | entry-only complete inline report      |
-| `.HighlightedCompleteDiffHTML` | raw HTML  | highlighted complete report            |
-| `.HasCompleteDiff`             | boolean   | entry owns an adjacent complete report |
-| `.AllChangesPath`              | string    | relative entry all-changes URL         |
-| `.ThemeCSS`                    | raw CSS   | validated semantic screen/print CSS    |
-| `.ThemeCatalogJSON`            | safe JS   | validated browser catalog metadata     |
-| `.MermaidThemeJSON`            | safe JS   | palettes, or empty without Mermaid     |
-| `.DefaultLightTheme`           | string    | configured light-slot theme ID         |
-| `.DefaultDarkTheme`            | string    | configured dark-slot theme ID          |
-| `.AppearanceEnabled`           | boolean   | catalog has more than one theme        |
-| `.Pages`                       | page[]    | ordered managed-page navigation        |
-| `.PageNavigation`              | nav[]     | directory-grouped managed-page tree    |
-| `.CurrentPage`                 | page      | current managed page                   |
-| `.Entrypoint`                  | string    | relative URL to the entry page         |
-| `.Assets`                      | asset[]   | ordered declared asset inventory       |
+| Field                          | Type      | Meaning                                 |
+| ------------------------------ | --------- | --------------------------------------- |
+| `.Title`                       | string    | resolved title                          |
+| `.RenderedHTML`                | raw HTML  | rendered markdown or text page body     |
+| `.SourceText`                  | string    | original unmodified source              |
+| `.HighlightedSourceHTML`       | raw HTML  | syntax-highlighted original source      |
+| `.SyntaxCSS`                   | raw CSS   | styles required by highlighted HTML     |
+| `.Headings`                    | heading[] | all markdown headings                   |
+| `.TOC`                         | heading[] | built-in H1-H3 ToC entries              |
+| `.Format`                      | string    | `md` or `txt`                           |
+| `.Language`                    | string    | resolved source-highlight language      |
+| `.SourceName`                  | string    | original basename; empty for stdin      |
+| `.SourcePath`                  | string    | relative path to the uploaded source    |
+| `.Slug`                        | string    | resolved slug                           |
+| `.Indexable`                   | boolean   | whether indexing is allowed             |
+| `.HasMermaid`                  | boolean   | exact Mermaid fence was rendered        |
+| `.NoExternalAssets`            | boolean   | managed external loads are disabled     |
+| `.MermaidURL`                  | string    | resolved Mermaid module URL             |
+| `.FrontMatterText`             | string    | exact complete frontmatter block        |
+| `.FrontMatterFormat`           | string    | `yaml`, `toml`, or empty                |
+| `.FrontMatterTitle`            | string    | usable frontmatter title or empty       |
+| `.HighlightedFrontMatterHTML`  | raw HTML  | highlighted frontmatter block           |
+| `.RepositoryURL`               | string    | resolved canonical repository URL       |
+| `.Revision`                    | integer   | this page's revision, or zero           |
+| `.RevisionCount`               | integer   | greatest live revision when rendered    |
+| `.PreviousRevision`            | integer   | adjacent predecessor, or zero           |
+| `.VersionsPath`                | string    | relative versions metadata path         |
+| `.DiffPath`                    | string    | relative adjacent diff path             |
+| `.DiffText`                    | string    | inline adjacent diff, or empty          |
+| `.HighlightedDiffHTML`         | raw HTML  | highlighted inline adjacent diff        |
+| `.RevisionChainID`             | string    | immutable linked-revision chain ID      |
+| `.PageChanged`                 | boolean   | current page has adjacent changes       |
+| `.PageDiffText`                | string    | page-local inline diff, or empty        |
+| `.HighlightedPageDiffHTML`     | raw HTML  | highlighted page-local diff             |
+| `.CompleteDiffText`            | string    | entry-only complete inline report       |
+| `.HighlightedCompleteDiffHTML` | raw HTML  | highlighted complete report             |
+| `.HasCompleteDiff`             | boolean   | entry owns an adjacent complete report  |
+| `.AllChangesPath`              | string    | relative entry all-changes URL          |
+| `.ThemeCSS`                    | raw CSS   | validated semantic screen/print CSS     |
+| `.ThemeCatalogJSON`            | safe JS   | validated browser catalog metadata      |
+| `.MermaidThemeJSON`            | safe JS   | palettes, or empty without Mermaid      |
+| `.DefaultLightTheme`           | string    | configured light-slot theme ID          |
+| `.DefaultDarkTheme`            | string    | configured dark-slot theme ID           |
+| `.AppearanceEnabled`           | boolean   | catalog has more than one theme         |
+| `.FixedNavbarEnabled`          | boolean   | document navbar preference is available |
+| `.Pages`                       | page[]    | ordered managed-page navigation         |
+| `.PageNavigation`              | nav[]     | directory-grouped managed-page tree     |
+| `.CurrentPage`                 | page      | current managed page                    |
+| `.Entrypoint`                  | string    | relative URL to the entry page          |
+| `.Assets`                      | asset[]   | ordered declared asset inventory        |
 
 Each heading has `.Level` (1–6), `.ID`, `.Text`, and `.IsTitle`.
 `.IsTitle` is true only for a leading H1 that the built-in table of
@@ -713,18 +720,19 @@ occur before any storage mutation.
 
 Collection template data contract:
 
-| Field                | Type    | Meaning                                 |
-| -------------------- | ------- | --------------------------------------- |
-| `.Title`             | string  | resolved collection title               |
-| `.Files`             | file[]  | ordered collection members              |
-| `.TotalBytes`        | int64   | sum of member sizes                     |
-| `.Indexable`         | bool    | whether indexing is allowed             |
-| `.RepositoryURL`     | string  | resolved canonical repository URL       |
-| `.ThemeCSS`          | raw CSS | validated semantic screen/print CSS     |
-| `.ThemeCatalogJSON`  | safe JS | validated browser catalog metadata      |
-| `.DefaultLightTheme` | string  | configured light-slot theme ID          |
-| `.DefaultDarkTheme`  | string  | configured dark-slot theme ID           |
-| `.AppearanceEnabled` | boolean | catalog has more than one selectable ID |
+| Field                 | Type    | Meaning                                 |
+| --------------------- | ------- | --------------------------------------- |
+| `.Title`              | string  | resolved collection title               |
+| `.Files`              | file[]  | ordered collection members              |
+| `.TotalBytes`         | int64   | sum of member sizes                     |
+| `.Indexable`          | bool    | whether indexing is allowed             |
+| `.RepositoryURL`      | string  | resolved canonical repository URL       |
+| `.ThemeCSS`           | raw CSS | validated semantic screen/print CSS     |
+| `.ThemeCatalogJSON`   | safe JS | validated browser catalog metadata      |
+| `.DefaultLightTheme`  | string  | configured light-slot theme ID          |
+| `.DefaultDarkTheme`   | string  | configured dark-slot theme ID           |
+| `.AppearanceEnabled`  | boolean | catalog has more than one selectable ID |
+| `.FixedNavbarEnabled` | boolean | always false for collection pages       |
 
 Each file has `.Name`, `.Path`, `.ContentType`, `.Bytes`, and `.MediaKind`.
 `.MediaKind` is `image`, `video`, `audio`, or `file`. `.Path` is an already
@@ -739,7 +747,7 @@ is responsible for page styles, noindex markup, accessibility, copy behavior,
 theme controls/runtime, JavaScript, and any external resources. Theme fields
 are safe opt-in data; Airplan never injects theme assets into a custom
 template. `.AppearanceEnabled` is false when the resolved catalog contains
-one theme, and a custom template should omit appearance controls in that case.
+one theme, and a custom template should omit theme controls in that case.
 `airplan template collection` prints
 the exact reusable built-in template; `airplan template` and
 `airplan template document` print the document template.
@@ -1962,8 +1970,9 @@ and warned about only once. Reader selects preserve configured order within
 their Light themes and Dark themes groups and omit an empty group.
 
 `theme` forces one theme for both mode slots, makes the selectable catalog
-exactly that theme, and omits the built-in appearance controls. It is
-profile-aware and may be overridden by `AIRPLAN_THEME`. When combined with
+exactly that theme, and omits the built-in theme controls. Document pages retain
+the Fixed navbar setting. The option is profile-aware and may be overridden by
+`AIRPLAN_THEME`. When combined with
 explicit effective `light_theme`, `dark_theme`, or `available_themes`, it wins
 and one warning naming the ignored keys is printed to stderr. Built-in slot
 defaults alone never cause that warning. An unknown forced ID is an error.

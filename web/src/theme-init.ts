@@ -1,4 +1,4 @@
-import { loadThemeState, type ThemeCatalog, type ThemeState } from "./theme-state";
+import { loadFixedNavbar, loadThemeState, type ThemeCatalog, type ThemeState } from "./theme-state";
 
 declare global {
   interface Window {
@@ -24,6 +24,7 @@ try {
     root.dataset.airplanResolvedMode = state.resolvedMode;
     root.dataset.airplanTheme = state.theme;
     root.dataset.airplanThemeVariant = state.variant;
+    root.dataset.airplanFixedNavbar = String(loadFixedNavbar(storage));
     window.__airplanThemeState = state;
   }
 } catch {}

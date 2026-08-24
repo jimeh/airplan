@@ -86,7 +86,7 @@
 {{- end}}
   </div>
 {{- end}}
-{{- if .AppearanceEnabled}}
+{{- if or .AppearanceEnabled .FixedNavbarEnabled}}
 <!-- airplan:theme-toggle -->
 {{- end}}
 </nav>

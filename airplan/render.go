@@ -546,6 +546,7 @@ func renderPage(data TemplateData, opts RenderOptions) ([]byte, error) {
 	data.DefaultLightTheme = bundle.DefaultLight
 	data.DefaultDarkTheme = bundle.DefaultDark
 	data.AppearanceEnabled = len(bundle.Catalog) > 1
+	data.FixedNavbarEnabled = true
 
 	var out bytes.Buffer
 	tmpl := pageTmpl

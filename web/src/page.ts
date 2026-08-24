@@ -1154,7 +1154,8 @@ interface DocumentMarker {
 
   var topControls = d.querySelector<HTMLElement>(".top-controls");
   function publishToolbarHeight() {
-    var height = topControls ? topControls.getBoundingClientRect().height : 0;
+    var fixed = d.documentElement.dataset.airplanFixedNavbar !== "false";
+    var height = fixed && topControls ? topControls.getBoundingClientRect().height : 0;
     d.documentElement.style.setProperty("--airplan-sticky-height", height + "px");
   }
   if (topControls) {
@@ -1162,6 +1163,7 @@ interface DocumentMarker {
       new ResizeObserver(publishToolbarHeight).observe(topControls);
     }
     window.addEventListener("resize", publishToolbarHeight);
+    window.addEventListener("airplan:navbarchange", publishToolbarHeight);
     publishToolbarHeight();
   }
 

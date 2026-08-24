@@ -7,6 +7,7 @@
     data-airplan-appearance-panel role="group" aria-label="Appearance settings"
     hidden>
     <div class="appearance-heading">Appearance</div>
+    {{- if .AppearanceEnabled}}
     <div class="appearance-field">
       <span class="appearance-label" id="airplan-mode-label">Mode</span>
       <div class="mode-toggle appearance-modes" role="group"
@@ -29,5 +30,17 @@
       <span class="appearance-select"><select id="airplan-dark-theme"
         data-airplan-theme-slot="dark"></select>{{template "airplan-icon-select"}}</span>
     </label>
+    {{- end}}
+    {{- if .FixedNavbarEnabled}}
+    <label class="appearance-field appearance-switch">
+      <span class="appearance-switch-copy">
+        <span class="appearance-label" id="airplan-fixed-navbar-label">Fixed navbar</span>
+        <span class="appearance-hint" id="airplan-fixed-navbar-hint">Keep document controls visible while scrolling.</span>
+      </span>
+      <input type="checkbox" role="switch" data-airplan-fixed-navbar checked
+        aria-labelledby="airplan-fixed-navbar-label"
+        aria-describedby="airplan-fixed-navbar-hint">
+    </label>
+    {{- end}}
   </div>
 </div>

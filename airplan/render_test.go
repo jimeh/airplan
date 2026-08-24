@@ -191,6 +191,7 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 			`data-airplan-color-mode="system"`,
 			`data-airplan-theme-slot="light"`,
 			`data-airplan-theme-slot="dark"`,
+			`data-airplan-fixed-navbar`,
 			`"airplan-theme"`,
 		} {
 			if !strings.Contains(out, fragment) {
@@ -199,14 +200,17 @@ func TestRenderMarkdownPageFeatures(t *testing.T) {
 		}
 	})
 
-	t.Run("single theme omits appearance controls", func(t *testing.T) {
+	t.Run("single theme keeps navbar control and omits theme controls", func(t *testing.T) {
 		bundle, err := ResolveThemeBundleWithOptions(ThemeBundleOptions{Theme: "one-dark"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		out := render(t, src, RenderOptions{Title: "Hi", Themes: bundle})
-		if strings.Contains(out, `aria-controls="airplan-appearance-panel"`) || strings.Contains(out, `<select data-airplan-theme-slot`) {
-			t.Fatal("single-theme page contains appearance controls")
+		if !strings.Contains(out, `aria-controls="airplan-appearance-panel"`) || !strings.Contains(out, `data-airplan-fixed-navbar`) {
+			t.Fatal("single-theme page omits navbar appearance control")
+		}
+		if strings.Contains(out, `data-airplan-color-mode="system"`) || strings.Contains(out, `<select id="airplan-light-theme"`) {
+			t.Fatal("single-theme page contains theme controls")
 		}
 		if !strings.Contains(out, `data-airplan-theme="one-dark"`) && !strings.Contains(out, `"defaultLight":"one-dark"`) {
 			t.Fatal("single-theme page does not embed its fixed theme")

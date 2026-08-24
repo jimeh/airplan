@@ -24,16 +24,17 @@ const (
 
 // CollectionTemplateData is the stable custom collection template contract.
 type CollectionTemplateData struct {
-	Title             string
-	Files             []CollectionTemplateFile
-	TotalBytes        int64
-	Indexable         bool
-	RepositoryURL     string
-	ThemeCSS          template.CSS
-	ThemeCatalogJSON  template.JS
-	DefaultLightTheme string
-	DefaultDarkTheme  string
-	AppearanceEnabled bool
+	Title              string
+	Files              []CollectionTemplateFile
+	TotalBytes         int64
+	Indexable          bool
+	RepositoryURL      string
+	ThemeCSS           template.CSS
+	ThemeCatalogJSON   template.JS
+	DefaultLightTheme  string
+	DefaultDarkTheme   string
+	AppearanceEnabled  bool
+	FixedNavbarEnabled bool
 }
 
 // CollectionTemplateFile describes one file exposed to a collection template.
