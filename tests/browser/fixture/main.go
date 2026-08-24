@@ -16,6 +16,7 @@ func main() {
 	outputPath := os.Args[1]
 	entryURL := "plan.html"
 	diff := "--- revision-1/plan.md\n+++ revision-2/plan.md\n@@ -1 +1 @@\n-Original\n+Revised\n"
+	singleDiff := "--- revision-1/single.md\n+++ revision-2/single.md\n@@ -1 +1 @@\n-Original\n+Revised\n"
 	pages := []airplan.DocumentTemplatePage{
 		{Path: "plan.md", Title: "Browser revision", URL: entryURL, Current: true},
 		{Path: "notes.md", Title: "Notes", URL: "notes.html"},
@@ -65,7 +66,7 @@ func main() {
 		RevisionChainID: "tttttttttttttttttttttttttt",
 		VersionsPath:    airplan.VersionsFilename,
 		DiffPath:        "./" + airplan.DiffFilename,
-		DiffText:        diff,
+		DiffText:        singleDiff,
 	})
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
