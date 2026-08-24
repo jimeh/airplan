@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0](https://github.com/jimeh/airplan/compare/v0.10.0...v0.11.0) (2026-08-24)
+
+
+### Features
+
+* add document bundle live demo ([#102](https://github.com/jimeh/airplan/issues/102)) ([1e224c6](https://github.com/jimeh/airplan/commit/1e224c636608c79bc75728ce1cd4755cbac9ca10))
+* support document bundles and assets ([#97](https://github.com/jimeh/airplan/issues/97)) ([29faea8](https://github.com/jimeh/airplan/commit/29faea8b0f1b83d801055ec37a8d92fce8fdd7bb))
+
+
+### Bug Fixes
+
+* hide redundant all changes action ([#100](https://github.com/jimeh/airplan/issues/100)) ([fa1514b](https://github.com/jimeh/airplan/commit/fa1514b932d7c767a624e97f9fa32d6fb308d870))
+
 ## [0.10.0](https://github.com/jimeh/airplan/compare/v0.9.0...v0.10.0) (2026-08-18)
 
 
