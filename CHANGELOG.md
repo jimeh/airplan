@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/jimeh/airplan/compare/v0.11.1...v0.12.0) (2026-08-25)
+
+
+### Features
+
+* add fixed navbar appearance setting ([#116](https://github.com/jimeh/airplan/issues/116)) ([e4959fd](https://github.com/jimeh/airplan/commit/e4959fd83ca280a7e6c9f6dc9013996d0b1256d4))
+
 ## [0.11.1](https://github.com/jimeh/airplan/compare/v0.11.0...v0.11.1) (2026-08-24)
 
 
