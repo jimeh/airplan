@@ -215,6 +215,9 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Draft releases require an eager tag**: keep release-please's
   `force-tag-creation` enabled. It builds the next release PR immediately
   after creating a draft; without the tag it replays released commits.
+- **Release verification version markers** live in
+  `docs/release-verification.md`. Keep release-please's generic `extra-files`
+  path pointed there when moving or renaming that guide.
 - **Draft release assets require push access**: GitHub rejects a read-only
   token even when listing or downloading assets. Native macOS verification
   therefore uses `contents: write`, but exposes the token only to its download
