@@ -13,7 +13,7 @@
       "extra-files": [
         {
           "type": "generic",
-          "path": "README.md"
+          "path": "docs/release-verification.md"
         }
       ],
       "initial-version": "0.1.0",
