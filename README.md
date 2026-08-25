@@ -69,11 +69,11 @@ one cleanup unit.
   is a file collection with an image preview and direct links to every
   original artifact.
 
-[airplan-demo-implementation-plan]: https://demo.airplan.dev/drhsb6uca5q5wflmhh3lnkvjty/implementation-plan.html
-[airplan-demo-how-it-works]: https://demo.airplan.dev/k47u2jqntlardyxoycfxur5fcm/how-airplan-works.html
-[airplan-demo-go-api]: https://demo.airplan.dev/zdmnzvdlgsy5si7vmogewrnoki/upload-example.html
-[airplan-demo-document-bundle]: https://demo.airplan.dev/uhjsfkgu7lmj32lzrvyas7rnoq/implementation-plan.html
-[airplan-demo-collection]: https://demo.airplan.dev/a63h4b7hohllev7auqxg6rhcee/index.html
+[airplan-demo-implementation-plan]: https://demo.airplan.dev/evul6bxtrsh3mokdgwrj22frqq/implementation-plan.html
+[airplan-demo-how-it-works]: https://demo.airplan.dev/rbarjn4cdxs5oxf6pgnpzvw6ja/how-airplan-works.html
+[airplan-demo-go-api]: https://demo.airplan.dev/755ezjbjo3jfkgcdwwmti2atuq/upload-example.html
+[airplan-demo-document-bundle]: https://demo.airplan.dev/vhfu6263aupd42gd7puzobvw2i/implementation-plan.html
+[airplan-demo-collection]: https://demo.airplan.dev/sxxrmahx2drwrfexkvm6gb3dua/index.html
 
 The exact behavior is defined in [SPEC.md](SPEC.md).
 
