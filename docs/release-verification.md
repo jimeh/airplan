@@ -33,7 +33,8 @@ with the release you downloaded.
 gh release verify v0.12.0 --repo jimeh/airplan
 
 gh attestation verify airplan_0.12.0_darwin_arm64.tar.gz \
-  --repo jimeh/airplan
+  --repo jimeh/airplan \
+  --signer-workflow jimeh/airplan/.github/workflows/release.yml
 ```
 
 The first command verifies GitHub's immutable release state. The second confirms
@@ -54,32 +55,24 @@ not signed or notarized by the project.
 ## Verify the server image
 
 The official image is `ghcr.io/jimeh/airplan`. Releases publish an exact
-unprefixed version and the mutable `latest` tag. Use an exact version or image
-index digest for a reproducible deployment.
+unprefixed version and the mutable `latest` tag. Resolve the selected tag once,
+then use its image index digest for a reproducible deployment.
 
-Verify a versioned image:
+Verify a versioned image through that immutable digest:
 
 ```sh
-docker pull ghcr.io/jimeh/airplan:0.12.0
+image=ghcr.io/jimeh/airplan:0.12.0
+digest=$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')
+immutable_image="ghcr.io/jimeh/airplan@$digest"
 
-gh attestation verify oci://ghcr.io/jimeh/airplan:0.12.0 \
+docker pull "$immutable_image"
+
+gh attestation verify "oci://$immutable_image" \
   --repo jimeh/airplan \
   --signer-workflow jimeh/airplan/.github/workflows/release.yml
 ```
 
 <!-- x-release-please-end -->
-
-For the registry-level immutable reference, resolve and use the image index
-digest:
-
-```sh
-docker pull ghcr.io/jimeh/airplan@sha256:<image-index-digest>
-
-gh attestation verify \
-  oci://ghcr.io/jimeh/airplan@sha256:<image-index-digest> \
-  --repo jimeh/airplan \
-  --signer-workflow jimeh/airplan/.github/workflows/release.yml
-```
 
 The publication workflow serializes its own GHCR changes and rejects an exact
 release tag whose observed digest conflicts. GHCR does not prevent an external

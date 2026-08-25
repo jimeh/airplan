@@ -5,9 +5,9 @@ collection, revision, rendering, and management operations as the CLI. The CLI
 handles local filesystem inference and output formatting; the package owns the
 product behavior.
 
-See the [Go reference](https://pkg.go.dev/github.com/jimeh/airplan/airplan) for
-every exported type and method. [IMPLEMENTATION.md](../IMPLEMENTATION.md)
-describes the repository architecture.
+Run `go doc github.com/jimeh/airplan/airplan` to inspect the exact API version
+selected by your module. [IMPLEMENTATION.md](../IMPLEMENTATION.md) describes the
+repository architecture.
 
 ## Upload one document
 
@@ -182,9 +182,9 @@ cannot interrupt an arbitrary `io.Reader`, so a caller that retains the reader
 must still unblock or close it.
 
 Invalid document paths, generated-name collisions, and explicit asset
-content-type errors support `errors.As` with `InvalidDocumentInputError`. Other
-public sentinel errors are documented in the
-[Go reference](https://pkg.go.dev/github.com/jimeh/airplan/airplan).
+content-type errors support `errors.As` with `InvalidDocumentInputError`. Use
+`go doc github.com/jimeh/airplan/airplan` to inspect the other public sentinel
+errors in the version selected by your module.
 
 The public library contract is specified in [SPEC.md section
 11](../SPEC.md#11-backends-http-server-rest-api-and-mcp).

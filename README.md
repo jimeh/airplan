@@ -442,7 +442,7 @@ Airplan builds and native storage tools can delete protected uploads.
 
 The CLI is a thin shell over the importable
 [`github.com/jimeh/airplan/airplan`](https://pkg.go.dev/github.com/jimeh/airplan/airplan)
-package:
+package. With `ctx` and an open `io.Reader` named `file`:
 
 ```go
 cfg, err := airplan.LoadConfig(airplan.ConfigOptions{})
