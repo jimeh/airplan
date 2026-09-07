@@ -30,9 +30,9 @@ with the release you downloaded.
 <!-- x-release-please-start-version -->
 
 ```sh
-gh release verify v0.12.0 --repo jimeh/airplan
+gh release verify v0.12.1 --repo jimeh/airplan
 
-gh attestation verify airplan_0.12.0_darwin_arm64.tar.gz \
+gh attestation verify airplan_0.12.1_darwin_arm64.tar.gz \
   --repo jimeh/airplan \
   --signer-workflow jimeh/airplan/.github/workflows/release.yml
 ```
@@ -61,7 +61,7 @@ then use its image index digest for a reproducible deployment.
 Verify a versioned image through that immutable digest:
 
 ```sh
-image=ghcr.io/jimeh/airplan:0.12.0
+image=ghcr.io/jimeh/airplan:0.12.1
 digest=$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')
 immutable_image="ghcr.io/jimeh/airplan@$digest"
 

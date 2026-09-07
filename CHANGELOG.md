@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/jimeh/airplan/compare/v0.12.0...v0.12.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* **deps:** update dependencies and resolve security advisories ([#123](https://github.com/jimeh/airplan/issues/123)) ([9e55de8](https://github.com/jimeh/airplan/commit/9e55de87d9bdc0ad4ce18a7e96c40b5959ce569b))
+
 ## [0.12.0](https://github.com/jimeh/airplan/compare/v0.11.1...v0.12.0) (2026-08-25)
 
 
