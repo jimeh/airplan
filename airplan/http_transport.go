@@ -47,7 +47,7 @@ func (t *httpTransport) Upload(
 		Name: in.Name, Format: httpapi.DocumentMetadataFormat(in.Format),
 		Title: in.Title, Slug: in.Slug,
 		Lang: in.Lang, RepositoryURL: repository,
-		MaxSize: portableUploadLimit(in.MaxSize),
+		MaxSize: portableUploadLimit(in.MaxSize), //nolint:staticcheck // Deprecated server compatibility.
 	}, in.Reader)
 	if err != nil {
 		return nil, transportError(err)

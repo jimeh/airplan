@@ -170,6 +170,10 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Top-level browser and handoff checks are not worktree-concurrent**: run
   `mise run check` and `mise run test:browser` sequentially. Browser result
   cleanup can remove `test-results/` while the formatter is scanning it.
+- **Keep release cross-compilation separate from the unit-test gate**:
+  `TestSyncManifestConcurrencyLimit` measures exact overlap using a 10 ms
+  storage delay and can undercount under CPU contention. If it reports 11
+  instead of 12, rerun it without competing builds before diagnosing a regression.
 - **Print disclosures**: Chromium hides closed `details` content through its
   `::details-content` box. Forced child display can expose hidden, script, or
   style content; use the pseudo-element fallback plus `beforeprint`/`afterprint`
@@ -227,6 +231,8 @@ coverage has no equivalent local task on non-Windows hosts.
   packaging, and publish only after native Intel and Apple Silicon checks.
   Snapshots stay secretless. Raw executables cannot carry stapled notarization
   tickets, so first Gatekeeper assessment may require internet access.
+  Keep the notarization timeout at or below 20 minutes; GoReleaser 2.18 rejects
+  longer values because Apple limits the authentication token lifetime.
 - **Cask publication is a downstream release step**: GoReleaser OSS generates the
   Cask without uploading it. Preserve it for seven days as a same-run immutable
   artifact. A separate downstream job atomically updates the tap only after
@@ -266,6 +272,9 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Actionlint currently lags `queue: max`**: keep the narrow `mise.toml`
   ignore for its unsupported concurrency key until actionlint recognizes the
   current GitHub syntax. Do not suppress other concurrency errors.
+- **Zizmor 1.30 conflicts with Actionlint 1.7.12**: Zizmor requires `$/`
+  self-repository workflow references, but Actionlint rejects them. Keep Zizmor
+  locked to 1.29.0 until both validators support the same syntax.
 - **MinIO is immutable-pinned** in `airplan/integration_test.go`:
   update the release tag and multi-platform digest together, inspect
   the image labels, then run `mise run test-integration`.

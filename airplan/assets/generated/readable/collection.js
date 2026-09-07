@@ -41,7 +41,7 @@
     return resolveThemeState(catalog, mode, lightTheme, darkTheme, systemDark);
   }
   function resolveThemeState(catalog, mode, lightTheme, darkTheme, systemDark) {
-    const known = new Map(catalog.themes.map((theme2) => [theme2.id, theme2]));
+    const known = new Map(catalog.themes.map((theme) => [theme.id, theme]));
     const safeLight = known.has(lightTheme) ? lightTheme : catalog.defaultLight;
     const safeDark = known.has(darkTheme) ? darkTheme : catalog.defaultDark;
     const resolvedMode = mode === "system" ? systemDark ? "dark" : "light" : mode;
