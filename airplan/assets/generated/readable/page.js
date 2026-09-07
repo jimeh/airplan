@@ -41,7 +41,7 @@
     return resolveThemeState(catalog, mode, lightTheme, darkTheme, systemDark);
   }
   function resolveThemeState(catalog, mode, lightTheme, darkTheme, systemDark) {
-    const known = new Map(catalog.themes.map((theme2) => [theme2.id, theme2]));
+    const known = new Map(catalog.themes.map((theme) => [theme.id, theme]));
     const safeLight = known.has(lightTheme) ? lightTheme : catalog.defaultLight;
     const safeDark = known.has(darkTheme) ? darkTheme : catalog.defaultDark;
     const resolvedMode = mode === "system" ? systemDark ? "dark" : "light" : mode;
@@ -437,7 +437,7 @@
       var paths = new Set;
       var foldedPaths = new Set;
       var renderedObjects = new Set;
-      var pages2 = new Map;
+      var pages = new Map;
       marker.pages.forEach(function(page, pageIndex) {
         if (!isRecord(page) || !portableMarkerPath(page.path) || paths.has(page.path) || foldedPaths.has(page.path.toLowerCase()) || page.format !== "md" && page.format !== "txt" || typeof page.lang !== "string" || page.title !== undefined && typeof page.title !== "string" || !portableMarkerPath(page.page) || !portableMarkerPath(page.source))
           throw new Error("marker page descriptor is invalid");
@@ -451,8 +451,8 @@
         }
         if (page.page !== expectedPage || page.source !== expectedSource)
           throw new Error("marker generated page mapping is invalid");
-        var rendered2 = objectURL(directory, page.page);
-        if (!rendered2 || renderedObjects.has(rendered2))
+        var rendered = objectURL(directory, page.page);
+        if (!rendered || renderedObjects.has(rendered))
           throw new Error("marker page object is invalid");
         if (!objectURL(directory, page.source))
           throw new Error("marker source object is invalid");
@@ -465,18 +465,18 @@
           throw new Error("marker source content type is invalid");
         paths.add(page.path);
         foldedPaths.add(page.path.toLowerCase());
-        renderedObjects.add(rendered2);
-        pages2.set(page.path, rendered2);
+        renderedObjects.add(rendered);
+        pages.set(page.path, rendered);
       });
       if (hasMarkerAncestorConflict(foldedPaths))
         throw new Error("marker page paths conflict");
-      if (!paths.has(marker.pages[0].path) || pages2.get(marker.pages[0].path) !== entry)
+      if (!paths.has(marker.pages[0].path) || pages.get(marker.pages[0].path) !== entry)
         throw new Error("marker entry page is invalid");
       if (renderedObjects.size !== marker.pages.length || Array.from(objectRoles.values()).filter(function(role) {
         return role === "source";
       }).length !== marker.pages.length)
         throw new Error("marker page inventory is invalid");
-      return pages2;
+      return pages;
     }
     function managedPageName(logical, format) {
       if (format !== "md")
@@ -496,12 +496,12 @@
       return typeof value === "string" && new TextEncoder().encode(value).byteLength <= 48 && /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value);
     }
     function hasMarkerAncestorConflict(paths) {
-      for (var candidate2 of paths) {
-        var separator = candidate2.indexOf("/");
+      for (var candidate of paths) {
+        var separator = candidate.indexOf("/");
         while (separator >= 0) {
-          if (paths.has(candidate2.slice(0, separator)))
+          if (paths.has(candidate.slice(0, separator)))
             return true;
-          separator = candidate2.indexOf("/", separator + 1);
+          separator = candidate.indexOf("/", separator + 1);
         }
       }
       return false;
@@ -575,14 +575,14 @@
       var roles = new Map;
       var folded = new Set;
       var diffCount = 0;
-      var pages2 = 0;
+      var pages = 0;
       var sources = 0;
       var assets = 0;
       marker.objects.forEach(function(object) {
         if (!isRecord(object) || !portableMarkerPath(object.name) && object.name !== ".airplan-changes.diff" || roles.has(object.name) || folded.has(object.name.toLowerCase()) || !Number.isSafeInteger(object.bytes) || object.bytes < 0 || !validDigest(object.sha256) || !validNormalizedContentType(object.content_type))
           throw new Error("marker object inventory is invalid");
         if (object.role === "page") {
-          pages2 += 1;
+          pages += 1;
           if (object.bytes <= 0 || object.content_type !== "text/html; charset=utf-8")
             throw new Error("marker page object is invalid");
         } else if (object.role === "source") {
@@ -602,7 +602,7 @@
       });
       if (hasMarkerAncestorConflict(folded))
         throw new Error("marker object paths conflict");
-      if (pages2 !== marker.pages.length || sources !== marker.pages.length || pages2 + assets > 100 || (marker.revision.number === 1 ? diffCount !== 0 : diffCount !== 1))
+      if (pages !== marker.pages.length || sources !== marker.pages.length || pages + assets > 100 || (marker.revision.number === 1 ? diffCount !== 0 : diffCount !== 1))
         throw new Error("marker object counts are invalid");
       return roles;
     }
@@ -622,7 +622,7 @@
       }
       var invalidEntry = false;
       var previousNumber = 0;
-      var live2 = metadata.revisions.filter(function(revision) {
+      var live = metadata.revisions.filter(function(revision) {
         if (!revision || !Number.isInteger(revision.number) || revision.number !== previousNumber + 1) {
           invalidEntry = true;
           return false;
@@ -644,11 +644,11 @@
         }
         return true;
       });
-      if (invalidEntry || metadata.revisions[0].number !== 1 || !live2.some(function(revision) {
+      if (invalidEntry || metadata.revisions[0].number !== 1 || !live.some(function(revision) {
         return revision.number === embedded;
       }))
         throw new Error("revision entries are invalid");
-      var current = live2.find(function(revision) {
+      var current = live.find(function(revision) {
         return revision.number === embedded;
       });
       var currentPage = new URL(window.location.href);
@@ -657,7 +657,7 @@
       if (!current || !currentUploadURL || new URL(current.safeURL || "").pathname.replace(/[^/]+$/, "") !== currentUploadURL.pathname || !currentPage.pathname.startsWith(currentUploadURL.pathname)) {
         throw new Error("current revision URL is invalid");
       }
-      var latest = Math.max.apply(null, live2.map(function(revision) {
+      var latest = Math.max.apply(null, live.map(function(revision) {
         return revision.number;
       }));
       if (latest !== metadata.latest_revision)
@@ -685,7 +685,7 @@
         visualLabel.setAttribute("aria-hidden", "true");
         var select = d.createElement("select");
         select.setAttribute("aria-label", "Document revision");
-        live2.forEach(function(revision) {
+        live.forEach(function(revision) {
           var option = d.createElement("option");
           option.value = revision.safeURL || "";
           option.textContent = revision.number === latest ? "Revision " + revision.number + " (Latest)" : "Revision " + revision.number + " of " + latest;
@@ -694,9 +694,9 @@
         });
         select.addEventListener("change", function() {
           var selected = select.selectedIndex;
-          if (selected < 0 || selected >= live2.length)
+          if (selected < 0 || selected >= live.length)
             return;
-          var target = live2[selected];
+          var target = live[selected];
           var entryURL = target.safeURL || "";
           if (window.location.hash === "#airplan-all-changes") {
             window.location.assign(entryURL + (target.number > 1 ? "#airplan-all-changes" : ""));
@@ -713,8 +713,8 @@
           var markerURL = new URL(".airplan.json", selectedDirectory);
           markerURL.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2));
           fetch(markerURL, { cache: "no-store", credentials: "same-origin" }).then(readBoundedMarker).then(function(marker) {
-            var pages2 = validateMarker(marker, selectedDirectory, target, revisionChainMeta.content);
-            window.location.assign(revisionDestination(entryURL, pages2.get(pagePathMeta.content) || null));
+            var pages = validateMarker(marker, selectedDirectory, target, revisionChainMeta.content);
+            window.location.assign(revisionDestination(entryURL, pages.get(pagePathMeta.content) || null));
           }).catch(function() {
             console.warn("airplan: selected revision page map is unavailable or invalid");
             window.location.assign(entryURL);

@@ -359,7 +359,7 @@ func TestDocumentMultipartRejectsConflictingPageLimitAliases(t *testing.T) {
 	t.Cleanup(server.Close)
 	_, err := newTestClient(t, server.URL).UploadDocumentBundle(
 		context.Background(), DocumentUpload{
-			Metadata: DocumentMetadata{Name: "plan.md", MaxSize: 10, MaxPageSize: 11},
+			Metadata: DocumentMetadata{Name: "plan.md", MaxSize: 10, MaxPageSize: 11}, //nolint:staticcheck // Verify conflicting legacy and current limits are rejected.
 			Document: strings.NewReader("body"),
 		},
 	)
@@ -731,7 +731,7 @@ func TestUpdateDocumentMetadataValidationRejectsBeforeOperation(t *testing.T) {
 			Target: "old-id", Name: strings.Repeat("a", 256),
 		}},
 		{"negative max size", UpdateDocumentMetadata{
-			Target: "old-id", MaxSize: -1,
+			Target: "old-id", MaxSize: -1, //nolint:staticcheck // Verify validation of the legacy limit.
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -819,7 +819,7 @@ func TestDocumentClientLimitRejectsBeforeOperation(t *testing.T) {
 
 	_, err := client.UploadDocument(
 		context.Background(),
-		DocumentMetadata{Name: "plan.md", MaxSize: 3},
+		DocumentMetadata{Name: "plan.md", MaxSize: 3}, //nolint:staticcheck // Verify enforcement of the legacy limit.
 		strings.NewReader("four"),
 	)
 	var problem *ProblemError

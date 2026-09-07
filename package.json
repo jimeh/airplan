@@ -15,13 +15,13 @@
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",
-    "@primer/octicons": "19.33.0",
-    "@types/bun": "1.4.0",
-    "mermaid": "11.16.1",
-    "oxfmt": "0.65.0",
-    "oxlint": "1.80.0",
+    "@primer/octicons": "19.34.0",
+    "@types/bun": "1.4.1",
+    "mermaid": "11.17.2",
+    "oxfmt": "0.66.0",
+    "oxlint": "1.81.0",
     "oxlint-tsgolint": "7.0.2001",
-    "stylelint": "17.14.1",
+    "stylelint": "17.15.0",
     "stylelint-config-standard": "40.0.0",
     "typescript": "7.0.2"
   }
