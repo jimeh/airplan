@@ -275,9 +275,16 @@ coverage has no equivalent local task on non-Windows hosts.
 - **Zizmor 1.30 conflicts with Actionlint 1.7.12**: Zizmor requires `$/`
   self-repository workflow references, but Actionlint rejects them. Keep Zizmor
   locked to 1.29.0 until both validators support the same syntax.
-- **MinIO is immutable-pinned** in `airplan/integration_test.go`:
-  update the release tag and multi-platform digest together, inspect
-  the image labels, then run `mise run test-integration`.
+- **MinIO is immutable-pinned** in `airplan/integration_test.go` and
+  `scripts/container/integration.sh`: upstream MinIO no longer publishes
+  community images, so both pin Chainguard's build by multi-platform digest.
+  Chainguard only offers the moving `latest` tag. Pick a digest at least three
+  days old from its tag history
+  (`https://cgr.dev/v2/chainguard/minio/_chainguard/history/latest`, and the
+  same path for `minio-client`), update the MinIO release recorded beside the
+  digest, inspect the image labels, then run `mise run test-integration` and
+  `mise run test:container-integration`. The client image must keep
+  `/usr/bin/chown`, which the fixture-ownership phase runs.
 - **Real R2 release smoke tests may use `AIRPLAN_TIMEOUT=60s`** when
   local firewall approval could interrupt the sequence. The product
   default remains 30 seconds.
