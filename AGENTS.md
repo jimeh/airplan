@@ -205,6 +205,8 @@ coverage has no equivalent local task on non-Windows hosts.
   cooldown.
   `mise run audit:deps` verifies Go modules, checks reachable Go
   vulnerabilities, and audits Bun development dependencies at high severity.
+  The task ignores unpatched advisories by exact ID with a comment naming the
+  reason; remove each ignore when a fixed release resolves.
 - **Cross-compilation target variables belong on the build step**, not the CI
   job. Job-level `GOOS`/`GOARCH` values make mise install target-platform Go
   tools that cannot run on the host runner.
