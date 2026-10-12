@@ -215,6 +215,14 @@ coverage has no equivalent local task on non-Windows hosts.
   installs non-Go tools, and mise shims stay off `PATH` so setup-go remains
   authoritative. Pull requests restore but do not save mise tool caches;
   production releases disable both setup-go and mise caches.
+- **mise-action keeps its GitHub token local**: later steps no longer receive
+  `MISE_GITHUB_TOKEN`. A `mise run` or `mise exec` step without `--skip-tools`
+  installs the remaining locked tools and can download artifacts for
+  provenance verification, so jobs with such a step set
+  `persist_github_token: true` to keep those requests authenticated. Jobs that
+  pass `--skip-tools`, or give the step its own `GITHUB_TOKEN`, keep the
+  default. Every use sets `minimum_release_age: 3d` so the mise binary follows
+  the dependency cooldown.
 - **GoReleaser PR checks are opt-in**: apply the `ci:goreleaser`
   label when a PR changes `.goreleaser.yaml` or release packaging.
   The check remains unconditional on pushes to `main`.
@@ -283,8 +291,9 @@ coverage has no equivalent local task on non-Windows hosts.
   Chainguard only offers the moving `latest` tag. Pick a digest at least three
   days old from its tag history
   (`https://cgr.dev/v2/chainguard/minio/_chainguard/history/latest`, and the
-  same path for `minio-client`), update the MinIO release recorded beside the
-  digest, inspect the image labels, then run `mise run test-integration` and
+  same path for `minio-client`). Run the server image with `--version` and
+  update the MinIO release recorded in the Go test comment; the image labels
+  do not carry it. Then run `mise run test-integration` and
   `mise run test:container-integration`. The client image must keep
   `/usr/bin/chown`, which the fixture-ownership phase runs.
 - **Real R2 release smoke tests may use `AIRPLAN_TIMEOUT=60s`** when
