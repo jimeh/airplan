@@ -285,7 +285,9 @@ coverage has no equivalent local task on non-Windows hosts.
   checks workflow syntax, bug patterns, and policy rules for the workflows and
   `.github/dependabot.yml`. Zizmor adds its security audits.
   `.github/jactionlint.yaml` lowers the Dependabot cooldown minimum to the
-  repository's three days. Every job sets `timeout-minutes`.
+  repository's three days. Every job that runs steps sets `timeout-minutes`;
+  size it from the job's slowest passing run, not a typical one. The browser
+  job has passed after a 14-minute Playwright install.
 - **Concurrency groups cancel only superseded pull request runs**: group on
   the pull request number and fall back to `github.run_id`, so runs on `main`
   and scheduled runs never share a group. The GoReleaser check also gives a
