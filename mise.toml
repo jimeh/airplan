@@ -11,11 +11,11 @@ bun = "1"
 goreleaser = "2"
 golangci-lint = "2"
 lefthook = "2"
-actionlint = "1"
 zizmor = "1"
 pinact = "5"
 syft = "1"
 "github:jimeh/treeboot" = "0"
+"github:jdx/jactionlint" = "2"
 
 [tasks.build]
 description = "Build the airplan binary (skipped when nothing changed)"
@@ -127,7 +127,7 @@ run = "golangci-lint run"
 description = "Validate GitHub Actions: syntax, security, SHA pins"
 run = [
   "scripts/container/release_test.sh",
-  "actionlint -ignore 'unexpected key \"queue\" for \"concurrency\" section'",
+  "jactionlint --profile correctness",
   "zizmor --offline .github/workflows",
   "pinact run --check",
 ]

@@ -279,12 +279,14 @@ coverage has no equivalent local task on non-Windows hosts.
   assigning the exact version and a still-current `latest`. GHCR does not
   enforce tag immutability against external writers; consumers needing that
   guarantee must pin the index digest.
-- **Actionlint currently lags `queue: max`**: keep the narrow `mise.toml`
-  ignore for its unsupported concurrency key until actionlint recognizes the
-  current GitHub syntax. Do not suppress other concurrency errors.
-- **Zizmor 1.30 conflicts with Actionlint 1.7.12**: Zizmor requires `$/`
-  self-repository workflow references, but Actionlint rejects them. Keep Zizmor
-  locked to 1.29.0 until both validators support the same syntax.
+- **Workflow lint splits correctness from security**: jactionlint runs with
+  `--profile correctness`, the rule set actionlint checked, and Zizmor owns
+  security findings. jactionlint's default profile adds policy rules such as
+  job timeouts and concurrency limits; adopt them deliberately rather than by
+  dropping the flag.
+- **Same-repository workflow calls use `$/`**: Zizmor requires GitHub's
+  self-repository syntax, as in `uses: $/.github/workflows/release.yml`. A `./`
+  reference fails `mise run lint:workflows`.
 - **MinIO is immutable-pinned** in `airplan/integration_test.go` and
   `scripts/container/integration.sh`: upstream MinIO no longer publishes
   community images, so both pin Chainguard's build by multi-platform digest.
