@@ -282,10 +282,12 @@ coverage has no equivalent local task on non-Windows hosts.
   enforce tag immutability against external writers; consumers needing that
   guarantee must pin the index digest.
 - **Workflow lint splits correctness from security**: jactionlint runs with
-  `--profile correctness`, the rule set actionlint checked, and Zizmor owns
-  security findings. jactionlint's default profile adds policy rules such as
-  job timeouts and concurrency limits; adopt them deliberately rather than by
-  dropping the flag.
+  `--profile correctness`, which is actionlint's checks plus jactionlint's own
+  bug detectors, and Zizmor owns security findings. The profile also checks
+  `.github/dependabot.yml`, so `mise run lint:workflows` fails on a malformed
+  Dependabot configuration. jactionlint's default profile adds policy rules
+  such as job timeouts and concurrency limits; adopt them deliberately rather
+  than by dropping the flag.
 - **Same-repository workflow calls use `$/`**: Zizmor requires GitHub's
   self-repository syntax, as in `uses: $/.github/workflows/release.yml`. A `./`
   reference fails `mise run lint:workflows`.

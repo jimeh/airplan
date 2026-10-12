@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -47,8 +48,16 @@ func TestLoadIgnores(t *testing.T) {
 			content: `{"ignores": []}`,
 		},
 		{
-			name: "invalid advisory",
-			content: `{"ignores": [{"advisory": "--audit-level=low",` +
+			name: "advisory with trailing text",
+			content: `{"ignores": [{"advisory":` +
+				` "GHSA-vfj7-8cjw-p6xm,GHSA-aaaa-bbbb-cccc",` +
+				` "package": "braces", "reason": "no patched release",` +
+				` "expires": "2026-11-16"}]}`,
+			wantErr: "invalid advisory",
+		},
+		{
+			name: "advisory with leading text",
+			content: `{"ignores": [{"advisory": "x1240992",` +
 				` "package": "braces", "reason": "no patched release",` +
 				` "expires": "2026-11-16"}]}`,
 			wantErr: "invalid advisory",
@@ -182,17 +191,108 @@ func TestCheckExpiry(t *testing.T) {
 	}
 }
 
-func TestAuditArgs(t *testing.T) {
+func TestRun(t *testing.T) {
 	t.Parallel()
 
-	ignores := []ignore{{Advisory: "GHSA-vfj7-8cjw-p6xm"}, {Advisory: "42"}}
-	got := auditArgs(ignores, []string{"--audit-level=high"})
-	want := []string{
-		"audit", "--audit-level=high",
-		"--ignore=GHSA-vfj7-8cjw-p6xm", "--ignore=42",
+	beforeExpiry := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	afterExpiry := time.Date(2026, 11, 16, 0, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name        string
+		extra       []string
+		now         time.Time
+		auditStatus int
+		auditErr    error
+		want        int
+		wantAudit   []string
+		wantStderr  string
+	}{
+		{
+			name:  "audit passes",
+			extra: []string{"--audit-level=high"},
+			now:   beforeExpiry,
+			wantAudit: []string{
+				"audit", "--audit-level=high", "--ignore=GHSA-vfj7-8cjw-p6xm",
+			},
+		},
+		{
+			name:        "audit status is returned",
+			now:         beforeExpiry,
+			auditStatus: 3,
+			want:        3,
+			wantAudit:   []string{"audit", "--ignore=GHSA-vfj7-8cjw-p6xm"},
+		},
+		{
+			name:       "audit cannot start",
+			now:        beforeExpiry,
+			auditErr:   errors.New("bun not found"),
+			want:       1,
+			wantAudit:  []string{"audit", "--ignore=GHSA-vfj7-8cjw-p6xm"},
+			wantStderr: "bun not found",
+		},
+		{
+			name:       "expired ignore skips the audit",
+			extra:      []string{"--audit-level=high"},
+			now:        afterExpiry,
+			want:       1,
+			wantStderr: "expired on 2026-11-16",
+		},
+		{
+			name:       "ignore flag with value is rejected",
+			extra:      []string{"--ignore=GHSA-aaaa-bbbb-cccc"},
+			now:        beforeExpiry,
+			want:       2,
+			wantStderr: "--ignore=GHSA-aaaa-bbbb-cccc is not accepted",
+		},
+		{
+			name:       "bare ignore flag is rejected",
+			extra:      []string{"--ignore", "GHSA-aaaa-bbbb-cccc"},
+			now:        beforeExpiry,
+			want:       2,
+			wantStderr: "--ignore is not accepted",
+		},
 	}
-	if !slices.Equal(got, want) {
-		t.Fatalf("args = %v, want %v", got, want)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			path := writeIgnores(t, `{"ignores": [`+validIgnore+`]}`)
+			var gotAudit []string
+			var stderr strings.Builder
+			got := run(
+				append([]string{path}, tt.extra...), tt.now, &stderr,
+				func(args []string) (int, error) {
+					gotAudit = args
+					return tt.auditStatus, tt.auditErr
+				},
+			)
+			if got != tt.want {
+				t.Errorf("status = %d, want %d", got, tt.want)
+			}
+			if !slices.Equal(gotAudit, tt.wantAudit) {
+				t.Errorf("audit args = %v, want %v", gotAudit, tt.wantAudit)
+			}
+			if !strings.Contains(stderr.String(), tt.wantStderr) {
+				t.Errorf(
+					"stderr %q does not contain %q", stderr.String(),
+					tt.wantStderr,
+				)
+			}
+		})
+	}
+}
+
+func TestRunWithoutArguments(t *testing.T) {
+	t.Parallel()
+
+	var stderr strings.Builder
+	got := run(nil, time.Now(), &stderr, func([]string) (int, error) {
+		t.Error("audit ran without an ignore file")
+		return 0, nil
+	})
+	if got != 2 || !strings.Contains(stderr.String(), "usage:") {
+		t.Fatalf("status = %d, stderr = %q", got, stderr.String())
 	}
 }
 

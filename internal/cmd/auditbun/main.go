@@ -1,6 +1,7 @@
 // Command auditbun runs `bun audit` with the repository's advisory ignores.
 // Every ignore carries an expiry date. From that date the command fails
-// without running the audit, so an ignore cannot outlive its review.
+// without running the audit, so an ignore cannot outlive its review. It
+// rejects `--ignore` arguments, which would bypass that expiry.
 package main
 
 import (
@@ -8,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -33,36 +35,63 @@ type ignore struct {
 }
 
 func main() {
-	if len(os.Args) < 2 {
+	os.Exit(run(os.Args[1:], time.Now(), os.Stderr, runBun))
+}
+
+// run returns the process exit status. audit runs `bun` with the given
+// arguments and returns its exit status.
+func run(
+	args []string, now time.Time, stderr io.Writer,
+	audit func(args []string) (int, error),
+) int {
+	if len(args) < 1 {
 		fmt.Fprintln(
-			os.Stderr,
+			stderr,
 			"usage: auditbun <ignores.json> [bun audit arguments...]",
 		)
-		os.Exit(2)
+		return 2
 	}
-	path := os.Args[1]
+	path, extra := args[0], args[1:]
+	for _, arg := range extra {
+		if arg == "--ignore" || strings.HasPrefix(arg, "--ignore=") {
+			fmt.Fprintf(
+				stderr,
+				"%s is not accepted: list the advisory in %s, where it "+
+					"needs a reason and an expiry date\n",
+				arg, path,
+			)
+			return 2
+		}
+	}
 
 	ignores, err := loadIgnores(path)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		fmt.Fprintln(stderr, err)
+		return 1
 	}
-	if err := checkExpiry(path, ignores, time.Now()); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	if err := checkExpiry(path, ignores, now); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
 	}
 
-	cmd := exec.Command("bun", auditArgs(ignores, os.Args[2:])...)
+	status, err := audit(auditArgs(ignores, extra))
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	return status
+}
+
+func runBun(args []string) (int, error) {
+	cmd := exec.Command("bun", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			os.Exit(exitErr.ExitCode())
-		}
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+	err := cmd.Run()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode(), nil
 	}
+	return 0, err
 }
 
 func loadIgnores(path string) ([]ignore, error) {
