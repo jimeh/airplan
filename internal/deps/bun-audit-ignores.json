@@ -1,0 +1,10 @@
+{
+  "ignores": [
+    {
+      "advisory": "GHSA-vfj7-8cjw-p6xm",
+      "package": "braces",
+      "reason": "No patched braces release exists, and its maintainers dispute the advisory in github/advisory-database#10132. braces reaches this repository only through stylelint, which expands the lint task's own glob.",
+      "expires": "2026-11-16"
+    }
+  ]
+}

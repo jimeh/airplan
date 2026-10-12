@@ -54,13 +54,10 @@ run = "scripts/container/integration.sh"
 
 [tasks."audit:deps"]
 description = "Verify and scan Go and Bun dependencies"
-# GHSA-vfj7-8cjw-p6xm has no patched braces release. braces reaches this
-# repository only through stylelint, which expands the lint task's own glob.
-# Remove the ignore once a fixed braces release resolves.
 run = [
   "go mod verify",
   "govulncheck ./...",
-  "bun audit --audit-level=high --ignore=GHSA-vfj7-8cjw-p6xm",
+  "go run ./internal/cmd/auditbun internal/deps/bun-audit-ignores.json --audit-level=high",
 ]
 
 [tasks.generate]
