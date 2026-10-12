@@ -90,6 +90,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -o pipefail
           release="$({
             gh api --paginate "repos/${GITHUB_REPOSITORY}/releases"
           } | jq -sc --arg tag "$RELEASE_TAG" '
@@ -156,6 +157,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ID: ${{ steps.draft.outputs.release_id }}
         run: |
+          set -o pipefail
           (cd dist && sha256sum --check checksums.txt)
 
           awk '{print $2}' dist/checksums.txt >expected-assets.txt
@@ -565,6 +567,7 @@ jobs:
           DIGEST: ${{ steps.subject.outputs.digest }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
+          set -o pipefail
           echo "PUBLICATION_PHASE=verify-image" >>"$GITHUB_ENV"
           reference="$IMAGE_NAME@$DIGEST"
           docker buildx imagetools inspect --raw "$reference" >index.json
@@ -692,6 +695,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
+          set -o pipefail
           echo "PUBLICATION_PHASE=tag-image" >>"$GITHUB_ENV"
           resolve_digest() {
             docker buildx imagetools inspect "$1" |

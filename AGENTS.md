@@ -281,13 +281,20 @@ coverage has no equivalent local task on non-Windows hosts.
   assigning the exact version and a still-current `latest`. GHCR does not
   enforce tag immutability against external writers; consumers needing that
   guarantee must pin the index digest.
-- **Workflow lint splits correctness from security**: jactionlint runs with
-  `--profile correctness`, which is actionlint's checks plus jactionlint's own
-  bug detectors, and Zizmor owns security findings. The profile also checks
-  `.github/dependabot.yml`, so `mise run lint:workflows` fails on a malformed
-  Dependabot configuration. jactionlint's default profile adds policy rules
-  such as job timeouts and concurrency limits; adopt them deliberately rather
-  than by dropping the flag.
+- **Workflow lint runs jactionlint and Zizmor**: jactionlint's default profile
+  checks workflow syntax, bug patterns, and policy rules for the workflows and
+  `.github/dependabot.yml`. Zizmor adds its security audits.
+  `.github/jactionlint.yaml` lowers the Dependabot cooldown minimum to the
+  repository's three days. Every job sets `timeout-minutes`.
+- **Concurrency groups cancel only superseded pull request runs**: group on
+  the pull request number and fall back to `github.run_id`, so runs on `main`
+  and scheduled runs never share a group. The GoReleaser check also gives a
+  `labeled` event for any other label its own group, because that run skips
+  the job and would otherwise cancel a real one.
+- **Workflow scripts with pipelines start with `set -o pipefail`**: the
+  default `bash -e {0}` shell hides a failure on the left of a pipe. Check
+  that no reader exits early before adding one, since that turns `SIGPIPE`
+  into a step failure.
 - **Same-repository workflow calls use `$/`**: Zizmor requires GitHub's
   self-repository syntax, as in `uses: $/.github/workflows/release.yml`. A `./`
   reference fails `mise run lint:workflows`.

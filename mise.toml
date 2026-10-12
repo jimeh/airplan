@@ -124,7 +124,7 @@ run = "golangci-lint run"
 description = "Validate GitHub Actions: syntax, security, SHA pins"
 run = [
   "scripts/container/release_test.sh",
-  "jactionlint --profile correctness",
+  "jactionlint",
   "zizmor --offline .github/workflows",
   "pinact run --check",
 ]

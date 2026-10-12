@@ -8,6 +8,12 @@ on:
     - cron: "23 8 * * 1"
   workflow_dispatch:
 
+# Runs outside pull requests each get their own group, so only a superseded
+# pull request run is cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
