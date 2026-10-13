@@ -90,6 +90,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -o pipefail
           release="$({
             gh api --paginate "repos/${GITHUB_REPOSITORY}/releases"
           } | jq -sc --arg tag "$RELEASE_TAG" '
@@ -130,9 +131,10 @@ jobs:
           go-version-file: .go-version
           cache-dependency-path: go.sum
           cache: false
-      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
         with:
           add_shims_to_path: false
+          minimum_release_age: 3d
           # No tool cache on release builds: restored caches are an
           # injection vector for published artifacts (zizmor
           # cache-poisoning).
@@ -155,6 +157,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_ID: ${{ steps.draft.outputs.release_id }}
         run: |
+          set -o pipefail
           (cd dist && sha256sum --check checksums.txt)
 
           awk '{print $2}' dist/checksums.txt >expected-assets.txt
@@ -195,7 +198,7 @@ jobs:
           echo "name=container-context-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             >>"$GITHUB_OUTPUT"
       - name: Preserve verified container context
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.container-artifact.outputs.name }}
           path: dist/container/
@@ -208,7 +211,7 @@ jobs:
           echo "name=homebrew-cask-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             >>"$GITHUB_OUTPUT"
       - name: Preserve generated Homebrew Cask
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.cask-artifact.outputs.name }}
           path: dist/homebrew/Casks/airplan.rb
@@ -454,7 +457,7 @@ jobs:
           persist-credentials: false
           ref: ${{ inputs.sha }}
       - name: Restore verified container context
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.build-release.outputs.container_artifact }}
           path: dist/container
@@ -482,7 +485,7 @@ jobs:
             exit 1
           fi
           echo "version=$version" >>"$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
@@ -515,7 +518,7 @@ jobs:
       - id: build
         name: Build and push canonical image index
         if: steps.existing.outputs.exists != 'true'
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: dist/container
           file: dist/container/Dockerfile
@@ -564,6 +567,7 @@ jobs:
           DIGEST: ${{ steps.subject.outputs.digest }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
+          set -o pipefail
           echo "PUBLICATION_PHASE=verify-image" >>"$GITHUB_ENV"
           reference="$IMAGE_NAME@$DIGEST"
           docker buildx imagetools inspect --raw "$reference" >index.json
@@ -691,6 +695,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
+          set -o pipefail
           echo "PUBLICATION_PHASE=tag-image" >>"$GITHUB_ENV"
           resolve_digest() {
             docker buildx imagetools inspect "$1" |
@@ -774,7 +779,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag }}
     steps:
       - name: Restore generated Homebrew Cask
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.build-release.outputs.cask_artifact }}
           path: dist/homebrew/Casks

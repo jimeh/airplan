@@ -3,8 +3,8 @@
 set -Eeuo pipefail
 
 readonly image="${AIRPLAN_CONTAINER_IMAGE:-airplan:container-test}"
-readonly minio_image="minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
-readonly mc_image="minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727"
+readonly minio_image="cgr.dev/chainguard/minio:latest@sha256:6476f81b9739912fa9f50ceae2bb049a30336527cccd24beccfbeb4145f8f696"
+readonly mc_image="cgr.dev/chainguard/minio-client:latest@sha256:b0f5c2b2df15efb304bf8e752350d5549c06926cc981e1921a86188699606bfb"
 readonly suite="airplan-container-${RANDOM}-$$"
 readonly network="${suite}-network"
 readonly state="${suite}-state"

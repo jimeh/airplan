@@ -90,11 +90,13 @@ func TestIntegrationRoundTrip(t *testing.T) {
 	)
 	defer cancel()
 
-	// Keep the reviewed release tag and multi-platform digest together.
-	// Refresh both, inspect the image labels, then run this test before
-	// accepting a newer MinIO image.
-	const minioImage = "minio/minio:RELEASE.2025-09-07T16-13-09Z@" +
-		"sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e"
+	// Upstream MinIO no longer publishes community images, so this pins
+	// Chainguard's build, which only carries the moving latest tag. The
+	// multi-platform digest below reports RELEASE.2026-09-22T19-25-18Z
+	// when run with --version. Refresh the digest and that release
+	// together, then run this test before accepting a newer MinIO image.
+	const minioImage = "cgr.dev/chainguard/minio:latest@" +
+		"sha256:6476f81b9739912fa9f50ceae2bb049a30336527cccd24beccfbeb4145f8f696"
 	minioC, err := tcminio.Run(ctx, minioImage)
 	testcontainers.CleanupContainer(t, minioC)
 	if err != nil {

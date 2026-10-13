@@ -1,0 +1,5 @@
+rules:
+  # The repository delays dependency intake by three days. The rule's default
+  # minimum is seven.
+  dependabot-cooldown:
+    days: 3

@@ -9,7 +9,7 @@ may contradict it. Targets spec version 0.62.0.
 
 ## 1. Language & Toolchain
 
-**Go (1.26.4).** The exact minimum is declared by `go.mod` and pinned
+**Go (1.27).** The exact minimum is declared by `go.mod` and pinned
 in `mise.lock`. Rationale:
 
 - Single static binary via `CGO_ENABLED=0`; trivial cross-compilation

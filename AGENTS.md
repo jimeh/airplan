@@ -205,6 +205,10 @@ coverage has no equivalent local task on non-Windows hosts.
   cooldown.
   `mise run audit:deps` verifies Go modules, checks reachable Go
   vulnerabilities, and audits Bun development dependencies at high severity.
+  Bun advisory ignores live in `internal/deps/bun-audit-ignores.json`, each
+  with a reason and an `expires` date. From that UTC date the audit fails
+  until the entry is removed or given a new date, so choose a date by which a
+  fix or withdrawal is plausible rather than a distant one.
 - **Cross-compilation target variables belong on the build step**, not the CI
   job. Job-level `GOOS`/`GOARCH` values make mise install target-platform Go
   tools that cannot run on the host runner.
@@ -213,6 +217,14 @@ coverage has no equivalent local task on non-Windows hosts.
   installs non-Go tools, and mise shims stay off `PATH` so setup-go remains
   authoritative. Pull requests restore but do not save mise tool caches;
   production releases disable both setup-go and mise caches.
+- **mise-action keeps its GitHub token local**: later steps no longer receive
+  `MISE_GITHUB_TOKEN`. A `mise run` or `mise exec` step without `--skip-tools`
+  installs the remaining locked tools and can download artifacts for
+  provenance verification, so jobs with such a step set
+  `persist_github_token: true` to keep those requests authenticated. Jobs that
+  pass `--skip-tools`, or give the step its own `GITHUB_TOKEN`, keep the
+  default. Every use sets `minimum_release_age: 3d` so the mise binary follows
+  the dependency cooldown.
 - **GoReleaser PR checks are opt-in**: apply the `ci:goreleaser`
   label when a PR changes `.goreleaser.yaml` or release packaging.
   The check remains unconditional on pushes to `main`.
@@ -269,15 +281,36 @@ coverage has no equivalent local task on non-Windows hosts.
   assigning the exact version and a still-current `latest`. GHCR does not
   enforce tag immutability against external writers; consumers needing that
   guarantee must pin the index digest.
-- **Actionlint currently lags `queue: max`**: keep the narrow `mise.toml`
-  ignore for its unsupported concurrency key until actionlint recognizes the
-  current GitHub syntax. Do not suppress other concurrency errors.
-- **Zizmor 1.30 conflicts with Actionlint 1.7.12**: Zizmor requires `$/`
-  self-repository workflow references, but Actionlint rejects them. Keep Zizmor
-  locked to 1.29.0 until both validators support the same syntax.
-- **MinIO is immutable-pinned** in `airplan/integration_test.go`:
-  update the release tag and multi-platform digest together, inspect
-  the image labels, then run `mise run test-integration`.
+- **Workflow lint runs jactionlint and Zizmor**: jactionlint's default profile
+  checks workflow syntax, bug patterns, and policy rules for the workflows and
+  `.github/dependabot.yml`. Zizmor adds its security audits.
+  `.github/jactionlint.yaml` lowers the Dependabot cooldown minimum to the
+  repository's three days. Every job that runs steps sets `timeout-minutes`;
+  size it from the job's slowest passing run, not a typical one. The browser
+  job has passed after a 14-minute Playwright install.
+- **Concurrency groups cancel only superseded pull request runs**: group on
+  the pull request number and fall back to `github.run_id`, so runs on `main`
+  and scheduled runs never share a group. The GoReleaser check also gives a
+  `labeled` event for any other label its own group, because that run skips
+  the job and would otherwise cancel a real one.
+- **Workflow scripts with pipelines start with `set -o pipefail`**: the
+  default `bash -e {0}` shell hides a failure on the left of a pipe. Check
+  that no reader exits early before adding one, since that turns `SIGPIPE`
+  into a step failure.
+- **Same-repository workflow calls use `$/`**: Zizmor requires GitHub's
+  self-repository syntax, as in `uses: $/.github/workflows/release.yml`. A `./`
+  reference fails `mise run lint:workflows`.
+- **MinIO is immutable-pinned** in `airplan/integration_test.go` and
+  `scripts/container/integration.sh`: upstream MinIO no longer publishes
+  community images, so both pin Chainguard's build by multi-platform digest.
+  Chainguard only offers the moving `latest` tag. Pick a digest at least three
+  days old from its tag history
+  (`https://cgr.dev/v2/chainguard/minio/_chainguard/history/latest`, and the
+  same path for `minio-client`). Run the server image with `--version` and
+  update the MinIO release recorded in the Go test comment; the image labels
+  do not carry it. Then run `mise run test-integration` and
+  `mise run test:container-integration`. The client image must keep
+  `/usr/bin/chown`, which the fixture-ownership phase runs.
 - **Real R2 release smoke tests may use `AIRPLAN_TIMEOUT=60s`** when
   local firewall approval could interrupt the sequence. The product
   default remains 30 seconds.
