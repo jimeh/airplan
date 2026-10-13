@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.13.0](https://github.com/jimeh/airplan/compare/v0.12.1...v0.13.0) (2026-10-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deps:** Release binaries now require macOS 13 or later. They are built with Go 1.27, which no longer supports macOS 12.
+* **deps:** Importing `github.com/jimeh/airplan` now requires Go 1.27.2 or later.
+
+### Bug Fixes
+
+* **deps:** resolve Go standard library vulnerabilities by upgrading to Go 1.27.2 ([#130](https://github.com/jimeh/airplan/issues/130)) ([90d2f64](https://github.com/jimeh/airplan/commit/90d2f6426ff3573fbb96f77f4185aa585bb067ab))
+
+
+### Miscellaneous Chores
+
+* **deps:** raise the minimum Go version for importers to 1.27.2 ([#130](https://github.com/jimeh/airplan/issues/130)) ([90d2f64](https://github.com/jimeh/airplan/commit/90d2f6426ff3573fbb96f77f4185aa585bb067ab))
+* **deps:** upgrade to Go 1.27.2 and refresh all dependencies ([#130](https://github.com/jimeh/airplan/issues/130)) ([90d2f64](https://github.com/jimeh/airplan/commit/90d2f6426ff3573fbb96f77f4185aa585bb067ab))
+
 ## [0.12.1](https://github.com/jimeh/airplan/compare/v0.12.0...v0.12.1) (2026-09-07)
 
 
