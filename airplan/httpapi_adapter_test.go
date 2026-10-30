@@ -25,8 +25,8 @@ func TestWireVersionsMetadataPreservesSchemaAndVersion(t *testing.T) {
 	}
 }
 
-func TestSupportedMarkerVersionsAdvertiseV1ThroughV6(t *testing.T) {
-	if got, want := supportedMarkerVersions(), []int{1, 2, 3, 4, 5, 6}; !reflect.DeepEqual(got, want) {
+func TestSupportedMarkerVersionsAdvertiseV1ThroughV7(t *testing.T) {
+	if got, want := supportedMarkerVersions(), []int{1, 2, 3, 4, 5, 6, 7}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("supported marker versions = %v, want %v", got, want)
 	}
 }

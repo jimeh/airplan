@@ -1569,3 +1569,27 @@ func TestOpenMCPDocumentFilesRejectsResolvedMemberEscape(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+func TestMCPFileLimitCapsHostedTools(t *testing.T) {
+	for _, tt := range []struct {
+		name               string
+		requested, ceiling int
+		hosted             bool
+		want               int
+	}{
+		{"local default", 0, 0, false, 0},
+		{"local disabled", -1, 0, false, -1},
+		{"local above default", 5000, 0, false, 5000},
+		{"hosted default ceiling", 0, 0, true, DefaultMaxFiles},
+		{"hosted cannot disable", -1, 2000, true, 2000},
+		{"hosted lower request", 10, 2000, true, 10},
+		{"hosted request above ceiling", 5000, 2000, true, 2000},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mcpFileLimit(tt.requested, tt.hosted, tt.ceiling); got != tt.want {
+				t.Fatalf("mcpFileLimit(%d, %t, %d) = %d, want %d",
+					tt.requested, tt.hosted, tt.ceiling, got, tt.want)
+			}
+		})
+	}
+}

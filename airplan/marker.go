@@ -27,7 +27,9 @@ const CollectionMarkerFilename = ".airplan-collection.json"
 const MarkerSchema = "airplan-upload"
 
 // MarkerVersion is the latest ownership marker version written by airplan.
-const MarkerVersion = 6
+// Version 7 shares the v6 wire format and raises the marker size ceiling
+// (SPEC.md §5).
+const MarkerVersion = 7
 
 // IsSupportedMarkerVersion reports whether version can be safely managed by
 // this airplan release.
@@ -35,15 +37,23 @@ func IsSupportedMarkerVersion(version int) bool {
 	return version >= 1 && version <= MarkerVersion
 }
 
-// MaxMarkerSize is the maximum accepted marker body size.
-const MaxMarkerSize = 256 * 1024
+// MaxMarkerSize is the maximum accepted marker body size for every marker
+// version, and the maximum encoded size of a current-version marker.
+const MaxMarkerSize = 4 << 20
 
-// MaxCollectionFiles is the maximum number of files declared by a collection.
-const MaxCollectionFiles = 100
+// legacyMaxMarkerSize is the encoded size ceiling for marker versions before
+// 7. Older airplan releases reject larger bodies, so rewrites that preserve an
+// older version keep this bound.
+const legacyMaxMarkerSize = 256 << 10
 
-// MaxDocumentItems is the maximum number of user-supplied entry, page, and
-// asset items declared by a document marker.
-const MaxDocumentItems = 100
+// maxEncodedMarkerSize returns the largest body EncodeUploadMarker may write
+// for version.
+func maxEncodedMarkerSize(version int) int {
+	if version >= 7 {
+		return MaxMarkerSize
+	}
+	return legacyMaxMarkerSize
+}
 
 // UploadKind identifies the shape and lifecycle rules for an upload.
 type UploadKind string
@@ -161,8 +171,7 @@ func MarkerDeclaredTotals(
 		}
 		return 2, total, true
 	}
-	if marker.Version != 3 && marker.Version != 4 && marker.Version != 5 &&
-		marker.Version != 6 {
+	if marker.Version < 3 || !IsSupportedMarkerVersion(marker.Version) {
 		return 0, 0, false
 	}
 	objects = 1
@@ -377,9 +386,10 @@ func EncodeUploadMarker(marker UploadMarker) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("airplan: encode ownership marker: %w", err)
 	}
-	if len(body) > MaxMarkerSize {
+	if limit := maxEncodedMarkerSize(marker.Version); len(body) > limit {
 		return nil, markerInvalid(MarkerErrorOversized,
-			fmt.Errorf("body is %d bytes; maximum is %d", len(body), MaxMarkerSize))
+			fmt.Errorf("body declaring %d objects is %d bytes; maximum is %d",
+				len(marker.Objects), len(body), limit))
 	}
 	return body, nil
 }
@@ -674,7 +684,6 @@ func validateModernMarker(
 	var page, source, diff *MarkerObject
 	pages := 0
 	sources := 0
-	assets := 0
 	files := 0
 	for i := range marker.Objects {
 		object := &marker.Objects[i]
@@ -768,7 +777,6 @@ func validateModernMarker(
 			if marker.Version < 6 || marker.Kind != UploadKindDocument {
 				return invalid("object %q role %q is unsupported", object.Name, object.Role)
 			}
-			assets++
 			if object.Bytes < 0 {
 				return invalid("asset %q bytes must not be negative", object.Name)
 			}
@@ -794,7 +802,7 @@ func validateModernMarker(
 	switch marker.Kind {
 	case UploadKindDocument:
 		if marker.Version >= 6 {
-			return validateDocumentMarkerV6(marker, pages, sources, assets, files, diff, invalid)
+			return validateDocumentMarkerV6(marker, pages, sources, files, diff, invalid)
 		}
 		return validateDocumentMarkerV3(marker, page, source, diff, files, invalid)
 	case UploadKindCollection:
@@ -987,7 +995,7 @@ func validateDocumentMarkerV3(
 
 func validateDocumentMarkerV6(
 	marker *UploadMarker,
-	pageCount, sourceCount, assetCount, files int,
+	pageCount, sourceCount, files int,
 	diff *MarkerObject,
 	invalid func(string, ...any) error,
 ) error {
@@ -1105,9 +1113,6 @@ func validateDocumentMarkerV6(
 			return invalid("entry format %q does not match top-level format %q", marker.Pages[0].Format, marker.Format)
 		}
 	}
-	if pageCount+assetCount > MaxDocumentItems {
-		return invalid("document declares %d items; maximum is %d", pageCount+assetCount, MaxDocumentItems)
-	}
 	if marker.Revision == nil && diff != nil {
 		return invalid("standalone documents must not declare a diff")
 	}
@@ -1142,10 +1147,6 @@ func validateCollectionMarkerV3(
 	}
 	if files == 0 {
 		return invalid("collection markers must declare at least one file")
-	}
-	if files > MaxCollectionFiles {
-		return invalid("collection declares %d files; maximum is %d",
-			files, MaxCollectionFiles)
 	}
 	return nil
 }

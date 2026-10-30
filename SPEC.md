@@ -1,6 +1,6 @@
 # airplan — Tool Specification
 
-**Spec version: 0.62.0**
+**Spec version: 0.63.0**
 
 Semantic versioning, applied to the spec itself: while below 1.0,
 **minor** covers observable behavior changes — including breaking
@@ -197,35 +197,50 @@ percent-encodes each segment separately and preserves `/`
 as hierarchy. Direct Go, REST, and inline MCP callers provide logical paths
 explicitly and do not invoke local filesystem inference.
 
-A document accepts at most 100 user-supplied items in total, including its
-entry, managed pages, and assets. `--max-size` remains the per-managed-page
+A document accepts at most 1000 user-supplied items by default, counting its
+entry, managed pages, and assets. `--max-files N` changes that limit and `0`
+removes it. The item count is a write-side policy only: marker readers never
+validate it, so an upload written under a higher limit remains fully
+manageable. The 4 MiB ownership-marker limit (§5) is the protocol ceiling. An
+upload whose marker would exceed it fails during preflight, before any remote
+write, with an error naming the marker limit and the declared object count.
+`--max-size` remains the per-managed-page
 source limit and defaults to 10 MiB. `--max-total-page-size` defaults to 100 MiB
 across all managed source bytes. Generated HTML has a separate 100 MiB aggregate
 ceiling. `--max-asset-size` defaults to 1 GiB per asset, and
 `--max-total-size` applies to document assets with its existing 2 GiB default.
 Because a simple document has no assets, explicitly setting
-`--max-total-size` for a non-bundle document upload or preview is an error.
+`--max-total-size` or `--max-files` for a non-bundle document upload or preview
+is an error.
 CLI zero values disable their client-side limit. At the Go API boundary, a
 negative value disables a client-side limit. A server may advertise and enforce
 lower limits. Size failures identify the logical path and effective limit.
 
 CLI upload and output-directory preview spool managed source and generated HTML
 to mode-0600 temporary files. Asset handling remains seekable and stream-based.
-The public bundle API requires an exact size and `io.ReadSeeker` for each asset,
-and fails if an asset changes between validation and upload.
+The public bundle API requires an exact size for each asset and exactly one of
+an `io.ReadSeeker` or an on-demand opener, and fails if an asset changes between
+validation and upload. Named local pages and assets are validated up front but
+opened only while they are read: pages one at a time while rendering, and
+assets only while a bounded upload worker hashes or transfers them (§5).
 
 ### Collection input
 
 Collection preflight completes before a random directory is generated or any
-object is uploaded. It opens every input and keeps that exact file open through
-upload, rejects directories and non-regular files, records the basename and
-size, detects a content type, rejects duplicate basenames, enforces all limits,
-renders the overview, and encodes the complete marker.
+object is uploaded. It rejects directories and non-regular files, records each
+named input's file identity, basename, and size, detects a content type,
+rejects duplicate basenames, enforces all limits, renders the overview, and
+encodes the complete marker. Named inputs are not held open between phases:
+each is reopened only while a bounded worker hashes or uploads it (§5), and the
+upload fails as changed after preflight if the path now names a different file
+or its size differs.
 
 Member names are direct basenames, never paths. Empty names, `.`, `..`,
 `.airplan.json`, `.airplan-collection.json`, `index.html`, names containing
 slashes, backslashes, NUL, or control characters, and duplicate names are
-rejected. A collection may contain up to 100 files. Zero-byte members are
+rejected. A collection may contain up to 1000 files by default; `--max-files N`
+changes that write-side limit and `0` removes it, subject to the 4 MiB marker
+ceiling (§5). Zero-byte members are
 valid. Collection basenames deliberately retain these rules in every marker
 generation: document-only portability restrictions do not reject otherwise
 valid collection names such as `CON`, `aux.txt`, `notes.`, or names ending in a
@@ -792,11 +807,17 @@ already is the original file.
 
 ## 5. Upload Behavior
 
-- Every new upload writes ownership marker version 6, including simple
-  documents and collections. Current readers manage versions 1 through 6;
-  writers emit only version 6. Marker versions describe wire-schema
-  generations; `kind` distinguishes documents from collections. Older clients
-  fail closed on v6 rather than partially managing an unfamiliar inventory.
+- Every new upload writes ownership marker version 7, including simple
+  documents, collections, document revisions, and `upgrade` rewrites. Current
+  readers manage versions 1 through 7; writers emit only version 7 for new
+  markers. Marker versions describe wire-schema generations; `kind`
+  distinguishes documents from collections. Version 7 has exactly the v6 wire
+  format and rules and raises only the marker size ceiling, so a reader bounded
+  to 256 KiB never misjudges a larger inventory. Older clients fail closed on
+  an unsupported version rather than partially managing an unfamiliar
+  inventory: Airplan releases before marker v7 cannot inspect, delete, purge,
+  or sync uploads written as v7. `airplan upgrade` rewrites an eligible
+  document's marker to v7.
 
 - The exact marker basename supplies an untrusted LIST-only kind hint:
 
@@ -811,13 +832,17 @@ already is the original file.
   ownership declarations and grants no managed read or deletion authority.
 
 - Markers are UTF-8 JSON uploaded with
-  `Content-Type: application/json` and `Cache-Control: no-store`, and are at
-  most 256 KiB. A v6 document-bundle marker is:
+  `Content-Type: application/json` and `Cache-Control: no-store`. Readers
+  accept marker bodies of at most 4 MiB for every version. A v7 marker is
+  encoded at most 4 MiB. A rewrite that preserves an older marker version, such
+  as promoting an earlier standalone document to revision 1, keeps that
+  version's original 256 KiB ceiling so older readers still accept it. A v7
+  document-bundle marker is:
 
   ```json
   {
     "schema": "airplan-upload",
-    "version": 6,
+    "version": 7,
     "directory": "vq3nhk2p7r4wzt5c6ydjm3xhqd",
     "created_at": "2026-07-21T12:00:00Z",
     "kind": "document",
@@ -897,13 +922,13 @@ already is the original file.
   }
   ```
 
-  A v6 collection uses the same declared-object model and records template
+  A v7 collection uses the same declared-object model and records template
   kind `builtin_collection` or `custom_collection`:
 
   ```json
   {
     "schema": "airplan-upload",
-    "version": 6,
+    "version": 7,
     "directory": "vq3nhk2p7r4wzt5c6ydjm3xhqd",
     "created_at": "2026-07-21T12:00:00Z",
     "kind": "collection",
@@ -941,7 +966,7 @@ already is the original file.
   ```
 
 - `schema`, `version`, `directory`, `created_at`, `kind`, `objects`, and
-  `producer` are required in v4 through v6. `schema` is exactly `airplan-upload`;
+  `producer` are required in v4 through v7. `schema` is exactly `airplan-upload`;
   `producer.name` is `airplan`, and `producer.version` is the resolved release
   string or `dev`. `directory` matches the
   containing random directory; `created_at` is RFC 3339 UTC. `repo`, when
@@ -951,7 +976,7 @@ already is the original file.
   render recipe. `generation` is a positive page-capability generation, not
   the marker or release version. Custom template recipes store kind `custom`
   or `custom_collection` and the lowercase SHA-256 of the exact template bytes;
-  no local path or template source is stored. Versions 5 and 6 generated-page recipes
+  no local path or template source is stored. Versions 5 through 7 generated-page recipes
   additionally require `themes`: the selected slot IDs and lowercase SHA-256
   of the canonical normalized catalog embedded in the page. Full custom theme
   definitions and local configuration paths are not stored. Both default theme
@@ -961,7 +986,7 @@ already is the original file.
   `themes`; current readers preserve their complete producer, render,
   revision, digest, and role data while upgrading them.
 
-- In v6, `objects` is the authoritative ownership and deletion inventory. It is
+- In v6 and v7, `objects` is the authoritative ownership and deletion inventory. It is
   non-empty and has unique validated relative paths. Every object declares
   `name`, `role`, `bytes`, a normalized `content_type`, and `sha256`, the
   lowercase 64-hex-character SHA-256 of its exact bytes. Roles are `page`,
@@ -971,7 +996,7 @@ already is the original file.
   extra transport check but does not replace the marker digest. ETags are never
   content digests for this purpose.
 
-  A v6 document has a valid `slug`, `format` (`md`, `html`, or `txt`), and
+  A v6 or v7 document has a valid `slug`, `format` (`md`, `html`, or `txt`), and
   `entrypoint`. It has no `file` objects. `pages` is ordered and pairs each
   managed logical source path with its rendered object, optional uploaded
   source, format, title, and normalized highlight language. It includes the
@@ -981,9 +1006,11 @@ already is the original file.
   digest already live in `objects`. The legacy in-memory page/source view and
   top-level title, slug, and format continue to describe the entry.
 
-  A v6 collection omits `slug`, `format`, `entrypoint`, and `pages`; has exactly
-  one page object named `index.html`; declares no source or asset objects; and
-  has one through 100 `file` objects. File and asset sizes may be zero, while
+  A v6 or v7 collection omits `slug`, `format`, `entrypoint`, and `pages`; has
+  exactly one page object named `index.html`; declares no source or asset
+  objects; and has at least one `file` object. No marker version bounds the
+  number of declared objects or document items; counts are a write-side
+  policy (§2). File and asset sizes may be zero, while
   pages and sources remain positive. Unknown roles or kinds are invalid. V4 and
   v5 retain their original direct-basename and single-page rules. Their page
   object alone requires `sha256`; older object roles omit it.
@@ -995,7 +1022,7 @@ already is the original file.
   visible to LIST-only discovery but cannot be inspected as valid, fetched,
   deleted, purged, or synced.
 
-- Marker versions 1 through 6 are supported through the current declared-object
+- Marker versions 1 through 7 are supported through the current declared-object
   model. Versions 1 through 4 are decoded into it after their original wire
   rules validate. Version 1 omits `page_bytes` and `repo`; version 2 requires
   positive `page_bytes` and may include `repo`.
@@ -1021,8 +1048,8 @@ already is the original file.
   Unicode characters, valid UTF-8, and free of control characters; readers
   drop reasons that violate any of these while the upload stays protected.
   Marker v4 and v5 reserve every direct basename beginning `.airplan-`, in
-  addition to `.airplan.json`. Marker v6 reserves such a segment at any path
-  depth. Collection member filenames and v4-v6 marker-declared object names must
+  addition to `.airplan.json`. Marker v6 and v7 reserve such a segment at any
+  path depth. Collection member filenames and v4-v7 marker-declared object names must
   not use that namespace, or a member could forge a control object.
   The sole payload exception is `.airplan-changes.diff` with role `diff`, and
   only for a linked Markdown revision greater than 1; every other
@@ -1041,15 +1068,21 @@ already is the original file.
   part of the intended use. `x-amz-meta-title` remains convenience metadata;
   the marker title is authoritative for remote management.
 
-- Document order is `.airplan.json`, sources and assets, non-entry rendered
-  pages, then the entry page. Collection order is
-  `.airplan-collection.json`, files in argument order, then `index.html`.
+- Document order is `.airplan.json` first; then sources, assets, and
+  non-entry rendered pages; then the entry page. Collection order is
+  `.airplan-collection.json` first, then the files, then `index.html`. The
+  marker and the entry page or overview are explicit barriers. Objects between
+  them upload concurrently, at most 8 at a time, in no guaranteed order;
+  results still list pages, assets, and files in declared order.
   Airplan preflights the complete object graph, marker size, formats, limits,
   paths, generated names, and collisions before the first remote write. It
-  hashes each seekable asset and collection member during preflight, hashes the
-  transmitted bytes again, and fails before publishing the entry or overview
-  if they differ. Upload concurrency is bounded and the entry remains an
-  explicit final barrier.
+  hashes each asset and collection member during preflight with the same
+  bounded concurrency, hashes the transmitted bytes again, and fails before
+  publishing the entry or overview if they differ. Inputs that are opened on
+  demand are held open only while a worker hashes or uploads them, so at most
+  8 are open at once regardless of the file count. The first failure stops
+  outstanding transfers, and the entry page or overview is written only after
+  every other declared object succeeded.
 
   Any PUT failure fails the command and writes no local upload record or stdout
   URL. Marker-first creation leaves interrupted objects discoverable and owned;
@@ -1101,6 +1134,7 @@ local inference rules in §2.
 | `--max-total-page-size N` | 100 MiB        | document managed-source total          |
 | `--max-asset-size N`      | 1 GiB          | document per-asset limit               |
 | `--max-total-size N`      | 2 GiB          | document assets or collection total    |
+| `--max-files N`           | 1000           | bundle items or collection files       |
 | `--timeout D`             | 30s            | operation timeout; 0 = no limit        |
 | `--lang L`                | from filename  | entry text highlight language          |
 | `--json`                  | off            | JSON object on stdout                  |
@@ -1133,6 +1167,9 @@ Flags explicitly used in the wrong mode fail before storage mutation.
 its `--files` compatibility alias, and `--collection-template` are
 collection-only. `--entrypoint`, `--page`, `--asset`,
 `--max-total-page-size`, and `--max-asset-size` are document-only.
+`--max-total-size` and `--max-files` apply only to document bundles and
+collections. `--max-files` accepts a non-negative integer; `0` disables the
+file-count check.
 `--open` always opens the entry page or collection
 overview, never an arbitrary member.
 
@@ -1203,7 +1240,7 @@ airplan README.md docs/design.md assets/status.json \
 Markdown document in place. It re-renders every managed page in a bundle while
 preserving stable public URLs, source and asset bytes, original `created_at`,
 repository context, revision identity, and purge-protection sentinel. The
-operation writes a complete marker v6 with producer, theme, render provenance,
+operation writes a complete marker v7 with producer, theme, render provenance,
 and desired object digests. Authored HTML, text-entry documents, collections,
 source-less Markdown, and structurally incomplete bundle graphs are ineligible.
 A marker produced by a newer renderer generation is never
@@ -1212,7 +1249,7 @@ configured custom template has the marker-declared SHA-256. `--force` plus the
 currently configured template and theme choices explicitly authorizes
 replacing a stored built-in/custom template or theme recipe; `--template PATH`
 selects a custom replacement and `--template=` selects the built-in template.
-Without force, a template or v5/v6 theme-recipe mismatch remains ineligible. A
+Without force, a template or v5-v7 theme-recipe mismatch remains ineligible. A
 changed theme configuration therefore requires
 `airplan upgrade --force <url|key>` before `airplan new-revision` can proceed
 against that revision. Planning remains read-only even when a configured
@@ -1230,9 +1267,9 @@ and source ETags. Execution rechecks source identities before mutation.
 Planning fails closed when storage omits a required ETag or a bounded read
 cannot establish an object's digest. Planning streams page and source bodies
 through bounded hashing and retains only their sizes, digests, and ETags; it
-does not create payload spools. V6 planning accepts generated pages within the
+does not create payload spools. V6 and v7 planning accepts generated pages within the
 separate 100 MiB aggregate generated-HTML ceiling, including an entry larger
-than the legacy single-page upgrade bound. A v6 source read is bounded by its
+than the legacy single-page upgrade bound. A v6 or v7 source read is bounded by its
 marker-declared size and the 100 MiB aggregate managed-source ceiling rather
 than the legacy 10 MiB per-source fallback. A marker-declared adjacent diff
 larger than 32 MiB is rejected before its body is fetched; accepted diff reads
@@ -1242,7 +1279,7 @@ payload files, removes it on success or failure, creates no spool for a fresh
 no-op, and re-hashes every source immediately before the first marker or page
 mutation.
 
-Execution renders every managed page and calculates the desired v6 marker. It
+Execution renders every managed page and calculates the desired v7 marker. It
 conditionally writes that marker once when it differs. A retry that finds the
 exact desired marker does not perform an identity PUT. Airplan then compares
 each non-entry page's actual digest, using a native full-object SHA-256 when
@@ -1316,7 +1353,7 @@ document and repairs missing or mismatched pages through the same in-place
 upgrade machinery. Revision creation may likewise upgrade an eligible older
 marker or renderer generation. This prerequisite maintenance is part of the
 requested operation and remains independently recoverable. It fails closed
-when the target or latest live revision's v5/v6 theme recipe does not match the
+when the target or latest live revision's v5-v7 theme recipe does not match the
 active catalog and defaults. The explicit remedy is
 `airplan upgrade --force <url|key>` followed by retrying `new-revision`.
 Historical members read only as metadata-repair witnesses do not need to match
@@ -1380,7 +1417,7 @@ These tombstones intentionally accumulate and Airplan lifecycle commands never
 remove them. Thus exactly one transition can win, including when both
 operations first observed the standalone marker.
 
-Every linked v4 through v6 Markdown marker contains an immutable `revision` descriptor
+Every linked v4 through v7 Markdown marker contains an immutable `revision` descriptor
 with a 26-character lowercase RFC 4648 base32 `chain_id`, positive `number`,
 and, after revision 1, the previous page URL. Revisions greater than 1 declare
 exactly one `diff` object named `.airplan-changes.diff`, content type
@@ -1431,15 +1468,18 @@ metadata disables only revision navigation, not an otherwise complete payload.
 
 The revision index stores each revision's entry URL, not a page map. Exact,
 case-sensitive logical source path is page identity across revisions. Selecting
-another revision from a child page fetches that target directory's public v6
-marker with `no-store`, bounds it to 256 KiB, and validates its directory,
+another revision from a child page fetches that target directory's public v6 or
+v7 marker with `no-store`, bounds it to 4 MiB, and validates its directory,
 document and revision identity, producer and render provenance, portable unique
 object inventory with exact roles, sizes, digests, and content types, and each
 page descriptor's generated-page/source relationship. Object URL construction
 percent-encodes each validated path segment while preserving directory
 separators. It then navigates normally to the exact matching page. Missing pages and every marker
 fetch or validation failure fall back to the already validated target entry
-URL. Ordinary content fragments are retained only for a matching page. The
+URL. Pages rendered before marker v7 accept only v6 markers here, so selecting
+a v7 revision from such a child page lands on that revision's entry page until
+`airplan upgrade` re-renders the older revision. Ordinary content fragments are
+retained only for a matching page. The
 reserved `#airplan-all-changes` fragment always selects the target entry for
 revisions greater than 1 and is dropped when selecting revision 1.
 
@@ -1503,7 +1543,7 @@ URL learns every linked capability URL; this is intentional.
 mutually exclusive with `--source`. `show` exposes revision identity, latest
 revision/URL, diff state, validated versions metadata, and a separate advisory
 metadata error. Manifest projections may carry `revision_chain_id`, `revision`,
-and `latest_revision`; sync reconstructs them from v4-v6 markers and bounded
+and `latest_revision`; sync reconstructs them from v4-v7 markers and bounded
 metadata reads.
 
 Successful `new-revision --json` or alias `update --json` output extends the
@@ -1638,7 +1678,7 @@ airplan upgrade [--check] [--force] [--template PATH] [--json] <url|key>
 airplan upgrade --all [--dry-run] [--yes] [--concurrency N]
                 [--all-profiles] [--json]
 airplan new-revision [--entrypoint PATH] [--page PATH]... [--asset PATH]...
-                     [--json] [--open] <url|key> [file ...]
+                     [--max-files N] [--json] [--open] <url|key> [file ...]
 # `update` is an accepted alias for `new-revision`
 airplan purge [--remote] [--older-than 30d|2026-01-01] [--include-versioned]
               [--all] [--dry-run] [--yes] [--concurrency N]
@@ -1646,7 +1686,7 @@ airplan sync [--config PATH] [--profile NAME] [--concurrency N]
              [--no-prune] [--dry-run] [--json]
 airplan serve [--listen ADDR] [--allow-non-loopback] [--token-file PATH]
               [--allowed-origin ORIGIN] [--temp-dir PATH]
-              [--log-level LEVEL]
+              [--log-level LEVEL] [--max-files N]
 airplan mcp
 ```
 
@@ -1667,8 +1707,8 @@ resulting HTML to stdout or to `--output PATH`. It supports the rendering
 flags `--format`, `--lang`, `--slug`, `--title`, `--template`,
 `--indexable`, `--no-external-assets`, `--mermaid-url`, `--repo`, and
 `--max-size`, plus document-bundle `--entrypoint`, `--page`, `--asset`,
-`--max-total-page-size`, `--max-asset-size`, and `--max-total-size`,
-plus `--config` and `--profile` for
+`--max-total-page-size`, `--max-asset-size`, `--max-total-size`, and
+`--max-files`, plus `--config` and `--profile` for
 resolving template settings. It does not validate S3 connection fields,
 access the network or write the manifest. A one-page stdout or file preview has
 an empty `.SourcePath`, while Markdown's embedded source view remains
@@ -1693,7 +1733,8 @@ bundle at the requested path.
 `preview --collection` renders a collection overview. Unforced multiple named
 inputs use the same local kind and role inference as upload. Collection preview
 supports `--title`, `--collection-template`, `--indexable`, `--repo`,
-`--max-size`, and `--max-total-size`, performs the same collection preflight,
+`--max-size`, `--max-total-size`, and `--max-files`, performs the same
+collection preflight,
 and rejects the document-only `--max-total-page-size` and `--max-asset-size`.
 It accesses neither storage nor the manifest. The output uses the same
 relative member paths as an upload. Airplan does not copy or inline member
@@ -1714,7 +1755,7 @@ not change.
 `list`/`purge` operate on the operation service's manifest by default, or
 on its live bucket listing with `--remote`. With an `airplan` backend those
 operations execute on the server. `show` inspects one remote
-marker directory. For v4 through v6 markers its human and JSON output includes the
+marker directory. For v4 through v7 markers its human and JSON output includes the
 producer release and renderer generation when present. `get` fetches only objects declared by a valid remote
 ownership marker. `delete` takes an explicit URL or key, but it only
 operates on a directory carrying a valid airplan ownership marker; it
@@ -2293,7 +2334,7 @@ conforming implementations can share a manifest:
   marker declares, and `total_bytes` sums their declared sizes; both are
   optional and absent together on history written before airplan recorded
   them, and on uploads whose marker cannot declare every counted size. Marker
-  v3 through v6 always qualify; marker v2 qualifies only when it declares no source;
+  v3 through v7 always qualify; marker v2 qualifies only when it declares no source;
   marker v1 and v2-with-source do not. When present, both fields are positive;
   a record with only one field or an explicit zero is invalid. They are
   additive: `bytes` keeps its own meaning and is never repurposed. `title` is
@@ -2304,7 +2345,7 @@ conforming implementations can share a manifest:
 - Current writers always include `marker_version: 6`; its absence identifies
   legacy pre-marker history. Readers infer `kind: document` and derive its
   slug from the page key for valid older records that omit those fields. The
-  renderer theme recipe remains in the remote v5/v6 marker and is not duplicated
+  renderer theme recipe remains in the remote v5-v7 marker and is not duplicated
   in this local projection.
 - New `delete` tombstones include `marker_key`, `bucket`, the receiving
   `profile`, and reason `deleted` or `remote_missing`. Their identity is
@@ -2362,7 +2403,7 @@ conforming implementations can share a manifest:
   Readers retain an otherwise-valid upload with no `marker_version`
   as legacy history, but it never authorizes delete or purge. An
   unsupported nonzero `marker_version` is invalid and skipped with a
-  warning. Marker versions 1 through 6 are managed; pre-marker entries remain
+  warning. Marker versions 1 through 7 are managed; pre-marker entries remain
   visible as read-only legacy history and are never pruned by `sync`.
 
 Concurrent invocations are expected (parallel agents on one
@@ -2532,7 +2573,7 @@ machine) and must be safe:
   marker, fetches and validates it, and reports every declared object's
   existence and size plus total directory object count and bytes. A valid
   marker is `complete` only when every declared object exists with its declared
-  size and, for v6, its declared digest; otherwise it is `incomplete`. Extra
+  size and, for v6 and v7, its declared digest; otherwise it is `incomplete`. Extra
   objects do not affect state. A
   present invalid marker, including a dual-marker conflict, produces a
   successful `invalid` inspection but grants no authority. A missing marker is
@@ -2623,7 +2664,7 @@ machine) and must be safe:
   can resume while the marker still establishes ownership. A successful marker
   deletion is followed by the append-only local tombstone.
 - Delete, purge, protect, unprotect, sync, inspection, and bulk upgrade treat a
-  v6 marker's complete nested object inventory as one owned lifecycle unit.
+  v6 or v7 marker's complete nested object inventory as one owned lifecycle unit.
   There is no page-level or asset-level protection, deletion, retention, or
   revision history.
 - `airplan protect [--reason TEXT] <url|key>` marks one marker-managed
@@ -2756,7 +2797,7 @@ machine) and must be safe:
   connection, never the marker.
   Sync also completes local history in place: for each active, scoped,
   marker-managed record that is missing both `objects` and `total_bytes` and
-  carries a v3 through v6 marker version, or a v2 marker version without a source, it
+  carries a v3 through v7 marker version, or a v2 marker version without a source, it
   fetches and inspects that marker and, only
   for a `complete` inspection, appends an enriched upload record carrying the
   record's original time and identity plus the declared totals. Append-only
@@ -2775,7 +2816,7 @@ machine) and must be safe:
   invalid, or without declared sizes, is counted as deferred and named in a
   warning, and a later sync retries it. Otherwise one unreadable marker would
   fail every later run, because the record keeps qualifying.
-  A complete source-backed v4 through v6 Markdown record without a revision projection is
+  A complete source-backed v4 through v7 Markdown record without a revision projection is
   also inspected because another writer may have promoted its marker from
   standalone to revision 1. A discovered complete versions index appends a
   `link` projection with chain, revision, and latest values. A still-standalone
@@ -2814,7 +2855,7 @@ machine) and must be safe:
   deliberately leaves suppressed.
   Enriched records complete uploads already in history, so they are never
   counted as additions. `unchanged` counts scoped records already complete
-  locally, including an inspected v4 through v6 Markdown record that remains standalone;
+  locally, including an inspected v4 through v7 Markdown record that remains standalone;
   a totals-enrichment candidate is reported as enriched or deferred and never
   also as unchanged. A partial failure exits nonzero after
   writing the result. Sync provides eventual active-inventory convergence;
@@ -2951,6 +2992,7 @@ type PageInput struct {
 
 type AssetInput struct {
     Reader      io.ReadSeeker
+    Open        func() (io.ReadSeekCloser, error)
     Path        string
     Size        int64
     ContentType string
@@ -2966,8 +3008,11 @@ type DocumentInput struct {
     MaxTotalPageSize int64
     MaxAssetSize     int64
     MaxTotalSize     int64
+    MaxFiles         int
     RepositoryURL    string
 }
+
+const DefaultMaxFiles = 1000
 
 func (c *Client) UploadDocument(
     ctx context.Context,
@@ -3006,10 +3051,20 @@ type DocumentResult struct {
 
 `PageInput.Path` and `AssetInput.Path` are validated logical paths. Local
 filesystem containment belongs to CLI and local-file MCP adapters, not the
-library. `DocumentResult` embeds the existing `Result`; its fields remain entry
-aliases. It adds ordered `Pages []PageResult` and `Assets []AssetResult` with
-the JSON fields described in §6. `Client.Upload(ctx, Input)` remains available
-and wraps one entry. Existing collection types and `UploadFiles` do not change.
+library. Each asset sets exactly one of `Reader`, read from its current offset,
+and `Open`, read from offset zero; setting neither or both is an error. The
+library calls `Open` only while a bounded worker hashes or uploads the asset and
+closes the result afterwards, so at most 8 such inputs are open at once.
+`FileInput` has the same `Reader` and `Open` pair, and `FilesInput.MaxFiles`
+mirrors `DocumentInput.MaxFiles`. `MaxFiles` zero selects `DefaultMaxFiles` and
+a negative value disables the count check, matching the size limits; the
+document count includes the entry, pages, and assets. `StatLocalFile` validates
+a named regular file once and returns a value whose `Open` reopens it,
+failing as changed after preflight if the path now names a different file or
+its size differs. `DocumentResult` embeds the existing `Result`; its fields
+remain entry aliases. It adds ordered `Pages []PageResult` and
+`Assets []AssetResult` with the JSON fields described in §6.
+`Client.Upload(ctx, Input)` remains available and wraps one entry.
 
 The canonical complete-replacement revision operation is:
 
@@ -3068,6 +3123,10 @@ wins over its server-specific environment fallback. Its options are:
 - `--log-level`, with `AIRPLAN_SERVER_LOG_LEVEL` as its fallback. Accepted
   values are `error`, `warn`, `info`, `debug`, and `trace`; the default is
   `info`.
+- `--max-files`, which has no environment fallback and defaults to 1000. It
+  must be positive; the server always enforces a file-count limit. It bounds
+  both document bundle items and collection files for REST uploads and hosted
+  MCP tools, and is advertised as `document_bundle.max_items`.
 
 Environment-derived host and port are combined without losing IPv6 address
 syntax. `AIRPLAN_SERVER_HOST` must be non-empty when set.
@@ -3197,14 +3256,18 @@ Document and collection uploads use bounded streaming
 and zero or more repeated `assets` parts. Metadata contains the ordered logical
 descriptors that bind repeated parts. Part filenames are diagnostic only and
 never override logical paths. Missing, extra, reordered, or count-mismatched
-parts are invalid. The metadata part is limited to 256 KiB and the client
-preflights that limit before streaming.
+parts are invalid. The metadata part is limited to 4 MiB, matching the marker
+limit, and the client preflights that limit before streaming. A collection
+request contains at most the server's `--max-files` file parts, and a document
+request at most that many items.
 
 The server applies the stricter of its hard limits and portable
 client-requested limits. It measures and spools document pages, assets, and
 collection members to temporary files, mode 0600 on platforms with POSIX
 permission bits, while enforcing per-part, aggregate, and complete-request
-limits. All temporary files are removed after success, failure, cancellation,
+limits. Spool files are closed once written and reopened only while the
+operation reads them, so a request with many parts does not hold a descriptor
+per part. All temporary files are removed after success, failure, cancellation,
 or shutdown. Generated clients use `io.Pipe` and `multipart.Writer`; they do not
 assemble large assets in memory and do not retry an ambiguous partially sent
 body.
@@ -3267,7 +3330,10 @@ revision-route support, the maximum document item count, per-page source,
 aggregate managed-source, aggregate generated-page, per-asset,
 aggregate-asset, metadata-part, and complete multipart request sizes. The
 complete request envelope must accommodate every request allowed by the
-advertised logical limits plus multipart overhead.
+advertised logical limits plus multipart overhead that scales with the
+advertised item count. The advertised item count may exceed the core default
+and is always a positive integer, so older clients keep working; a client
+checks its own preflight against the advertised value.
 
 A new client checks capabilities before opening or streaming a bundle request
 and reports that the server needs an upgrade when bundle support is absent. It
@@ -3351,6 +3417,11 @@ existing `url_or_key` target field. `update_document` remains visible as a
 compatibility tool with the same input schema, output schema, handler, and
 behavior. Its description identifies the canonical name. No removal is
 scheduled.
+
+Upload and revision tools accept `max_files` alongside their size limits. Zero
+selects the default of 1000. Local stdio tools treat a negative value as
+disabling the count check; hosted tools cap the value at the server's
+`--max-files` and cannot disable it.
 
 Inline assets have a 32 MiB decoded aggregate limit. The Streamable HTTP JSON
 body limit remains independently authoritative, so escaped text can reach the

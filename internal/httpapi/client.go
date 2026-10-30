@@ -185,11 +185,8 @@ func (c *Client) UploadCollection(
 			return err
 		}
 		for _, file := range files {
-			if file.Reader == nil {
+			if file.Reader == nil && file.Open == nil {
 				return fmt.Errorf("airplan collection reader %q is nil", file.Name)
-			}
-			if _, err := file.Reader.Seek(0, io.SeekStart); err != nil {
-				return fmt.Errorf("seek collection input %q: %w", file.Name, err)
 			}
 			header := make(textproto.MIMEHeader)
 			header.Set(
@@ -204,25 +201,11 @@ func (c *Client) UploadCollection(
 				contentType = "application/octet-stream"
 			}
 			header.Set("Content-Type", contentType)
-			part, err := writer.CreatePart(header)
-			if err != nil {
+			if err := writeExactPart(
+				writer, header, "collection input", file.Name,
+				file.Reader, file.Open, 0, file.Size,
+			); err != nil {
 				return err
-			}
-			if _, err = io.CopyN(part, file.Reader, file.Size); err != nil {
-				return fmt.Errorf(
-					"airplan collection input %q was truncated: %w",
-					file.Name, err,
-				)
-			}
-			if _, err = io.CopyN(io.Discard, file.Reader, 1); err == nil {
-				return fmt.Errorf(
-					"airplan collection input %q exceeds its declared size",
-					file.Name,
-				)
-			} else if !errors.Is(err, io.EOF) {
-				return fmt.Errorf(
-					"check collection input %q size: %w", file.Name, err,
-				)
 			}
 		}
 		return nil
@@ -501,7 +484,7 @@ func encodeDocumentMultipart(
 	}
 	for index := range assets {
 		asset := &assets[index]
-		if asset.Reader == nil {
+		if asset.Reader == nil && asset.Open == nil {
 			return nil, "", fmt.Errorf("airplan asset reader %q is nil", asset.Path)
 		}
 		if asset.Size < 0 {
@@ -516,10 +499,10 @@ func encodeDocumentMultipart(
 		return nil, "", fmt.Errorf("encode document metadata: %w", err)
 	}
 	encodedMetadata = append(encodedMetadata, '\n')
-	if int64(len(encodedMetadata)) > defaultMaxMetadataBytes {
+	if int64(len(encodedMetadata)) > MaxMetadataBytes {
 		return nil, "", fmt.Errorf(
 			"airplan document metadata exceeds the %d-byte limit",
-			defaultMaxMetadataBytes,
+			MaxMetadataBytes,
 		)
 	}
 	body, contentType := multipartBody(func(writer *multipart.Writer) error {
@@ -549,30 +532,55 @@ func encodeDocumentMultipart(
 			}
 		}
 		for _, asset := range assets {
-			if _, err := asset.Reader.Seek(asset.Start, io.SeekStart); err != nil {
-				return fmt.Errorf("seek asset %q: %w", asset.Path, err)
-			}
 			contentType := asset.ContentType
 			if contentType == "" {
 				contentType = "application/octet-stream"
 			}
 			header := multipartPartHeader("assets", asset.Path, contentType)
-			part, err := writer.CreatePart(header)
-			if err != nil {
+			if err := writeExactPart(
+				writer, header, "asset", asset.Path,
+				asset.Reader, asset.Open, asset.Start, asset.Size,
+			); err != nil {
 				return err
-			}
-			if _, err = io.CopyN(part, asset.Reader, asset.Size); err != nil {
-				return fmt.Errorf("airplan asset %q was truncated: %w", asset.Path, err)
-			}
-			if _, err = io.CopyN(io.Discard, asset.Reader, 1); err == nil {
-				return fmt.Errorf("airplan asset %q exceeds its declared size", asset.Path)
-			} else if !errors.Is(err, io.EOF) {
-				return fmt.Errorf("check asset %q size: %w", asset.Path, err)
 			}
 		}
 		return nil
 	})
 	return body, contentType, nil
+}
+
+// writeExactPart streams exactly size bytes of one input into a new part and
+// rejects inputs that end early or continue past size. An Open-based input is
+// opened only while its part is written and is read from offset zero.
+func writeExactPart(
+	writer *multipart.Writer, header textproto.MIMEHeader, label, name string,
+	reader io.ReadSeeker, open func() (io.ReadSeekCloser, error),
+	start, size int64,
+) error {
+	if open != nil {
+		opened, err := open()
+		if err != nil {
+			return fmt.Errorf("open %s %q: %w", label, name, err)
+		}
+		defer func() { _ = opened.Close() }()
+		reader, start = opened, 0
+	}
+	if _, err := reader.Seek(start, io.SeekStart); err != nil {
+		return fmt.Errorf("seek %s %q: %w", label, name, err)
+	}
+	part, err := writer.CreatePart(header)
+	if err != nil {
+		return err
+	}
+	if _, err = io.CopyN(part, reader, size); err != nil {
+		return fmt.Errorf("airplan %s %q was truncated: %w", label, name, err)
+	}
+	if _, err = io.CopyN(io.Discard, reader, 1); err == nil {
+		return fmt.Errorf("airplan %s %q exceeds its declared size", label, name)
+	} else if !errors.Is(err, io.EOF) {
+		return fmt.Errorf("check %s %q size: %w", label, name, err)
+	}
+	return nil
 }
 
 func multipartPartHeader(name, filename, contentType string) textproto.MIMEHeader {

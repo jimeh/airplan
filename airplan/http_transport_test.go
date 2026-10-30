@@ -731,7 +731,7 @@ func TestAirplanBackendRejectsTruncatedCollectionFile(t *testing.T) {
 
 func TestValidateBundleCapabilityAcceptsLowerGeneratedPageLimit(t *testing.T) {
 	capability := httpapi.DocumentBundleCapabilities{
-		ManagedPages: true, Assets: true, MaxItems: MaxDocumentItems,
+		ManagedPages: true, Assets: true, MaxItems: DefaultMaxFiles,
 		MaxPageBytes: 1 << 20, MaxTotalPageBytes: 2 << 20,
 		MaxGeneratedPageBytes: 1,
 		MaxAssetBytes:         1 << 20, MaxTotalAssetBytes: 2 << 20,
@@ -747,7 +747,7 @@ func TestValidateBundleCapabilityAcceptsLowerGeneratedPageLimit(t *testing.T) {
 
 func TestValidateBundleCapabilityRejectsNegativeAssetSize(t *testing.T) {
 	capability := httpapi.DocumentBundleCapabilities{
-		ManagedPages: true, Assets: true, MaxItems: MaxDocumentItems,
+		ManagedPages: true, Assets: true, MaxItems: DefaultMaxFiles,
 		MaxPageBytes: 1 << 20, MaxTotalPageBytes: 2 << 20,
 		MaxGeneratedPageBytes: 2 << 20,
 		MaxAssetBytes:         1 << 20, MaxTotalAssetBytes: 2 << 20,

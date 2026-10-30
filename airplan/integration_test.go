@@ -6,8 +6,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -499,7 +501,59 @@ func TestIntegrationRoundTrip(t *testing.T) {
 		t.Fatalf("remote uploads after deletes = %+v", remote)
 	}
 
+	testLargeCollectionRoundTrip(ctx, t, client, st)
 	testHTTPBackendRoundTrip(ctx, t, cfg)
+}
+
+// testLargeCollectionRoundTrip uploads a collection well beyond the former
+// 100-file cap from on-demand local files, then checks the v7 marker, every
+// member, inspection, and deletion against real storage (SPEC.md §5).
+func testLargeCollectionRoundTrip(
+	ctx context.Context, t *testing.T, client *Client, st *storage,
+) {
+	t.Helper()
+	const count = 300
+	dir := t.TempDir()
+	files := make([]FileInput, count)
+	for index := range files {
+		path := filepath.Join(dir, fmt.Sprintf("member-%03d.txt", index))
+		if err := os.WriteFile(path, []byte(fmt.Sprintf("member %d\n", index)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		local, err := StatLocalFile(path, "collection input")
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[index] = FileInput{Name: path, Open: local.Open, Size: local.Size()}
+	}
+	result, err := client.UploadFiles(ctx, FilesInput{Files: files})
+	if err != nil || len(result.Files) != count {
+		t.Fatalf("large collection = %+v, %v", result, err)
+	}
+	marker := getObject(ctx, t, st, result.MarkerKey)
+	decoded, err := DecodeUploadMarkerForName(
+		marker.body, result.ID, CollectionMarkerFilename,
+	)
+	if err != nil || decoded.Version != 7 || len(decoded.Objects) != count+1 {
+		t.Fatalf("large collection marker version/objects = %+v, %v", decoded, err)
+	}
+	for index, file := range result.Files {
+		want := fmt.Sprintf("member %d\n", index)
+		if file.Name != filepath.Base(files[index].Name) {
+			t.Fatalf("result[%d] = %q, want declared order", index, file.Name)
+		}
+		if got := getObject(ctx, t, st, file.Key); string(got.body) != want {
+			t.Fatalf("member %q = %q, want %q", file.Name, got.body, want)
+		}
+	}
+	inspection, err := client.InspectUpload(ctx, result.URL)
+	if err != nil || inspection.State != UploadComplete || len(inspection.Files) != count {
+		t.Fatalf("large collection inspection = %+v, %v", inspection, err)
+	}
+	deleted, err := client.DeleteUpload(ctx, result.URL)
+	if err != nil || len(deleted.Keys) != count+2 {
+		t.Fatalf("large collection delete = %+v, %v", deleted, err)
+	}
 }
 
 // testPurgeProtectionLifecycle covers the purge-protection contract against

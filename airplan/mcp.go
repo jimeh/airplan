@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -33,6 +32,7 @@ type mcpUploadDocumentInput struct {
 	MaxTotalPageSize int64                   `json:"max_total_page_size,omitempty"`
 	MaxAssetSize     int64                   `json:"max_asset_size,omitempty"`
 	MaxTotalSize     int64                   `json:"max_total_size,omitempty"`
+	MaxFiles         int                     `json:"max_files,omitempty" jsonschema:"Maximum entry, page, and asset count; 0 uses the default of 1000."`
 }
 
 type mcpDocumentPageInput struct {
@@ -60,6 +60,7 @@ type mcpUpdateDocumentInput struct {
 	MaxTotalPageSize int64                   `json:"max_total_page_size,omitempty"`
 	MaxAssetSize     int64                   `json:"max_asset_size,omitempty"`
 	MaxTotalSize     int64                   `json:"max_total_size,omitempty"`
+	MaxFiles         int                     `json:"max_files,omitempty" jsonschema:"Maximum entry, page, and asset count; 0 uses the default of 1000."`
 }
 
 type mcpUploadDocumentFilesInput struct {
@@ -73,6 +74,7 @@ type mcpUploadDocumentFilesInput struct {
 	MaxTotalPageSize int64    `json:"max_total_page_size,omitempty"`
 	MaxAssetSize     int64    `json:"max_asset_size,omitempty"`
 	MaxTotalSize     int64    `json:"max_total_size,omitempty"`
+	MaxFiles         int      `json:"max_files,omitempty" jsonschema:"Maximum document item or collection file count; 0 uses the default of 1000 and a negative value disables the check."`
 }
 
 type mcpUploadPathsInput struct {
@@ -87,6 +89,7 @@ type mcpUploadPathsInput struct {
 	MaxTotalPageSize int64    `json:"max_total_page_size,omitempty"`
 	MaxAssetSize     int64    `json:"max_asset_size,omitempty"`
 	MaxTotalSize     int64    `json:"max_total_size,omitempty"`
+	MaxFiles         int      `json:"max_files,omitempty" jsonschema:"Maximum document item or collection file count; 0 uses the default of 1000 and a negative value disables the check."`
 }
 
 type mcpUploadPathsOutput struct {
@@ -107,6 +110,7 @@ type mcpUploadFilesInput struct {
 	Title        string   `json:"title,omitempty"`
 	MaxSize      int64    `json:"max_size,omitempty"`
 	MaxTotalSize int64    `json:"max_total_size,omitempty"`
+	MaxFiles     int      `json:"max_files,omitempty" jsonschema:"Maximum collection file count; 0 uses the default of 1000 and a negative value disables the check."`
 }
 
 type mcpListInput struct {
@@ -233,6 +237,9 @@ type mcpUpgradeDocumentsInput struct {
 type MCPServerOptions struct {
 	LocalFiles bool
 	Logger     *slog.Logger
+	// MaxFiles caps the max_files argument of hosted tools; zero uses
+	// DefaultMaxFiles. Local stdio tools apply max_files as requested.
+	MaxFiles int
 }
 
 // NewMCPServer builds the shared MCP tool server. LocalFiles controls whether
@@ -288,6 +295,7 @@ func NewMCPServerWithOptions(
 		if err != nil {
 			return nil, DocumentResult{}, err
 		}
+		document.MaxFiles = mcpFileLimit(input.MaxFiles, !localFiles, options.MaxFiles)
 		result, err := client.UploadDocument(ctx, document)
 		if err != nil {
 			return nil, DocumentResult{}, mcpOperationError(
@@ -314,6 +322,7 @@ func NewMCPServerWithOptions(
 		if err != nil {
 			return nil, DocumentRevisionResult{}, err
 		}
+		document.MaxFiles = mcpFileLimit(input.MaxFiles, !localFiles, options.MaxFiles)
 		result, err := client.CreateDocumentRevision(ctx, CreateDocumentRevisionInput{Target: input.URLOrKey, Document: document})
 		if err != nil {
 			return nil, DocumentRevisionResult{}, mcpOperationError(
@@ -359,14 +368,14 @@ func NewMCPServerWithOptions(
 				return nil, mcpUploadPathsOutput{}, err
 			}
 			if plan.Kind == UploadKindCollection {
-				opened, err := openMCPCollectionFiles(plan.CollectionPaths)
+				files, err := statMCPCollectionFiles(plan.CollectionPaths)
 				if err != nil {
 					return nil, mcpUploadPathsOutput{}, err
 				}
-				defer opened.close()
 				result, err := client.UploadFiles(ctx, FilesInput{
-					Files: opened.inputs, Title: input.Title,
+					Files: files, Title: input.Title,
 					MaxSize: input.MaxSize, MaxTotalSize: input.MaxTotalSize,
+					MaxFiles: input.MaxFiles,
 				})
 				if err != nil {
 					return nil, mcpUploadPathsOutput{}, mcpOperationError(ctx, err, false, options.Logger)
@@ -384,6 +393,7 @@ func NewMCPServerWithOptions(
 				Title: input.Title, Slug: input.Slug, MaxSize: input.MaxSize,
 				MaxTotalPageSize: input.MaxTotalPageSize,
 				MaxAssetSize:     input.MaxAssetSize, MaxTotalSize: input.MaxTotalSize,
+				MaxFiles: input.MaxFiles,
 			})
 			if err != nil {
 				return nil, mcpUploadPathsOutput{}, err
@@ -459,14 +469,14 @@ func NewMCPServerWithOptions(
 		) (*mcp.CallToolResult, FilesResult, error) {
 			ctx, cancel := mcpOperationContext(ctx, client)
 			defer cancel()
-			opened, err := openMCPCollectionFiles(input.Paths)
+			files, err := statMCPCollectionFiles(input.Paths)
 			if err != nil {
 				return nil, FilesResult{}, err
 			}
-			defer opened.close()
 			result, err := client.UploadFiles(ctx, FilesInput{
-				Files: opened.inputs, Title: input.Title,
+				Files: files, Title: input.Title,
 				MaxSize: input.MaxSize, MaxTotalSize: input.MaxTotalSize,
+				MaxFiles: input.MaxFiles,
 			})
 			if err != nil {
 				return nil, FilesResult{}, mcpOperationError(
@@ -829,6 +839,7 @@ func mcpInlineDocument(input mcpUploadDocumentInput, repository string, hosted b
 		MaxTotalSize: mcpHostedLimit(
 			input.MaxTotalSize, hosted, DefaultMaxDocumentAssetTotalSize,
 		),
+		MaxFiles:      input.MaxFiles,
 		RepositoryURL: repository,
 	}
 	for _, page := range input.Pages {
@@ -862,7 +873,7 @@ func mcpInlineDocument(input mcpUploadDocumentInput, repository string, hosted b
 }
 
 func mcpRevisionInlineDocument(input mcpUpdateDocumentInput, hosted bool) (DocumentInput, error) {
-	upload := mcpUploadDocumentInput{Content: input.Content, Name: input.Name, Format: "md", Title: input.Title, MaxSize: input.MaxSize, Pages: input.Pages, Assets: input.Assets, MaxTotalPageSize: input.MaxTotalPageSize, MaxAssetSize: input.MaxAssetSize, MaxTotalSize: input.MaxTotalSize}
+	upload := mcpUploadDocumentInput{Content: input.Content, Name: input.Name, Format: "md", Title: input.Title, MaxSize: input.MaxSize, Pages: input.Pages, Assets: input.Assets, MaxTotalPageSize: input.MaxTotalPageSize, MaxAssetSize: input.MaxAssetSize, MaxTotalSize: input.MaxTotalSize, MaxFiles: input.MaxFiles}
 	document, err := mcpInlineDocument(upload, "", hosted)
 	if input.Name == "" {
 		document.Entry.Path = ""
@@ -871,13 +882,13 @@ func mcpRevisionInlineDocument(input mcpUpdateDocumentInput, hosted bool) (Docum
 }
 
 type mcpOpenedDocument struct {
-	input DocumentInput
-	files []*os.File
+	input   DocumentInput
+	readers []io.Closer
 }
 
 func (o *mcpOpenedDocument) close() {
-	for _, file := range o.files {
-		_ = file.Close()
+	for _, reader := range o.readers {
+		_ = reader.Close()
 	}
 }
 
@@ -930,118 +941,76 @@ func openMCPPlannedDocument(
 			"airplan: entry_path resolves outside its declared directory",
 		)
 	}
-	opened := &mcpOpenedDocument{input: DocumentInput{Slug: input.Slug, Title: input.Title, MaxPageSize: input.MaxSize, MaxTotalPageSize: input.MaxTotalPageSize, MaxAssetSize: input.MaxAssetSize, MaxTotalSize: input.MaxTotalSize}}
-	fail := func(err error) (*mcpOpenedDocument, error) {
-		opened.close()
+	opened := &mcpOpenedDocument{input: DocumentInput{Slug: input.Slug, Title: input.Title, MaxPageSize: input.MaxSize, MaxTotalPageSize: input.MaxTotalPageSize, MaxAssetSize: input.MaxAssetSize, MaxTotalSize: input.MaxTotalSize, MaxFiles: input.MaxFiles}}
+	// Files are validated now and reopened on demand: pages open one at a
+	// time while rendering, and assets open only on upload workers.
+	entry, err := StatLocalFile(entryReal, "local document path")
+	if err != nil {
 		return nil, err
 	}
-	entry, info, err := openMCPRegularFile(entryReal)
-	if err != nil {
-		return fail(err)
-	}
-	_ = info
-	opened.files = append(opened.files, entry)
-	opened.input.Entry = PageInput{Reader: entry, Path: filepath.Base(entryAbs), Title: input.Title}
+	entryReader := entry.LazyReader()
+	opened.readers = append(opened.readers, entryReader)
+	opened.input.Entry = PageInput{Reader: entryReader, Path: filepath.Base(entryAbs), Title: input.Title}
 	for _, value := range plan.PagePaths {
-		file, _, logical, err := openMCPBundleMember(rootDeclared, root, value)
+		file, logical, err := statMCPBundleMember(rootDeclared, root, value)
 		if err != nil {
-			return fail(err)
+			opened.close()
+			return nil, err
 		}
-		opened.files = append(opened.files, file)
-		opened.input.Pages = append(opened.input.Pages, PageInput{Reader: file, Path: logical})
+		reader := file.LazyReader()
+		opened.readers = append(opened.readers, reader)
+		opened.input.Pages = append(opened.input.Pages, PageInput{Reader: reader, Path: logical})
 	}
 	for _, value := range plan.AssetPaths {
-		file, info, logical, err := openMCPBundleMember(rootDeclared, root, value)
+		file, logical, err := statMCPBundleMember(rootDeclared, root, value)
 		if err != nil {
-			return fail(err)
+			opened.close()
+			return nil, err
 		}
-		opened.files = append(opened.files, file)
-		opened.input.Assets = append(opened.input.Assets, AssetInput{Reader: file, Path: logical, Size: info.Size()})
+		opened.input.Assets = append(opened.input.Assets, AssetInput{Open: file.Open, Path: logical, Size: file.Size()})
 	}
 	return opened, nil
 }
 
-type mcpOpenedFiles struct {
-	inputs []FileInput
-	files  []*os.File
-}
-
-func (o *mcpOpenedFiles) close() {
-	for _, file := range o.files {
-		_ = file.Close()
-	}
-}
-
-func openMCPCollectionFiles(paths []string) (*mcpOpenedFiles, error) {
+func statMCPCollectionFiles(paths []string) ([]FileInput, error) {
 	if len(paths) == 0 {
 		return nil, errors.New("airplan: collection requires one or more named files")
 	}
-	opened := &mcpOpenedFiles{
-		inputs: make([]FileInput, 0, len(paths)),
-		files:  make([]*os.File, 0, len(paths)),
-	}
+	inputs := make([]FileInput, 0, len(paths))
 	for _, path := range paths {
-		file, err := os.Open(path)
+		file, err := StatLocalFile(path, "collection file")
 		if err != nil {
-			opened.close()
-			return nil, fmt.Errorf("airplan: open collection file %q: %w", path, err)
+			return nil, err
 		}
-		info, err := file.Stat()
-		if err != nil || !info.Mode().IsRegular() {
-			_ = file.Close()
-			opened.close()
-			if err == nil {
-				err = errors.New("not a regular file")
-			}
-			return nil, fmt.Errorf("airplan: inspect collection file %q: %w", path, err)
-		}
-		opened.files = append(opened.files, file)
-		opened.inputs = append(opened.inputs, FileInput{
-			Name: filepath.Base(path), Reader: file, Size: info.Size(),
+		inputs = append(inputs, FileInput{
+			Name: filepath.Base(path), Open: file.Open, Size: file.Size(),
 		})
 	}
-	return opened, nil
+	return inputs, nil
 }
 
-func openMCPBundleMember(rootDeclared, root, value string) (*os.File, os.FileInfo, string, error) {
+func statMCPBundleMember(rootDeclared, root, value string) (*LocalFile, string, error) {
 	abs, err := filepath.Abs(value)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, "", err
 	}
 	relative, err := filepath.Rel(rootDeclared, abs)
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
-		return nil, nil, "", fmt.Errorf("airplan: local document path %q is declared outside the entry directory", value)
+		return nil, "", fmt.Errorf("airplan: local document path %q is declared outside the entry directory", value)
 	}
 	logical := filepath.ToSlash(relative)
 	if err := ValidateBundlePath(logical); err != nil {
-		return nil, nil, "", err
+		return nil, "", err
 	}
 	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, "", err
 	}
 	if !mcpPathWithinRoot(root, real) {
-		return nil, nil, "", fmt.Errorf("airplan: local document path %q resolves outside the entry directory", value)
+		return nil, "", fmt.Errorf("airplan: local document path %q resolves outside the entry directory", value)
 	}
-	file, info, err := openMCPRegularFile(real)
-	return file, info, logical, err
-}
-
-func openMCPRegularFile(value string) (*os.File, os.FileInfo, error) {
-	file, err := os.Open(value)
-	if err != nil {
-		return nil, nil, err
-	}
-	info, err := file.Stat()
-	if err != nil {
-		_ = file.Close()
-		return nil, nil, err
-	}
-	if !info.Mode().IsRegular() {
-		_ = file.Close()
-		return nil, nil, fmt.Errorf("airplan: local document path is not a regular file")
-	}
-	return file, info, nil
+	file, err := StatLocalFile(real, "local document path")
+	return file, logical, err
 }
 
 func mcpPathWithinRoot(root, target string) bool {
@@ -1232,6 +1201,19 @@ func mcpDocumentLimit(requested int64, hosted bool) int64 {
 	return mcpHostedLimit(requested, hosted, DefaultMaxInputSize)
 }
 
+// mcpFileLimit resolves a tool's max_files argument. Hosted tools cannot
+// exceed or disable the server's file-count ceiling.
+func mcpFileLimit(requested int, hosted bool, ceiling int) int {
+	if !hosted {
+		return requested
+	}
+	ceiling = maxFilesLimit(ceiling)
+	if requested > 0 && requested < ceiling {
+		return requested
+	}
+	return ceiling
+}
+
 func mcpHostedLimit(requested int64, hosted bool, ceiling int64) int64 {
 	if !hosted || ceiling <= 0 {
 		return requested
@@ -1270,6 +1252,9 @@ func NewMCPHTTPHandler(
 type MCPHTTPOptions struct {
 	AllowedOrigins []string
 	Logger         *slog.Logger
+	// MaxFiles is the server's file-count limit for hosted tools; zero uses
+	// DefaultMaxFiles.
+	MaxFiles int
 }
 
 // NewMCPHTTPHandlerWithOptions returns the current stateless Streamable HTTP
@@ -1290,7 +1275,7 @@ func NewMCPHTTPHandlerWithOptions(
 		allowed[origin] = struct{}{}
 	}
 	server := NewMCPServerWithOptions(client, version, MCPServerOptions{
-		Logger: options.Logger,
+		Logger: options.Logger, MaxFiles: options.MaxFiles,
 	})
 	handler := mcp.NewStreamableHTTPHandler(
 		func(*http.Request) *mcp.Server { return server },

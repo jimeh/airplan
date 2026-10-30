@@ -394,7 +394,7 @@ body{background:#fff;color:#1f2328}}
   var Ke = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>';
 
   (function() {
-    var n = document, u = 262144;
+    var n = document, u = 4194304;
     let w = n.getElementById("rendered");
     if (!w)
       return;
@@ -547,7 +547,7 @@ body{background:#fff;color:#1f2328}}
       if (!x(e))
         throw Error("marker is invalid");
       var a = e, l = t.pathname.split("/").filter(Boolean), m = l[l.length - 1] || "";
-      if (a.schema !== "airplan-upload" || a.version !== 6 || a.kind !== "document" || a.directory !== m || !/^[a-z2-7]{26}$/.test(a.directory) || !We(a.created_at) || a.format !== "md" || !O(a.slug) || a.entrypoint !== a.slug + ".html" || !x(a.producer) || a.producer.name !== "airplan" || typeof a.producer.version !== "string" || a.producer.version.trim() !== a.producer.version || a.producer.version === "" || !s(a.render) || !x(a.revision) || a.revision.number !== r.number || a.revision.chain_id !== i || (a.revision.number === 1 ? a.revision.previous_url !== void 0 : typeof a.revision.previous_url !== "string" || !je(a.revision.previous_url)) || !Array.isArray(a.objects) || !Array.isArray(a.pages) || a.pages.length === 0)
+      if (a.schema !== "airplan-upload" || a.version !== 6 && a.version !== 7 || a.kind !== "document" || a.directory !== m || !/^[a-z2-7]{26}$/.test(a.directory) || !We(a.created_at) || a.format !== "md" || !O(a.slug) || a.entrypoint !== a.slug + ".html" || !x(a.producer) || a.producer.name !== "airplan" || typeof a.producer.version !== "string" || a.producer.version.trim() !== a.producer.version || a.producer.version === "" || !s(a.render) || !x(a.revision) || a.revision.number !== r.number || a.revision.chain_id !== i || (a.revision.number === 1 ? a.revision.previous_url !== void 0 : typeof a.revision.previous_url !== "string" || !je(a.revision.previous_url)) || !Array.isArray(a.objects) || !Array.isArray(a.pages) || a.pages.length === 0)
         throw Error("marker identity is invalid");
       var o = J(t, a.entrypoint);
       if (o !== r.safeURL)

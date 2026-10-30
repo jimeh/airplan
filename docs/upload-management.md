@@ -135,11 +135,14 @@ from other machines. It recognizes document `.airplan.json` and collection
 A directory with both marker names is a conflict. Airplan does not infer a URL
 or manage it. Markerless directories are invisible.
 
-Current Airplan releases manage marker versions 1 through 6. New uploads use
-version 6, whose model covers document pages, sources, assets, diffs, and
+Current Airplan releases manage marker versions 1 through 7. New uploads use
+version 7, whose model covers document pages, sources, assets, diffs, and
 collection files. Every declared payload has a provider-independent SHA-256
-digest. Older clients fail closed when they encounter a marker version they do
-not understand.
+digest. Version 7 keeps the version 6 format and allows markers up to 4 MiB, so
+uploads with many files fit. Older clients fail closed when they encounter a
+marker version they do not understand: releases before marker version 7 cannot
+inspect, delete, purge, or sync version 7 uploads. `airplan upgrade` rewrites
+an eligible Markdown document's marker to version 7.
 
 ## Synchronize local history
 

@@ -23,9 +23,12 @@ type DocumentPage struct {
 }
 
 // DocumentAsset is one exact-size, seekable asset bound to its descriptor.
+// Exactly one of Reader and Open is set. Open-based assets are opened only
+// while they are read and start at offset zero.
 type DocumentAsset struct {
 	DocumentAssetDescriptor
 	Reader io.ReadSeeker
+	Open   func() (io.ReadSeekCloser, error)
 	Start  int64
 }
 
@@ -40,16 +43,18 @@ type CreateDocumentRevisionUpload struct {
 // UpdateDocumentUpload is the compatibility name for revision multipart data.
 type UpdateDocumentUpload = CreateDocumentRevisionUpload
 
-// CollectionFile is one mode-0600 spooled collection member.
+// CollectionFile is one collection member. Exactly one of Reader and Open is
+// set; Open-based members are opened only while they are read.
 type CollectionFile struct {
 	Name        string
 	ContentType string
 	Size        int64
 	Reader      io.ReadSeeker
+	Open        func() (io.ReadSeekCloser, error)
 }
 
 // CollectionUpload carries a fully validated collection to the operation
-// adapter. Readers are valid only for the duration of UploadCollection.
+// adapter. Members are valid only for the duration of UploadCollection.
 type CollectionUpload struct {
 	Metadata CollectionMetadata
 	Files    []CollectionFile

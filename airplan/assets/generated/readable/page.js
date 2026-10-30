@@ -242,7 +242,7 @@
   // web/src/page.ts
   (function() {
     var d = document;
-    var markerMaxBytes = 256 * 1024;
+    var markerMaxBytes = 4 * 1024 * 1024;
     const renderedElement = d.getElementById("rendered");
     if (!renderedElement)
       return;
@@ -426,7 +426,7 @@
       var marker = raw;
       var directoryParts = directory.pathname.split("/").filter(Boolean);
       var directoryName = directoryParts[directoryParts.length - 1] || "";
-      if (marker.schema !== "airplan-upload" || marker.version !== 6 || marker.kind !== "document" || marker.directory !== directoryName || !/^[a-z2-7]{26}$/.test(marker.directory) || !validMarkerTimestamp(marker.created_at) || marker.format !== "md" || !validMarkerSlug(marker.slug) || marker.entrypoint !== marker.slug + ".html" || !isRecord(marker.producer) || marker.producer.name !== "airplan" || typeof marker.producer.version !== "string" || marker.producer.version.trim() !== marker.producer.version || marker.producer.version === "" || !validMarkerRender(marker.render) || !isRecord(marker.revision) || marker.revision.number !== selected.number || marker.revision.chain_id !== chainID || (marker.revision.number === 1 ? marker.revision.previous_url !== undefined : typeof marker.revision.previous_url !== "string" || !safeAbsoluteHTMLURL(marker.revision.previous_url)) || !Array.isArray(marker.objects) || !Array.isArray(marker.pages) || marker.pages.length === 0)
+      if (marker.schema !== "airplan-upload" || marker.version !== 6 && marker.version !== 7 || marker.kind !== "document" || marker.directory !== directoryName || !/^[a-z2-7]{26}$/.test(marker.directory) || !validMarkerTimestamp(marker.created_at) || marker.format !== "md" || !validMarkerSlug(marker.slug) || marker.entrypoint !== marker.slug + ".html" || !isRecord(marker.producer) || marker.producer.name !== "airplan" || typeof marker.producer.version !== "string" || marker.producer.version.trim() !== marker.producer.version || marker.producer.version === "" || !validMarkerRender(marker.render) || !isRecord(marker.revision) || marker.revision.number !== selected.number || marker.revision.chain_id !== chainID || (marker.revision.number === 1 ? marker.revision.previous_url !== undefined : typeof marker.revision.previous_url !== "string" || !safeAbsoluteHTMLURL(marker.revision.previous_url)) || !Array.isArray(marker.objects) || !Array.isArray(marker.pages) || marker.pages.length === 0)
         throw new Error("marker identity is invalid");
       var entry = objectURL(directory, marker.entrypoint);
       if (entry !== selected.safeURL)

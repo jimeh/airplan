@@ -58,6 +58,7 @@ type rootOptions struct {
 	maxTotalPageSize   string
 	maxAssetSize       string
 	maxTotalSize       string
+	maxFiles           int
 	pages              []string
 	assets             []string
 	entrypoint         string
@@ -129,6 +130,8 @@ func newRootCmd() *cobra.Command {
 		"document per-asset limit; 0 = no limit")
 	f.StringVar(&opts.maxTotalSize, "max-total-size", "2GiB",
 		"document asset or collection total size limit; 0 = no limit")
+	f.IntVar(&opts.maxFiles, "max-files", airplan.DefaultMaxFiles,
+		"document bundle item or collection file count limit; 0 = no limit")
 	f.StringArrayVar(&opts.pages, "page", nil,
 		"managed page file (repeatable; overrides inferred role)")
 	f.StringArrayVar(&opts.assets, "asset", nil,
@@ -256,12 +259,12 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 		return err
 	}
 	if !collection && len(inputPlan.PagePaths) == 0 && len(inputPlan.AssetPaths) == 0 {
-		for _, name := range []string{"max-total-page-size", "max-asset-size", "max-total-size"} {
+		for _, name := range []string{"max-total-page-size", "max-asset-size", "max-total-size", "max-files"} {
 			if !cmd.Flags().Changed(name) {
 				continue
 			}
 			scope := "document bundles"
-			if name == "max-total-size" {
+			if name == "max-total-size" || name == "max-files" {
 				scope += " or collections"
 			}
 			return fmt.Errorf("airplan: --%s is only valid for %s", name, scope)
@@ -301,6 +304,10 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	if maxAssetSize == 0 {
 		maxAssetSize = -1
 	}
+	maxFiles, err := libraryMaxFiles(opts.maxFiles)
+	if err != nil {
+		return err
+	}
 
 	// The resolved timeout bounds the upload operation after config
 	// resolution (SPEC.md §6).
@@ -321,7 +328,7 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 	}
 
 	if collection {
-		return runCollection(cmd, ctx, client, inputPlan.CollectionPaths, opts, maxSize, maxTotalSize)
+		return runCollection(cmd, ctx, client, inputPlan.CollectionPaths, opts, maxSize, maxTotalSize, maxFiles)
 	}
 	if len(inputPlan.PagePaths) != 0 || len(inputPlan.AssetPaths) != 0 {
 		opened, openErr := openDocumentBundle(
@@ -340,6 +347,7 @@ func run(cmd *cobra.Command, args []string, opts *rootOptions) error {
 		opened.input.MaxTotalPageSize = maxTotalPageSize
 		opened.input.MaxAssetSize = maxAssetSize
 		opened.input.MaxTotalSize = maxTotalSize
+		opened.input.MaxFiles = maxFiles
 		res, uploadErr := client.UploadDocument(ctx, opened.input)
 		if uploadErr != nil {
 			return uploadErr
@@ -567,17 +575,12 @@ func validateModeFlags(cmd *cobra.Command, collection bool) error {
 	return nil
 }
 
-func runCollection(cmd *cobra.Command, ctx context.Context, client *airplan.Client, args []string, opts *rootOptions, maxSize, maxTotal int64) error {
-	inputs, closers, err := openCollectionInputs(args)
+func runCollection(cmd *cobra.Command, ctx context.Context, client *airplan.Client, args []string, opts *rootOptions, maxSize, maxTotal int64, maxFiles int) error {
+	inputs, err := statCollectionInputs(args, maxFiles)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		for _, c := range closers {
-			_ = c.Close()
-		}
-	}()
-	res, err := client.UploadFiles(ctx, airplan.FilesInput{Files: inputs, Title: opts.title, MaxSize: maxSize, MaxTotalSize: maxTotal})
+	res, err := client.UploadFiles(ctx, airplan.FilesInput{Files: inputs, Title: opts.title, MaxSize: maxSize, MaxTotalSize: maxTotal, MaxFiles: maxFiles})
 	if err != nil {
 		return err
 	}
@@ -614,43 +617,56 @@ func runCollection(cmd *cobra.Command, ctx context.Context, client *airplan.Clie
 	return nil
 }
 
-func openCollectionInputs(args []string) ([]airplan.FileInput, []*os.File, error) {
+// statCollectionInputs validates named collection members without opening
+// them. Each member is opened only while the library hashes or uploads it, so
+// large collections hold a bounded number of descriptors. maxFiles follows the
+// library convention: zero is the default and negative disables the check.
+func statCollectionInputs(args []string, maxFiles int) ([]airplan.FileInput, error) {
 	if len(args) == 0 {
-		return nil, nil, errors.New("airplan: collections require named files")
+		return nil, errors.New("airplan: collections require named files")
 	}
-	if len(args) > airplan.MaxCollectionFiles {
-		return nil, nil, fmt.Errorf(
-			"airplan: collection has %d files; maximum is %d",
-			len(args), airplan.MaxCollectionFiles,
+	limit := maxFiles
+	if limit == 0 {
+		limit = airplan.DefaultMaxFiles
+	}
+	if limit > 0 && len(args) > limit {
+		return nil, fmt.Errorf(
+			"airplan: collection has %d files; maximum is %d (raise or remove the limit with --max-files)",
+			len(args), limit,
 		)
 	}
 	for _, name := range args {
 		if name == "-" {
-			return nil, nil, errors.New(
+			return nil, errors.New(
 				"airplan: collections require named files",
 			)
 		}
 	}
 
 	inputs := make([]airplan.FileInput, 0, len(args))
-	files := make([]*os.File, 0, len(args))
-	closeFiles := func() {
-		for _, file := range files {
-			_ = file.Close()
-		}
-	}
 	for _, name := range args {
-		file, info, err := openRegularInput(name, "collection input")
+		file, err := airplan.StatLocalFile(name, "collection input")
 		if err != nil {
-			closeFiles()
-			return nil, nil, err
+			return nil, err
 		}
-		files = append(files, file)
 		inputs = append(inputs, airplan.FileInput{
-			Name: name, Reader: file, Size: info.Size(),
+			Name: name, Open: file.Open, Size: file.Size(),
 		})
 	}
-	return inputs, files, nil
+	return inputs, nil
+}
+
+// libraryMaxFiles converts a --max-files value, where 0 disables the check,
+// to the library convention, where a negative value does (SPEC.md §2).
+func libraryMaxFiles(value int) (int, error) {
+	switch {
+	case value < 0:
+		return 0, errors.New("--max-files must not be negative")
+	case value == 0:
+		return -1, nil
+	default:
+		return value, nil
+	}
 }
 
 func openRegularInput(

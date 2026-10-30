@@ -60,15 +60,16 @@ func (o *HTTPOperations) Capabilities(
 		},
 		DocumentBundle: &httpapi.DocumentBundleCapabilities{
 			ManagedPages: true, Assets: true, CanonicalRevisionRoute: true,
-			MaxItems:              MaxDocumentItems,
+			MaxItems:              DefaultMaxFiles,
 			MaxPageBytes:          DefaultMaxInputSize,
 			MaxTotalPageBytes:     DefaultMaxTotalPageSize,
 			MaxGeneratedPageBytes: DefaultMaxGeneratedPageSize,
 			MaxAssetBytes:         DefaultMaxAssetSize,
 			MaxTotalAssetBytes:    DefaultMaxDocumentAssetTotalSize,
-			MaxMetadataBytes:      256 << 10,
+			MaxMetadataBytes:      httpapi.MaxMetadataBytes,
 			MaxRequestBytes: DefaultMaxTotalPageSize +
-				DefaultMaxDocumentAssetTotalSize + 16<<20,
+				DefaultMaxDocumentAssetTotalSize +
+				httpapi.RequestBodyOverhead(DefaultMaxFiles),
 		},
 		MarkerVersions: supportedMarkerVersions(),
 	}, nil
@@ -116,6 +117,7 @@ func (o *HTTPOperations) CreateDocumentRevision(
 		upload.Assets,
 	)
 	document.maxGeneratedPageSize = httpapi.GeneratedPageLimit(ctx)
+	document.MaxFiles = httpapi.ItemLimit(ctx)
 	result, err := client.CreateDocumentRevision(ctx, CreateDocumentRevisionInput{
 		Target:   upload.Metadata.Target,
 		Document: document,
@@ -149,6 +151,7 @@ func (o *HTTPOperations) UploadDocument(
 		upload.Assets,
 	)
 	document.maxGeneratedPageSize = httpapi.GeneratedPageLimit(ctx)
+	document.MaxFiles = httpapi.ItemLimit(ctx)
 	result, err := client.UploadDocument(ctx, document)
 	if err != nil {
 		return httpapi.UploadResult{}, apiOperationError(err)
@@ -179,8 +182,8 @@ func coreDocumentInput(
 	}
 	for _, asset := range assets {
 		in.Assets = append(in.Assets, AssetInput{
-			Reader: asset.Reader, Path: asset.Path, Size: asset.Size,
-			ContentType: asset.ContentType,
+			Reader: asset.Reader, Open: asset.Open, Path: asset.Path,
+			Size: asset.Size, ContentType: asset.ContentType,
 		})
 	}
 	return in
@@ -198,7 +201,7 @@ func (o *HTTPOperations) UploadCollection(
 	for _, file := range upload.Files {
 		files = append(files, FileInput{
 			Name: file.Name, ContentType: file.ContentType,
-			Size: file.Size, Reader: file.Reader,
+			Size: file.Size, Reader: file.Reader, Open: file.Open,
 		})
 	}
 	repositoryURL, err := hostedRepositoryURL(upload.Metadata.RepositoryURL)
@@ -210,6 +213,7 @@ func (o *HTTPOperations) UploadCollection(
 		RepositoryURL: repositoryURL,
 		MaxSize:       upload.Metadata.MaxSize,
 		MaxTotalSize:  upload.Metadata.MaxTotalSize,
+		MaxFiles:      httpapi.ItemLimit(ctx),
 	})
 	if err != nil {
 		return httpapi.UploadResult{}, apiOperationError(err)

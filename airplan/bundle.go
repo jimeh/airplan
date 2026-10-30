@@ -39,7 +39,13 @@ type PageInput struct {
 
 // AssetInput describes one byte-for-byte asset in a document bundle.
 type AssetInput struct {
-	Reader      io.ReadSeeker
+	// Reader supplies the asset bytes from its current offset. Exactly one of
+	// Reader and Open must be set.
+	Reader io.ReadSeeker
+	// Open supplies the asset bytes from offset zero on demand. The library
+	// opens the asset only while a worker hashes or uploads it and closes it
+	// afterwards, so open inputs stay bounded by upload concurrency.
+	Open        func() (io.ReadSeekCloser, error)
 	Path        string
 	Size        int64
 	ContentType string
@@ -47,15 +53,18 @@ type AssetInput struct {
 
 // DocumentInput describes one complete document, including its entry page.
 type DocumentInput struct {
-	Entry                PageInput
-	Pages                []PageInput
-	Assets               []AssetInput
-	Slug                 string
-	Title                string
-	MaxPageSize          int64
-	MaxTotalPageSize     int64
-	MaxAssetSize         int64
-	MaxTotalSize         int64
+	Entry            PageInput
+	Pages            []PageInput
+	Assets           []AssetInput
+	Slug             string
+	Title            string
+	MaxPageSize      int64
+	MaxTotalPageSize int64
+	MaxAssetSize     int64
+	MaxTotalSize     int64
+	// MaxFiles limits user-supplied items (entry, pages, and assets); zero
+	// uses DefaultMaxFiles and negative values disable the limit.
+	MaxFiles             int
 	RepositoryURL        string
 	maxGeneratedPageSize int64
 }
@@ -696,8 +705,8 @@ func prepareAssets(ctx context.Context, in DocumentInput) ([]preparedAsset, erro
 		if err := validateAndRecordBundlePath(seen, asset.Path); err != nil {
 			return nil, err
 		}
-		if asset.Reader == nil {
-			return nil, fmt.Errorf("airplan: asset %q reader is nil", asset.Path)
+		if err := validateInputSource(asset.Reader, asset.Open, fmt.Sprintf("asset %q", asset.Path)); err != nil {
+			return nil, err
 		}
 		if asset.Size < 0 {
 			return nil, fmt.Errorf("airplan: asset %q has invalid size", asset.Path)
@@ -712,25 +721,44 @@ func prepareAssets(ctx context.Context, in DocumentInput) ([]preparedAsset, erro
 		if maxTotal > 0 && total > maxTotal {
 			return nil, fmt.Errorf("airplan: document assets exceed maximum total size of %s", formatSize(maxTotal))
 		}
-		start, err := asset.Reader.Seek(0, io.SeekCurrent)
+		prepared[index] = preparedAsset{AssetInput: asset}
+	}
+	// Hashing and content sniffing run on the bounded upload pool; each
+	// Open-based asset is held open only while its worker inspects it.
+	err := runBounded(ctx, len(prepared), func(_ context.Context, index int) error {
+		asset := &prepared[index]
+		reader, release, err := acquireInput(asset.Reader, asset.Open)
 		if err != nil {
-			return nil, fmt.Errorf("airplan: asset %q is not seekable: %w", asset.Path, err)
+			return fmt.Errorf("airplan: open asset %q: %w", asset.Path, err)
 		}
-		contentType, err := normalizeAssetContentType(asset, start)
-		if err != nil {
-			return nil, err
+		defer release()
+		var start int64
+		if asset.Open == nil {
+			start, err = reader.Seek(0, io.SeekCurrent)
+			if err != nil {
+				return fmt.Errorf("airplan: asset %q is not seekable: %w", asset.Path, err)
+			}
 		}
-		digest, err := hashExactReader(asset.Reader, start, asset.Size)
+		contentType, err := normalizeAssetContentType(asset.AssetInput, reader, start)
 		if err != nil {
-			return nil, fmt.Errorf("airplan: hash asset %q: %w", asset.Path, err)
+			return err
+		}
+		digest, err := hashExactReader(reader, start, asset.Size)
+		if err != nil {
+			return fmt.Errorf("airplan: hash asset %q: %w", asset.Path, err)
 		}
 		asset.ContentType = contentType
-		prepared[index] = preparedAsset{AssetInput: asset, start: start, digest: digest}
+		asset.start = start
+		asset.digest = digest
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	return prepared, nil
 }
 
-func normalizeAssetContentType(asset AssetInput, start int64) (string, error) {
+func normalizeAssetContentType(asset AssetInput, reader io.ReadSeeker, start int64) (string, error) {
 	if asset.ContentType != "" {
 		mediaType, params, err := mime.ParseMediaType(asset.ContentType)
 		if err != nil {
@@ -748,14 +776,14 @@ func normalizeAssetContentType(asset AssetInput, start int64) (string, error) {
 		}
 	}
 	buf := make([]byte, min(int64(512), asset.Size))
-	if _, err := asset.Reader.Seek(start, io.SeekStart); err != nil {
+	if _, err := reader.Seek(start, io.SeekStart); err != nil {
 		return "", err
 	}
-	n, err := io.ReadFull(asset.Reader, buf)
+	n, err := io.ReadFull(reader, buf)
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return "", err
 	}
-	if _, err := asset.Reader.Seek(start, io.SeekStart); err != nil {
+	if _, err := reader.Seek(start, io.SeekStart); err != nil {
 		return "", err
 	}
 	if n == 0 {
@@ -855,16 +883,17 @@ func (c *Client) UploadDocument(ctx context.Context, in DocumentInput) (*Documen
 	for _, asset := range assets {
 		marker.Objects = append(marker.Objects, MarkerObject{Name: asset.Path, Role: MarkerRoleAsset, Bytes: asset.Size, ContentType: asset.ContentType, SHA256: asset.digest})
 	}
-	markerBody, err := EncodeUploadMarker(marker)
+	markerBody, err := encodeNewUploadMarker(marker)
 	if err != nil {
 		return nil, err
 	}
 	markerKey := BuildKey(c.cfg.KeyPrefix, dir, MarkerFilename)
-	if err := c.st.put(ctx, object{Key: markerKey, Body: markerBody, ContentType: markerContentType}); err != nil {
-		return nil, err
-	}
 	result := &DocumentResult{Result: Result{ID: dir, Bucket: c.cfg.Bucket, Title: bundle.Title, CreatedAt: createdAt, MarkerVersion: MarkerVersion, MarkerKey: markerKey, Format: bundle.Format, Kind: string(UploadKindDocument), Slug: bundle.Slug, RepositoryURL: bundle.RepositoryURL, Warnings: append([]string(nil), bundle.Warnings...)}}
-	for _, page := range bundle.Pages {
+	// Payloads between the marker and entry barriers upload concurrently
+	// (SPEC.md §5); results keep declared order.
+	var payloads []func(context.Context) error
+	result.Pages = make([]PageResult, len(bundle.Pages))
+	for index, page := range bundle.Pages {
 		pageKey := BuildKey(c.cfg.KeyPrefix, dir, page.PagePath)
 		pageURL, fallback, urlErr := PublicURL(c.cfg, pageKey)
 		if urlErr != nil {
@@ -889,28 +918,19 @@ func (c *Client) UploadDocument(ctx context.Context, in DocumentInput) (*Documen
 			if page.Format == FormatMarkdown.String() {
 				contentType = sourceContentType
 			}
-			if err := c.putDocumentPayload(ctx, pageResult.SourceKey,
-				page.sourceFile, contentType, titleMetadata(page.Title)); err != nil {
-				return nil, err
-			}
+			sourceKey, sourceFile, title := pageResult.SourceKey, page.sourceFile, page.Title
+			payloads = append(payloads, func(ctx context.Context) error {
+				return c.putDocumentPayload(ctx, sourceKey, sourceFile,
+					contentType, titleMetadata(title))
+			})
 		}
-		result.Pages = append(result.Pages, pageResult)
+		result.Pages[index] = pageResult
 	}
-	for _, asset := range assets {
-		digest, hashErr := hashExactReader(asset.Reader, asset.start, asset.Size)
-		if hashErr != nil {
-			return nil, fmt.Errorf("airplan: verify asset %q: %w", asset.Path, hashErr)
-		}
-		if digest != asset.digest {
-			return nil, fmt.Errorf("airplan: asset %q changed after preflight", asset.Path)
-		}
+	if len(assets) > 0 {
+		result.Assets = make([]AssetResult, len(assets))
+	}
+	for index, asset := range assets {
 		assetKey := BuildKey(c.cfg.KeyPrefix, dir, asset.Path)
-		if _, err := asset.Reader.Seek(asset.start, io.SeekStart); err != nil {
-			return nil, err
-		}
-		if err := c.st.putStream(ctx, streamObject{Key: assetKey, Body: asset.Reader, Size: asset.Size, ContentType: asset.ContentType, Metadata: titleMetadata(bundle.Title)}); err != nil {
-			return nil, err
-		}
 		assetURL, fallback, urlErr := PublicURL(c.cfg, assetKey)
 		if urlErr != nil {
 			return nil, urlErr
@@ -918,15 +938,28 @@ func (c *Client) UploadDocument(ctx context.Context, in DocumentInput) (*Documen
 		if fallback {
 			result.Warnings = appendUniqueStrings(result.Warnings, PublicURLFallbackWarning)
 		}
-		result.Assets = append(result.Assets, AssetResult{Path: asset.Path, URL: assetURL, Key: assetKey, Bytes: asset.Size, ContentType: asset.ContentType})
+		result.Assets[index] = AssetResult{Path: asset.Path, URL: assetURL, Key: assetKey, Bytes: asset.Size, ContentType: asset.ContentType}
+		payloads = append(payloads, func(ctx context.Context) error {
+			return c.putVerifiedInput(ctx, asset.Reader, asset.Open, asset.start,
+				asset.digest, fmt.Sprintf("asset %q", asset.Path),
+				streamObject{Key: assetKey, Size: asset.Size, ContentType: asset.ContentType, Metadata: titleMetadata(bundle.Title)})
+		})
 	}
 	for index := 1; index < len(bundle.Pages); index++ {
 		page := bundle.Pages[index]
-		if err := c.putDocumentPayload(ctx,
-			BuildKey(c.cfg.KeyPrefix, dir, page.PagePath), page.htmlFile,
-			pageContentType, titleMetadata(page.Title)); err != nil {
-			return nil, err
-		}
+		pageKey := result.Pages[index].Key
+		payloads = append(payloads, func(ctx context.Context) error {
+			return c.putDocumentPayload(ctx, pageKey, page.htmlFile,
+				pageContentType, titleMetadata(page.Title))
+		})
+	}
+	if err := c.st.put(ctx, object{Key: markerKey, Body: markerBody, ContentType: markerContentType}); err != nil {
+		return nil, err
+	}
+	if err := runBounded(ctx, len(payloads), func(ctx context.Context, index int) error {
+		return payloads[index](ctx)
+	}); err != nil {
+		return nil, err
 	}
 	entry := bundle.Pages[0]
 	entryKey := BuildKey(c.cfg.KeyPrefix, dir, entry.PagePath)
@@ -955,8 +988,8 @@ func (c *Client) UploadDocument(ctx context.Context, in DocumentInput) (*Documen
 
 func validateDocumentItemCount(in DocumentInput) error {
 	count := len(in.Pages) + len(in.Assets) + 1
-	if count > MaxDocumentItems {
-		return fmt.Errorf("airplan: document has %d items; maximum is %d", count, MaxDocumentItems)
+	if limit := maxFilesLimit(in.MaxFiles); limit > 0 && count > limit {
+		return fmt.Errorf("airplan: document has %d items; maximum is %d", count, limit)
 	}
 	return nil
 }

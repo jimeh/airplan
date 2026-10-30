@@ -3,7 +3,7 @@
 How _our_ implementation of [SPEC.md](SPEC.md) is built: language,
 dependencies, code structure, repo deliverables, phasing, and
 testing. Behavior is defined exclusively by the spec; nothing here
-may contradict it. Targets spec version 0.62.0.
+may contradict it. Targets spec version 0.63.0.
 
 ---
 
@@ -164,12 +164,15 @@ document, err := client.UploadDocument(ctx, airplan.DocumentInput{
 // document.Result remains the entry summary.
 // document.Pages and document.Assets expose the ordered bundle result.
 
+recording, err := airplan.StatLocalFile("demo.webm", "collection input")
 files, err := client.UploadFiles(ctx, airplan.FilesInput{
     Files: []airplan.FileInput{{
-        Name: "demo.webm", Reader: recording, Size: recordingSize,
+        Name: "demo.webm", Open: recording.Open, Size: recording.Size(),
     }},
+    MaxFiles: 0, // 0 → DefaultMaxFiles (1000); negative disables the count
 })
-// files.Files[0].URL is direct; files.URL is the overview.
+// files.Files[0].URL is direct; files.URL is the overview. Open-based inputs
+// are opened only while a bounded upload worker hashes or uploads them.
 
 revision, err := client.CreateDocumentRevision(ctx,
     airplan.CreateDocumentRevisionInput{
@@ -385,23 +388,27 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   CSPRNG).
 - Public URL assembly percent-encodes each object-key path segment;
   delete parsing uses `net/url` to recover the original UTF-8 key.
-- Ownership markers: writers emit one v6 schema for all uploads. Documents use
+- Ownership markers: writers emit one v7 schema for all uploads. Documents use
   `.airplan.json`; collections use `.airplan-collection.json`. `kind` plus a
   normalized declared-object array describes pages, sources, assets, diffs, and
   files; document slug/format fields remain conditional. V6 adds the entrypoint
   and ordered managed-page descriptors, permits validated nested object paths,
-  requires exact SHA-256 for every payload, and raises the marker ceiling to
-  256 KiB. Every v4+ marker records
+  requires exact SHA-256 for every payload, and raised the marker ceiling to
+  256 KiB. V7 keeps the v6 wire format and raises the ceiling to 4 MiB
+  (`MaxMarkerSize`), which also bounds every marker read. Encoding a marker
+  that keeps an older version, as revision promotion does, retains the 256 KiB
+  ceiling so older readers still accept it. Readers never validate file or item
+  counts; those are write-side `MaxFiles` policy. Every v4+ marker records
   producer provenance. Generated document and collection pages additionally
   record the renderer generation and either the built-in template identity or
   a SHA-256 digest of the custom template; the digest is computed from the same
-  single file read that is parsed for rendering. Version 5 and 6 recipes also
+  single file read that is parsed for rendering. Version 5 through 7 recipes also
   record the two default IDs and canonical catalog SHA-256; the full custom
   source is intentionally not duplicated. Every v4/v5 page object records the SHA-256 of
-  its exact uploaded bytes; v6 records it for all payloads. Authored HTML omits
+  its exact uploaded bytes; v6 and v7 record it for all payloads. Authored HTML omits
   render provenance. Version-specific decoding normalizes v1-v3 into the
-  internal object model and preserves v4/v5 provenance; the version bump makes
-  older readers reject v6 before rewriting it. Authored object path segments
+  internal object model and preserves v4/v5 provenance; each version bump makes
+  older readers reject the new version before rewriting it. Authored object path segments
   beginning `.airplan-` are
   reserved for Airplan control objects and rejected before upload. A centralized
   concurrent two-key resolver proves exactly one marker exists without adding
@@ -421,7 +428,7 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   revision input is always the complete replacement bundle. Both engines share
   one prerequisite state machine for upgrades, interrupted promotion and page
   repair, latest traversal, and chain validation. Descriptor order, metadata,
-  and v6 digests drive canonical no-op comparison before large unchanged assets
+  and v6/v7 digests drive canonical no-op comparison before large unchanged assets
   are rendered or uploaded when possible.
   Markers carry immutable chain descriptors and diff inventory, while the
   separately versioned 64 KiB metadata index is conditionally replicated to
@@ -451,12 +458,17 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   entry. Binary asset changes remain deterministic metadata summaries.
   Replicated revision indexes continue to store entry URLs only; the browser
   resolves child targets by fetching and validating the selected revision's v6
-  marker, with its validated entry URL as the failure fallback.
-- Collection storage: `UploadFiles` accepts known-size `io.ReadSeeker` members,
-  hashes each member during preflight, rewinds it, hashes the transmitted bytes
-  again, and fails before publishing the overview when a caller changes a
-  reader. It limits each reader to its declaration and uploads the overview
-  last. `GetUploadTo`
+  or v7 marker, bounded to 4 MiB, with its validated entry URL as the failure
+  fallback.
+- Collection storage: `UploadFiles` accepts known-size members as either an
+  `io.ReadSeeker` or an `Open` function, hashes each member during preflight,
+  hashes the transmitted bytes again, and fails before publishing the overview
+  when a member changes. Preflight hashing and member uploads share
+  `runBounded`, a pool of `uploadConcurrency` (8) workers whose first failure
+  cancels outstanding work; `Open` inputs are opened only inside a worker. It
+  limits each reader to its declaration and uploads the overview last.
+  `StatLocalFile` lets CLI and MCP adapters validate named files up front and
+  reopen them on demand, rejecting a replaced or resized path. `GetUploadTo`
   streams large payloads to CLI stdout or atomic file output; the older
   `GetUpload` wrapper remains available for in-memory callers.
 - Remote discovery: `ListRemote` recognizes both exact marker names, exposes
@@ -464,7 +476,7 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   dual-name groups as conflicts without fetching markers or heading payloads.
   Its LIST snapshot retains per-key sizes for batch inspection.
   `InspectUpload` validates the selected marker and exact sizes for every
-  normalized declared object, then downloads and hashes v6 payloads against
+  normalized declared object, then downloads and hashes v6/v7 payloads against
   their marker digests. LIST-backed inspection used by sync and purge, plus
   purge execution's revision guard, stays existence-and-size based and never
   expands into payload downloads. Targeted get and delete probe both markers
@@ -675,21 +687,22 @@ outside the project's signing and notarization pipeline.
 
 1. Select document or collection mode and validate mode-specific flags before
    config-dependent storage work.
-2. Preflight the complete document graph or every open collection file before
-   generating a random directory. Hash and spool managed sources, validate and
-   rewind assets, resolve generated names, then render and spool every managed
-   page with separate aggregate limits.
-3. Resolve repository context, build the complete normalized v6 object set with
+2. Preflight the complete document graph or every collection file before
+   generating a random directory. Enforce `MaxFiles`, hash assets and
+   collection members on the bounded worker pool, spool managed sources while
+   reading pages one at a time, resolve generated names, then render and spool
+   every managed page with separate aggregate limits.
+3. Resolve repository context, build the complete normalized v7 object set with
    a SHA-256 for every payload plus producer and applicable render provenance,
    including the resolved theme recipe, and encode the kind-specific marker.
-4. Put the marker first. Documents put sources and assets, non-entry pages, and
-   the entry page last. Collections stream files in argument order and put
-   `index.html` last. Hash seekable payloads again while transmitting and reject
-   a mismatch before publishing the entry or overview. A bounded worker pool
-   uploads independent objects; the entry and collection overview remain final
-   barriers.
+4. Put the marker first. Between the marker and the final page, the bounded
+   worker pool uploads document sources, assets, revision diffs, and non-entry
+   pages, or collection files, in no fixed order; results keep declared order.
+   Hash seekable payloads again while transmitting and reject a mismatch. The
+   entry page or `index.html` is put only after every pooled upload succeeded.
+   An oversized marker fails while encoding, before the first PUT.
 5. Print no URL until all declared PUTs succeed. Then emit the document URL or
-   ordered direct collection URLs plus overview, and best-effort append one v6
+   ordered direct collection URLs plus overview, and best-effort append one v7
    manifest record.
 6. Discover both marker names through one LIST snapshot. The basename supplies
    only a kind hint; `show` validates content and every declared size.
@@ -701,7 +714,7 @@ outside the project's signing and notarization pipeline.
    record.
 8. Upgrade every source-backed managed page with marker-first/entry-last
    conditional writes. Planning records the observed marker and all page/source
-   entity tags. Execution replans live state, claims one desired v6 marker,
+   entity tags. Execution replans live state, claims one desired v7 marker,
    skips digest-matching pages, repairs non-entry mismatches, verifies them, and
    repairs the entry last. A failed run may leave a marker-owned mixed renderer
    generation; inspection reports mismatches and retry converges without
@@ -731,13 +744,13 @@ deletion has succeeded.
   generated-page naming and collisions, managed-link rewriting, document item
   and aggregate limits, collection filename/MIME preflight, slug sanitization,
   format sniffing, key entropy/encoding properties, URL assembly, strict
-  version-specific marker validation through v6, complete payload digests,
+  version-specific marker validation through v7, complete payload digests,
   dual-marker resolution, LIST-only kind grouping, inspection states and exact
   sizes, streaming get selection, delete request ordering, purge-protection
   sentinel detection and forced-delete ordering, manifest reduction
   and lock cancellation, sync reconciliation, and document-only slug filters.
 - Golden files: single and multi-page Markdown fixtures → rendered HTML
-  snapshots plus v6 simple document, bundle, HTML-with-assets, no-source,
+  snapshots plus current-version simple document, bundle, HTML-with-assets, no-source,
   collection, and revision markers
   (`testdata/`, `GOLDEN_UPDATE=1` convention).
 - Web: strict TypeScript compiler projects cover browser and Playwright code;
@@ -821,7 +834,7 @@ are rejected before any remote mutation. Its planning timeout ends before
 confirmation and execution receives a fresh timeout context afterward.
 
 Upgrade planning compares reproducible v4+ template recipes without parsing or
-rendering. V5 and v6 additionally compare theme identity. A forced template or theme
+rendering. V5 through v7 additionally compare theme identity. A forced template or theme
 mismatch records the currently configured recipe;
 execution surfaces deferred template load/parse errors before its marker-first
 write. Raw manifest upgrade events retain their append time, while reduction
@@ -853,13 +866,17 @@ The REST adapter:
   code-selected detail, and request IDs;
 - replaces internal warning and per-item error detail with stable hosted
   messages before serialization;
-- bounds total bodies, the 256 KiB metadata part, multipart parts, per-page and
-  per-asset bytes, aggregate source/HTML/asset bytes, and complete requests;
+- bounds total bodies, the 4 MiB metadata part, multipart parts (at most
+  `serve --max-files` items or files), per-page and per-asset bytes, aggregate
+  source/HTML/asset bytes, and complete requests whose overhead allowance
+  scales with the item limit (`httpapi.RequestBodyOverhead`);
 - streams document uploads and revisions through multipart readers and object downloads
   through response writers;
 - spools managed pages, assets, and collection members to temporary files, mode
   0600 where POSIX permission bits exist, because core asset and collection APIs
-  need exact sizes and seekable readers;
+  need exact sizes and seekable readers. Each spool file is closed once written;
+  assets and collection members reach the core through `Open`, and the entry
+  and pages through readers that open on first read and close at EOF;
 - removes all spooled files on completion, failure, cancellation, or shutdown;
 - resolves request targets against server-side storage configuration so the
   HTTP client never reconstructs capability keys with incomplete knowledge;

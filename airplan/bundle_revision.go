@@ -70,12 +70,9 @@ func (c *Client) createBundleRevision(
 	}
 	input.Document.Slug = latest.marker.Slug
 	input.Document.RepositoryURL = latest.marker.Repo
-	validatedInput, closeValidated, err := reopenedDocumentInput(
+	validatedInput, closeValidated := reopenedDocumentInput(
 		preflight, input.Document,
 	)
-	if err != nil {
-		return nil, err
-	}
 	defer closeValidated()
 	if input.Document.Entry.Path == "" {
 		validatedInput.Entry.Path = latest.marker.Pages[0].Path
@@ -131,10 +128,7 @@ func (c *Client) createBundleRevision(
 		return nil, fmt.Errorf("airplan: parse generated revision diff: %w", err)
 	}
 	pageDiffs, changedPages := inlinePageDiffs(diffReport, comparison.Pages)
-	revisionInput, closeSources, err := reopenedDocumentInput(comparison, validatedInput)
-	if err != nil {
-		return nil, err
-	}
+	revisionInput, closeSources := reopenedDocumentInput(comparison, validatedInput)
 	defer closeSources()
 	bundle, err := renderDocumentSpooled(ctx, revisionInput, DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Indexable: recipe.Indexable, IncludeSource: true, NoExternalAssets: recipe.NoExternalAssets, MermaidURL: recipe.MermaidURL, Repository: latest.marker.Repo, Themes: c.cfg.ThemeBundle}, MaxGeneratedPageSize: input.Document.maxGeneratedPageSize, Revision: newRevision, RevisionCount: newRevision, PreviousRevision: previousRevision, RevisionChainID: chainID, VersionsPath: VersionsFilename, DiffPath: DiffFilename, PageDiffs: pageDiffs, ChangedPages: changedPages, CompleteDiffText: inlineRevisionDiff(diffBody)}, c.template, c.templateErr)
 	if err != nil {
@@ -170,7 +164,7 @@ func (c *Client) createBundleRevision(
 		marker.Objects = append(marker.Objects, MarkerObject{Name: asset.Path, Role: MarkerRoleAsset, Bytes: asset.Size, ContentType: asset.ContentType, SHA256: asset.digest})
 	}
 	marker.Objects = append(marker.Objects, MarkerObject{Name: DiffFilename, Role: MarkerRoleDiff, Bytes: int64(len(diffBody)), ContentType: diffContentType, SHA256: contentSHA256(diffBody)})
-	markerBody, err := EncodeUploadMarker(marker)
+	markerBody, err := encodeNewUploadMarker(marker)
 	if err != nil {
 		return nil, err
 	}
@@ -209,57 +203,55 @@ func (c *Client) createBundleRevision(
 			)
 		}
 	}()
-	pages := make([]PageResult, 0, len(bundle.Pages))
-	for _, page := range bundle.Pages {
+	// Payloads between the marker and entry barriers upload concurrently
+	// (SPEC.md §5); results keep declared order.
+	var payloads []func(context.Context) error
+	pages := make([]PageResult, len(bundle.Pages))
+	for index, page := range bundle.Pages {
 		sourceKey := BuildKey(c.cfg.KeyPrefix, dir, page.SourcePath)
 		contentType := textContentType
 		if page.Format == "md" {
 			contentType = sourceContentType
 		}
-		if err := c.putDocumentPayload(ctx, sourceKey, page.sourceFile,
-			contentType, titleMetadata(page.Title)); err != nil {
-			return nil, err
-		}
+		payloads = append(payloads, func(ctx context.Context) error {
+			return c.putDocumentPayload(ctx, sourceKey, page.sourceFile,
+				contentType, titleMetadata(page.Title))
+		})
 		result, resultErr := c.bundlePageResult(dir, page)
 		if resultErr != nil {
 			return nil, resultErr
 		}
-		pages = append(pages, result)
+		pages[index] = result
 	}
-	assetResults := make([]AssetResult, 0, len(assets))
-	for _, asset := range assets {
-		digest, hashErr := hashExactReader(asset.Reader, asset.start, asset.Size)
-		if hashErr != nil {
-			return nil, fmt.Errorf(
-				"airplan: verify asset %q after preflight: %w", asset.Path, hashErr,
-			)
-		}
-		if digest != asset.digest {
-			return nil, fmt.Errorf("airplan: asset %q changed after preflight", asset.Path)
-		}
-		if _, err := asset.Reader.Seek(asset.start, io.SeekStart); err != nil {
-			return nil, err
-		}
+	assetResults := make([]AssetResult, len(assets))
+	for index, asset := range assets {
 		key := BuildKey(c.cfg.KeyPrefix, dir, asset.Path)
-		if err := c.st.putStream(ctx, streamObject{Key: key, Body: asset.Reader, Size: asset.Size, ContentType: asset.ContentType, Metadata: titleMetadata(bundle.Title)}); err != nil {
-			return nil, err
-		}
 		assetURL, _, urlErr := PublicURL(c.cfg, key)
 		if urlErr != nil {
 			return nil, urlErr
 		}
-		assetResults = append(assetResults, AssetResult{Path: asset.Path, URL: assetURL, Key: key, Bytes: asset.Size, ContentType: asset.ContentType})
+		assetResults[index] = AssetResult{Path: asset.Path, URL: assetURL, Key: key, Bytes: asset.Size, ContentType: asset.ContentType}
+		payloads = append(payloads, func(ctx context.Context) error {
+			return c.putVerifiedInput(ctx, asset.Reader, asset.Open, asset.start,
+				asset.digest, fmt.Sprintf("asset %q", asset.Path),
+				streamObject{Key: key, Size: asset.Size, ContentType: asset.ContentType, Metadata: titleMetadata(bundle.Title)})
+		})
 	}
-	if err := c.st.put(ctx, object{Key: diffKey, Body: diffBody, ContentType: diffContentType}); err != nil {
-		return nil, err
-	}
+	payloads = append(payloads, func(ctx context.Context) error {
+		return c.st.put(ctx, object{Key: diffKey, Body: diffBody, ContentType: diffContentType})
+	})
 	for index := 1; index < len(bundle.Pages); index++ {
 		page := bundle.Pages[index]
-		if err := c.putDocumentPayload(ctx,
-			BuildKey(c.cfg.KeyPrefix, dir, page.PagePath), page.htmlFile,
-			pageContentType, titleMetadata(page.Title)); err != nil {
-			return nil, err
-		}
+		payloads = append(payloads, func(ctx context.Context) error {
+			return c.putDocumentPayload(ctx,
+				BuildKey(c.cfg.KeyPrefix, dir, page.PagePath), page.htmlFile,
+				pageContentType, titleMetadata(page.Title))
+		})
+	}
+	if err := runBounded(ctx, len(payloads), func(ctx context.Context, index int) error {
+		return payloads[index](ctx)
+	}); err != nil {
+		return nil, err
 	}
 	if err := c.putDocumentPayload(ctx, pageKey, bundle.Pages[0].htmlFile,
 		pageContentType, titleMetadata(bundle.Title)); err != nil {
@@ -383,33 +375,35 @@ func (c *Client) bundlePageResult(dir string, page RenderedBundlePage) (PageResu
 	return PageResult{Path: page.Path, Format: page.Format, Title: page.Title, URL: u, Key: key, SourceURL: sourceURL, SourceKey: sourceKey, Bytes: page.pageSize(), SourceBytes: page.sourceSize()}, nil
 }
 
+// reopenedDocumentInput replaces original's pages with readers over the
+// bundle's spooled sources. Each source opens on first read and closes at EOF,
+// so rendering holds one source descriptor at a time.
 func reopenedDocumentInput(
 	bundle *RenderedDocumentBundle, original DocumentInput,
-) (DocumentInput, func(), error) {
-	opened := make([]io.Closer, 0, len(bundle.Pages))
-	closeOpened := func() {
-		for _, closer := range opened {
-			_ = closer.Close()
+) (DocumentInput, func()) {
+	readers := make([]*lazyReader, 0, len(bundle.Pages))
+	closeReaders := func() {
+		for _, reader := range readers {
+			_ = reader.Close()
 		}
 	}
 	pages := make([]PageInput, len(bundle.Pages))
 	for index := range bundle.Pages {
 		page := &bundle.Pages[index]
-		file, err := page.sourceFile.open()
-		if err != nil {
-			closeOpened()
-			return DocumentInput{}, func() {}, err
-		}
-		opened = append(opened, file)
+		payload := page.sourceFile
+		reader := &lazyReader{open: func() (io.ReadCloser, error) {
+			return payload.open()
+		}}
+		readers = append(readers, reader)
 		pages[index] = PageInput{
-			Reader: file, Path: page.Path, Format: page.Format,
+			Reader: reader, Path: page.Path, Format: page.Format,
 			Title: page.Title, Lang: page.Lang,
 		}
 	}
 	input := original
 	input.Entry = pages[0]
 	input.Pages = pages[1:]
-	return input, closeOpened, nil
+	return input, closeReaders
 }
 
 func bundleLogicalStateMatches(marker *UploadMarker, bundle *RenderedDocumentBundle, assets []preparedAsset) bool {

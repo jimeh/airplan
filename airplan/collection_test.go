@@ -88,11 +88,18 @@ func TestUploadFilesStreamsOneCollection(t *testing.T) {
 		*marker.Render.Themes != wantThemes {
 		t.Fatalf("collection theme recipe = %+v, want %+v", marker.Render, wantThemes)
 	}
-	if !bytes.Equal(puts[1].body, image) || !bytes.Equal(puts[2].body, video) {
-		t.Fatal("collection bytes changed")
+	// Members upload concurrently between the marker and overview, so match
+	// them by key rather than by arrival order.
+	bodies := map[string][]byte{}
+	for _, put := range puts[1:4] {
+		bodies[put.path] = put.body
 	}
-	if len(puts[3].body) != 0 {
-		t.Fatalf("zero-byte member body = %q", puts[3].body)
+	for index, want := range [][]byte{image, video, nil} {
+		got, ok := bodies["/plans/"+res.Files[index].Key]
+		if !ok || !bytes.Equal(got, want) {
+			t.Fatalf("member %q body = %q (uploaded %t), want %q",
+				res.Files[index].Name, got, ok, want)
+		}
 	}
 }
 

@@ -36,6 +36,10 @@ func runDocumentBundlePreview(
 	if err != nil {
 		return err
 	}
+	maxFiles, err := libraryMaxFiles(opts.maxFiles)
+	if err != nil {
+		return err
+	}
 	overrides := airplan.Settings{Template: opts.template, Repository: opts.repository, MermaidURL: airplan.ResolveMermaidURLOverride(opts.mermaidURL, cmd.Flags().Changed("mermaid-url"))}
 	if cmd.Flags().Changed("no-source") {
 		overrides.NoSource = &opts.noSource
@@ -66,6 +70,7 @@ func runDocumentBundlePreview(
 	opened.input.MaxTotalPageSize = maxTotalPages
 	opened.input.MaxAssetSize = maxAsset
 	opened.input.MaxTotalSize = maxAssets
+	opened.input.MaxFiles = maxFiles
 	warnings, err := airplan.MaterializeDocument(ctx, opened.input,
 		airplan.DocumentRenderOptions{RenderInputOptions: airplan.RenderInputOptions{
 			Indexable: cfg.Indexable, IncludeSource: !cfg.NoSource,

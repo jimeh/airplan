@@ -51,9 +51,14 @@ type FileInput struct {
 	// Name supplies the source path or display filename. Only its basename is
 	// stored publicly.
 	Name string
-	// Reader supplies the original bytes and must support rewinding.
+	// Reader supplies the original bytes and must support rewinding. Exactly
+	// one of Reader and Open must be set.
 	Reader io.ReadSeeker
-	// Size is the exact byte count uploaded from Reader.
+	// Open supplies the original bytes on demand. The library opens the input
+	// only while a worker hashes or uploads it and closes it afterwards, so
+	// open inputs stay bounded by upload concurrency rather than file count.
+	Open func() (io.ReadSeekCloser, error)
+	// Size is the exact byte count of the input.
 	Size int64
 	// ContentType optionally overrides deterministic detection.
 	ContentType string
@@ -71,6 +76,9 @@ type FilesInput struct {
 	// MaxTotalSize limits all member bytes; zero uses the 2 GiB default and
 	// negative values disable the limit.
 	MaxTotalSize int64
+	// MaxFiles limits the number of files; zero uses DefaultMaxFiles and
+	// negative values disable the limit.
+	MaxFiles int
 	// RepositoryURL is an already-resolved canonical repository URL supplied
 	// by a remote client so the server never inspects its own working tree.
 	RepositoryURL string
@@ -206,30 +214,15 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 		objects = append(objects, MarkerObject{Name: f.Name, Role: MarkerRoleFile, Bytes: f.Size, ContentType: f.ContentType, SHA256: f.Digest})
 	}
 	marker := UploadMarker{Schema: MarkerSchema, Version: MarkerVersion, Directory: dir, CreatedAt: createdAt, Kind: UploadKindCollection, Objects: objects, Title: title, Repo: repo, Producer: Producer{Name: "airplan", Version: producerVersion(c.cfg.ProducerVersion)}, Render: collectionRenderRecipe(c.cfg, templateSHA)}
-	markerBody, err := EncodeUploadMarker(marker)
+	markerBody, err := encodeNewUploadMarker(marker)
 	if err != nil {
 		return nil, err
 	}
 	markerKey := BuildKey(c.cfg.KeyPrefix, dir, CollectionMarkerFilename)
-	if err = c.st.put(ctx, object{Key: markerKey, Body: markerBody, ContentType: markerContentType}); err != nil {
-		return nil, err
-	}
 	res := &FilesResult{Result: Result{ID: dir, Bucket: c.cfg.Bucket, Title: title, CreatedAt: createdAt, MarkerVersion: MarkerVersion, MarkerKey: markerKey, RepositoryURL: repo, Kind: string(UploadKindCollection), ContentType: pageContentType}}
-	for _, f := range files {
+	res.Files = make([]FileResult, len(files))
+	for index, f := range files {
 		key := BuildKey(c.cfg.KeyPrefix, dir, f.Name)
-		digest, digestErr := hashExactReader(f.Reader, 0, f.Size)
-		if digestErr != nil {
-			return nil, fmt.Errorf("airplan: verify collection file %q: %w", f.Name, digestErr)
-		}
-		if digest != f.Digest {
-			return nil, fmt.Errorf("airplan: collection file %q changed after preflight", f.Name)
-		}
-		if _, err = f.Reader.Seek(0, io.SeekStart); err != nil {
-			return nil, fmt.Errorf("airplan: seek input %q: %w", f.Name, err)
-		}
-		if err = c.st.putStream(ctx, streamObject{Key: key, Body: f.Reader, Size: f.Size, ContentType: f.ContentType, Metadata: titleMetadata(title)}); err != nil {
-			return nil, err
-		}
 		u, fallback, urlErr := PublicURL(c.cfg, key)
 		if urlErr != nil {
 			return nil, urlErr
@@ -237,7 +230,21 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 		if fallback && len(res.Warnings) == 0 {
 			res.Warnings = append(res.Warnings, PublicURLFallbackWarning)
 		}
-		res.Files = append(res.Files, FileResult{Name: f.Name, URL: u, Key: key, Bytes: f.Size, ContentType: f.ContentType})
+		res.Files[index] = FileResult{Name: f.Name, URL: u, Key: key, Bytes: f.Size, ContentType: f.ContentType}
+	}
+	if err = c.st.put(ctx, object{Key: markerKey, Body: markerBody, ContentType: markerContentType}); err != nil {
+		return nil, err
+	}
+	// Members upload concurrently between the marker and overview barriers
+	// (SPEC.md §5); the overview is published only after every member.
+	err = runBounded(ctx, len(files), func(ctx context.Context, index int) error {
+		f := files[index]
+		return c.putVerifiedInput(ctx, f.Reader, f.Open, 0, f.Digest,
+			fmt.Sprintf("collection file %q", f.Name),
+			streamObject{Key: res.Files[index].Key, Size: f.Size, ContentType: f.ContentType, Metadata: titleMetadata(title)})
+	})
+	if err != nil {
+		return nil, err
 	}
 	pageKey := BuildKey(c.cfg.KeyPrefix, dir, "index.html")
 	if err = c.st.put(ctx, object{Key: pageKey, Body: overview, ContentType: pageContentType, Metadata: titleMetadata(title)}); err != nil {
@@ -257,8 +264,8 @@ func prepareCollection(ctx context.Context, in FilesInput, repository string) ([
 	if len(in.Files) == 0 {
 		return nil, "", "", 0, errors.New("airplan: collection requires at least one file")
 	}
-	if len(in.Files) > MaxCollectionFiles {
-		return nil, "", "", 0, fmt.Errorf("airplan: collection has %d files; maximum is %d", len(in.Files), MaxCollectionFiles)
+	if maxFiles := maxFilesLimit(in.MaxFiles); maxFiles > 0 && len(in.Files) > maxFiles {
+		return nil, "", "", 0, fmt.Errorf("airplan: collection has %d files; maximum is %d", len(in.Files), maxFiles)
 	}
 	maxSize := in.MaxSize
 	if maxSize == 0 {
@@ -282,9 +289,9 @@ func prepareCollection(ctx context.Context, in FilesInput, repository string) ([
 		}
 	}
 	seen := map[string]bool{}
-	files := make([]collectionFile, 0, len(in.Files))
+	files := make([]collectionFile, len(in.Files))
 	var total int64
-	for _, input := range in.Files {
+	for index, input := range in.Files {
 		if err := ctx.Err(); err != nil {
 			return nil, "", "", 0, err
 		}
@@ -296,38 +303,42 @@ func prepareCollection(ctx context.Context, in FilesInput, repository string) ([
 			return nil, "", "", 0, fmt.Errorf("airplan: duplicate collection filename %q", name)
 		}
 		seen[name] = true
-		if input.Reader == nil {
-			return nil, "", "", 0, fmt.Errorf("airplan: file %q has nil reader", name)
-		}
-		if _, err := input.Reader.Seek(0, io.SeekStart); err != nil {
-			return nil, "", "", 0, fmt.Errorf(
-				"airplan: file %q is not seekable: %w", name, err,
-			)
-		}
-		if input.Size < 0 {
-			return nil, "", "", 0, fmt.Errorf("airplan: file %q has invalid size", name)
+		if err := validateInputSource(input.Reader, input.Open, fmt.Sprintf("file %q", name)); err != nil {
+			return nil, "", "", 0, err
 		}
 		if maxSize > 0 && input.Size > maxSize {
 			return nil, "", "", 0, fmt.Errorf("%w of %s: %s", ErrInputTooLarge, formatSize(maxSize), name)
 		}
-		if input.Size > mathMaxInt64-total {
-			return nil, "", "", 0, errors.New("airplan: collection total size is out of range")
-		}
 		total += input.Size
-		if maxTotal > 0 && total > maxTotal {
-			return nil, "", "", 0, fmt.Errorf("airplan: collection exceeds maximum total size of %s", formatSize(maxTotal))
-		}
-		contentType, err := normalizeCollectionContentType(
-			input.ContentType, name, input.Reader,
-		)
+		files[index] = collectionFile{FileInput: FileInput{Name: name, Reader: input.Reader, Open: input.Open, Size: input.Size, ContentType: input.ContentType}, Path: "./" + url.PathEscape(name)}
+	}
+	// Hashing and content sniffing run on the bounded upload pool; each
+	// Open-based input is held open only while its worker inspects it.
+	err := runBounded(ctx, len(files), func(_ context.Context, index int) error {
+		file := &files[index]
+		reader, release, err := acquireInput(file.Reader, file.Open)
 		if err != nil {
-			return nil, "", "", 0, err
+			return fmt.Errorf("airplan: open collection file %q: %w", file.Name, err)
 		}
-		digest, err := hashExactReader(input.Reader, 0, input.Size)
+		defer release()
+		if _, err := reader.Seek(0, io.SeekStart); err != nil {
+			return fmt.Errorf("airplan: file %q is not seekable: %w", file.Name, err)
+		}
+		contentType, err := normalizeCollectionContentType(file.ContentType, file.Name, reader)
 		if err != nil {
-			return nil, "", "", 0, fmt.Errorf("airplan: hash collection file %q: %w", name, err)
+			return err
 		}
-		files = append(files, collectionFile{FileInput: FileInput{Name: name, Reader: input.Reader, Size: input.Size, ContentType: contentType}, MediaKind: mediaKind(contentType), Path: "./" + url.PathEscape(name), Digest: digest})
+		digest, err := hashExactReader(reader, 0, file.Size)
+		if err != nil {
+			return fmt.Errorf("airplan: hash collection file %q: %w", file.Name, err)
+		}
+		file.ContentType = contentType
+		file.MediaKind = mediaKind(contentType)
+		file.Digest = digest
+		return nil
+	})
+	if err != nil {
+		return nil, "", "", 0, err
 	}
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
