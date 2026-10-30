@@ -3,22 +3,25 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
+	"io"
 	"path/filepath"
 	"strings"
 
 	"github.com/jimeh/airplan/airplan"
 )
 
+// openedDocument holds a bundle whose members were validated up front but are
+// opened on demand: pages one at a time while rendering, assets only on the
+// library's bounded upload workers.
 type openedDocument struct {
 	input   airplan.DocumentInput
-	files   []*os.File
+	readers []io.Closer
 	rootDir string
 }
 
 func (o *openedDocument) close() {
-	for _, file := range o.files {
-		_ = file.Close()
+	for _, reader := range o.readers {
+		_ = reader.Close()
 	}
 }
 
@@ -49,64 +52,63 @@ func openDocumentBundle(entry string, pages, assets []string) (*openedDocument, 
 		opened.close()
 		return nil, err
 	}
-	entryFile, entryInfo, err := openRegularInput(entryReal, "bundle entry")
+	entryFile, err := airplan.StatLocalFile(entryReal, "bundle entry")
 	if err != nil {
 		return fail(err)
 	}
-	_ = entryInfo
-	opened.files = append(opened.files, entryFile)
-	opened.input.Entry = airplan.PageInput{Reader: entryFile, Path: filepath.Base(entryAbs)}
+	entryReader := entryFile.LazyReader()
+	opened.readers = append(opened.readers, entryReader)
+	opened.input.Entry = airplan.PageInput{Reader: entryReader, Path: filepath.Base(entryAbs)}
 	for _, value := range pages {
-		file, info, logical, openErr := openBundleMember(rootDeclared, rootReal, value, "page")
-		if openErr != nil {
-			return fail(openErr)
+		file, logical, statErr := statBundleMember(rootDeclared, rootReal, value, "page")
+		if statErr != nil {
+			return fail(statErr)
 		}
-		_ = info
-		opened.files = append(opened.files, file)
-		opened.input.Pages = append(opened.input.Pages, airplan.PageInput{Reader: file, Path: logical})
+		reader := file.LazyReader()
+		opened.readers = append(opened.readers, reader)
+		opened.input.Pages = append(opened.input.Pages, airplan.PageInput{Reader: reader, Path: logical})
 	}
 	for _, value := range assets {
-		file, info, logical, openErr := openBundleMember(rootDeclared, rootReal, value, "asset")
-		if openErr != nil {
-			return fail(openErr)
+		file, logical, statErr := statBundleMember(rootDeclared, rootReal, value, "asset")
+		if statErr != nil {
+			return fail(statErr)
 		}
-		opened.files = append(opened.files, file)
-		opened.input.Assets = append(opened.input.Assets, airplan.AssetInput{Reader: file, Path: logical, Size: info.Size()})
+		opened.input.Assets = append(opened.input.Assets, airplan.AssetInput{Open: file.Open, Path: logical, Size: file.Size()})
 	}
 	return opened, nil
 }
 
-func openBundleMember(rootDeclared, rootReal, value, role string) (*os.File, os.FileInfo, string, error) {
+func statBundleMember(rootDeclared, rootReal, value, role string) (*airplan.LocalFile, string, error) {
 	if value == "" || value == "-" {
-		return nil, nil, "", fmt.Errorf("airplan: bundle %s requires a named file", role)
+		return nil, "", fmt.Errorf("airplan: bundle %s requires a named file", role)
 	}
 	abs, err := filepath.Abs(value)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("airplan: resolve bundle %s %q: %w", role, value, err)
+		return nil, "", fmt.Errorf("airplan: resolve bundle %s %q: %w", role, value, err)
 	}
 	relative, err := filepath.Rel(rootDeclared, abs)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("airplan: resolve bundle %s %q beneath entry directory: %w", role, value, err)
+		return nil, "", fmt.Errorf("airplan: resolve bundle %s %q beneath entry directory: %w", role, value, err)
 	}
 	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
-		return nil, nil, "", fmt.Errorf("airplan: bundle %s %q is declared outside the entry directory", role, value)
+		return nil, "", fmt.Errorf("airplan: bundle %s %q is declared outside the entry directory", role, value)
 	}
 	logical := filepath.ToSlash(relative)
 	if err := airplan.ValidateBundlePath(logical); err != nil {
-		return nil, nil, "", err
+		return nil, "", err
 	}
 	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
-		return nil, nil, "", fmt.Errorf("airplan: resolve bundle %s %q: %w", role, value, err)
+		return nil, "", fmt.Errorf("airplan: resolve bundle %s %q: %w", role, value, err)
 	}
 	if !pathWithinRoot(rootReal, real) {
-		return nil, nil, "", fmt.Errorf("airplan: bundle %s %q resolves outside the entry directory", role, value)
+		return nil, "", fmt.Errorf("airplan: bundle %s %q resolves outside the entry directory", role, value)
 	}
-	file, info, err := openRegularInput(real, "bundle "+role)
+	file, err := airplan.StatLocalFile(real, "bundle "+role)
 	if err != nil {
-		return nil, nil, "", err
+		return nil, "", err
 	}
-	return file, info, logical, nil
+	return file, logical, nil
 }
 
 func pathWithinRoot(root, target string) bool {

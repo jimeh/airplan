@@ -861,9 +861,9 @@ func (c *Client) loadRevisionDocument(ctx context.Context, target string) (*revi
 	if err != nil {
 		return nil, err
 	}
-	if marker.Version != MarkerVersion || marker.Kind != UploadKindDocument ||
+	if !sharesCurrentMarkerFormat(marker.Version) || marker.Kind != UploadKindDocument ||
 		marker.Format != "md" || marker.Source == "" || marker.Render == nil {
-		return nil, errors.New("airplan: update requires a complete v5 source-backed Markdown document; run upgrade first")
+		return nil, errors.New("airplan: update requires a complete v6 or later source-backed Markdown document; run upgrade first")
 	}
 	if err := validateManagedTarget("update", key, dirPrefix, marker); err != nil {
 		return nil, err

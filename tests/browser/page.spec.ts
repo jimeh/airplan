@@ -1724,8 +1724,11 @@ test("child revision selection preserves logical page and falls back to entry", 
       },
     ],
   });
+  // Revision 1 above uses a v6 marker; revision 3 uses the v7 marker that
+  // current writers emit. Both share one wire format.
   const validRevisionThreeMarker = {
     ...validMarker,
+    version: 7,
     extension: { future: true },
     producer: { ...validMarker.producer, extension: "accepted" },
     render: {
@@ -1755,6 +1758,58 @@ test("child revision selection preserves logical page and falls back to entry", 
     pages: [{ ...validMarker.pages[0], extension: true }, ...validMarker.pages.slice(1)],
   };
   markerBody = JSON.stringify(validRevisionThreeMarker);
+  await page.goto(currentChild + "#deep-dive");
+  await Promise.all([
+    page.waitForURL(targetChild + "#deep-dive"),
+    page.getByRole("combobox", { name: "Document revision" }).selectOption({
+      label: "Revision 3 (Latest)",
+    }),
+  ]);
+  await expect(page).toHaveURL(targetChild + "#deep-dive");
+
+  // Markers impose no item count, so a revision far beyond the former
+  // 100-item writer limit still resolves to the matching child page.
+  const extraPages = Array.from({ length: 120 }, (_, index) => `extra/page-${index}.md`);
+  const largeRevisionThreeMarker = {
+    ...validRevisionThreeMarker,
+    objects: [
+      ...validRevisionThreeMarker.objects,
+      ...extraPages.flatMap((logical, index) => [
+        {
+          name: logical.replace(/\.md$/, ".html"),
+          role: "page",
+          bytes: 100,
+          content_type: "text/html; charset=utf-8",
+          sha256: (index % 10).toString().repeat(64),
+        },
+        {
+          name: logical,
+          role: "source",
+          bytes: 10,
+          content_type: "text/markdown; charset=utf-8",
+          sha256: (index % 10).toString().repeat(64),
+        },
+      ]),
+      ...Array.from({ length: 150 }, (_, index) => ({
+        name: `assets/item-${index}.bin`,
+        role: "asset",
+        bytes: 1,
+        content_type: "application/octet-stream",
+        sha256: "f".repeat(64),
+      })),
+    ],
+    pages: [
+      ...validRevisionThreeMarker.pages,
+      ...extraPages.map((logical) => ({
+        path: logical,
+        page: logical.replace(/\.md$/, ".html"),
+        source: logical,
+        format: "md",
+        lang: "Markdown",
+      })),
+    ],
+  };
+  markerBody = JSON.stringify(largeRevisionThreeMarker);
   await page.goto(currentChild + "#deep-dive");
   await Promise.all([
     page.waitForURL(targetChild + "#deep-dive"),
@@ -1829,6 +1884,11 @@ test("child revision selection preserves logical page and falls back to entry", 
       name: "wrong version",
       status: 200,
       body: JSON.stringify({ ...validRevisionThreeMarker, version: 5 }),
+    },
+    {
+      name: "future version",
+      status: 200,
+      body: JSON.stringify({ ...validRevisionThreeMarker, version: 8 }),
     },
     {
       name: "wrong directory",
@@ -1932,7 +1992,7 @@ test("child revision selection preserves logical page and falls back to entry", 
     {
       name: "oversized marker",
       status: 200,
-      body: JSON.stringify({ ...validRevisionThreeMarker, padding: "x".repeat(256 * 1024) }),
+      body: JSON.stringify({ ...validRevisionThreeMarker, padding: "x".repeat(4 * 1024 * 1024) }),
     },
     {
       name: "mismatched entrypoint",
@@ -1987,31 +2047,34 @@ test("child revision selection preserves logical page and falls back to entry", 
   }
 
   await page.goto(currentChild + "#deep-dive");
-  await page.evaluate((limit) => {
-    sessionStorage.removeItem("airplan-marker-stream-pulls");
-    sessionStorage.removeItem("airplan-marker-stream-cancelled");
-    const nativeFetch = window.fetch.bind(window);
-    window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      const requestURL = input instanceof Request ? input.url : String(input);
-      if (!new URL(requestURL, window.location.href).pathname.endsWith("/.airplan.json"))
-        return nativeFetch(input, init);
-      let pulls = 0;
-      return new Response(
-        new ReadableStream<Uint8Array>({
-          pull(controller) {
-            pulls += 1;
-            sessionStorage.setItem("airplan-marker-stream-pulls", String(pulls));
-            controller.enqueue(new Uint8Array(limit + 1));
-            if (pulls === 5) controller.close();
-          },
-          cancel() {
-            sessionStorage.setItem("airplan-marker-stream-cancelled", "true");
-          },
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      );
-    }) as typeof window.fetch;
-  }, 256 * 1024);
+  await page.evaluate(
+    (limit) => {
+      sessionStorage.removeItem("airplan-marker-stream-pulls");
+      sessionStorage.removeItem("airplan-marker-stream-cancelled");
+      const nativeFetch = window.fetch.bind(window);
+      window.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const requestURL = input instanceof Request ? input.url : String(input);
+        if (!new URL(requestURL, window.location.href).pathname.endsWith("/.airplan.json"))
+          return nativeFetch(input, init);
+        let pulls = 0;
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            pull(controller) {
+              pulls += 1;
+              sessionStorage.setItem("airplan-marker-stream-pulls", String(pulls));
+              controller.enqueue(new Uint8Array(limit + 1));
+              if (pulls === 5) controller.close();
+            },
+            cancel() {
+              sessionStorage.setItem("airplan-marker-stream-cancelled", "true");
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }) as typeof window.fetch;
+    },
+    4 * 1024 * 1024,
+  );
   await page.getByRole("combobox", { name: "Document revision" }).selectOption({
     label: "Revision 3 (Latest)",
   });

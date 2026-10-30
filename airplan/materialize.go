@@ -133,50 +133,28 @@ func materializeRenderedDocument(
 			}
 		}
 	}
+	var gate readerGate
 	for _, prepared := range assets {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		asset := prepared.AssetInput
-		if _, err := asset.Reader.Seek(prepared.start, io.SeekStart); err != nil {
-			return fmt.Errorf("airplan: seek preview asset %q: %w", asset.Path, err)
+		reader, release, err := gate.acquire(ctx, asset.Reader, asset.Open)
+		if err != nil {
+			return fmt.Errorf("airplan: open preview asset %q: %w", asset.Path, err)
+		}
+		copyErr := copyPreviewAsset(temporary, asset, reader, prepared.start)
+		release()
+		if copyErr != nil {
+			return copyErr
 		}
 		target := filepath.Join(temporary, filepath.FromSlash(asset.Path))
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return fmt.Errorf("airplan: create preview asset directory for %q: %w", asset.Path, err)
-		}
-		file, err := os.OpenFile(
-			target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600,
-		)
-		if err != nil {
-			return fmt.Errorf("airplan: create preview asset %q: %w", asset.Path, err)
-		}
-		_, copyErr := io.CopyN(file, asset.Reader, asset.Size)
-		if copyErr == nil {
-			var extra [1]byte
-			n, probeErr := asset.Reader.Read(extra[:])
-			switch {
-			case n > 0:
-				copyErr = fmt.Errorf("asset changed after preflight: declared size is %d bytes but reader contains more data", asset.Size)
-			case probeErr == nil:
-				copyErr = fmt.Errorf("probe asset after declared size: %w", io.ErrNoProgress)
-			case !errors.Is(probeErr, io.EOF):
-				copyErr = fmt.Errorf("probe asset after declared size: %w", probeErr)
-			}
-		}
-		closeErr := file.Close()
-		if copyErr != nil {
-			return fmt.Errorf("airplan: copy preview asset %q: %w", asset.Path, copyErr)
-		}
-		if closeErr != nil {
-			return fmt.Errorf("airplan: close preview asset %q: %w", asset.Path, closeErr)
-		}
 		written, err := os.Open(target)
 		if err != nil {
 			return fmt.Errorf("airplan: reopen preview asset %q: %w", asset.Path, err)
 		}
 		digest, hashErr := hashExactReader(written, 0, asset.Size)
-		closeErr = written.Close()
+		closeErr := written.Close()
 		if hashErr != nil {
 			return fmt.Errorf("airplan: hash preview asset %q: %w", asset.Path, hashErr)
 		}
@@ -211,5 +189,46 @@ func materializeRenderedDocument(
 		return fmt.Errorf("airplan: publish preview directory %q: %w", destination, err)
 	}
 	complete = true
+	return nil
+}
+
+// copyPreviewAsset writes exactly asset.Size bytes from reader, starting at
+// start, to the asset's path beneath temporary.
+func copyPreviewAsset(
+	temporary string, asset AssetInput, reader io.ReadSeeker, start int64,
+) error {
+	if _, err := reader.Seek(start, io.SeekStart); err != nil {
+		return fmt.Errorf("airplan: seek preview asset %q: %w", asset.Path, err)
+	}
+	target := filepath.Join(temporary, filepath.FromSlash(asset.Path))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return fmt.Errorf("airplan: create preview asset directory for %q: %w", asset.Path, err)
+	}
+	file, err := os.OpenFile(
+		target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600,
+	)
+	if err != nil {
+		return fmt.Errorf("airplan: create preview asset %q: %w", asset.Path, err)
+	}
+	_, copyErr := io.CopyN(file, reader, asset.Size)
+	if copyErr == nil {
+		var extra [1]byte
+		n, probeErr := reader.Read(extra[:])
+		switch {
+		case n > 0:
+			copyErr = fmt.Errorf("asset changed after preflight: declared size is %d bytes but reader contains more data", asset.Size)
+		case probeErr == nil:
+			copyErr = fmt.Errorf("probe asset after declared size: %w", io.ErrNoProgress)
+		case !errors.Is(probeErr, io.EOF):
+			copyErr = fmt.Errorf("probe asset after declared size: %w", probeErr)
+		}
+	}
+	closeErr := file.Close()
+	if copyErr != nil {
+		return fmt.Errorf("airplan: copy preview asset %q: %w", asset.Path, copyErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("airplan: close preview asset %q: %w", asset.Path, closeErr)
+	}
 	return nil
 }

@@ -1,6 +1,7 @@
 package airplan
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -434,7 +435,7 @@ func TestDecodeUploadMarkerValidation(t *testing.T) {
 		},
 		{
 			name: "unsupported version",
-			body: strings.Replace(valid, `"version":1`, `"version":7`, 1),
+			body: strings.Replace(valid, `"version":1`, `"version":8`, 1),
 			dir:  markerTestDir, code: MarkerErrorUnsupportedVersion,
 		},
 		{
@@ -583,17 +584,65 @@ func TestUploadMarkerV3CollectionValidation(t *testing.T) {
 	if _, err := EncodeUploadMarker(zeroByte); err != nil {
 		t.Fatalf("zero-byte collection file: %v", err)
 	}
+}
 
-	tooMany := validCollectionMarkerV3()
-	tooMany.Objects = tooMany.Objects[:1]
-	for i := 0; i < MaxCollectionFiles+1; i++ {
-		tooMany.Objects = append(tooMany.Objects, MarkerObject{
-			Name: fmt.Sprintf("file-%03d.bin", i), Role: MarkerRoleFile,
-			Bytes: 1, ContentType: "application/octet-stream",
+// Readers never validate file counts: the count is a write-side policy, so an
+// inventory larger than any writer default must still be manageable.
+func TestUploadMarkerAcceptsLargeInventories(t *testing.T) {
+	t.Parallel()
+
+	const count = 150
+	for _, version := range []int{3, 6, MarkerVersion} {
+		t.Run(fmt.Sprintf("collection v%d", version), func(t *testing.T) {
+			marker := validCollectionMarker()
+			if version == 3 {
+				marker = validCollectionMarkerV3()
+			}
+			marker.Version = version
+			marker.Objects = marker.Objects[:1]
+			for index := range count {
+				marker.Objects = append(marker.Objects, MarkerObject{
+					Name: fmt.Sprintf("file-%03d.bin", index), Role: MarkerRoleFile,
+					Bytes: 1, ContentType: "application/octet-stream",
+					SHA256: strings.Repeat("c", 64),
+				})
+			}
+			body, err := EncodeUploadMarker(marker)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := DecodeUploadMarkerForName(
+				body, markerTestDir, CollectionMarkerFilename,
+			)
+			if err != nil {
+				t.Fatalf("decode %d-file collection: %v", count, err)
+			}
+			if len(decoded.Objects) != count+1 {
+				t.Fatalf("objects = %d, want %d", len(decoded.Objects), count+1)
+			}
 		})
 	}
-	_, err := EncodeUploadMarker(tooMany)
-	assertMarkerCode(t, err, MarkerErrorInvalidFields)
+	for _, version := range []int{6, MarkerVersion} {
+		t.Run(fmt.Sprintf("document v%d", version), func(t *testing.T) {
+			marker := validDocumentMarker()
+			marker.Version = version
+			for index := range count {
+				marker.Objects = append(marker.Objects, MarkerObject{
+					Name: fmt.Sprintf("assets/item-%03d.bin", index),
+					Role: MarkerRoleAsset, Bytes: 1,
+					ContentType: "application/octet-stream",
+					SHA256:      strings.Repeat("d", 64),
+				})
+			}
+			body, err := EncodeUploadMarker(marker)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DecodeUploadMarker(body, markerTestDir); err != nil {
+				t.Fatalf("decode document with %d assets: %v", count, err)
+			}
+		})
+	}
 }
 
 func TestUploadMarkerV3ObjectValidation(t *testing.T) {
@@ -954,39 +1003,80 @@ func TestUploadMarkerVersionsBeforeV6RejectBundleFields(t *testing.T) {
 	}
 }
 
-func TestUploadMarkerV6MaximumEncodedSize(t *testing.T) {
+// Encoding a current marker allows MaxMarkerSize. Rewrites that keep an
+// older version keep its original 256 KiB ceiling so older readers accept
+// them, while decoding accepts MaxMarkerSize for every version.
+func TestUploadMarkerMaximumEncodedSize(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		version int
+		limit   int
+	}{
+		{version: MarkerVersion, limit: MaxMarkerSize},
+		{version: 6, limit: 256 << 10},
+	} {
+		t.Run(fmt.Sprintf("v%d", tt.version), func(t *testing.T) {
+			t.Parallel()
+			marker := validDocumentMarker()
+			marker.Version = tt.version
+			marker.Title = ""
+			base, err := EncodeUploadMarker(marker)
+			if err != nil {
+				t.Fatal(err)
+			}
+			const titleFieldOverhead = len(`,"title":""`)
+			marker.Title = strings.Repeat("x", tt.limit-len(base)-titleFieldOverhead)
+			exact, err := EncodeUploadMarker(marker)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(exact) != tt.limit {
+				t.Fatalf("encoded marker size = %d, want %d", len(exact), tt.limit)
+			}
+			if _, err := DecodeUploadMarker(exact, markerTestDir); err != nil {
+				t.Fatalf("decode marker at size limit: %v", err)
+			}
+
+			marker.Title += "x"
+			_, err = EncodeUploadMarker(marker)
+			assertMarkerCode(t, err, MarkerErrorOversized)
+		})
+	}
+}
+
+func TestDecodeUploadMarkerSizeLimitAppliesToEveryVersion(t *testing.T) {
 	t.Parallel()
 
 	marker := validDocumentMarker()
-	marker.Title = ""
-	for index := 0; index < MaxDocumentItems-1; index++ {
-		marker.Objects = append(marker.Objects, MarkerObject{
-			Name: fmt.Sprintf("artifacts/group-%02d/evidence-%02d.bin", index, index),
-			Role: MarkerRoleAsset, Bytes: int64(index),
-			ContentType: "application/octet-stream", SHA256: strings.Repeat("d", 64),
-		})
+	marker.Title = strings.Repeat("x", 300<<10)
+	current, err := EncodeUploadMarker(marker)
+	if err != nil {
+		t.Fatal(err)
 	}
+	// v6 and v7 share a wire format, so relabeling the body yields a valid v6
+	// marker larger than any v6 writer emits.
+	legacy := bytes.Replace(current,
+		[]byte(fmt.Sprintf(`"version":%d`, MarkerVersion)), []byte(`"version":6`), 1)
+	decoded, err := DecodeUploadMarker(legacy, markerTestDir)
+	if err != nil {
+		t.Fatalf("decode oversized-for-v6 body: %v", err)
+	}
+	if decoded.Version != 6 {
+		t.Fatalf("decoded version = %d, want 6", decoded.Version)
+	}
+
+	marker.Title = ""
 	base, err := EncodeUploadMarker(marker)
 	if err != nil {
 		t.Fatal(err)
 	}
-	const titleFieldOverhead = len(`,"title":""`)
-	marker.Title = strings.Repeat("x", MaxMarkerSize-len(base)-titleFieldOverhead)
-	exact, err := EncodeUploadMarker(marker)
-	if err != nil {
-		t.Fatal(err)
+	padded := append(base[:len(base)-1:len(base)-1],
+		append(bytes.Repeat([]byte(" "), MaxMarkerSize+1-len(base)), '}')...)
+	if len(padded) != MaxMarkerSize+1 {
+		t.Fatalf("padded size = %d", len(padded))
 	}
-	if len(exact) != MaxMarkerSize {
-		t.Fatalf("encoded marker size = %d, want %d", len(exact), MaxMarkerSize)
-	}
-	if _, err := DecodeUploadMarker(exact, markerTestDir); err != nil {
-		t.Fatalf("decode marker at size limit: %v", err)
-	}
-
-	marker.Title += "x"
-	_, err = EncodeUploadMarker(marker)
-	assertMarkerCode(t, err, MarkerErrorOversized)
-	_, err = DecodeUploadMarker(append(exact, ' '), markerTestDir)
+	_, err = DecodeUploadMarker(padded, markerTestDir)
 	assertMarkerCode(t, err, MarkerErrorOversized)
 }
 

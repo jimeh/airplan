@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/jimeh/airplan/internal/httpapi"
+	"github.com/jimeh/airplan/internal/lazyio"
 )
 
 type httpTransport struct {
@@ -203,10 +204,18 @@ func (t *httpTransport) wireDocumentParts(
 	}
 	assets := make([]httpapi.DocumentAsset, 0, len(in.Assets))
 	for _, asset := range in.Assets {
-		if asset.Reader == nil {
-			return nil, nil, "", fmt.Errorf(
-				"airplan: asset %q reader is nil", asset.Path,
-			)
+		if err := validateInputSource(asset.Reader, asset.Open, fmt.Sprintf("asset %q", asset.Path)); err != nil {
+			return nil, nil, "", err
+		}
+		if asset.Open != nil {
+			// The multipart writer opens the asset only while streaming its part.
+			assets = append(assets, httpapi.DocumentAsset{
+				DocumentAssetDescriptor: httpapi.DocumentAssetDescriptor{
+					Path: asset.Path, Size: asset.Size, ContentType: asset.ContentType,
+				},
+				Open: asset.Open,
+			})
+			continue
 		}
 		start, err := asset.Reader.Seek(0, io.SeekCurrent)
 		if err != nil {
@@ -354,8 +363,11 @@ func validateBundleCapabilityValues(
 	}
 	payloadBytes := pageTotal + assetTotal + metadataBytes
 	// MIME headers repeat descriptor paths and add one boundary per part. Twice
-	// the bounded metadata plus 1 MiB is a conservative envelope for 100 parts.
-	overhead := int64(1<<20) + 2*metadataBytes
+	// the bounded metadata plus fixed framing for every part, including the
+	// metadata and entry parts, is a conservative envelope at any part count.
+	parts := int64(len(pages) + len(assets) + 2)
+	overhead := int64(1<<20) + 2*metadataBytes +
+		parts*httpapi.MultipartPartOverheadBytes
 	if payloadBytes > mathMaxInt64-overhead ||
 		payloadBytes+overhead > capability.MaxRequestBytes {
 		return fmt.Errorf(
@@ -374,13 +386,16 @@ func entryPageResult(path string, result Result) PageResult {
 	}
 }
 
+// measuredHTTPPage is a page spooled to a closed temporary file. It reopens
+// the file on first read and closes it at EOF, so streaming a bundle holds one
+// page descriptor at a time.
 type measuredHTTPPage struct {
-	file *os.File
-	size int64
+	reader *lazyio.Reader
+	size   int64
 }
 
 func (p *measuredHTTPPage) Read(buffer []byte) (int, error) {
-	return p.file.Read(buffer)
+	return p.reader.Read(buffer)
 }
 
 func spoolHTTPDocumentPages(
@@ -399,12 +414,14 @@ func spoolHTTPDocumentPages(
 	if totalLimit == 0 || capability.MaxTotalPageBytes < totalLimit {
 		totalLimit = capability.MaxTotalPageBytes
 	}
-	var files []*os.File
+	var paths []string
+	var readers []*lazyio.Reader
 	cleanup := func() {
-		for _, file := range files {
-			name := file.Name()
-			_ = file.Close()
-			_ = os.Remove(name)
+		for _, reader := range readers {
+			_ = reader.Close()
+		}
+		for _, path := range paths {
+			_ = os.Remove(path)
 		}
 	}
 	spool := func(page PageInput) (PageInput, int64, error) {
@@ -418,11 +435,8 @@ func spoolHTTPDocumentPages(
 		if err != nil {
 			return PageInput{}, 0, fmt.Errorf("airplan: create page temporary file: %w", err)
 		}
-		files = append(files, file)
-		if err = file.Chmod(0o600); err != nil {
-			return PageInput{}, 0, fmt.Errorf("airplan: secure page temporary file: %w", err)
-		}
-		size, err := io.Copy(file, io.LimitReader(page.Reader, pageLimit+1))
+		paths = append(paths, file.Name())
+		size, err := spoolHTTPPage(file, page.Reader, pageLimit)
 		if err != nil {
 			return PageInput{}, 0, fmt.Errorf("airplan: spool page %q: %w", page.Path, err)
 		}
@@ -435,10 +449,12 @@ func spoolHTTPDocumentPages(
 		if err = ctx.Err(); err != nil {
 			return PageInput{}, 0, err
 		}
-		if _, err = file.Seek(0, io.SeekStart); err != nil {
-			return PageInput{}, 0, fmt.Errorf("airplan: rewind page %q: %w", page.Path, err)
-		}
-		page.Reader = &measuredHTTPPage{file: file, size: size}
+		path := file.Name()
+		reader := lazyio.New(func() (io.ReadCloser, error) {
+			return os.Open(path)
+		})
+		readers = append(readers, reader)
+		page.Reader = &measuredHTTPPage{reader: reader, size: size}
 		return page, size, nil
 	}
 
@@ -482,6 +498,20 @@ func spoolHTTPDocumentPages(
 	return prepared, cleanup, nil
 }
 
+// spoolHTTPPage copies at most limit+1 bytes into a private temporary file and
+// closes it.
+func spoolHTTPPage(file *os.File, reader io.Reader, limit int64) (int64, error) {
+	if err := file.Chmod(0o600); err != nil {
+		_ = file.Close()
+		return 0, fmt.Errorf("secure temporary file: %w", err)
+	}
+	size, err := io.Copy(file, io.LimitReader(reader, limit+1))
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	return size, err
+}
+
 func measuredHTTPPageSize(reader io.Reader) int64 {
 	if page, ok := reader.(*measuredHTTPPage); ok {
 		return page.size
@@ -492,6 +522,20 @@ func measuredHTTPPageSize(reader io.Reader) int64 {
 func (t *httpTransport) UploadFiles(
 	ctx context.Context, in FilesInput,
 ) (*FilesResult, error) {
+	// The advertised document_bundle.max_items bounds collection files too
+	// (SPEC.md §11). Checking it first avoids streaming parts the server
+	// would reject; servers without bundle support still enforce their own.
+	capability, err := t.revisionCapabilities(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if capability != nil && capability.MaxItems > 0 &&
+		len(in.Files) > capability.MaxItems {
+		return nil, fmt.Errorf(
+			"airplan: collection has %d files; server maximum is %d",
+			len(in.Files), capability.MaxItems,
+		)
+	}
 	repository := t.repository
 	if in.RepositoryURL != "" {
 		repository = in.RepositoryURL
@@ -505,8 +549,8 @@ func (t *httpTransport) UploadFiles(
 	files := make([]httpapi.CollectionFile, 0, len(prepared))
 	for _, file := range prepared {
 		files = append(files, httpapi.CollectionFile{
-			Name: file.Name, Reader: file.Reader, Size: file.Size,
-			ContentType: file.ContentType,
+			Name: file.Name, Reader: file.Reader, Open: file.Open,
+			Size: file.Size, ContentType: file.ContentType,
 		})
 	}
 	result, err := t.client.UploadCollection(ctx, httpapi.CollectionMetadata{

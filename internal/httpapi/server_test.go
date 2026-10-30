@@ -213,7 +213,8 @@ func TestCapabilitiesUseEffectiveServerLimits(t *testing.T) {
 	if capabilities.DocumentBundle == nil ||
 		!capabilities.DocumentBundle.CanonicalRevisionRoute ||
 		capabilities.DocumentBundle.MaxPageBytes != 101 ||
-		capabilities.DocumentBundle.MaxMetadataBytes != 256<<10 {
+		capabilities.DocumentBundle.MaxMetadataBytes != 4<<20 ||
+		capabilities.DocumentBundle.MaxItems != 1000 {
 		t.Fatalf("document bundle capability = %+v", capabilities.DocumentBundle)
 	}
 }
@@ -225,7 +226,17 @@ func TestTypedClientStreamsOrderedDocumentBundleAndCleansTempFiles(t *testing.T)
 	) (UploadResult, error) {
 		entry, _ := io.ReadAll(request.Document)
 		page, _ := io.ReadAll(request.Pages[0].Reader)
-		asset, _ := io.ReadAll(request.Assets[0].Reader)
+		if request.Assets[0].Reader != nil || request.Assets[0].Open == nil {
+			t.Errorf("asset handoff = %+v, want Open only", request.Assets[0])
+			return UploadResult{}, nil
+		}
+		opened, err := request.Assets[0].Open()
+		if err != nil {
+			t.Error(err)
+			return UploadResult{}, nil
+		}
+		asset, _ := io.ReadAll(opened)
+		_ = opened.Close()
 		if string(entry) != "# Entry\n" || string(page) != "package main\n" ||
 			string(asset) != "asset" || request.Pages[0].Path != "src/main.go" ||
 			request.Assets[0].Path != "images/flow.svg" {
@@ -634,18 +645,18 @@ func TestTypedClientStreamsDocumentAndCleansTempFile(t *testing.T) {
 		_ context.Context,
 		request DocumentUpload,
 	) (UploadResult, error) {
-		file, ok := request.Document.(*os.File)
-		if !ok {
-			t.Fatalf("document reader type = %T, want *os.File", request.Document)
+		spooled, err := os.ReadDir(tempDir)
+		if err != nil || len(spooled) != 1 {
+			t.Fatalf("spooled files = %v, error = %v", spooled, err)
 		}
-		info, err := file.Stat()
+		info, err := spooled[0].Info()
 		if err != nil {
 			t.Fatal(err)
 		}
 		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 			t.Fatalf("temp mode = %o, want 600", info.Mode().Perm())
 		}
-		body, err := io.ReadAll(file)
+		body, err := io.ReadAll(request.Document)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -685,11 +696,7 @@ func TestTypedClientStreamsDocumentUpdateAndCleansTempFile(t *testing.T) {
 	operations.updateDocument = func(
 		_ context.Context, request UpdateDocumentUpload,
 	) (UpdateDocumentResult, error) {
-		file, ok := request.Document.(*os.File)
-		if !ok {
-			t.Fatalf("document reader type = %T, want *os.File", request.Document)
-		}
-		body, err := io.ReadAll(file)
+		body, err := io.ReadAll(request.Document)
 		if err != nil {
 			t.Fatal(err)
 		}

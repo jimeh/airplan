@@ -426,18 +426,25 @@ func TestRootCollectionRejectsDocumentFlagsBeforeUpload(t *testing.T) {
 	}
 }
 
-func TestOpenCollectionInputsRejectsInvalidListBeforeOpening(t *testing.T) {
-	if _, _, err := openCollectionInputs([]string{"missing", "-"}); err == nil || !strings.Contains(err.Error(), "named files") {
+func TestStatCollectionInputsRejectsInvalidListBeforeInspecting(t *testing.T) {
+	if _, err := statCollectionInputs([]string{"missing", "-"}, 0); err == nil || !strings.Contains(err.Error(), "named files") {
 		t.Fatalf("dash error = %v", err)
 	}
-	tooMany := make([]string, airplan.MaxCollectionFiles+1)
+	tooMany := make([]string, airplan.DefaultMaxFiles+1)
 	for i := range tooMany {
 		tooMany[i] = "missing"
 	}
-	if _, _, err := openCollectionInputs(tooMany); err == nil || !strings.Contains(err.Error(), "maximum") {
+	if _, err := statCollectionInputs(tooMany, 0); err == nil ||
+		!strings.Contains(err.Error(), "maximum is 1000") ||
+		!strings.Contains(err.Error(), "--max-files") {
 		t.Fatalf("limit error = %v", err)
 	}
-	if _, _, err := openCollectionInputs([]string{t.TempDir()}); err == nil ||
+	// A disabled limit reaches per-file inspection instead.
+	if _, err := statCollectionInputs(tooMany, -1); err == nil ||
+		strings.Contains(err.Error(), "maximum") {
+		t.Fatalf("unlimited error = %v", err)
+	}
+	if _, err := statCollectionInputs([]string{t.TempDir()}, 0); err == nil ||
 		!strings.Contains(err.Error(), "not a regular file") {
 		t.Fatalf("directory error = %v", err)
 	}
@@ -664,6 +671,12 @@ func newFakeS3(t *testing.T) *fakeS3 {
 	fake.server = httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			body, _ := io.ReadAll(r.Body)
+			// Every CLI test addresses the "plans" bucket; anything else is
+			// a local process probing the listener, not storage traffic.
+			if !strings.HasPrefix(r.URL.Path, "/plans/") {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
 
 			fake.mu.Lock()
 			fake.puts = append(fake.puts, fakePut{

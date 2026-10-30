@@ -106,7 +106,7 @@ func TestAppendManifestRecordCreatesManifestAndRoundTrips(t *testing.T) {
 		`"url":"https://plans.example.com/vq3n/plan.html",` +
 		`"bucket":"plans","profile":"work","kind":"document","slug":"plan",` +
 		`"title":"Refactor auth",` +
-		`"bytes":18432,"marker_version":6}`
+		`"bytes":18432,"marker_version":7}`
 	if lines[0] != wantLine {
 		t.Fatalf("first line = %s, want %s", lines[0], wantLine)
 	}
@@ -243,7 +243,7 @@ func TestReadManifestRecognizesLegacyAndSkipsUnsupportedMarkerVersion(
 		t.Fatal(err)
 	}
 	if len(records) != MarkerVersion+1 || records[0].Key != "legacy.html" ||
-		records[len(records)-1].Key != "v6.html" || len(warnings) != 1 {
+		records[len(records)-1].Key != fmt.Sprintf("v%d.html", MarkerVersion) || len(warnings) != 1 {
 		t.Fatalf("records = %+v, warnings = %v", records, warnings)
 	}
 	for version := 1; version <= MarkerVersion; version++ {
@@ -252,11 +252,12 @@ func TestReadManifestRecognizesLegacyAndSkipsUnsupportedMarkerVersion(
 		}
 	}
 	if uploads := ManifestUploads(records); len(uploads) != MarkerVersion+1 {
-		t.Fatalf("ManifestUploads = %+v, want legacy plus v1-v6", uploads)
+		t.Fatalf("ManifestUploads = %+v, want legacy plus every supported version", uploads)
 	}
 	if uploads := ActiveUploads(records); len(uploads) != MarkerVersion ||
-		uploads[0].Key != "v1.html" || uploads[len(uploads)-1].Key != "v6.html" {
-		t.Fatalf("ActiveUploads = %+v, want v1-v6", uploads)
+		uploads[0].Key != "v1.html" ||
+		uploads[len(uploads)-1].Key != fmt.Sprintf("v%d.html", MarkerVersion) {
+		t.Fatalf("ActiveUploads = %+v, want every supported version", uploads)
 	}
 }
 

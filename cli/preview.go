@@ -29,6 +29,7 @@ type previewOptions struct {
 	collectionTemplate string
 	files              bool
 	maxTotalSize       string
+	maxFiles           int
 	profile            string
 	config             string
 	output             string
@@ -88,6 +89,8 @@ func newPreviewCmd() *cobra.Command {
 	_ = f.MarkHidden("files")
 	f.StringVar(&opts.maxTotalSize, "max-total-size", "2GiB",
 		"collection total size limit; 0 = no limit")
+	f.IntVar(&opts.maxFiles, "max-files", airplan.DefaultMaxFiles,
+		"document bundle item or collection file count limit; 0 = no limit")
 	f.StringVarP(&opts.profile, "profile", "p", "",
 		"config profile name (default: config default)")
 	f.StringVar(&opts.config, "config", "",
@@ -112,10 +115,12 @@ func runPreview(
 	}
 	bundled := len(plan.PagePaths) != 0 || len(plan.AssetPaths) != 0
 	collection := plan.Kind == airplan.UploadKindCollection
-	if cmd.Flags().Changed("max-total-size") && !bundled && !collection {
-		return errors.New(
-			"--max-total-size is only valid for document bundle or collection previews",
-		)
+	for _, name := range []string{"max-total-size", "max-files"} {
+		if cmd.Flags().Changed(name) && !bundled && !collection {
+			return fmt.Errorf(
+				"--%s is only valid for document bundle or collection previews", name,
+			)
+		}
 	}
 	if collection {
 		if opts.outputDir != "" {
@@ -246,9 +251,9 @@ func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOption
 	if len(args) == 0 {
 		return errors.New("--collection requires one or more named files")
 	}
-	if len(args) > airplan.MaxCollectionFiles {
-		return fmt.Errorf("collection has %d files; maximum is %d",
-			len(args), airplan.MaxCollectionFiles)
+	maxFiles, err := libraryMaxFiles(opts.maxFiles)
+	if err != nil {
+		return err
 	}
 	for _, name := range args {
 		if name == "-" {
@@ -300,16 +305,11 @@ func runCollectionPreview(cmd *cobra.Command, args []string, opts *previewOption
 			}
 		}
 	}
-	inputs, closers, err := openCollectionInputs(args)
+	inputs, err := statCollectionInputs(args, maxFiles)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		for _, file := range closers {
-			_ = file.Close()
-		}
-	}()
-	body, _, err := airplan.RenderCollection(ctx, airplan.FilesInput{Files: inputs, Title: opts.title, MaxSize: maxSize, MaxTotalSize: maxTotal}, airplan.CollectionRenderOptions{Indexable: cfg.Indexable, TemplatePath: cfg.CollectionTemplate, Repository: cfg.Repository, Themes: cfg.ThemeBundle})
+	body, _, err := airplan.RenderCollection(ctx, airplan.FilesInput{Files: inputs, Title: opts.title, MaxSize: maxSize, MaxTotalSize: maxTotal, MaxFiles: maxFiles}, airplan.CollectionRenderOptions{Indexable: cfg.Indexable, TemplatePath: cfg.CollectionTemplate, Repository: cfg.Repository, Themes: cfg.ThemeBundle})
 	if err != nil {
 		return err
 	}

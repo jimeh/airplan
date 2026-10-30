@@ -102,6 +102,11 @@ coverage has no equivalent local task on non-Windows hosts.
   strict server and client are runtime boundaries, not documentation-only
   artifacts. Keep multipart upload parsing streaming, and run
   `mise run generate:check` after API changes.
+- **Upload counts are write-side policy**: marker validation must never reject
+  on object or item counts; `--max-files` and server limits apply only before
+  writing, and the 4 MiB marker cap is the protocol ceiling. Named local inputs
+  go through `airplan.LocalFile` (`Open` or `LazyReader`) so open descriptors
+  stay bounded by the upload pool, never one per input.
 - **Manifest reads**: handle empty non-EOF reads as errors before continuing;
   reading a directory can otherwise spin without making progress.
 - **Ownership marker resolution**: targeted get/delete operations concurrently

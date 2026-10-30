@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -56,7 +57,7 @@ func (r *unreadableAssetReader) Seek(int64, int) (int64, error) {
 }
 
 func oversizedUnreadableDocument(reader *unreadableAssetReader) DocumentInput {
-	assets := make([]AssetInput, MaxDocumentItems)
+	assets := make([]AssetInput, DefaultMaxFiles)
 	for index := range assets {
 		assets[index] = AssetInput{Reader: reader, Path: fmt.Sprintf("asset-%d.bin", index), Size: 1}
 	}
@@ -198,11 +199,10 @@ func TestAssetContentTypesUseDeterministicExtensionMapping(t *testing.T) {
 		{path: "runtime/module.wasm", want: "application/wasm"},
 	} {
 		t.Run(test.path, func(t *testing.T) {
-			body := []byte("plain bytes")
+			body := bytes.NewReader([]byte("plain bytes"))
 			got, err := normalizeAssetContentType(AssetInput{
-				Reader: bytes.NewReader(body), Path: test.path,
-				Size: int64(len(body)),
-			}, 0)
+				Reader: body, Path: test.path, Size: body.Size(),
+			}, body, 0)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -473,7 +473,7 @@ func TestRenderDocumentEnforcesItemBoundaryBeforeReading(t *testing.T) {
 	reader := &unreadableAssetReader{}
 	_, err := RenderDocument(context.Background(), oversizedUnreadableDocument(reader),
 		DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Repository: "none"}})
-	if err == nil || !strings.Contains(err.Error(), "maximum is 100") {
+	if err == nil || !strings.Contains(err.Error(), "maximum is 1000") {
 		t.Fatalf("error = %v", err)
 	}
 	if reader.reads != 0 || reader.seeks != 0 {
@@ -487,7 +487,7 @@ func TestUploadDocumentEnforcesItemBoundaryBeforeReading(t *testing.T) {
 	_, err := store.client(t, "").UploadDocument(
 		context.Background(), oversizedUnreadableDocument(reader),
 	)
-	if err == nil || !strings.Contains(err.Error(), "maximum is 100") {
+	if err == nil || !strings.Contains(err.Error(), "maximum is 1000") {
 		t.Fatalf("error = %v", err)
 	}
 	if reader.reads != 0 || reader.seeks != 0 {
@@ -502,7 +502,7 @@ func TestMaterializeDocumentEnforcesItemBoundaryBeforeReading(t *testing.T) {
 		DocumentRenderOptions{RenderInputOptions: RenderInputOptions{Repository: "none"}},
 		filepath.Join(t.TempDir(), "output"),
 	)
-	if err == nil || !strings.Contains(err.Error(), "maximum is 100") {
+	if err == nil || !strings.Contains(err.Error(), "maximum is 1000") {
 		t.Fatalf("error = %v", err)
 	}
 	if reader.reads != 0 || reader.seeks != 0 {
@@ -527,7 +527,7 @@ func TestCreateDocumentRevisionEnforcesItemBoundaryBeforeDispatchOrPreparation(t
 		Target:   "https://plans.example.com/target/index.html",
 		Document: oversizedUnreadableDocument(reader),
 	})
-	if err == nil || !strings.Contains(err.Error(), "maximum is 100") {
+	if err == nil || !strings.Contains(err.Error(), "maximum is 1000") {
 		t.Fatalf("error = %v", err)
 	}
 	if requests != 0 || reader.reads != 0 || reader.seeks != 0 {
@@ -540,7 +540,7 @@ func TestCreateDocumentRevisionEnforcesItemBoundaryBeforeDispatchOrPreparation(t
 		Target:   "https://plans.example.com/target/index.html",
 		Document: oversizedUnreadableDocument(localReader),
 	}, MaxDiffSize)
-	if err == nil || !strings.Contains(err.Error(), "maximum is 100") {
+	if err == nil || !strings.Contains(err.Error(), "maximum is 1000") {
 		t.Fatalf("local error = %v", err)
 	}
 	if localReader.reads != 0 || localReader.seeks != 0 {
@@ -569,10 +569,13 @@ func TestUploadDocumentPreservesPublicURLWarningAlongsideRenderWarnings(t *testi
 
 func TestUploadDocumentRejectsAssetMutationBeforePublishingEntry(t *testing.T) {
 	body := []byte("before")
+	var mu sync.Mutex
 	var putPaths []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPut {
+			mu.Lock()
 			putPaths = append(putPaths, r.URL.Path)
+			mu.Unlock()
 		}
 		_, _ = io.Copy(io.Discard, r.Body)
 		if strings.HasSuffix(r.URL.Path, "/"+MarkerFilename) {
@@ -597,9 +600,17 @@ func TestUploadDocumentRejectsAssetMutationBeforePublishingEntry(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "changed after preflight") {
 		t.Fatalf("error = %v", err)
 	}
-	if len(putPaths) != 2 || !strings.HasSuffix(putPaths[0], "/"+MarkerFilename) ||
-		!strings.HasSuffix(putPaths[1], "/entry.md") {
-		t.Fatalf("PUT paths = %q, want marker and source only", putPaths)
+	// The source may upload concurrently with the failed asset, but the
+	// marker always precedes it and the entry page is never published.
+	mu.Lock()
+	defer mu.Unlock()
+	if len(putPaths) == 0 || !strings.HasSuffix(putPaths[0], "/"+MarkerFilename) {
+		t.Fatalf("PUT paths = %q, want marker first", putPaths)
+	}
+	for _, path := range putPaths[1:] {
+		if !strings.HasSuffix(path, "/entry.md") {
+			t.Fatalf("PUT paths = %q, want marker and at most the source", putPaths)
+		}
 	}
 }
 

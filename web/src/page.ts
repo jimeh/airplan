@@ -71,7 +71,8 @@ interface DocumentMarker {
 (function () {
   "use strict";
   var d = document;
-  var markerMaxBytes = 256 * 1024;
+  // Matches the 4 MiB ownership-marker read limit for every marker version.
+  var markerMaxBytes = 4 * 1024 * 1024;
   const renderedElement = d.getElementById("rendered");
   if (!renderedElement) return;
   const rendered: HTMLElement = renderedElement;
@@ -288,7 +289,7 @@ interface DocumentMarker {
     var directoryName = directoryParts[directoryParts.length - 1] || "";
     if (
       marker.schema !== "airplan-upload" ||
-      marker.version !== 6 ||
+      (marker.version !== 6 && marker.version !== 7) ||
       marker.kind !== "document" ||
       marker.directory !== directoryName ||
       !/^[a-z2-7]{26}$/.test(marker.directory) ||
@@ -319,8 +320,7 @@ interface DocumentMarker {
     if (
       (marker.title !== undefined && typeof marker.title !== "string") ||
       (marker.repo !== undefined && !validMarkerRepository(marker.repo)) ||
-      marker.objects.length === 0 ||
-      marker.pages.length > 100
+      marker.objects.length === 0
     )
       throw new Error("marker shape is invalid");
     var objectRoles = validateMarkerObjects(marker);
@@ -552,7 +552,6 @@ interface DocumentMarker {
     var diffCount = 0;
     var pages = 0;
     var sources = 0;
-    var assets = 0;
     marker.objects.forEach(function (object) {
       if (
         !isRecord(object) ||
@@ -573,7 +572,7 @@ interface DocumentMarker {
         sources += 1;
         if (object.bytes <= 0) throw new Error("marker source object is invalid");
       } else if (object.role === "asset") {
-        assets += 1;
+        // Markers impose no item count; writers enforce their own limit.
       } else if (object.role === "diff") {
         diffCount += 1;
         if (
@@ -590,7 +589,6 @@ interface DocumentMarker {
     if (
       pages !== marker.pages.length ||
       sources !== marker.pages.length ||
-      pages + assets > 100 ||
       (marker.revision.number === 1 ? diffCount !== 0 : diffCount !== 1)
     )
       throw new Error("marker object counts are invalid");

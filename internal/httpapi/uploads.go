@@ -14,17 +14,43 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/jimeh/airplan/internal/lazyio"
 	"github.com/jimeh/airplan/internal/pathrules"
 )
 
-const defaultMaxMetadataBytes = int64(256 << 10)
-
+// spooledFile is one multipart part written to a mode-0600 temporary file.
+// The file is closed once spooled and reopened on demand, so a request holds
+// descriptors only for the parts currently being read.
 type spooledFile struct {
 	path        string
 	name        string
 	contentType string
 	size        int64
 	file        *os.File
+	reader      *lazyio.Reader
+}
+
+// open reopens the spooled part for one seekable read.
+func (f *spooledFile) open() (io.ReadSeekCloser, error) {
+	file, err := os.Open(f.path)
+	if err != nil {
+		return nil, fmt.Errorf("reopen upload temporary file: %w", err)
+	}
+	return file, nil
+}
+
+// sequentialReader returns a reader that opens the spooled part on its first
+// Read and closes it at EOF. Cleanup closes a partially consumed reader.
+func (f *spooledFile) sequentialReader() io.Reader {
+	path := f.path
+	f.reader = lazyio.New(func() (io.ReadCloser, error) {
+		file, err := os.Open(path)
+		if err != nil {
+			return nil, fmt.Errorf("reopen upload temporary file: %w", err)
+		}
+		return file, nil
+	})
+	return f.reader
 }
 
 func (s *Server) parseDocumentUpload(
@@ -50,7 +76,7 @@ func (s *Server) parseDocumentUpload(
 		return DocumentUpload{}, func() {}, err
 	}
 	return DocumentUpload{
-		Metadata: metadata, Document: parts.document.file,
+		Metadata: metadata, Document: parts.document.sequentialReader(),
 		DocumentSize: parts.document.size,
 		Pages:        parts.pages, Assets: parts.assets,
 	}, cleanup, nil
@@ -84,7 +110,7 @@ func (s *Server) parseDocumentRevisionUpload(
 		return CreateDocumentRevisionUpload{}, func() {}, err
 	}
 	return CreateDocumentRevisionUpload{
-		Metadata: metadata, Document: parts.document.file,
+		Metadata: metadata, Document: parts.document.sequentialReader(),
 		DocumentSize: parts.document.size,
 		Pages:        parts.pages, Assets: parts.assets,
 	}, cleanup, nil
@@ -164,7 +190,7 @@ func (s *Server) parseDocumentMultipart(
 	if err != nil {
 		return fail(err)
 	}
-	if err = validateDocumentDescriptors(spec, s.options.MaxDocumentItems); err != nil {
+	if err = validateDocumentDescriptors(spec, s.options.MaxFiles); err != nil {
 		return fail(err)
 	}
 
@@ -224,11 +250,9 @@ func (s *Server) parseDocumentMultipart(
 				descriptor.Path,
 			)))
 		}
-		if _, err = file.file.Seek(0, io.SeekStart); err != nil {
-			return fail(err)
-		}
 		result.pages = append(result.pages, DocumentPage{
-			DocumentPageDescriptor: descriptor, Reader: file.file, Size: file.size,
+			DocumentPageDescriptor: descriptor, Reader: file.sequentialReader(),
+			Size: file.size,
 		})
 	}
 
@@ -260,11 +284,8 @@ func (s *Server) parseDocumentMultipart(
 				descriptor.Path,
 			)))
 		}
-		if _, err = file.file.Seek(0, io.SeekStart); err != nil {
-			return fail(err)
-		}
 		result.assets = append(result.assets, DocumentAsset{
-			DocumentAssetDescriptor: descriptor, Reader: file.file,
+			DocumentAssetDescriptor: descriptor, Open: file.open,
 		})
 	}
 
@@ -275,9 +296,6 @@ func (s *Server) parseDocumentMultipart(
 	}
 	if !errors.Is(nextErr, io.EOF) {
 		return fail(invalidMultipart(nextErr))
-	}
-	if _, err = document.file.Seek(0, io.SeekStart); err != nil {
-		return fail(err)
 	}
 	return result, cleanup, nil
 }
@@ -331,12 +349,13 @@ func (s *Server) parseCollectionUpload(
 			cleanup()
 			return CollectionUpload{}, func() {}, invalidMultipart(nextErr)
 		}
-		if parts >= s.options.MaxCollectionFiles+1 {
+		if parts >= s.options.MaxFiles+1 {
 			_ = part.Close()
 			cleanup()
-			return CollectionUpload{}, func() {}, invalidRequest(
-				"collection contains too many parts",
-			)
+			return CollectionUpload{}, func() {}, invalidRequest(fmt.Sprintf(
+				"collection contains too many files; maximum is %d",
+				s.options.MaxFiles,
+			))
 		}
 		switch part.FormName() {
 		case "metadata":
@@ -425,15 +444,11 @@ func (s *Server) parseCollectionUpload(
 				fmt.Sprintf("collection file %q exceeds the effective size limit", file.name),
 			)
 		}
-		if _, err = file.file.Seek(0, io.SeekStart); err != nil {
-			cleanup()
-			return CollectionUpload{}, func() {}, err
-		}
 		result.Files = append(result.Files, CollectionFile{
 			Name:        file.name,
 			ContentType: file.contentType,
 			Size:        file.size,
-			Reader:      file.file,
+			Open:        file.open,
 		})
 	}
 	return result, cleanup, nil
@@ -470,6 +485,11 @@ func (s *Server) spoolPart(
 		cleanupSpooled(spooled)
 		return nil, fmt.Errorf("flush upload temporary file: %w", err)
 	}
+	spooled.file = nil
+	if err = file.Close(); err != nil {
+		cleanupSpooled(spooled)
+		return nil, fmt.Errorf("close upload temporary file: %w", err)
+	}
 	return spooled, nil
 }
 
@@ -479,6 +499,9 @@ func cleanupSpooled(file *spooledFile) {
 	}
 	if file.file != nil {
 		_ = file.file.Close()
+	}
+	if file.reader != nil {
+		_ = file.reader.Close()
 	}
 	if file.path != "" {
 		_ = os.Remove(file.path)

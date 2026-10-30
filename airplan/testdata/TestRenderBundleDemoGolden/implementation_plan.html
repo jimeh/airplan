@@ -285,27 +285,27 @@ the new gateway path for 24 hours.</p>
       return null;
     }
   }
-  function F(n, u, w) {
+  function F(n, u, g) {
     try {
-      if (w === null)
+      if (g === null)
         n?.removeItem(u);
       else
-        n?.setItem(u, w);
+        n?.setItem(u, g);
     } catch {}
   }
-  function Ne(n, u, w) {
-    let y = oe(w, "airplan-color-mode");
-    if (y === null) {
-      let T = oe(w, "airplan-theme");
-      if (y = T === "light" || T === "dark" ? T : "system", y !== "system")
-        F(w, "airplan-color-mode", y);
+  function Ne(n, u, g) {
+    let w = oe(g, "airplan-color-mode");
+    if (w === null) {
+      let T = oe(g, "airplan-theme");
+      if (w = T === "light" || T === "dark" ? T : "system", w !== "system")
+        F(g, "airplan-color-mode", w);
     }
-    let R = ot(y) ? y : "system", E = new Set(n.themes.map((T) => T.id)), v = oe(w, "airplan-light-theme"), g = oe(w, "airplan-dark-theme"), d = v !== null && E.has(v) ? v : n.defaultLight, C = g !== null && E.has(g) ? g : n.defaultDark;
+    let R = ot(w) ? w : "system", b = new Set(n.themes.map((T) => T.id)), v = oe(g, "airplan-light-theme"), p = oe(g, "airplan-dark-theme"), d = v !== null && b.has(v) ? v : n.defaultLight, C = p !== null && b.has(p) ? p : n.defaultDark;
     return Ce(n, R, d, C, u);
   }
-  function Ce(n, u, w, y, R) {
-    let E = new Map(n.themes.map((H) => [H.id, H])), v = E.has(w) ? w : n.defaultLight, g = E.has(y) ? y : n.defaultDark, d = u === "system" ? R ? "dark" : "light" : u, C = d === "light" ? v : g, T = E.get(C)?.variant ?? d;
-    return { mode: u, resolvedMode: d, lightTheme: v, darkTheme: g, theme: C, variant: T };
+  function Ce(n, u, g, w, R) {
+    let b = new Map(n.themes.map((H) => [H.id, H])), v = b.has(g) ? g : n.defaultLight, p = b.has(w) ? w : n.defaultDark, d = u === "system" ? R ? "dark" : "light" : u, C = d === "light" ? v : p, T = b.get(C)?.variant ?? d;
+    return { mode: u, resolvedMode: d, lightTheme: v, darkTheme: p, theme: C, variant: T };
   }
   function qe(n, u) {
     if (u === "system")
@@ -313,8 +313,8 @@ the new gateway path for 24 hours.</p>
     else
       F(n, "airplan-color-mode", u), F(n, "airplan-theme", u);
   }
-  function De(n, u, w) {
-    F(n, u === "light" ? "airplan-light-theme" : "airplan-dark-theme", w);
+  function De(n, u, g) {
+    F(n, u === "light" ? "airplan-light-theme" : "airplan-dark-theme", g);
   }
   function Ue(n) {
     return oe(n, "airplan-fixed-navbar") !== "false";
@@ -336,14 +336,14 @@ the new gateway path for 24 hours.</p>
     n.querySelectorAll(".js-only").forEach((s) => {
       s.hidden = !1;
     });
-    let w = window.__AIRPLAN_THEME_CATALOG__;
-    if (!w)
+    let g = window.__AIRPLAN_THEME_CATALOG__;
+    if (!g)
       return;
-    let y = w, R = window.matchMedia("(prefers-color-scheme: dark)"), E;
+    let w = g, R = window.matchMedia("(prefers-color-scheme: dark)"), b;
     try {
-      E = window.localStorage;
+      b = window.localStorage;
     } catch {}
-    let v = window.__airplanThemeState ?? Ne(y, R.matches, E), g = n.querySelector("[data-airplan-appearance-trigger]"), d = n.querySelector("[data-airplan-appearance-panel]"), C = n.querySelector('select[data-airplan-theme-slot="light"]'), T = n.querySelector('select[data-airplan-theme-slot="dark"]'), H = n.querySelector("input[data-airplan-fixed-navbar]"), X = Array.from(n.querySelectorAll("[data-airplan-color-mode]"));
+    let v = window.__airplanThemeState ?? Ne(w, R.matches, b), p = n.querySelector("[data-airplan-appearance-trigger]"), d = n.querySelector("[data-airplan-appearance-panel]"), C = n.querySelector('select[data-airplan-theme-slot="light"]'), T = n.querySelector('select[data-airplan-theme-slot="dark"]'), H = n.querySelector("input[data-airplan-fixed-navbar]"), X = Array.from(n.querySelectorAll("[data-airplan-color-mode]"));
     if (d)
       n.body.appendChild(d);
     function U(s) {
@@ -355,7 +355,7 @@ the new gateway path for 24 hours.</p>
       ]) {
         let k = n.createElement("optgroup");
         k.label = S;
-        for (let x of y.themes) {
+        for (let x of w.themes) {
           if (x.variant !== h)
             continue;
           let O = n.createElement("option");
@@ -378,36 +378,36 @@ the new gateway path for 24 hours.</p>
         window.dispatchEvent(new CustomEvent("airplan:themechange", { detail: Pe(v) }));
     }
     function ee(s = {}) {
-      J(Ce(y, s.mode ?? v.mode, s.lightTheme ?? v.lightTheme, s.darkTheme ?? v.darkTheme, R.matches));
+      J(Ce(w, s.mode ?? v.mode, s.lightTheme ?? v.lightTheme, s.darkTheme ?? v.darkTheme, R.matches));
     }
     function te(s, h = !1) {
-      if (!d || !g)
+      if (!d || !p)
         return;
       if (s)
         j();
-      if (d.hidden = !s, g.setAttribute("aria-expanded", String(s)), s)
+      if (d.hidden = !s, p.setAttribute("aria-expanded", String(s)), s)
         d.querySelector("button,select,input")?.focus();
       else if (h)
-        g.focus();
+        p.focus();
     }
     function j() {
-      if (!d || !g)
+      if (!d || !p)
         return;
-      let s = g.getBoundingClientRect(), h = g.closest(".toolbar")?.getBoundingClientRect(), S = n.documentElement.clientWidth, k = Math.min(304, S - 32), x = Math.max(16, S - s.right), O = (h?.bottom ?? s.bottom) + 8;
+      let s = p.getBoundingClientRect(), h = p.closest(".toolbar")?.getBoundingClientRect(), S = n.documentElement.clientWidth, k = Math.min(304, S - 32), x = Math.max(16, S - s.right), O = (h?.bottom ?? s.bottom) + 8;
       d.style.setProperty("--airplan-appearance-top", `${Math.max(16, O)}px`), d.style.setProperty("--airplan-appearance-right", `${Math.min(x, Math.max(16, S - k - 16))}px`);
     }
-    g?.addEventListener("click", () => te(Boolean(d?.hidden ?? !0))), X.forEach((s) => s.addEventListener("click", () => {
+    p?.addEventListener("click", () => te(Boolean(d?.hidden ?? !0))), X.forEach((s) => s.addEventListener("click", () => {
       let h = s.dataset.airplanColorMode;
       if (!h)
         return;
-      qe(E, h), ee({ mode: h });
+      qe(b, h), ee({ mode: h });
     }));
     function se(s, h) {
-      De(E, s, h.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: h.value } })), ee(s === "light" ? { lightTheme: h.value } : { darkTheme: h.value });
+      De(b, s, h.value), window.dispatchEvent(new CustomEvent("airplan:themeprepare", { detail: { theme: h.value } })), ee(s === "light" ? { lightTheme: h.value } : { darkTheme: h.value });
     }
     if (C?.addEventListener("change", () => se("light", C)), T?.addEventListener("change", () => se("dark", T)), H?.addEventListener("change", () => {
       let s = H.checked;
-      Ie(E, s), u.dataset.airplanFixedNavbar = String(s), window.dispatchEvent(new CustomEvent("airplan:navbarchange", { detail: { fixed: s } })), j();
+      Ie(b, s), u.dataset.airplanFixedNavbar = String(s), window.dispatchEvent(new CustomEvent("airplan:navbarchange", { detail: { fixed: s } })), j();
     }), R.addEventListener("change", () => {
       if (v.mode === "system")
         ee();
@@ -415,16 +415,16 @@ the new gateway path for 24 hours.</p>
       if (s.key === "Escape" && d && !d.hidden)
         s.preventDefault(), te(!1, !0);
     }), n.addEventListener("pointerdown", (s) => {
-      if (!d || d.hidden || !g)
+      if (!d || d.hidden || !p)
         return;
       let h = s.target;
-      if (!(h instanceof Node) || d.contains(h) || g.contains(h))
+      if (!(h instanceof Node) || d.contains(h) || p.contains(h))
         return;
       let k = (h instanceof Element ? h : h.parentElement)?.closest('a[href],button,input,select,textarea,[tabindex]:not([tabindex="-1"])'), x = d.contains(n.activeElement) && !k;
       if (te(!1), x)
         setTimeout(() => {
           if (n.activeElement === n.body || d.contains(n.activeElement))
-            g.focus();
+            p.focus();
         });
     }), window.addEventListener("resize", () => {
       if (d && !d.hidden)
@@ -433,7 +433,7 @@ the new gateway path for 24 hours.</p>
       if (d && !d.hidden)
         j();
     }), H)
-      H.checked = Ue(E);
+      H.checked = Ue(b);
     J(v, !1);
   })();
 
@@ -442,12 +442,12 @@ the new gateway path for 24 hours.</p>
   var Ke = '<svg class="icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>';
 
   (function() {
-    var n = document, u = 262144;
-    let w = n.getElementById("rendered");
-    if (!w)
+    var n = document, u = 4194304;
+    let g = n.getElementById("rendered");
+    if (!g)
       return;
-    let y = w;
-    var R = n.querySelector('meta[name="airplan-versions"]'), E = n.querySelector('meta[name="airplan-revision-chain"]'), v = n.querySelector('meta[name="airplan-page-path"]'), g = n.querySelector('meta[name="airplan-entrypoint"]'), d = R ? new URL(R.content, window.location.href) : null, C = d ? new URL("./", d) : null, T = C ? C.pathname.split("/").filter(Boolean) : [], H = T.slice(0, -1);
+    let w = g;
+    var R = n.querySelector('meta[name="airplan-versions"]'), b = n.querySelector('meta[name="airplan-revision-chain"]'), v = n.querySelector('meta[name="airplan-page-path"]'), p = n.querySelector('meta[name="airplan-entrypoint"]'), d = R ? new URL(R.content, window.location.href) : null, C = d ? new URL("./", d) : null, T = C ? C.pathname.split("/").filter(Boolean) : [], H = T.slice(0, -1);
     function X(e, t) {
       if (typeof e !== "string")
         return null;
@@ -456,8 +456,8 @@ the new gateway path for 24 hours.</p>
         if (r.origin !== window.location.origin || r.username || r.password || r.search || r.hash)
           return null;
         var i = r.pathname.split("/").filter(Boolean);
-        if (i.length !== H.length + 2 || !H.every(function(l, m) {
-          return i[m] === l;
+        if (i.length !== H.length + 2 || !H.every(function(l, o) {
+          return i[o] === l;
         }) || !/^[a-z2-7]{26}$/.test(i[i.length - 2]))
           return null;
         var a = i[i.length - 1];
@@ -474,8 +474,8 @@ the new gateway path for 24 hours.</p>
       var t = e.split("/");
       return t.every(function(r) {
         var i = r.toLowerCase(), a = Array.from(r).some(function(l) {
-          var m = l.codePointAt(0) || 0;
-          return m < 32 || m === 127;
+          var o = l.codePointAt(0) || 0;
+          return o < 32 || o === 127;
         });
         if (!r || r === "." || r === ".." || i.startsWith(".airplan-") || i === ".airplan.json" || a || /[. ]$/.test(r) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(r))
           return !1;
@@ -516,11 +516,11 @@ the new gateway path for 24 hours.</p>
       } finally {
         r.releaseLock();
       }
-      var m = new Uint8Array(a), o = 0;
+      var o = new Uint8Array(a), E = 0;
       i.forEach(function(Z) {
-        m.set(Z, o), o += Z.byteLength;
+        o.set(Z, E), E += Z.byteLength;
       });
-      var L = new TextDecoder("utf-8", { fatal: !0 }).decode(m);
+      var L = new TextDecoder("utf-8", { fatal: !0 }).decode(o);
       return te(L), JSON.parse(L);
     }
     function te(e) {
@@ -534,10 +534,10 @@ the new gateway path for 24 hours.</p>
           throw Error("JSON string is invalid");
         var l = t++;
         while (t < e.length) {
-          var m = e[t++];
-          if (m === '"')
+          var o = e[t++];
+          if (o === '"')
             return JSON.parse(e.slice(l, t));
-          if (m === "\\")
+          if (o === "\\")
             t += 1;
         }
         throw Error("JSON string is incomplete");
@@ -552,16 +552,16 @@ the new gateway path for 24 hours.</p>
           }
           for (;; ) {
             r();
-            var m = i();
-            if (l.has(m))
+            var o = i();
+            if (l.has(o))
               throw Error("JSON object has a duplicate field");
-            if (l.add(m), r(), e[t++] !== ":")
+            if (l.add(o), r(), e[t++] !== ":")
               throw Error("JSON object is invalid");
             a(), r();
-            var o = e[t++];
-            if (o === "}")
+            var E = e[t++];
+            if (E === "}")
               return;
-            if (o !== ",")
+            if (E !== ",")
               throw Error("JSON object is invalid");
           }
         }
@@ -572,10 +572,10 @@ the new gateway path for 24 hours.</p>
           }
           for (;; ) {
             a(), r();
-            var o = e[t++];
-            if (o === "]")
+            var E = e[t++];
+            if (E === "]")
               return;
-            if (o !== ",")
+            if (E !== ",")
               throw Error("JSON array is invalid");
           }
         }
@@ -594,13 +594,13 @@ the new gateway path for 24 hours.</p>
     function j(e, t, r, i) {
       if (!x(e))
         throw Error("marker is invalid");
-      var a = e, l = t.pathname.split("/").filter(Boolean), m = l[l.length - 1] || "";
-      if (a.schema !== "airplan-upload" || a.version !== 6 || a.kind !== "document" || a.directory !== m || !/^[a-z2-7]{26}$/.test(a.directory) || !We(a.created_at) || a.format !== "md" || !O(a.slug) || a.entrypoint !== a.slug + ".html" || !x(a.producer) || a.producer.name !== "airplan" || typeof a.producer.version !== "string" || a.producer.version.trim() !== a.producer.version || a.producer.version === "" || !s(a.render) || !x(a.revision) || a.revision.number !== r.number || a.revision.chain_id !== i || (a.revision.number === 1 ? a.revision.previous_url !== void 0 : typeof a.revision.previous_url !== "string" || !je(a.revision.previous_url)) || !Array.isArray(a.objects) || !Array.isArray(a.pages) || a.pages.length === 0)
+      var a = e, l = t.pathname.split("/").filter(Boolean), o = l[l.length - 1] || "";
+      if (a.schema !== "airplan-upload" || a.version !== 6 && a.version !== 7 || a.kind !== "document" || a.directory !== o || !/^[a-z2-7]{26}$/.test(a.directory) || !We(a.created_at) || a.format !== "md" || !O(a.slug) || a.entrypoint !== a.slug + ".html" || !x(a.producer) || a.producer.name !== "airplan" || typeof a.producer.version !== "string" || a.producer.version.trim() !== a.producer.version || a.producer.version === "" || !s(a.render) || !x(a.revision) || a.revision.number !== r.number || a.revision.chain_id !== i || (a.revision.number === 1 ? a.revision.previous_url !== void 0 : typeof a.revision.previous_url !== "string" || !je(a.revision.previous_url)) || !Array.isArray(a.objects) || !Array.isArray(a.pages) || a.pages.length === 0)
         throw Error("marker identity is invalid");
-      var o = J(t, a.entrypoint);
-      if (o !== r.safeURL)
+      var E = J(t, a.entrypoint);
+      if (E !== r.safeURL)
         throw Error("marker entrypoint is invalid");
-      if (a.title !== void 0 && typeof a.title !== "string" || a.repo !== void 0 && !Fe(a.repo) || a.objects.length === 0 || a.pages.length > 100)
+      if (a.title !== void 0 && typeof a.title !== "string" || a.repo !== void 0 && !Fe(a.repo) || a.objects.length === 0)
         throw Error("marker shape is invalid");
       var L = Ye(a), Z = new Set, z = new Set, P = new Set, K = new Map;
       if (a.pages.forEach(function(c, f) {
@@ -628,7 +628,7 @@ the new gateway path for 24 hours.</p>
         Z.add(c.path), z.add(c.path.toLowerCase()), P.add(A), K.set(c.path, A);
       }), S(z))
         throw Error("marker page paths conflict");
-      if (!Z.has(a.pages[0].path) || K.get(a.pages[0].path) !== o)
+      if (!Z.has(a.pages[0].path) || K.get(a.pages[0].path) !== E)
         throw Error("marker entry page is invalid");
       if (P.size !== a.pages.length || Array.from(L.values()).filter(function(c) {
         return c === "source";
@@ -678,8 +678,8 @@ the new gateway path for 24 hours.</p>
       var t = e.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:[.,]\d+)?(Z|[+-]00:00)$/);
       if (!t)
         return !1;
-      var r = Number(t[1]), i = Number(t[2]), a = Number(t[3]), l = Number(t[4]), m = Number(t[5]), o = Number(t[6]), L = r % 4 === 0 && (r % 100 !== 0 || r % 400 === 0), Z = [31, L ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-      return i >= 1 && i <= 12 && a >= 1 && a <= Z[i - 1] && l <= 23 && m <= 59 && o <= 59;
+      var r = Number(t[1]), i = Number(t[2]), a = Number(t[3]), l = Number(t[4]), o = Number(t[5]), E = Number(t[6]), L = r % 4 === 0 && (r % 100 !== 0 || r % 400 === 0), Z = [31, L ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+      return i >= 1 && i <= 12 && a >= 1 && a <= Z[i - 1] && l <= 23 && o <= 59 && E <= 59;
     }
     function Fe(e) {
       if (typeof e !== "string" || e === "" || e.trim() !== e)
@@ -721,7 +721,7 @@ the new gateway path for 24 hours.</p>
       }
     }
     function Ye(e) {
-      var t = new Map, r = new Set, i = 0, a = 0, l = 0, m = 0;
+      var t = new Map, r = new Set, i = 0, a = 0, l = 0;
       if (e.objects.forEach(function(o) {
         if (!x(o) || !U(o.name) && o.name !== ".airplan-changes.diff" || t.has(o.name) || r.has(o.name.toLowerCase()) || !Number.isSafeInteger(o.bytes) || o.bytes < 0 || !k(o.sha256) || !Je(o.content_type))
           throw Error("marker object inventory is invalid");
@@ -732,7 +732,7 @@ the new gateway path for 24 hours.</p>
           if (l += 1, o.bytes <= 0)
             throw Error("marker source object is invalid");
         } else if (o.role === "asset")
-          m += 1;
+          ;
         else if (o.role === "diff") {
           if (i += 1, o.name !== ".airplan-changes.diff" || o.bytes <= 0 || o.content_type !== "text/plain; charset=utf-8")
             throw Error("marker diff object is invalid");
@@ -741,7 +741,7 @@ the new gateway path for 24 hours.</p>
         t.set(o.name, o.role), r.add(o.name.toLowerCase());
       }), S(r))
         throw Error("marker object paths conflict");
-      if (a !== e.pages.length || l !== e.pages.length || a + m > 100 || (e.revision.number === 1 ? i !== 0 : i !== 1))
+      if (a !== e.pages.length || l !== e.pages.length || (e.revision.number === 1 ? i !== 0 : i !== 1))
         throw Error("marker object counts are invalid");
       return t;
     }
@@ -755,7 +755,7 @@ the new gateway path for 24 hours.</p>
     }
     function Xe(e) {
       var t = n.querySelector('meta[name="airplan-revision"]'), r = t ? Number(t.content) : Number(e.current_revision);
-      if (!Number.isInteger(r) || r <= 0 || e.current_revision !== r || !Number.isInteger(e.latest_revision) || !Number.isInteger(e.last_assigned_revision) || !Array.isArray(e.revisions) || e.revisions.length === 0 || e.last_assigned_revision !== e.revisions.length || !/^[a-z2-7]{26}$/.test(e.chain_id) || E && E.content !== e.chain_id)
+      if (!Number.isInteger(r) || r <= 0 || e.current_revision !== r || !Number.isInteger(e.latest_revision) || !Number.isInteger(e.last_assigned_revision) || !Array.isArray(e.revisions) || e.revisions.length === 0 || e.last_assigned_revision !== e.revisions.length || !/^[a-z2-7]{26}$/.test(e.chain_id) || b && b.content !== e.chain_id)
         throw Error("revision identity is invalid");
       var i = !1, a = 0, l = e.revisions.filter(function(f) {
         if (!f || !Number.isInteger(f.number) || f.number !== a + 1)
@@ -775,10 +775,10 @@ the new gateway path for 24 hours.</p>
         return f.number === r;
       }))
         throw Error("revision entries are invalid");
-      var m = l.find(function(f) {
+      var o = l.find(function(f) {
         return f.number === r;
-      }), o = new URL(window.location.href);
-      if (o.search = "", o.hash = "", !m || !C || new URL(m.safeURL || "").pathname.replace(/[^/]+$/, "") !== C.pathname || !o.pathname.startsWith(C.pathname))
+      }), E = new URL(window.location.href);
+      if (E.search = "", E.hash = "", !o || !C || new URL(o.safeURL || "").pathname.replace(/[^/]+$/, "") !== C.pathname || !E.pathname.startsWith(C.pathname))
         throw Error("current revision URL is invalid");
       var L = Math.max.apply(null, l.map(function(f) {
         return f.number;
@@ -812,15 +812,15 @@ the new gateway path for 24 hours.</p>
             window.location.assign(W + (B.number > 1 ? "#airplan-all-changes" : ""));
             return;
           }
-          var nt = g ? new URL(g.content, window.location.href).href : "";
-          if (!v || o.href === nt || !E) {
+          var nt = p ? new URL(p.content, window.location.href).href : "";
+          if (!v || E.href === nt || !b) {
             window.location.assign(W);
             return;
           }
           f.setAttribute("aria-busy", "true"), D.disabled = !0;
           var Be = new URL("./", W), He = new URL(".airplan.json", Be);
           He.searchParams.set("_airplan", Date.now().toString(36) + Math.random().toString(36).slice(2)), fetch(He, { cache: "no-store", credentials: "same-origin" }).then(ee).then(function(at) {
-            var it = j(at, Be, B, E.content);
+            var it = j(at, Be, B, b.content);
             window.location.assign(Qe(W, it.get(v.content) || null));
           }).catch(function() {
             console.warn("airplan: selected revision page map is unavailable or invalid"), window.location.assign(W);
@@ -887,14 +887,14 @@ the new gateway path for 24 hours.</p>
         pe(t, "Copy failed", !1);
       });
     }
-    var ke = n.getElementById("pages"), _ = n.querySelector(".pages-trigger"), b = null, ge = window.matchMedia("(max-width: 78rem)"), q = function() {};
+    var ke = n.getElementById("pages"), _ = n.querySelector(".pages-trigger"), y = null, ge = window.matchMedia("(max-width: 78rem)"), q = function() {};
     function we() {
-      return b ? b.matches(":popover-open") : !1;
+      return y ? y.matches(":popover-open") : !1;
     }
     function re(e) {
-      if (!b || !we())
+      if (!y || !we())
         return;
-      if (b.hidePopover(), e && _ && ge.matches)
+      if (y.hidePopover(), e && _ && ge.matches)
         setTimeout(function() {
           _.focus();
         }, 0);
@@ -905,21 +905,21 @@ the new gateway path for 24 hours.</p>
         var ye = n.createElement("div");
         if ("popover" in ye && typeof ye.showPopover === "function") {
           let e = function() {
-            if (!_ || !b)
+            if (!_ || !y)
               return;
             var t = _.getBoundingClientRect(), r = _.closest(".toolbar"), i = r ? r.getBoundingClientRect().bottom : t.bottom;
-            b.style.setProperty("--pages-left", Math.max(16, t.left) + "px"), b.style.setProperty("--pages-top", i + "px"), b.style.setProperty("--pages-width", Math.min(480, window.innerWidth - Math.max(16, t.left) - 16) + "px");
+            y.style.setProperty("--pages-left", Math.max(16, t.left) + "px"), y.style.setProperty("--pages-top", i + "px"), y.style.setProperty("--pages-width", Math.min(480, window.innerWidth - Math.max(16, t.left) - 16) + "px");
           };
-          b = ye, b.className = "pages-popover", b.id = "pages-popover", b.setAttribute("popover", "auto");
+          y = ye, y.className = "pages-popover", y.id = "pages-popover", y.setAttribute("popover", "auto");
           var ne = n.createElement("nav");
-          ne.className = "pages-popover-nav", ne.setAttribute("aria-label", "Pages"), ne.appendChild(Ae.cloneNode(!0)), b.appendChild(ne), _.setAttribute("popovertarget", b.id), _.popoverTargetElement = b, b.addEventListener("beforetoggle", function(t) {
+          ne.className = "pages-popover-nav", ne.setAttribute("aria-label", "Pages"), ne.appendChild(Ae.cloneNode(!0)), y.appendChild(ne), _.setAttribute("popovertarget", y.id), _.popoverTargetElement = y, y.addEventListener("beforetoggle", function(t) {
             if (t.newState !== "open")
               return;
             q(), e();
-          }), b.addEventListener("toggle", function(t) {
+          }), y.addEventListener("toggle", function(t) {
             var r = t.newState === "open";
             if (_.setAttribute("aria-expanded", r ? "true" : "false"), n.body.classList.toggle("pages-popover-open", r), r) {
-              var i = b.querySelector('[aria-current="page"]');
+              var i = y.querySelector('[aria-current="page"]');
               if (i)
                 i.scrollIntoView({ block: "nearest" });
             }
@@ -934,24 +934,24 @@ the new gateway path for 24 hours.</p>
           }), window.addEventListener("resize", function() {
             if (we())
               e();
-          }), _.hidden = !1, _.setAttribute("aria-expanded", "false"), n.body.appendChild(b), n.body.classList.add("pages-popover-ready");
+          }), _.hidden = !1, _.setAttribute("aria-expanded", "false"), n.body.appendChild(y), n.body.classList.add("pages-popover-ready");
         }
       }
     }
-    var Y = n.getElementById("source"), ce = n.getElementById("changes"), de = n.querySelector("[data-airplan-all-changes]"), I = n.getElementById("toc"), M = null, p = null, Se = window.matchMedia("(max-width: 78rem)");
+    var Y = n.getElementById("source"), ce = n.getElementById("changes"), de = n.querySelector("[data-airplan-all-changes]"), I = n.getElementById("toc"), M = null, m = null, Se = window.matchMedia("(max-width: 78rem)");
     q = function() {
-      if (p && p.open)
-        p.close();
+      if (m && m.open)
+        m.close();
     };
     function V() {
-      if (!I || !M || !p)
+      if (!I || !M || !m)
         return;
-      var e = Se.matches && !y.hidden && !p.open && !we();
-      if (M.classList.toggle("is-visible", e), M.tabIndex = e ? 0 : -1, M.setAttribute("aria-hidden", e ? "false" : "true"), p.open && (!Se.matches || y.hidden))
+      var e = Se.matches && !w.hidden && !m.open && !we();
+      if (M.classList.toggle("is-visible", e), M.tabIndex = e ? 0 : -1, M.setAttribute("aria-hidden", e ? "false" : "true"), m.open && (!Se.matches || w.hidden))
         q();
     }
     function Re(e) {
-      if (re(!1), q(), y.hidden = e !== "rendered", Y)
+      if (re(!1), q(), w.hidden = e !== "rendered", Y)
         Y.hidden = e !== "source";
       if (ce)
         ce.hidden = e !== "changes";
@@ -978,7 +978,7 @@ the new gateway path for 24 hours.</p>
       if (re(!1), q(), n.body.classList.toggle("all-changes-active", e), de)
         de.hidden = !e;
       if (e) {
-        if (y.hidden = !0, Y)
+        if (w.hidden = !0, Y)
           Y.hidden = !0;
         if (ce)
           ce.hidden = !0;
@@ -1021,8 +1021,8 @@ the new gateway path for 24 hours.</p>
       };
       var ae = Array.from(I.querySelectorAll('a[href^="#"]')), _e = I.querySelector(".toc-list");
       if (_e)
-        if (p = n.createElement("dialog"), typeof p.showModal === "function") {
-          p.className = "toc-dialog", p.id = "toc-dialog", p.setAttribute("aria-labelledby", "toc-dialog-title");
+        if (m = n.createElement("dialog"), typeof m.showModal === "function") {
+          m.className = "toc-dialog", m.id = "toc-dialog", m.setAttribute("aria-labelledby", "toc-dialog-title");
           var ue = n.createElement("div");
           ue.className = "toc-dialog-panel";
           var he = n.createElement("div");
@@ -1032,18 +1032,18 @@ the new gateway path for 24 hours.</p>
           var Q = n.createElement("button");
           Q.className = "toc-dialog-close", Q.type = "button", Q.setAttribute("aria-label", "Close table of contents"), Q.innerHTML = Oe, he.appendChild(fe), he.appendChild(Q);
           var ie = n.createElement("nav");
-          ie.className = "toc-dialog-nav", ie.setAttribute("aria-label", "Table of contents"), ie.appendChild(_e.cloneNode(!0)), ue.appendChild(he), ue.appendChild(ie), p.appendChild(ue), M = n.createElement("button"), M.className = "toc-trigger", M.type = "button", M.tabIndex = -1, M.setAttribute("aria-label", "Open table of contents"), M.setAttribute("aria-controls", "toc-dialog"), M.setAttribute("aria-haspopup", "dialog"), M.setAttribute("aria-hidden", "true"), M.innerHTML = Ke, n.body.appendChild(M), n.body.appendChild(p), n.body.classList.add("toc-dialog-ready"), M.addEventListener("click", function() {
-            re(!1), p.showModal(), n.body.classList.add("toc-dialog-open"), V();
-            var r = p.querySelector("a.active");
+          ie.className = "toc-dialog-nav", ie.setAttribute("aria-label", "Table of contents"), ie.appendChild(_e.cloneNode(!0)), ue.appendChild(he), ue.appendChild(ie), m.appendChild(ue), M = n.createElement("button"), M.className = "toc-trigger", M.type = "button", M.tabIndex = -1, M.setAttribute("aria-label", "Open table of contents"), M.setAttribute("aria-controls", "toc-dialog"), M.setAttribute("aria-haspopup", "dialog"), M.setAttribute("aria-hidden", "true"), M.innerHTML = Ke, n.body.appendChild(M), n.body.appendChild(m), n.body.classList.add("toc-dialog-ready"), M.addEventListener("click", function() {
+            re(!1), m.showModal(), n.body.classList.add("toc-dialog-open"), V();
+            var r = m.querySelector("a.active");
             if (r)
               r.scrollIntoView({ block: "nearest" });
-          }), Q.addEventListener("click", q), p.addEventListener("click", function(r) {
-            if (r.target === p)
+          }), Q.addEventListener("click", q), m.addEventListener("click", function(r) {
+            if (r.target === m)
               q();
-          }), p.addEventListener("keydown", function(r) {
+          }), m.addEventListener("keydown", function(r) {
             if (r.key === "Escape")
               r.preventDefault(), q();
-          }), p.addEventListener("close", function() {
+          }), m.addEventListener("close", function() {
             if (n.body.classList.remove("toc-dialog-open"), V(), M.classList.contains("is-visible"))
               setTimeout(function() {
                 M.focus();
@@ -1052,10 +1052,10 @@ the new gateway path for 24 hours.</p>
             r.addEventListener("click", q);
           });
         } else
-          p = null;
+          m = null;
       var Ee = ae.slice();
-      if (p)
-        Ee = Ee.concat(Array.from(p.querySelectorAll('a[href^="#"]')));
+      if (m)
+        Ee = Ee.concat(Array.from(m.querySelectorAll('a[href^="#"]')));
       var rt = ae.map(function(r) {
         return n.getElementById((r.getAttribute("href") || "").slice(1));
       }), Me = !1;
@@ -1077,7 +1077,7 @@ the new gateway path for 24 hours.</p>
         var e = Y.querySelector("pre");
         Te(e ? e.textContent : "", Le);
       });
-    y.querySelectorAll("pre").forEach(function(e) {
+    w.querySelectorAll("pre").forEach(function(e) {
       if (e.classList.contains("mermaid"))
         return;
       var t = n.createElement("div");

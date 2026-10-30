@@ -16,6 +16,7 @@ type updateOptions struct {
 	maxTotalPageSize string
 	maxAssetSize     string
 	maxTotalSize     string
+	maxFiles         int
 	pages            []string
 	assets           []string
 	entrypoint       string
@@ -50,6 +51,7 @@ func newUpdateCmd() *cobra.Command {
 	f.StringVar(&opts.maxTotalPageSize, "max-total-page-size", "100MiB", "managed-source total limit; 0 = no limit")
 	f.StringVar(&opts.maxAssetSize, "max-asset-size", "1GiB", "per-asset limit; 0 = no limit")
 	f.StringVar(&opts.maxTotalSize, "max-total-size", "2GiB", "asset total limit; 0 = no limit")
+	f.IntVar(&opts.maxFiles, "max-files", airplan.DefaultMaxFiles, "document bundle item count limit; 0 = no limit")
 	f.StringArrayVar(&opts.pages, "page", nil, "managed page file (repeatable; overrides inferred role)")
 	f.StringArrayVar(&opts.assets, "asset", nil, "supporting asset file (repeatable; overrides inferred role)")
 	f.StringVar(&opts.entrypoint, "entrypoint", "", "document entry file")
@@ -83,10 +85,14 @@ func runUpdate(cmd *cobra.Command, args []string, opts *updateOptions) error {
 	if err != nil {
 		return err
 	}
+	maxFiles, err := libraryMaxFiles(opts.maxFiles)
+	if err != nil {
+		return err
+	}
 	document := airplan.DocumentInput{
 		Title: opts.title, MaxPageSize: maxSize,
 		MaxTotalPageSize: maxTotalPages, MaxAssetSize: maxAsset,
-		MaxTotalSize: maxTotal,
+		MaxTotalSize: maxTotal, MaxFiles: maxFiles,
 	}
 	stdin := len(args) == 1 || (len(args) == 2 && args[1] == "-")
 	if stdin && opts.entrypoint == "" && len(opts.pages) == 0 && len(opts.assets) == 0 {
@@ -118,6 +124,7 @@ func runUpdate(cmd *cobra.Command, args []string, opts *updateOptions) error {
 		document.MaxTotalPageSize = maxTotalPages
 		document.MaxAssetSize = maxAsset
 		document.MaxTotalSize = maxTotal
+		document.MaxFiles = maxFiles
 	}
 	result, err := client.CreateDocumentRevision(ctx,
 		airplan.CreateDocumentRevisionInput{Target: args[0], Document: document})

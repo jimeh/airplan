@@ -28,13 +28,11 @@ const (
 	defaultCollectionFileBytes  = int64(1 << 30)
 	defaultCollectionTotalBytes = int64(2 << 30)
 	defaultJSONBodyBytes        = int64(1 << 20)
-	defaultBodyOverheadBytes    = int64(16 << 20)
-	defaultCollectionFiles      = 100
-	defaultDocumentItems        = 100
+	defaultMaxFiles             = 1000
 )
 
-// Options sets HTTP transport policy. Zero size values use conservative
-// defaults; callers cannot disable a server hard limit.
+// Options sets HTTP transport policy. Zero size and count values use
+// conservative defaults; callers cannot disable a server hard limit.
 type Options struct {
 	Token                      string
 	Logger                     *slog.Logger
@@ -48,10 +46,11 @@ type Options struct {
 	MaxAssetBytes              int64
 	MaxDocumentAssetTotalBytes int64
 	MaxMetadataBytes           int64
-	MaxDocumentItems           int
 	MaxCollectionFileBytes     int64
 	MaxCollectionTotalBytes    int64
-	MaxCollectionFiles         int
+	// MaxFiles bounds both document items and collection files. One value is
+	// advertised as max_items for both upload kinds (SPEC.md §11).
+	MaxFiles int
 }
 
 // Server implements the OpenAPI-generated strict server interface around the
@@ -228,7 +227,7 @@ func (s *Server) GetCapabilities(
 	}
 	result.DocumentBundle = &generated.DocumentBundleCapabilities{
 		ManagedPages: true, Assets: true, CanonicalRevisionRoute: true,
-		MaxItems:              s.options.MaxDocumentItems,
+		MaxItems:              s.options.MaxFiles,
 		MaxPageBytes:          s.options.MaxDocumentBytes,
 		MaxTotalPageBytes:     s.options.MaxTotalPageBytes,
 		MaxGeneratedPageBytes: s.options.MaxGeneratedPageBytes,
@@ -250,6 +249,7 @@ func (s *Server) UploadDocument(
 	}
 	defer cleanup()
 	ctx = withGeneratedPageLimit(ctx, s.options.MaxGeneratedPageBytes)
+	ctx = withItemLimit(ctx, s.options.MaxFiles)
 	result, err := s.operations.UploadDocument(ctx, upload)
 	if err != nil {
 		return nil, err
@@ -266,6 +266,7 @@ func (s *Server) UploadCollection(
 		return nil, err
 	}
 	defer cleanup()
+	ctx = withItemLimit(ctx, s.options.MaxFiles)
 	result, err := s.operations.UploadCollection(ctx, upload)
 	if err != nil {
 		return nil, err
@@ -282,6 +283,7 @@ func (s *Server) UpdateDocument(
 	}
 	defer cleanup()
 	ctx = withGeneratedPageLimit(ctx, s.options.MaxGeneratedPageBytes)
+	ctx = withItemLimit(ctx, s.options.MaxFiles)
 	result, err := s.operations.CreateDocumentRevision(ctx, upload)
 	if err != nil {
 		return nil, err
@@ -299,6 +301,7 @@ func (s *Server) CreateDocumentRevision(
 	}
 	defer cleanup()
 	ctx = withGeneratedPageLimit(ctx, s.options.MaxGeneratedPageBytes)
+	ctx = withItemLimit(ctx, s.options.MaxFiles)
 	result, err := s.operations.CreateDocumentRevision(ctx, upload)
 	if err != nil {
 		return nil, err
@@ -594,10 +597,10 @@ func applyOptionDefaults(options *Options) {
 		options.MaxDocumentAssetTotalBytes = defaultDocumentAssetBytes
 	}
 	if options.MaxMetadataBytes == 0 {
-		options.MaxMetadataBytes = defaultMaxMetadataBytes
+		options.MaxMetadataBytes = MaxMetadataBytes
 	}
-	if options.MaxDocumentItems == 0 {
-		options.MaxDocumentItems = defaultDocumentItems
+	if options.MaxFiles == 0 {
+		options.MaxFiles = defaultMaxFiles
 	}
 	if options.MaxCollectionFileBytes == 0 {
 		options.MaxCollectionFileBytes = defaultCollectionFileBytes
@@ -608,14 +611,11 @@ func applyOptionDefaults(options *Options) {
 	if options.MaxJSONBodyBytes == 0 {
 		options.MaxJSONBodyBytes = defaultJSONBodyBytes
 	}
-	if options.MaxCollectionFiles == 0 {
-		options.MaxCollectionFiles = defaultCollectionFiles
-	}
 	if options.MaxRequestBodyBytes == 0 {
 		documentEnvelope := options.MaxTotalPageBytes +
 			options.MaxDocumentAssetTotalBytes
 		payload := max(options.MaxCollectionTotalBytes, documentEnvelope)
-		options.MaxRequestBodyBytes = payload + defaultBodyOverheadBytes
+		options.MaxRequestBodyBytes = payload + requestOverhead(*options)
 	}
 }
 
@@ -625,10 +625,9 @@ func validateOptions(options Options) error {
 		options.MaxTotalPageBytes <= 0 ||
 		options.MaxGeneratedPageBytes <= 0 || options.MaxAssetBytes <= 0 ||
 		options.MaxDocumentAssetTotalBytes <= 0 ||
-		options.MaxMetadataBytes <= 0 || options.MaxDocumentItems <= 0 ||
+		options.MaxMetadataBytes <= 0 || options.MaxFiles <= 0 ||
 		options.MaxCollectionFileBytes <= 0 ||
-		options.MaxCollectionTotalBytes <= 0 ||
-		options.MaxCollectionFiles <= 0 {
+		options.MaxCollectionTotalBytes <= 0 {
 		return errors.New("airplan HTTP API limits must be positive")
 	}
 	if options.MaxCollectionFileBytes > options.MaxCollectionTotalBytes {
@@ -645,22 +644,27 @@ func validateOptions(options Options) error {
 	if options.MaxDocumentBytes > defaultDocumentBytes ||
 		options.MaxTotalPageBytes > defaultTotalPageBytes ||
 		options.MaxAssetBytes > defaultAssetBytes ||
-		options.MaxDocumentAssetTotalBytes > defaultDocumentAssetBytes ||
-		options.MaxDocumentItems > defaultDocumentItems {
+		options.MaxDocumentAssetTotalBytes > defaultDocumentAssetBytes {
 		return errors.New("airplan HTTP document limits exceed core limits")
 	}
 	if options.MaxGeneratedPageBytes > defaultGeneratedPageBytes {
 		return errors.New("airplan HTTP generated page limit exceeds the core limit")
 	}
-	if options.MaxMetadataBytes != defaultMaxMetadataBytes {
+	if options.MaxMetadataBytes != MaxMetadataBytes {
 		return errors.New("airplan HTTP metadata limit must match the protocol limit")
 	}
 	documentEnvelope := options.MaxTotalPageBytes + options.MaxDocumentAssetTotalBytes
 	minimumPayload := max(options.MaxCollectionTotalBytes, documentEnvelope)
-	if options.MaxRequestBodyBytes < minimumPayload+defaultBodyOverheadBytes {
+	if options.MaxRequestBodyBytes < minimumPayload+requestOverhead(options) {
 		return errors.New("airplan HTTP request limit cannot contain advertised upload limits")
 	}
 	return nil
+}
+
+// requestOverhead is the request-body allowance beyond payload bytes for the
+// largest permitted document or collection part count.
+func requestOverhead(options Options) int64 {
+	return RequestBodyOverhead(options.MaxFiles)
 }
 
 func parseMultipartReader(

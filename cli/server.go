@@ -30,6 +30,7 @@ type serveOptions struct {
 	tempDir          string
 	logLevel         string
 	allowNonLoopback bool
+	maxFiles         int
 }
 
 func newServeCmd() *cobra.Command {
@@ -63,12 +64,18 @@ func newServeCmdWithOptions(opts *serveOptions) *cobra.Command {
 		"server log level: error, warn, info, debug, or trace (default: info)")
 	flags.BoolVar(&opts.allowNonLoopback, "allow-non-loopback", false,
 		"acknowledge non-loopback serving requires trusted reverse-proxy TLS")
+	flags.IntVar(&opts.maxFiles, "max-files", airplan.DefaultMaxFiles,
+		"document bundle item and collection file count limit; must be positive")
 	return cmd
 }
 
 func runServe(cmd *cobra.Command, opts *serveOptions) error {
 	if err := resolveServeOptions(cmd, opts); err != nil {
 		return err
+	}
+	// The server always enforces a file-count limit (SPEC.md §11).
+	if opts.maxFiles <= 0 {
+		return errors.New("airplan: --max-files must be positive")
 	}
 	level, err := serveLogLevel(cmd, opts.logLevel)
 	if err != nil {
@@ -108,7 +115,7 @@ func runServe(cmd *cobra.Command, opts *serveOptions) error {
 		MaxDocumentBytes:        DefaultServerDocumentBytes(),
 		MaxCollectionFileBytes:  airplan.DefaultMaxCollectionFileSize,
 		MaxCollectionTotalBytes: airplan.DefaultMaxCollectionTotalSize,
-		MaxCollectionFiles:      airplan.MaxCollectionFiles,
+		MaxFiles:                opts.maxFiles,
 	})
 	if err != nil {
 		return fmt.Errorf("airplan: construct HTTP API: %w", err)
@@ -117,6 +124,7 @@ func runServe(cmd *cobra.Command, opts *serveOptions) error {
 		client, buildVersion(), airplan.MCPHTTPOptions{
 			AllowedOrigins: opts.allowedOrigins,
 			Logger:         logger,
+			MaxFiles:       opts.maxFiles,
 		},
 	)
 	if err != nil {
