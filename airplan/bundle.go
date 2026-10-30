@@ -728,9 +728,9 @@ func prepareAssets(ctx context.Context, in DocumentInput) ([]preparedAsset, erro
 	// Hashing and content sniffing run on the bounded upload pool; each
 	// Open-based asset is held open only while its worker inspects it.
 	var gate readerGate
-	err := runBounded(ctx, len(prepared), func(_ context.Context, index int) error {
+	err := runBounded(ctx, len(prepared), func(ctx context.Context, index int) error {
 		asset := &prepared[index]
-		reader, release, err := gate.acquire(asset.Reader, asset.Open)
+		reader, release, err := gate.acquire(ctx, asset.Reader, asset.Open)
 		if err != nil {
 			return fmt.Errorf("airplan: open asset %q: %w", asset.Path, err)
 		}

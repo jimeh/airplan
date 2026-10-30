@@ -318,9 +318,9 @@ func prepareCollection(ctx context.Context, in FilesInput, repository string) ([
 	// Hashing and content sniffing run on the bounded upload pool; each
 	// Open-based input is held open only while its worker inspects it.
 	var gate readerGate
-	err := runBounded(ctx, len(files), func(_ context.Context, index int) error {
+	err := runBounded(ctx, len(files), func(ctx context.Context, index int) error {
 		file := &files[index]
-		reader, release, err := gate.acquire(file.Reader, file.Open)
+		reader, release, err := gate.acquire(ctx, file.Reader, file.Open)
 		if err != nil {
 			return fmt.Errorf("airplan: open collection file %q: %w", file.Name, err)
 		}

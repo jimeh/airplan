@@ -115,12 +115,18 @@ type readerGate struct{ mu sync.Mutex }
 // acquire returns a reader for one input and a release function. Open-based
 // inputs are opened for the caller alone and closed by release; Reader-based
 // inputs belong to the library's caller, stay open, and hold the gate until
-// release.
+// release. A Reader-based input that obtains the gate after ctx ends returns
+// ctx's error instead of queuing more serialized work behind a failure.
 func (g *readerGate) acquire(
-	reader io.ReadSeeker, open func() (io.ReadSeekCloser, error),
+	ctx context.Context, reader io.ReadSeeker,
+	open func() (io.ReadSeekCloser, error),
 ) (io.ReadSeeker, func(), error) {
 	if open == nil {
 		g.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			g.mu.Unlock()
+			return nil, func() {}, err
+		}
 		return reader, g.mu.Unlock, nil
 	}
 	opened, err := open()
@@ -214,7 +220,7 @@ func (c *Client) putVerifiedInput(
 	open func() (io.ReadSeekCloser, error), start int64, digest, label string,
 	target streamObject,
 ) error {
-	body, release, err := gate.acquire(reader, open)
+	body, release, err := gate.acquire(ctx, reader, open)
 	if err != nil {
 		return fmt.Errorf("airplan: open %s: %w", label, err)
 	}

@@ -139,7 +139,7 @@ func materializeRenderedDocument(
 			return err
 		}
 		asset := prepared.AssetInput
-		reader, release, err := gate.acquire(asset.Reader, asset.Open)
+		reader, release, err := gate.acquire(ctx, asset.Reader, asset.Open)
 		if err != nil {
 			return fmt.Errorf("airplan: open preview asset %q: %w", asset.Path, err)
 		}

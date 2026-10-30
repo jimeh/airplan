@@ -671,6 +671,12 @@ func newFakeS3(t *testing.T) *fakeS3 {
 	fake.server = httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			body, _ := io.ReadAll(r.Body)
+			// Every CLI test addresses the "plans" bucket; anything else is
+			// a local process probing the listener, not storage traffic.
+			if !strings.HasPrefix(r.URL.Path, "/plans/") {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
 
 			fake.mu.Lock()
 			fake.puts = append(fake.puts, fakePut{

@@ -1606,6 +1606,12 @@ func (s *upgradeStore) handle(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		body, err := io.ReadAll(r.Body)
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			// The upload pool cancels in-flight PUTs after another payload
+			// fails, truncating their bodies; nothing was stored.
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		if err != nil {
 			s.t.Error(err)
 			w.WriteHeader(http.StatusInternalServerError)

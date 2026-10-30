@@ -3,6 +3,7 @@ package airplan
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,7 +21,9 @@ import (
 
 // recordingS3 accepts every request and records successful PUT keys in
 // arrival order. A PUT whose key ends with failSuffix is rejected with a
-// non-retryable status.
+// non-retryable status. requests counts only bucket-addressed requests, so a
+// local process probing the listener's root cannot register as storage
+// traffic.
 type recordingS3 struct {
 	mu         sync.Mutex
 	requests   int
@@ -38,7 +41,9 @@ func newRecordingS3(t *testing.T, failSuffix string) *recordingS3 {
 			body, _ := io.ReadAll(r.Body)
 			key := strings.TrimPrefix(r.URL.Path, "/plans/")
 			store.mu.Lock()
-			store.requests++
+			if r.URL.Path == "/plans" || key != r.URL.Path {
+				store.requests++
+			}
 			fail := r.Method == http.MethodPut && failSuffix != "" &&
 				strings.HasSuffix(key, failSuffix)
 			if r.Method == http.MethodPut && !fail {
@@ -731,4 +736,42 @@ func TestCreateDocumentRevisionPayloadFailurePreventsEntry(t *testing.T) {
 			t.Fatalf("entry was published after a payload failed: %q", putKeys)
 		}
 	}
+}
+
+func TestReaderGateRejectsQueuedReaderAfterCancel(t *testing.T) {
+	t.Parallel()
+
+	var gate readerGate
+	ctx, cancel := context.WithCancel(context.Background())
+	_, releaseHolder, err := gate.acquire(ctx, strings.NewReader("held"), nil)
+	if err != nil {
+		t.Fatalf("holder acquire: %v", err)
+	}
+	type acquired struct {
+		reader io.ReadSeeker
+		err    error
+	}
+	queued := make(chan acquired, 1)
+	go func() {
+		reader, release, err := gate.acquire(ctx, strings.NewReader("queued"), nil)
+		if err == nil {
+			release()
+		}
+		queued <- acquired{reader: reader, err: err}
+	}()
+	cancel()
+	releaseHolder()
+
+	select {
+	case got := <-queued:
+		if !errors.Is(got.err, context.Canceled) || got.reader != nil {
+			t.Fatalf("queued acquire = (%v, %v), want context.Canceled", got.reader, got.err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("queued acquire never returned")
+	}
+	if !gate.mu.TryLock() {
+		t.Fatal("gate stayed locked after a canceled acquire")
+	}
+	gate.mu.Unlock()
 }
