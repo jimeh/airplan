@@ -1757,13 +1757,13 @@ sets. The simplest config needs no profiles at all:
 
 ```toml
 # ~/.config/airplan/config.toml — minimal single-bucket setup
-backend         = "s3"
-endpoint        = "https://<account-id>.r2.cloudflarestorage.com"
-bucket          = "plans"
-region          = "auto"
+backend = "s3"
+endpoint = "https://<account-id>.r2.cloudflarestorage.com"
+bucket = "plans"
+region = "auto"
 public_base_url = "https://plans.example.com"
-light_theme     = "github-light"
-dark_theme      = "github-dark"
+light_theme = "github-light"
+dark_theme = "github-dark"
 ```
 
 With profiles (note: TOML requires root-level keys to appear before
@@ -1773,8 +1773,8 @@ the first `[profiles.*]` header):
 # ~/.config/airplan/config.toml
 # Root-level keys are shared base values; profiles override only
 # what differs.
-endpoint        = "https://<account-id>.r2.cloudflarestorage.com"
-region          = "auto"
+endpoint = "https://<account-id>.r2.cloudflarestorage.com"
+region = "auto"
 # template = "~/.config/airplan/my-template.html"  # optional
 # collection_template = "~/.config/airplan/my-collection.html"
 # repo = "auto"       # GitHub context: auto, none, or explicit URL
@@ -1784,29 +1784,29 @@ region          = "auto"
 # Credentials may live here, but env vars are preferred:
 # access_key_id     = "..."
 # secret_access_key = "..."
-key_prefix      = ""          # optional, prepended to object keys
-                              # (also scopes list/purge --remote;
-                              # give each person one in a shared
-                              # bucket)
+key_prefix = "" # optional, prepended to object keys
+# (also scopes list/purge --remote;
+# give each person one in a shared
+# bucket)
 
 default_profile = "work"
 
 [profiles.work]
-bucket          = "work-plans"
+bucket = "work-plans"
 public_base_url = "https://plans.work.example.com"
-light_theme     = "solarized-light"
-dark_theme      = "tokyo-night"
+light_theme = "solarized-light"
+dark_theme = "tokyo-night"
 
 [profiles.personal]
-endpoint        = "https://s3.eu-west-2.amazonaws.com"
-region          = "eu-west-2"
-bucket          = "jimeh-plans"
+endpoint = "https://s3.eu-west-2.amazonaws.com"
+region = "eu-west-2"
+bucket = "jimeh-plans"
 public_base_url = "https://jimeh-plans.s3.eu-west-2.amazonaws.com"
 
 [profiles.shared]
-backend         = "airplan"
-api_url         = "https://airplan.example.com"
-api_token       = "..."
+backend = "airplan"
+api_url = "https://airplan.example.com"
+api_token = "..."
 ```
 
 `backend` is `s3` when omitted. An `s3` profile uses the existing storage,

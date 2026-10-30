@@ -12,14 +12,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-  issues: write
-  pull-requests: read
+permissions: {}
 
 jobs:
   semantic-pr:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
     timeout-minutes: 5
     steps:
       - id: lint-pr-title

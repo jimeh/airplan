@@ -49,7 +49,7 @@ func main() {
 	}
 
 	cmd := exec.Command("go", "run",
-		"github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.0",
+		"github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.8.1",
 		"--config", tempConfigPath,
 		filepath.Join(root, "api", "openapi.yaml"),
 	)

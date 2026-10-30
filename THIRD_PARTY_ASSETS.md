@@ -2,7 +2,7 @@
 
 Airplan generates its built-in interface icons from
 [`@primer/octicons`](https://www.npmjs.com/package/@primer/octicons) version
-19.40.0. The package is a build-only dependency. Rendered pages contain only
+19.42.0. The package is a build-only dependency. Rendered pages contain only
 the selected SVG paths and do not load icons from a network service.
 
 The semantic icon mapping lives in `web/icon-manifest.ts`. `web/build.ts`

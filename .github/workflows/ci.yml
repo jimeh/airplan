@@ -16,6 +16,9 @@ permissions:
 
 env:
   MISE_DISABLE_TOOLS: go
+  # Never rewrite the committed lockfile; mise prunes disabled tools such
+  # as Go when it auto-locks during a task run.
+  MISE_LOCKED: "true"
 
 jobs:
   lint:
@@ -29,7 +32,7 @@ jobs:
         with:
           go-version-file: .go-version
           cache-dependency-path: go.sum
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           add_shims_to_path: false
           minimum_release_age: 3d
@@ -45,7 +48,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           add_shims_to_path: false
           minimum_release_age: 3d
@@ -72,7 +75,7 @@ jobs:
         with:
           go-version-file: .go-version
           cache-dependency-path: go.sum
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           add_shims_to_path: false
           minimum_release_age: 3d
@@ -91,7 +94,7 @@ jobs:
         with:
           go-version-file: .go-version
           cache-dependency-path: go.sum
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           add_shims_to_path: false
           minimum_release_age: 3d
@@ -112,7 +115,7 @@ jobs:
         with:
           go-version-file: .go-version
           cache-dependency-path: go.sum
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           add_shims_to_path: false
           minimum_release_age: 3d
@@ -136,7 +139,7 @@ jobs:
         with:
           go-version-file: .go-version
           cache-dependency-path: go.sum
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           add_shims_to_path: false
           minimum_release_age: 3d
@@ -158,7 +161,7 @@ jobs:
         with:
           go-version-file: .go-version
           cache-dependency-path: go.sum
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           add_shims_to_path: false
           minimum_release_age: 3d
@@ -177,7 +180,7 @@ jobs:
         with:
           go-version-file: .go-version
           cache-dependency-path: go.sum
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           add_shims_to_path: false
           minimum_release_age: 3d
@@ -199,7 +202,7 @@ jobs:
         with:
           go-version-file: .go-version
           cache-dependency-path: go.sum
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           add_shims_to_path: false
           minimum_release_age: 3d
@@ -238,7 +241,7 @@ jobs:
         with:
           go-version-file: .go-version
           cache-dependency-path: go.sum
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           add_shims_to_path: false
           minimum_release_age: 3d
@@ -259,7 +262,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
         with:
           add_shims_to_path: false
           minimum_release_age: 3d
