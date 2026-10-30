@@ -63,10 +63,10 @@ Airplan handles several kinds of input:
   is a file collection with an image preview and direct links to every original
   artifact.
 
-[airplan-demo-implementation-plan]: https://demo.airplan.dev/krswhjyxg5dnw7ai3nwhob4jne/implementation-plan.html
-[airplan-demo-how-it-works]: https://demo.airplan.dev/ivahrgdwjxtquj3ldmfgdeb3sy/how-airplan-works.html
-[airplan-demo-go-api]: https://demo.airplan.dev/755ezjbjo3jfkgcdwwmti2atuq/upload-example.html
-[airplan-demo-document-bundle]: https://demo.airplan.dev/vhfu6263aupd42gd7puzobvw2i/implementation-plan.html
+[airplan-demo-implementation-plan]: https://demo.airplan.dev/nplw4ijgrug6c6y475b4pcdnmm/implementation-plan.html
+[airplan-demo-how-it-works]: https://demo.airplan.dev/lkhzj2nnkbjkvx2aiy36m5xtaq/how-airplan-works.html
+[airplan-demo-go-api]: https://demo.airplan.dev/wh5tmhy65itnxzvop5fwkndt2q/upload-example.html
+[airplan-demo-document-bundle]: https://demo.airplan.dev/elpffj46h5bmudu4txer5shuqu/implementation-plan.html
 [airplan-demo-collection]: https://demo.airplan.dev/sxxrmahx2drwrfexkvm6gb3dua/index.html
 
 ## Install
