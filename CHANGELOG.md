@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.13.0](https://github.com/jimeh/airplan/compare/v0.12.1...v0.13.0) (2026-10-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* make upload file limit configurable and write marker v7 ([#132](https://github.com/jimeh/airplan/issues/132))
+* **deps:** Release binaries now require macOS 13 or later. They are built with Go 1.27, which no longer supports macOS 12.
+* **deps:** Importing `github.com/jimeh/airplan` now requires Go 1.27.2 or later.
+
+### Features
+
+* make upload file limit configurable and write marker v7 ([#132](https://github.com/jimeh/airplan/issues/132)) ([c8bb019](https://github.com/jimeh/airplan/commit/c8bb019ded30c687adb3997a59670b6a874a2433))
+
+
+### Bug Fixes
+
+* **deps:** resolve Go standard library vulnerabilities by upgrading to Go 1.27.2 ([#130](https://github.com/jimeh/airplan/issues/130)) ([90d2f64](https://github.com/jimeh/airplan/commit/90d2f6426ff3573fbb96f77f4185aa585bb067ab))
+* **deps:** upgrade to Go 1.27.3 and refresh all dependencies ([#133](https://github.com/jimeh/airplan/issues/133)) ([f7b8b4c](https://github.com/jimeh/airplan/commit/f7b8b4c47aeb97b61d3cf16ec3c836b5587ce4d7))
+
+
+### Miscellaneous Chores
+
+* **deps:** raise the minimum Go version for importers to 1.27.2 ([#130](https://github.com/jimeh/airplan/issues/130)) ([90d2f64](https://github.com/jimeh/airplan/commit/90d2f6426ff3573fbb96f77f4185aa585bb067ab))
+* **deps:** upgrade to Go 1.27.2 and refresh all dependencies ([#130](https://github.com/jimeh/airplan/issues/130)) ([90d2f64](https://github.com/jimeh/airplan/commit/90d2f6426ff3573fbb96f77f4185aa585bb067ab))
+
 ## [0.12.1](https://github.com/jimeh/airplan/compare/v0.12.0...v0.12.1) (2026-09-07)
 
 
