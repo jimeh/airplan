@@ -49,7 +49,7 @@ func TestServerEnforcesConfiguredFileLimit(t *testing.T) {
 		},
 	}
 	handler := newTestHandler(t, operations, Options{
-		TempDir: tempDir, MaxDocumentItems: 3, MaxCollectionFiles: 3,
+		TempDir: tempDir, MaxFiles: 3,
 	})
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
@@ -140,7 +140,7 @@ func TestTypedClientRoundTripsLargeDocumentBundle(t *testing.T) {
 		return UploadResult{ID: "bundle", Warnings: []string{}, Files: []FileResult{}}, nil
 	}}
 	handler := newTestHandler(t, operations, Options{
-		TempDir: tempDir, MaxDocumentItems: assets + 1,
+		TempDir: tempDir, MaxFiles: assets + 1,
 	})
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)

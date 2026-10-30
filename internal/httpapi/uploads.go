@@ -190,7 +190,7 @@ func (s *Server) parseDocumentMultipart(
 	if err != nil {
 		return fail(err)
 	}
-	if err = validateDocumentDescriptors(spec, s.options.MaxDocumentItems); err != nil {
+	if err = validateDocumentDescriptors(spec, s.options.MaxFiles); err != nil {
 		return fail(err)
 	}
 
@@ -349,12 +349,12 @@ func (s *Server) parseCollectionUpload(
 			cleanup()
 			return CollectionUpload{}, func() {}, invalidMultipart(nextErr)
 		}
-		if parts >= s.options.MaxCollectionFiles+1 {
+		if parts >= s.options.MaxFiles+1 {
 			_ = part.Close()
 			cleanup()
 			return CollectionUpload{}, func() {}, invalidRequest(fmt.Sprintf(
 				"collection contains too many files; maximum is %d",
-				s.options.MaxCollectionFiles,
+				s.options.MaxFiles,
 			))
 		}
 		switch part.FormName() {

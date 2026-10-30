@@ -115,8 +115,7 @@ func runServe(cmd *cobra.Command, opts *serveOptions) error {
 		MaxDocumentBytes:        DefaultServerDocumentBytes(),
 		MaxCollectionFileBytes:  airplan.DefaultMaxCollectionFileSize,
 		MaxCollectionTotalBytes: airplan.DefaultMaxCollectionTotalSize,
-		MaxCollectionFiles:      opts.maxFiles,
-		MaxDocumentItems:        opts.maxFiles,
+		MaxFiles:                opts.maxFiles,
 	})
 	if err != nil {
 		return fmt.Errorf("airplan: construct HTTP API: %w", err)
