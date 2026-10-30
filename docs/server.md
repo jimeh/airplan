@@ -44,8 +44,8 @@ A client profile needs only the server URL and bearer token:
 
 ```toml
 [profiles.shared]
-backend   = "airplan"
-api_url   = "https://airplan.example.com"
+backend = "airplan"
+api_url = "https://airplan.example.com"
 api_token = "..." # or AIRPLAN_API_TOKEN
 ```
 
