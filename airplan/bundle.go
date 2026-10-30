@@ -292,7 +292,7 @@ func renderDocumentWithSpool(
 	inputs := make([]PageInput, 0, len(in.Pages)+1)
 	inputs = append(inputs, in.Entry)
 	inputs = append(inputs, in.Pages...)
-	seen := make(map[string]string, len(inputs)+len(in.Assets))
+	seen := newFoldedPaths(len(inputs) + len(in.Assets))
 	prepared := make([]RenderedBundlePage, len(inputs))
 	var sourceTotal int64
 	for index, input := range inputs {
@@ -601,49 +601,43 @@ func managedPageObjectName(logical string, format Format) string {
 	return logical + ".html"
 }
 
-func validateAndRecordBundlePath(seen map[string]string, value string) error {
+func validateAndRecordBundlePath(seen *foldedPaths, value string) error {
 	if err := ValidateBundlePath(value); err != nil {
 		return err
 	}
 	fold := strings.ToLower(value)
-	if previous, exists := seen[fold]; exists {
+	if previous, exists := seen.get(fold); exists {
 		return invalidDocumentInput(fmt.Errorf(
 			"airplan: bundle paths %q and %q collide when case-folded", previous, value,
 		))
 	}
-	for previousFold, previous := range seen {
-		if strings.HasPrefix(fold, previousFold+"/") ||
-			strings.HasPrefix(previousFold, fold+"/") {
-			return invalidDocumentInput(fmt.Errorf(
-				"airplan: bundle paths %q and %q conflict as file and directory",
-				previous, value,
-			))
-		}
+	if previous, conflict := seen.directoryConflict(fold); conflict {
+		return invalidDocumentInput(fmt.Errorf(
+			"airplan: bundle paths %q and %q conflict as file and directory",
+			previous, value,
+		))
 	}
-	seen[fold] = value
+	seen.add(fold, value)
 	return nil
 }
 
-func validateGeneratedBundlePath(seen map[string]string, value, source string) error {
+func validateGeneratedBundlePath(seen *foldedPaths, value, source string) error {
 	if err := ValidateBundlePath(value); err != nil {
 		return err
 	}
 	fold := strings.ToLower(value)
-	if previous, exists := seen[fold]; exists && !strings.EqualFold(previous, source) {
+	if previous, exists := seen.get(fold); exists && !strings.EqualFold(previous, source) {
 		return invalidDocumentInput(fmt.Errorf(
 			"airplan: generated path %q for %q collides with %q", value, source, previous,
 		))
 	}
-	for previousFold, previous := range seen {
-		if strings.HasPrefix(fold, previousFold+"/") ||
-			strings.HasPrefix(previousFold, fold+"/") {
-			return invalidDocumentInput(fmt.Errorf(
-				"airplan: generated path %q for %q conflicts with %q as file and directory",
-				value, source, previous,
-			))
-		}
+	if previous, conflict := seen.directoryConflict(fold); conflict {
+		return invalidDocumentInput(fmt.Errorf(
+			"airplan: generated path %q for %q conflicts with %q as file and directory",
+			value, source, previous,
+		))
 	}
-	seen[fold] = value
+	seen.add(fold, value)
 	return nil
 }
 
@@ -697,7 +691,7 @@ func urlPathRelative(base, target string) (string, error) {
 func prepareAssets(ctx context.Context, in DocumentInput) ([]preparedAsset, error) {
 	maxAsset := effectiveLimit(in.MaxAssetSize, DefaultMaxAssetSize)
 	maxTotal := effectiveLimit(in.MaxTotalSize, DefaultMaxDocumentAssetTotalSize)
-	seen := make(map[string]string, len(in.Assets))
+	seen := newFoldedPaths(len(in.Assets))
 	prepared := make([]preparedAsset, len(in.Assets))
 	var total int64
 	for index, asset := range in.Assets {

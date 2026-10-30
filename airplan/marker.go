@@ -1016,20 +1016,17 @@ func validateDocumentMarkerV6(
 		return invalid("entrypoint is required")
 	}
 	objects := make(map[string]MarkerObject, len(marker.Objects))
-	folded := make(map[string]string, len(marker.Objects))
+	folded := newFoldedPaths(len(marker.Objects))
 	for _, object := range marker.Objects {
 		objects[object.Name] = object
 		fold := strings.ToLower(object.Name)
-		if previous, ok := folded[fold]; ok && previous != object.Name {
+		if previous, ok := folded.get(fold); ok && previous != object.Name {
 			return invalid("object names %q and %q collide when case-folded", previous, object.Name)
 		}
-		for previousFold, previous := range folded {
-			if strings.HasPrefix(fold, previousFold+"/") ||
-				strings.HasPrefix(previousFold, fold+"/") {
-				return invalid("object names %q and %q conflict as file and directory", previous, object.Name)
-			}
+		if previous, ok := folded.directoryConflict(fold); ok {
+			return invalid("object names %q and %q conflict as file and directory", previous, object.Name)
 		}
-		folded[fold] = object.Name
+		folded.add(fold, object.Name)
 	}
 	entry, ok := objects[marker.Entrypoint]
 	if !ok || entry.Role != MarkerRolePage {
