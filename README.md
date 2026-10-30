@@ -133,14 +133,14 @@ per-user configuration directory.
 
 ```toml
 #:schema https://github.com/jimeh/airplan/releases/latest/download/airplan.schema.json
-backend           = "s3"
-endpoint          = "https://<account-id>.r2.cloudflarestorage.com"
-bucket            = "plans"
-region            = "auto"
-public_base_url   = "https://plans.example.com"
-light_theme       = "github-light"
-dark_theme        = "github-dark"
-access_key_id     = "..." # or AIRPLAN_ACCESS_KEY_ID
+backend = "s3"
+endpoint = "https://<account-id>.r2.cloudflarestorage.com"
+bucket = "plans"
+region = "auto"
+public_base_url = "https://plans.example.com"
+light_theme = "github-light"
+dark_theme = "github-dark"
+access_key_id = "..." # or AIRPLAN_ACCESS_KEY_ID
 secret_access_key = "..." # or AIRPLAN_SECRET_ACCESS_KEY
 ```
 
