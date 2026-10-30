@@ -2282,7 +2282,7 @@ conforming implementations can share a manifest:
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md",
  "title":"Refactor auth","repo":"https://github.com/acme/service",
- "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":6,
+ "bytes":18432,"objects":3,"total_bytes":19004,"marker_version":7,
  "producer_version":"0.8.0","renderer_version":10}
 {"type":"upload","time":"2026-07-21T12:03:00Z",
  "created_at":"2026-07-21T12:03:00Z",
@@ -2291,7 +2291,7 @@ conforming implementations can share a manifest:
  "url":"https://plans.example.com/gaj4.../index.html",
  "bucket":"plans","profile":"work","kind":"collection",
  "title":"login.png and 1 more","bytes":9216,"objects":4,
- "total_bytes":203512,"marker_version":6,
+ "total_bytes":203512,"marker_version":7,
  "producer_version":"0.8.0","renderer_version":10}
 {"type":"delete","time":"2026-07-09T09:12:44Z",
  "key":"vq3n.../plan.html","marker_key":"vq3n.../.airplan.json",
@@ -2309,7 +2309,7 @@ conforming implementations can share a manifest:
  "url":"https://plans.example.com/vq3n.../plan.html",
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
- "bytes":19200,"marker_version":6,"producer_version":"0.8.0",
+ "bytes":19200,"marker_version":7,"producer_version":"0.8.0",
  "renderer_version":10}
 {"type":"link","time":"2026-08-15T10:05:00Z",
  "created_at":"2026-07-21T12:00:00Z",
@@ -2318,7 +2318,7 @@ conforming implementations can share a manifest:
  "url":"https://plans.example.com/vq3n.../plan.html",
  "bucket":"plans","profile":"work","kind":"document",
  "slug":"plan","format":"md","title":"Refactor auth",
- "bytes":19200,"objects":4,"total_bytes":20120,"marker_version":6,
+ "bytes":19200,"objects":4,"total_bytes":20120,"marker_version":7,
  "producer_version":"0.8.0","renderer_version":10,
  "revision_chain_id":"d2x4...","revision":1,"latest_revision":2}
 ```
@@ -2342,7 +2342,7 @@ conforming implementations can share a manifest:
   root-level settings. `marker_key` is the exact kind-specific ownership key.
   `repo` preserves canonical repository metadata. The full collection
   inventory remains only in the remote marker.
-- Current writers always include `marker_version: 6`; its absence identifies
+- Current writers always include `marker_version: 7`; its absence identifies
   legacy pre-marker history. Readers infer `kind: document` and derive its
   slug from the page key for valid older records that omit those fields. The
   renderer theme recipe remains in the remote v5-v7 marker and is not duplicated
@@ -3055,6 +3055,8 @@ library. Each asset sets exactly one of `Reader`, read from its current offset,
 and `Open`, read from offset zero; setting neither or both is an error. The
 library calls `Open` only while a bounded worker hashes or uploads the asset and
 closes the result afterwards, so at most 8 such inputs are open at once.
+`Open`-based inputs are hashed and uploaded concurrently. `Reader`-based inputs
+are hashed and uploaded one at a time, so several inputs may share one reader.
 `FileInput` has the same `Reader` and `Open` pair, and `FilesInput.MaxFiles`
 mirrors `DocumentInput.MaxFiles`. `MaxFiles` zero selects `DefaultMaxFiles` and
 a negative value disables the count check, matching the size limits; the
@@ -3332,8 +3334,9 @@ aggregate-asset, metadata-part, and complete multipart request sizes. The
 complete request envelope must accommodate every request allowed by the
 advertised logical limits plus multipart overhead that scales with the
 advertised item count. The advertised item count may exceed the core default
-and is always a positive integer, so older clients keep working; a client
-checks its own preflight against the advertised value.
+and is always a positive integer, so older clients keep working. A client
+checks document item and collection file counts against the advertised value
+before streaming any part.
 
 A new client checks capabilities before opening or streaming a bundle request
 and reports that the server needs an upgrade when bundle support is absent. It
@@ -3420,8 +3423,9 @@ scheduled.
 
 Upload and revision tools accept `max_files` alongside their size limits. Zero
 selects the default of 1000. Local stdio tools treat a negative value as
-disabling the count check; hosted tools cap the value at the server's
-`--max-files` and cannot disable it.
+disabling the count check. Hosted tools cap every value, including that
+default, at the server's `--max-files` and cannot disable it; a negative value
+there selects the server's limit.
 
 Inline assets have a 32 MiB decoded aggregate limit. The Streamable HTTP JSON
 body limit remains independently authoritative, so escaped text can reach the

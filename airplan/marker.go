@@ -37,6 +37,13 @@ func IsSupportedMarkerVersion(version int) bool {
 	return version >= 1 && version <= MarkerVersion
 }
 
+// sharesCurrentMarkerFormat reports whether version uses the current marker
+// wire format. Versions 6 and 7 differ only in their size ceiling, so code
+// that needs the current declared-object model accepts both.
+func sharesCurrentMarkerFormat(version int) bool {
+	return version >= 6 && IsSupportedMarkerVersion(version)
+}
+
 // MaxMarkerSize is the maximum accepted marker body size for every marker
 // version, and the maximum encoded size of a current-version marker.
 const MaxMarkerSize = 4 << 20

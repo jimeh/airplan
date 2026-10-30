@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/jimeh/airplan/internal/httpapi"
+	"github.com/jimeh/airplan/internal/lazyio"
 )
 
 type httpTransport struct {
@@ -389,7 +390,7 @@ func entryPageResult(path string, result Result) PageResult {
 // the file on first read and closes it at EOF, so streaming a bundle holds one
 // page descriptor at a time.
 type measuredHTTPPage struct {
-	reader *lazyReader
+	reader *lazyio.Reader
 	size   int64
 }
 
@@ -414,7 +415,7 @@ func spoolHTTPDocumentPages(
 		totalLimit = capability.MaxTotalPageBytes
 	}
 	var paths []string
-	var readers []*lazyReader
+	var readers []*lazyio.Reader
 	cleanup := func() {
 		for _, reader := range readers {
 			_ = reader.Close()
@@ -449,9 +450,9 @@ func spoolHTTPDocumentPages(
 			return PageInput{}, 0, err
 		}
 		path := file.Name()
-		reader := &lazyReader{open: func() (io.ReadCloser, error) {
+		reader := lazyio.New(func() (io.ReadCloser, error) {
 			return os.Open(path)
-		}}
+		})
 		readers = append(readers, reader)
 		page.Reader = &measuredHTTPPage{reader: reader, size: size}
 		return page, size, nil
@@ -521,6 +522,20 @@ func measuredHTTPPageSize(reader io.Reader) int64 {
 func (t *httpTransport) UploadFiles(
 	ctx context.Context, in FilesInput,
 ) (*FilesResult, error) {
+	// The advertised document_bundle.max_items bounds collection files too
+	// (SPEC.md §11). Checking it first avoids streaming parts the server
+	// would reject; servers without bundle support still enforce their own.
+	capability, err := t.revisionCapabilities(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if capability != nil && capability.MaxItems > 0 &&
+		len(in.Files) > capability.MaxItems {
+		return nil, fmt.Errorf(
+			"airplan: collection has %d files; server maximum is %d",
+			len(in.Files), capability.MaxItems,
+		)
+	}
 	repository := t.repository
 	if in.RepositoryURL != "" {
 		repository = in.RepositoryURL

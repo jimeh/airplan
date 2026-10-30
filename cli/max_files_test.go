@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,18 +35,25 @@ func TestRootMaxFilesLimitsCollections(t *testing.T) {
 		t.Fatalf("PUTs = %d, want none", len(puts))
 	}
 
+	// Zero disables the check, so a collection above the 1000-file default
+	// uploads every member.
+	names := make([]string, 1001)
+	for index := range names {
+		names[index] = fmt.Sprintf("f%04d.txt", index)
+	}
+	many := writeMaxFilesInputs(t, names...)
 	fake = newFakeS3(t)
 	stdout, _, err := executeRoot(t, fake, "",
-		append([]string{"--max-files", "0"}, paths...)...)
+		append([]string{"--max-files", "0"}, many...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// One URL per member plus the overview, and marker plus objects in storage.
-	if lines := strings.Count(stdout, "\n"); lines != 4 {
-		t.Fatalf("stdout = %q, want four URLs", stdout)
+	if lines := strings.Count(stdout, "\n"); lines != len(many)+1 {
+		t.Fatalf("stdout URLs = %d, want %d", lines, len(many)+1)
 	}
-	if puts := fake.uploads(); len(puts) != 5 {
-		t.Fatalf("PUTs = %d, want 5", len(puts))
+	if puts := fake.uploads(); len(puts) != len(many)+2 {
+		t.Fatalf("PUTs = %d, want %d", len(puts), len(many)+2)
 	}
 }
 

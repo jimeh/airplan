@@ -14,6 +14,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/jimeh/airplan/internal/lazyio"
 	"github.com/jimeh/airplan/internal/pathrules"
 )
 
@@ -26,7 +27,7 @@ type spooledFile struct {
 	contentType string
 	size        int64
 	file        *os.File
-	reader      *spoolReader
+	reader      *lazyio.Reader
 }
 
 // open reopens the spooled part for one seekable read.
@@ -41,42 +42,15 @@ func (f *spooledFile) open() (io.ReadSeekCloser, error) {
 // sequentialReader returns a reader that opens the spooled part on its first
 // Read and closes it at EOF. Cleanup closes a partially consumed reader.
 func (f *spooledFile) sequentialReader() io.Reader {
-	f.reader = &spoolReader{path: f.path}
-	return f.reader
-}
-
-type spoolReader struct {
-	path string
-	file *os.File
-	done bool
-}
-
-func (r *spoolReader) Read(buffer []byte) (int, error) {
-	if r.done {
-		return 0, io.EOF
-	}
-	if r.file == nil {
-		file, err := os.Open(r.path)
+	path := f.path
+	f.reader = lazyio.New(func() (io.ReadCloser, error) {
+		file, err := os.Open(path)
 		if err != nil {
-			return 0, fmt.Errorf("reopen upload temporary file: %w", err)
+			return nil, fmt.Errorf("reopen upload temporary file: %w", err)
 		}
-		r.file = file
-	}
-	n, err := r.file.Read(buffer)
-	if errors.Is(err, io.EOF) {
-		_ = r.Close()
-	}
-	return n, err
-}
-
-func (r *spoolReader) Close() error {
-	r.done = true
-	if r.file == nil {
-		return nil
-	}
-	err := r.file.Close()
-	r.file = nil
-	return err
+		return file, nil
+	})
+	return f.reader
 }
 
 func (s *Server) parseDocumentUpload(

@@ -431,7 +431,7 @@
       var entry = objectURL(directory, marker.entrypoint);
       if (entry !== selected.safeURL)
         throw new Error("marker entrypoint is invalid");
-      if (marker.title !== undefined && typeof marker.title !== "string" || marker.repo !== undefined && !validMarkerRepository(marker.repo) || marker.objects.length === 0 || marker.pages.length > 100)
+      if (marker.title !== undefined && typeof marker.title !== "string" || marker.repo !== undefined && !validMarkerRepository(marker.repo) || marker.objects.length === 0)
         throw new Error("marker shape is invalid");
       var objectRoles = validateMarkerObjects(marker);
       var paths = new Set;
@@ -577,7 +577,6 @@
       var diffCount = 0;
       var pages = 0;
       var sources = 0;
-      var assets = 0;
       marker.objects.forEach(function(object) {
         if (!isRecord(object) || !portableMarkerPath(object.name) && object.name !== ".airplan-changes.diff" || roles.has(object.name) || folded.has(object.name.toLowerCase()) || !Number.isSafeInteger(object.bytes) || object.bytes < 0 || !validDigest(object.sha256) || !validNormalizedContentType(object.content_type))
           throw new Error("marker object inventory is invalid");
@@ -589,9 +588,7 @@
           sources += 1;
           if (object.bytes <= 0)
             throw new Error("marker source object is invalid");
-        } else if (object.role === "asset") {
-          assets += 1;
-        } else if (object.role === "diff") {
+        } else if (object.role === "asset") {} else if (object.role === "diff") {
           diffCount += 1;
           if (object.name !== ".airplan-changes.diff" || object.bytes <= 0 || object.content_type !== "text/plain; charset=utf-8")
             throw new Error("marker diff object is invalid");
@@ -602,7 +599,7 @@
       });
       if (hasMarkerAncestorConflict(folded))
         throw new Error("marker object paths conflict");
-      if (pages !== marker.pages.length || sources !== marker.pages.length || pages + assets > 100 || (marker.revision.number === 1 ? diffCount !== 0 : diffCount !== 1))
+      if (pages !== marker.pages.length || sources !== marker.pages.length || (marker.revision.number === 1 ? diffCount !== 0 : diffCount !== 1))
         throw new Error("marker object counts are invalid");
       return roles;
     }

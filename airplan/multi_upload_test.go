@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,16 +25,17 @@ type recordingS3 struct {
 	mu         sync.Mutex
 	requests   int
 	puts       []string
+	bodies     map[string][]byte
 	failSuffix string
 	server     *httptest.Server
 }
 
 func newRecordingS3(t *testing.T, failSuffix string) *recordingS3 {
 	t.Helper()
-	store := &recordingS3{failSuffix: failSuffix}
+	store := &recordingS3{failSuffix: failSuffix, bodies: map[string][]byte{}}
 	store.server = httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			_, _ = io.Copy(io.Discard, r.Body)
+			body, _ := io.ReadAll(r.Body)
 			key := strings.TrimPrefix(r.URL.Path, "/plans/")
 			store.mu.Lock()
 			store.requests++
@@ -41,6 +43,7 @@ func newRecordingS3(t *testing.T, failSuffix string) *recordingS3 {
 				strings.HasSuffix(key, failSuffix)
 			if r.Method == http.MethodPut && !fail {
 				store.puts = append(store.puts, key)
+				store.bodies[key] = body
 			}
 			store.mu.Unlock()
 			if fail {
@@ -468,5 +471,264 @@ func TestValidateBundleCapabilityAdmitsLargeItemCounts(t *testing.T) {
 	}
 	if err := validateBundleCapability(capability, upload); err != nil {
 		t.Fatalf("%d-item upload rejected: %v", maxItems, err)
+	}
+}
+
+// exclusiveReader counts overlapping calls on a reader shared by several
+// inputs. Reader-based inputs must be processed one at a time.
+type exclusiveReader struct {
+	io.ReadSeeker
+	active   atomic.Int32
+	overlaps atomic.Int32
+}
+
+func (r *exclusiveReader) enter() func() {
+	if r.active.Add(1) > 1 {
+		r.overlaps.Add(1)
+	}
+	return func() { r.active.Add(-1) }
+}
+
+func (r *exclusiveReader) Read(buffer []byte) (int, error) {
+	defer r.enter()()
+	return r.ReadSeeker.Read(buffer)
+}
+
+func (r *exclusiveReader) Seek(offset int64, whence int) (int64, error) {
+	defer r.enter()()
+	return r.ReadSeeker.Seek(offset, whence)
+}
+
+func sharedFileReader(t *testing.T, body []byte) *exclusiveReader {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "shared.bin")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = file.Close() })
+	return &exclusiveReader{ReadSeeker: file}
+}
+
+// Callers may legally pass one io.ReadSeeker for several inputs, as access
+// was sequential before uploads became concurrent.
+func TestInputsSharingOneReaderUploadIntact(t *testing.T) {
+	body := bytes.Repeat([]byte("shared reader bytes "), 16<<10)
+	const members = 16
+
+	t.Run("collection", func(t *testing.T) {
+		store := newRecordingS3(t, "")
+		shared := sharedFileReader(t, body)
+		files := make([]FileInput, members)
+		for index := range files {
+			files[index] = FileInput{
+				Name:   fmt.Sprintf("member-%02d.bin", index),
+				Reader: shared, Size: int64(len(body)),
+			}
+		}
+		result, err := store.client(t).UploadFiles(context.Background(), FilesInput{Files: files})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, file := range result.Files {
+			store.mu.Lock()
+			got := store.bodies[file.Key]
+			store.mu.Unlock()
+			if !bytes.Equal(got, body) {
+				t.Fatalf("member %q uploaded %d bytes, want the shared body", file.Name, len(got))
+			}
+		}
+		if overlaps := shared.overlaps.Load(); overlaps != 0 {
+			t.Fatalf("shared reader used concurrently %d times", overlaps)
+		}
+	})
+
+	t.Run("document assets", func(t *testing.T) {
+		store := newRecordingS3(t, "")
+		shared := sharedFileReader(t, body)
+		in := DocumentInput{
+			Entry:         PageInput{Reader: strings.NewReader("# Entry\n"), Path: "entry.md"},
+			RepositoryURL: "none",
+		}
+		for index := range members {
+			in.Assets = append(in.Assets, AssetInput{
+				Reader: shared, Size: int64(len(body)),
+				Path: fmt.Sprintf("assets/asset-%02d.bin", index),
+			})
+		}
+		result, err := store.client(t).UploadDocument(context.Background(), in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, asset := range result.Assets {
+			store.mu.Lock()
+			got := store.bodies[asset.Key]
+			store.mu.Unlock()
+			if !bytes.Equal(got, body) {
+				t.Fatalf("asset %q uploaded %d bytes, want the shared body", asset.Path, len(got))
+			}
+		}
+		if overlaps := shared.overlaps.Load(); overlaps != 0 {
+			t.Fatalf("shared reader used concurrently %d times", overlaps)
+		}
+	})
+}
+
+// A panic inside a worker goroutine must fail the operation instead of
+// crashing the process, because net/http recovers only handler goroutines.
+func TestRunBoundedReturnsWorkerPanicAsError(t *testing.T) {
+	err := runBounded(context.Background(), 3*uploadConcurrency,
+		func(_ context.Context, index int) error {
+			if index == 5 {
+				panic("reader exploded")
+			}
+			return nil
+		})
+	if err == nil || !strings.Contains(err.Error(), "reader exploded") {
+		t.Fatalf("error = %v, want the recovered panic value", err)
+	}
+}
+
+// Member PUTs must fill the pool between the barriers without exceeding it.
+// The fake store holds each member PUT until min(pool size, remaining members)
+// are in flight, so a sequential upload phase times out. Each input stays open
+// for its whole PUT, so counting open inputs bounds the in-flight uploads and
+// an unbounded pool exceeds it.
+func TestUploadFilesOverlapsMemberUploadsWithinPool(t *testing.T) {
+	const total = 5 * uploadConcurrency
+	var (
+		mu        sync.Mutex
+		inFlight  int
+		completed int
+		timedOut  bool
+		open      atomic.Int32
+		peakOpen  atomic.Int32
+	)
+	cond := sync.NewCond(&mu)
+	deadline := time.AfterFunc(10*time.Second, func() {
+		mu.Lock()
+		timedOut = true
+		cond.Broadcast()
+		mu.Unlock()
+	})
+	t.Cleanup(func() { deadline.Stop() })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/member-") {
+			mu.Lock()
+			inFlight++
+			cond.Broadcast()
+			for !timedOut && inFlight < min(uploadConcurrency, total-completed) {
+				cond.Wait()
+			}
+			if timedOut {
+				t.Errorf("member uploads never filled the pool: %d in flight", inFlight)
+			}
+			inFlight--
+			completed++
+			cond.Broadcast()
+			mu.Unlock()
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Endpoint: server.URL, Bucket: "plans", AccessKeyID: "test",
+		SecretAccessKey: "test", PublicBaseURL: "https://plans.example.com",
+		DisableManifest: true, Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := make([]FileInput, total)
+	for index := range files {
+		body := []byte(fmt.Sprintf("member %d", index))
+		files[index] = FileInput{
+			Name: fmt.Sprintf("member-%02d.txt", index),
+			Open: func() (io.ReadSeekCloser, error) {
+				current := open.Add(1)
+				for {
+					peak := peakOpen.Load()
+					if current <= peak || peakOpen.CompareAndSwap(peak, current) {
+						break
+					}
+				}
+				return countedReadSeekCloser{bytes.NewReader(body), &open}, nil
+			},
+			Size: int64(len(body)),
+		}
+	}
+	if _, err := client.UploadFiles(context.Background(), FilesInput{Files: files}); err != nil {
+		t.Fatal(err)
+	}
+	if peak := peakOpen.Load(); peak != uploadConcurrency {
+		t.Fatalf("peak concurrently open inputs = %d, want %d", peak, uploadConcurrency)
+	}
+}
+
+type countedReadSeekCloser struct {
+	io.ReadSeeker
+	open *atomic.Int32
+}
+
+func (r countedReadSeekCloser) Close() error {
+	r.open.Add(-1)
+	return nil
+}
+
+// A failed payload between a revision's marker and entry barriers prevents
+// the new entry page from being published.
+func TestCreateDocumentRevisionPayloadFailurePreventsEntry(t *testing.T) {
+	store := newUpgradeStore(t)
+	client := store.client(t, "")
+	ctx := context.Background()
+	document := func(body string) DocumentInput {
+		in := DocumentInput{
+			Entry:         PageInput{Reader: strings.NewReader(body), Path: "plan.md"},
+			RepositoryURL: "none",
+		}
+		for index := range 12 {
+			asset := []byte(fmt.Sprintf("asset %d", index))
+			in.Assets = append(in.Assets, AssetInput{
+				Reader: bytes.NewReader(asset), Size: int64(len(asset)),
+				Path: fmt.Sprintf("assets/asset-%02d.bin", index),
+			})
+		}
+		return in
+	}
+	first, err := client.UploadDocument(ctx, document("# Plan\n\nOne\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.mu.Lock()
+	store.putKeys = nil
+	store.failPutSuffix = "/assets/asset-05.bin"
+	store.mu.Unlock()
+	_, err = client.CreateDocumentRevision(ctx, CreateDocumentRevisionInput{
+		Target: first.URL, Document: document("# Plan\n\nTwo\n"),
+	})
+	if err == nil {
+		t.Fatal("expected revision payload failure")
+	}
+	store.mu.Lock()
+	putKeys := append([]string(nil), store.putKeys...)
+	store.mu.Unlock()
+	candidateDir := ""
+	for _, key := range putKeys {
+		if strings.HasSuffix(key, "/"+MarkerFilename) && !strings.HasPrefix(key, first.ID+"/") {
+			candidateDir = strings.TrimSuffix(key, "/"+MarkerFilename)
+			break
+		}
+	}
+	if candidateDir == "" {
+		t.Fatalf("no candidate marker PUT in %q", putKeys)
+	}
+	for _, key := range putKeys {
+		if key == candidateDir+"/plan.html" {
+			t.Fatalf("entry was published after a payload failed: %q", putKeys)
+		}
 	}
 }

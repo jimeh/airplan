@@ -40,11 +40,13 @@ type PageInput struct {
 // AssetInput describes one byte-for-byte asset in a document bundle.
 type AssetInput struct {
 	// Reader supplies the asset bytes from its current offset. Exactly one of
-	// Reader and Open must be set.
+	// Reader and Open must be set. Reader-based assets are hashed and uploaded
+	// one at a time, so several assets may share one reader.
 	Reader io.ReadSeeker
-	// Open supplies the asset bytes from offset zero on demand. The library
-	// opens the asset only while a worker hashes or uploads it and closes it
-	// afterwards, so open inputs stay bounded by upload concurrency.
+	// Open supplies the asset bytes from offset zero on demand. Open-based
+	// assets are hashed and uploaded concurrently. The library opens the asset
+	// only while a worker hashes or uploads it and closes it afterwards, so
+	// open inputs stay bounded by upload concurrency.
 	Open        func() (io.ReadSeekCloser, error)
 	Path        string
 	Size        int64
@@ -725,9 +727,10 @@ func prepareAssets(ctx context.Context, in DocumentInput) ([]preparedAsset, erro
 	}
 	// Hashing and content sniffing run on the bounded upload pool; each
 	// Open-based asset is held open only while its worker inspects it.
+	var gate readerGate
 	err := runBounded(ctx, len(prepared), func(_ context.Context, index int) error {
 		asset := &prepared[index]
-		reader, release, err := acquireInput(asset.Reader, asset.Open)
+		reader, release, err := gate.acquire(asset.Reader, asset.Open)
 		if err != nil {
 			return fmt.Errorf("airplan: open asset %q: %w", asset.Path, err)
 		}
@@ -892,6 +895,7 @@ func (c *Client) UploadDocument(ctx context.Context, in DocumentInput) (*Documen
 	// Payloads between the marker and entry barriers upload concurrently
 	// (SPEC.md §5); results keep declared order.
 	var payloads []func(context.Context) error
+	var gate readerGate
 	result.Pages = make([]PageResult, len(bundle.Pages))
 	for index, page := range bundle.Pages {
 		pageKey := BuildKey(c.cfg.KeyPrefix, dir, page.PagePath)
@@ -940,7 +944,7 @@ func (c *Client) UploadDocument(ctx context.Context, in DocumentInput) (*Documen
 		}
 		result.Assets[index] = AssetResult{Path: asset.Path, URL: assetURL, Key: assetKey, Bytes: asset.Size, ContentType: asset.ContentType}
 		payloads = append(payloads, func(ctx context.Context) error {
-			return c.putVerifiedInput(ctx, asset.Reader, asset.Open, asset.start,
+			return c.putVerifiedInput(ctx, &gate, asset.Reader, asset.Open, asset.start,
 				asset.digest, fmt.Sprintf("asset %q", asset.Path),
 				streamObject{Key: assetKey, Size: asset.Size, ContentType: asset.ContentType, Metadata: titleMetadata(bundle.Title)})
 		})

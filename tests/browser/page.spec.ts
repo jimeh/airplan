@@ -1767,6 +1767,58 @@ test("child revision selection preserves logical page and falls back to entry", 
   ]);
   await expect(page).toHaveURL(targetChild + "#deep-dive");
 
+  // Markers impose no item count, so a revision far beyond the former
+  // 100-item writer limit still resolves to the matching child page.
+  const extraPages = Array.from({ length: 120 }, (_, index) => `extra/page-${index}.md`);
+  const largeRevisionThreeMarker = {
+    ...validRevisionThreeMarker,
+    objects: [
+      ...validRevisionThreeMarker.objects,
+      ...extraPages.flatMap((logical, index) => [
+        {
+          name: logical.replace(/\.md$/, ".html"),
+          role: "page",
+          bytes: 100,
+          content_type: "text/html; charset=utf-8",
+          sha256: (index % 10).toString().repeat(64),
+        },
+        {
+          name: logical,
+          role: "source",
+          bytes: 10,
+          content_type: "text/markdown; charset=utf-8",
+          sha256: (index % 10).toString().repeat(64),
+        },
+      ]),
+      ...Array.from({ length: 150 }, (_, index) => ({
+        name: `assets/item-${index}.bin`,
+        role: "asset",
+        bytes: 1,
+        content_type: "application/octet-stream",
+        sha256: "f".repeat(64),
+      })),
+    ],
+    pages: [
+      ...validRevisionThreeMarker.pages,
+      ...extraPages.map((logical) => ({
+        path: logical,
+        page: logical.replace(/\.md$/, ".html"),
+        source: logical,
+        format: "md",
+        lang: "Markdown",
+      })),
+    ],
+  };
+  markerBody = JSON.stringify(largeRevisionThreeMarker);
+  await page.goto(currentChild + "#deep-dive");
+  await Promise.all([
+    page.waitForURL(targetChild + "#deep-dive"),
+    page.getByRole("combobox", { name: "Document revision" }).selectOption({
+      label: "Revision 3 (Latest)",
+    }),
+  ]);
+  await expect(page).toHaveURL(targetChild + "#deep-dive");
+
   const conflictPageObjects = ["a!b", "a/b"].flatMap((logical, index) => [
     {
       name: `${logical}.html`,

@@ -465,7 +465,12 @@ synced, err := client.SyncManifest(ctx, airplan.SyncManifestOptions{
   hashes the transmitted bytes again, and fails before publishing the overview
   when a member changes. Preflight hashing and member uploads share
   `runBounded`, a pool of `uploadConcurrency` (8) workers whose first failure
-  cancels outstanding work; `Open` inputs are opened only inside a worker. It
+  cancels outstanding work and whose worker panics become operation errors, so
+  `serve` survives a panicking reader. `Open` inputs are opened only inside a
+  worker. A per-operation `readerGate` serializes `Reader` inputs, which may
+  share one `io.ReadSeeker`. Sequentially consumed pages and server spools use
+  `internal/lazyio.Reader`, which opens on first read, closes at EOF, and
+  closes a source opened after a concurrent `Close`. It
   limits each reader to its declaration and uploads the overview last.
   `StatLocalFile` lets CLI and MCP adapters validate named files up front and
   reopen them on demand, rejecting a replaced or resized path. `GetUploadTo`

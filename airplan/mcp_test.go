@@ -1581,6 +1581,8 @@ func TestMCPFileLimitCapsHostedTools(t *testing.T) {
 		{"local disabled", -1, 0, false, -1},
 		{"local above default", 5000, 0, false, 5000},
 		{"hosted default ceiling", 0, 0, true, DefaultMaxFiles},
+		{"hosted zero under higher ceiling", 0, 2000, true, DefaultMaxFiles},
+		{"hosted zero under lower ceiling", 0, 500, true, 500},
 		{"hosted cannot disable", -1, 2000, true, 2000},
 		{"hosted lower request", 10, 2000, true, 10},
 		{"hosted request above ceiling", 5000, 2000, true, 2000},

@@ -9,6 +9,8 @@ import (
 	"io"
 	"sort"
 	"time"
+
+	"github.com/jimeh/airplan/internal/lazyio"
 )
 
 func (c *Client) createBundleRevision(
@@ -206,6 +208,7 @@ func (c *Client) createBundleRevision(
 	// Payloads between the marker and entry barriers upload concurrently
 	// (SPEC.md §5); results keep declared order.
 	var payloads []func(context.Context) error
+	var gate readerGate
 	pages := make([]PageResult, len(bundle.Pages))
 	for index, page := range bundle.Pages {
 		sourceKey := BuildKey(c.cfg.KeyPrefix, dir, page.SourcePath)
@@ -232,7 +235,7 @@ func (c *Client) createBundleRevision(
 		}
 		assetResults[index] = AssetResult{Path: asset.Path, URL: assetURL, Key: key, Bytes: asset.Size, ContentType: asset.ContentType}
 		payloads = append(payloads, func(ctx context.Context) error {
-			return c.putVerifiedInput(ctx, asset.Reader, asset.Open, asset.start,
+			return c.putVerifiedInput(ctx, &gate, asset.Reader, asset.Open, asset.start,
 				asset.digest, fmt.Sprintf("asset %q", asset.Path),
 				streamObject{Key: key, Size: asset.Size, ContentType: asset.ContentType, Metadata: titleMetadata(bundle.Title)})
 		})
@@ -381,7 +384,7 @@ func (c *Client) bundlePageResult(dir string, page RenderedBundlePage) (PageResu
 func reopenedDocumentInput(
 	bundle *RenderedDocumentBundle, original DocumentInput,
 ) (DocumentInput, func()) {
-	readers := make([]*lazyReader, 0, len(bundle.Pages))
+	readers := make([]*lazyio.Reader, 0, len(bundle.Pages))
 	closeReaders := func() {
 		for _, reader := range readers {
 			_ = reader.Close()
@@ -391,9 +394,9 @@ func reopenedDocumentInput(
 	for index := range bundle.Pages {
 		page := &bundle.Pages[index]
 		payload := page.sourceFile
-		reader := &lazyReader{open: func() (io.ReadCloser, error) {
+		reader := lazyio.New(func() (io.ReadCloser, error) {
 			return payload.open()
-		}}
+		})
 		readers = append(readers, reader)
 		pages[index] = PageInput{
 			Reader: reader, Path: page.Path, Format: page.Format,

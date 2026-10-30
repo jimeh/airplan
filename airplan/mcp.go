@@ -1201,17 +1201,22 @@ func mcpDocumentLimit(requested int64, hosted bool) int64 {
 	return mcpHostedLimit(requested, hosted, DefaultMaxInputSize)
 }
 
-// mcpFileLimit resolves a tool's max_files argument. Hosted tools cannot
-// exceed or disable the server's file-count ceiling.
+// mcpFileLimit resolves a tool's max_files argument. Zero selects
+// DefaultMaxFiles everywhere. Hosted tools cannot exceed or disable the
+// server's file-count ceiling; a negative request there selects the ceiling.
 func mcpFileLimit(requested int, hosted bool, ceiling int) int {
 	if !hosted {
 		return requested
 	}
 	ceiling = maxFilesLimit(ceiling)
-	if requested > 0 && requested < ceiling {
+	switch {
+	case requested == 0:
+		return min(DefaultMaxFiles, ceiling)
+	case requested > 0 && requested < ceiling:
 		return requested
+	default:
+		return ceiling
 	}
-	return ceiling
 }
 
 func mcpHostedLimit(requested int64, hosted bool, ceiling int64) int64 {

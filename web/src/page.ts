@@ -320,8 +320,7 @@ interface DocumentMarker {
     if (
       (marker.title !== undefined && typeof marker.title !== "string") ||
       (marker.repo !== undefined && !validMarkerRepository(marker.repo)) ||
-      marker.objects.length === 0 ||
-      marker.pages.length > 100
+      marker.objects.length === 0
     )
       throw new Error("marker shape is invalid");
     var objectRoles = validateMarkerObjects(marker);
@@ -553,7 +552,6 @@ interface DocumentMarker {
     var diffCount = 0;
     var pages = 0;
     var sources = 0;
-    var assets = 0;
     marker.objects.forEach(function (object) {
       if (
         !isRecord(object) ||
@@ -574,7 +572,7 @@ interface DocumentMarker {
         sources += 1;
         if (object.bytes <= 0) throw new Error("marker source object is invalid");
       } else if (object.role === "asset") {
-        assets += 1;
+        // Markers impose no item count; writers enforce their own limit.
       } else if (object.role === "diff") {
         diffCount += 1;
         if (
@@ -591,7 +589,6 @@ interface DocumentMarker {
     if (
       pages !== marker.pages.length ||
       sources !== marker.pages.length ||
-      pages + assets > 100 ||
       (marker.revision.number === 1 ? diffCount !== 0 : diffCount !== 1)
     )
       throw new Error("marker object counts are invalid");

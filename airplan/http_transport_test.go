@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -657,6 +658,10 @@ func writeBundleCapabilities(t *testing.T, w http.ResponseWriter, canonical bool
 func TestAirplanBackendPreflightsCollectionFiles(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/v1/capabilities" {
+				writeBundleCapabilities(t, w, true)
+				return
+			}
 			if err := r.ParseMultipartForm(1 << 20); err != nil {
 				t.Fatal(err)
 			}
@@ -707,6 +712,10 @@ func TestAirplanBackendPreflightsCollectionFiles(t *testing.T) {
 func TestAirplanBackendRejectsTruncatedCollectionFile(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/v1/capabilities" {
+				writeBundleCapabilities(t, w, true)
+				return
+			}
 			_, _ = io.Copy(io.Discard, r.Body)
 			w.WriteHeader(http.StatusCreated)
 		},
@@ -764,5 +773,42 @@ func TestValidateBundleCapabilityRejectsNegativeAssetSize(t *testing.T) {
 	err := validateBundleCapability(capability, upload)
 	if err == nil || !strings.Contains(err.Error(), "invalid size") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+// The advertised document_bundle.max_items also bounds collection files, so
+// the client rejects an over-limit collection before streaming any part.
+func TestAirplanBackendRejectsCollectionOverAdvertisedLimit(t *testing.T) {
+	var uploads atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/api/v1/capabilities" {
+				writeBundleCapabilities(t, w, true) // advertises max_items 100
+				return
+			}
+			uploads.Add(1)
+			w.WriteHeader(http.StatusInternalServerError)
+		},
+	))
+	t.Cleanup(server.Close)
+	client, err := New(context.Background(), &Config{
+		Backend: BackendAirplan, APIURL: server.URL,
+		APIToken: "01234567890123456789012345678901", Repository: "none",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := make([]FileInput, 101)
+	for index := range files {
+		files[index] = FileInput{
+			Name: fmt.Sprintf("file-%03d.txt", index), Reader: bytes.NewReader(nil),
+		}
+	}
+	_, err = client.UploadFiles(context.Background(), FilesInput{Files: files})
+	if err == nil || !strings.Contains(err.Error(), "collection has 101 files; server maximum is 100") {
+		t.Fatalf("error = %v, want advertised file-count limit", err)
+	}
+	if uploads.Load() != 0 {
+		t.Fatalf("upload requests = %d, want none", uploads.Load())
 	}
 }

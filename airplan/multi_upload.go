@@ -8,6 +8,8 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
+
+	"github.com/jimeh/airplan/internal/lazyio"
 )
 
 // DefaultMaxFiles is the default write-side limit on collection files and on
@@ -59,7 +61,7 @@ func runBounded(
 				if index >= count || ctx.Err() != nil {
 					return
 				}
-				if err := task(ctx, index); err != nil {
+				if err := runTask(ctx, index, task); err != nil {
 					once.Do(func() {
 						first = err
 						cancel()
@@ -76,6 +78,21 @@ func runBounded(
 	return ctx.Err()
 }
 
+// runTask runs one pool task and converts a panic into an error. Worker
+// goroutines sit outside net/http's handler recovery, so an unrecovered panic
+// from a caller-supplied reader or the storage SDK would end the process.
+func runTask(
+	ctx context.Context, index int,
+	task func(ctx context.Context, index int) error,
+) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("airplan: upload worker panicked: %v", recovered)
+		}
+	}()
+	return task(ctx, index)
+}
+
 // validateInputSource enforces that exactly one of an input's Reader and Open
 // fields is set. label names the input in errors.
 func validateInputSource(reader io.ReadSeeker, open func() (io.ReadSeekCloser, error), label string) error {
@@ -88,14 +105,23 @@ func validateInputSource(reader io.ReadSeeker, open func() (io.ReadSeekCloser, e
 	return nil
 }
 
-// acquireInput returns a reader for one input and a release function.
-// Open-based inputs are opened for the caller alone and closed by release;
-// Reader-based inputs belong to the caller of the library and stay open.
-func acquireInput(
+// readerGate gives one operation's Reader-based inputs exclusive, one at a
+// time access. Callers may share one io.ReadSeeker between several inputs, so
+// each Reader-based input's complete seek, sniff, hash, or upload must finish
+// before the next one starts. Open-based inputs bypass the gate and run
+// concurrently because every Open call returns an independent reader.
+type readerGate struct{ mu sync.Mutex }
+
+// acquire returns a reader for one input and a release function. Open-based
+// inputs are opened for the caller alone and closed by release; Reader-based
+// inputs belong to the library's caller, stay open, and hold the gate until
+// release.
+func (g *readerGate) acquire(
 	reader io.ReadSeeker, open func() (io.ReadSeekCloser, error),
 ) (io.ReadSeeker, func(), error) {
 	if open == nil {
-		return reader, func() {}, nil
+		g.mu.Lock()
+		return reader, g.mu.Unlock, nil
 	}
 	opened, err := open()
 	if err != nil {
@@ -105,46 +131,6 @@ func acquireInput(
 		return nil, func() {}, errors.New("open returned no reader")
 	}
 	return opened, func() { _ = opened.Close() }, nil
-}
-
-// lazyReader opens its source on the first Read and closes it at EOF, so
-// inputs consumed one after another hold at most one descriptor at a time.
-type lazyReader struct {
-	open    func() (io.ReadCloser, error)
-	current io.ReadCloser
-	done    bool
-}
-
-func (r *lazyReader) Read(buffer []byte) (int, error) {
-	if r.done {
-		return 0, io.EOF
-	}
-	if r.current == nil {
-		opened, err := r.open()
-		if err != nil {
-			return 0, err
-		}
-		r.current = opened
-	}
-	n, err := r.current.Read(buffer)
-	if errors.Is(err, io.EOF) {
-		closeErr := r.Close()
-		if closeErr != nil && n == 0 {
-			return 0, closeErr
-		}
-	}
-	return n, err
-}
-
-// Close releases a partially consumed source. Later reads report EOF.
-func (r *lazyReader) Close() error {
-	r.done = true
-	if r.current == nil {
-		return nil
-	}
-	err := r.current.Close()
-	r.current = nil
-	return err
 }
 
 // LocalFile is a regular file validated once by StatLocalFile and reopened on
@@ -207,7 +193,7 @@ func (f *LocalFile) Open() (io.ReadSeekCloser, error) {
 // LazyReader returns a reader that opens the file on its first Read and closes
 // it at EOF. Close releases a partially consumed file.
 func (f *LocalFile) LazyReader() io.ReadCloser {
-	return &lazyReader{open: func() (io.ReadCloser, error) { return f.Open() }}
+	return lazyio.New(func() (io.ReadCloser, error) { return f.Open() })
 }
 
 func (f *LocalFile) unchanged(current os.FileInfo) bool {
@@ -224,11 +210,11 @@ func (f *LocalFile) changedError() error {
 // for the duration of the call. label names the input in errors, such as
 // `asset "logo.png"`.
 func (c *Client) putVerifiedInput(
-	ctx context.Context, reader io.ReadSeeker,
+	ctx context.Context, gate *readerGate, reader io.ReadSeeker,
 	open func() (io.ReadSeekCloser, error), start int64, digest, label string,
 	target streamObject,
 ) error {
-	body, release, err := acquireInput(reader, open)
+	body, release, err := gate.acquire(reader, open)
 	if err != nil {
 		return fmt.Errorf("airplan: open %s: %w", label, err)
 	}

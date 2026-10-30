@@ -52,11 +52,13 @@ type FileInput struct {
 	// stored publicly.
 	Name string
 	// Reader supplies the original bytes and must support rewinding. Exactly
-	// one of Reader and Open must be set.
+	// one of Reader and Open must be set. Reader-based inputs are hashed and
+	// uploaded one at a time, so several inputs may share one reader.
 	Reader io.ReadSeeker
-	// Open supplies the original bytes on demand. The library opens the input
-	// only while a worker hashes or uploads it and closes it afterwards, so
-	// open inputs stay bounded by upload concurrency rather than file count.
+	// Open supplies the original bytes on demand. Open-based inputs are hashed
+	// and uploaded concurrently. The library opens the input only while a
+	// worker hashes or uploads it and closes it afterwards, so open inputs stay
+	// bounded by upload concurrency rather than file count.
 	Open func() (io.ReadSeekCloser, error)
 	// Size is the exact byte count of the input.
 	Size int64
@@ -237,9 +239,10 @@ func (c *Client) UploadFiles(ctx context.Context, in FilesInput) (*FilesResult, 
 	}
 	// Members upload concurrently between the marker and overview barriers
 	// (SPEC.md §5); the overview is published only after every member.
+	var gate readerGate
 	err = runBounded(ctx, len(files), func(ctx context.Context, index int) error {
 		f := files[index]
-		return c.putVerifiedInput(ctx, f.Reader, f.Open, 0, f.Digest,
+		return c.putVerifiedInput(ctx, &gate, f.Reader, f.Open, 0, f.Digest,
 			fmt.Sprintf("collection file %q", f.Name),
 			streamObject{Key: res.Files[index].Key, Size: f.Size, ContentType: f.ContentType, Metadata: titleMetadata(title)})
 	})
@@ -314,9 +317,10 @@ func prepareCollection(ctx context.Context, in FilesInput, repository string) ([
 	}
 	// Hashing and content sniffing run on the bounded upload pool; each
 	// Open-based input is held open only while its worker inspects it.
+	var gate readerGate
 	err := runBounded(ctx, len(files), func(_ context.Context, index int) error {
 		file := &files[index]
-		reader, release, err := acquireInput(file.Reader, file.Open)
+		reader, release, err := gate.acquire(file.Reader, file.Open)
 		if err != nil {
 			return fmt.Errorf("airplan: open collection file %q: %w", file.Name, err)
 		}
