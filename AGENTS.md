@@ -216,7 +216,10 @@ coverage has no equivalent local task on non-Windows hosts.
   module/build caching. Actions sets `MISE_DISABLE_TOOLS=go` so mise only
   installs non-Go tools, and mise shims stay off `PATH` so setup-go remains
   authoritative. Pull requests restore but do not save mise tool caches;
-  production releases disable both setup-go and mise caches.
+  production releases disable both setup-go and mise caches. Every workflow
+  that disables Go also sets `MISE_LOCKED=true`: mise 2026.10.21 and later
+  auto-lock during task runs and prune the disabled Go entry from
+  `mise.lock`, which fails `check:go-version`.
 - **mise-action keeps its GitHub token local**: later steps no longer receive
   `MISE_GITHUB_TOKEN`. A `mise run` or `mise exec` step without `--skip-tools`
   installs the remaining locked tools and can download artifacts for

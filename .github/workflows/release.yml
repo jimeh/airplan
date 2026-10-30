@@ -56,6 +56,9 @@ jobs:
       container_artifact: ${{ steps.container-artifact.outputs.name }}
     env:
       MISE_DISABLE_TOOLS: go
+      # Never rewrite the committed lockfile; mise prunes disabled tools such
+      # as Go when it auto-locks during a task run.
+      MISE_LOCKED: "true"
       RELEASE_SHA: ${{ inputs.sha }}
       RELEASE_TAG: ${{ inputs.tag }}
     steps:
